@@ -7,14 +7,14 @@ status: planned
 depends_on: [p0-1]
 unblocks: [p1-4]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
-contract_sections: [§3.4 Block, §3.4 SourceSpan, §0 Q3 citation]
+contract_sections: [§3.4 Block, §3.4 SourceSpan, §3.7b kb-parse-types, §0 Q3 citation]
 ---
 
 # p1-3 — Markdown body → Block tree
 
 ## Goal
 
-Parse Markdown body bytes into a flat `Vec<ParsedBlock>` (intermediate, crate-private) with heading paths and line ranges preserved, ready for `kb-normalize` to lift into `CanonicalDocument`.
+Parse Markdown body bytes into a flat `Vec<kb_parse_types::ParsedBlock>` with heading paths and line ranges preserved, ready for `kb-normalize` to lift into `CanonicalDocument`.
 
 ## Why now / why this size
 
@@ -23,6 +23,7 @@ This is the heaviest part of P1 parser. Separating it from frontmatter and from 
 ## Allowed dependencies
 
 - `kb-core`
+- `kb-parse-types` (defines `ParsedBlock`, `ParsedPayload`, `Warning`)
 - `pulldown-cmark` (CommonMark with source-map; GFM tables enabled via feature)
 - `serde`
 - `thiserror`
@@ -42,27 +43,30 @@ This is the heaviest part of P1 parser. Separating it from frontmatter and from 
 
 | output | type | downstream |
 |--------|------|------------|
-| `Vec<ParsedBlock>` (intermediate type, crate-private) | – | `kb-normalize` |
-| `Vec<Warning>` | – | propagated into Provenance |
+| `Vec<kb_parse_types::ParsedBlock>` | shared type from `kb-parse-types` | `kb-normalize` |
+| `Vec<kb_parse_types::Warning>` | shared type | propagated into Provenance |
 
 ## Public surface (signatures only — no new types)
 
 ```rust
-pub fn parse_blocks(body: &[u8], body_offset_lines: u32) -> anyhow::Result<(Vec<ParsedBlock>, Vec<Warning>)>;
+pub fn parse_blocks(
+    body: &[u8],
+    body_offset_lines: u32,
+) -> anyhow::Result<(Vec<kb_parse_types::ParsedBlock>, Vec<kb_parse_types::Warning>)>;
 ```
 
-`ParsedBlock` is a crate-internal mirror that maps 1:1 to `kb_core::Block` variants once `kb-normalize` assigns `BlockId`s.
+`ParsedBlock` is defined in `kb-parse-types` (design §3.7b). `kb-parse-md` does NOT define its own; it consumes the shared type. Lift to `kb_core::Block` (with `BlockId` assignment) is `kb-normalize`'s job (p1-4).
 
 ## Behavior contract
 
 - Source-map: each `ParsedBlock` carries `SourceSpan::Line { start, end }` relative to the original file (i.e., add `body_offset_lines`).
 - Heading tree: every block records its ancestor heading texts in order (e.g., `["아키텍처", "Chunking 정책"]`).
-- Code blocks: language tag preserved (` ```rust ` → `Some("rust")`), fenced content not split.
-- Tables: GFM tables produce `TableBlock` with header row + body rows; if a table cell is malformed, fall back to a `Paragraph` block + warning.
-- Image references: `![alt](src)` produces `ImageRefBlock` with `asset_id = None`, `src = "..."`, `alt = "..."`. Resolution to `AssetId` happens later in `kb-normalize`.
-- Lists: ordered/unordered preserved; nested list items flattened into one `ListBlock` with each top-level item's text.
-- Inline elements: only `Text`, `Code`, `Link`, `Strong`, `Emph` (per design §3.4). Drop other inlines silently.
-- Malformed input never panics. Worst case: empty `Vec<ParsedBlock>` + warning.
+- Code blocks: `ParsedPayload::Code { lang: Some("rust"), code }` — fenced content not split.
+- Tables: GFM tables produce `ParsedPayload::Table { headers, rows }`; if a table cell is malformed, fall back to `ParsedPayload::Paragraph` + `Warning::MalformedTable`.
+- Image references: `![alt](src)` produces `ParsedPayload::ImageRef { src, alt }`. `AssetId` resolution happens later in `kb-normalize` (when image src can be matched to a workspace asset).
+- Lists: ordered/unordered preserved via `ParsedPayload::List { ordered, items }`; nested list items flattened so each `items[i]` is a `Vec<kb_core::Inline>` for one top-level item.
+- Inline elements: only `Text`, `Code`, `Link`, `Strong`, `Emph` (per `kb_core::Inline` per design §3.4). Drop other inlines silently.
+- Malformed input never panics. Worst case: empty `Vec<ParsedBlock>` + `Warning::ExtractFailed`.
 
 ## Storage / wire effects
 
@@ -95,7 +99,7 @@ All tests under `cargo test -p kb-parse-md --lib blocks`.
 ## Out of scope
 
 - Frontmatter (p1-2).
-- Lifting `ParsedBlock` → `kb_core::Block` with `BlockId` (p1-4).
+- Lifting `kb_parse_types::ParsedBlock` → `kb_core::Block` with `BlockId` (p1-4 normalize).
 - Chunking (p1-5).
 
 ## Risks / notes

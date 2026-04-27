@@ -14,7 +14,7 @@ contract_sections: [§3 (all), §4, §5.1 schema_meta+migrations, §6 (config + 
 
 ## Goal
 
-Stand up the Cargo workspace (Rust 2024, resolver=3) with `kb-core`, `kb-config`, `kb-app`, `kb-cli` crates. Freeze every domain type, trait, ID recipe, error type, and CLI entry shape per the frozen design doc so that all subsequent component tasks compile against stable contracts.
+Stand up the Cargo workspace (Rust 2024, resolver=3) with `kb-core`, `kb-parse-types`, `kb-config`, `kb-app`, `kb-cli` crates. Freeze every domain type, trait, ID recipe, error type, and CLI entry shape per the frozen design doc so that all subsequent component tasks compile against stable contracts.
 
 ## Why now / why this size
 
@@ -25,6 +25,7 @@ Every other task imports `kb-core`. If types or trait signatures wobble after th
 - workspace `[workspace.dependencies]`: `anyhow = "1"`, `thiserror = "2"`, `serde = { version = "1", features = ["derive"] }`, `serde_json = "1"`, `time = { version = "0.3", features = ["serde", "macros"] }`, `uuid = { version = "1", features = ["v7", "serde"] }`, `blake3 = "1"`, `tracing = "0.1"`
 - per crate:
   - `kb-core`: workspace deps + `serde_json::Map`, `serde-json-canonicalizer`, `unicode-normalization`
+  - `kb-parse-types`: workspace deps + `kb-core` ONLY (no parsers, no stores, no normalize). Defines parser intermediate representations per design §3.7b.
   - `kb-config`: workspace deps + `toml = "0.8"`, `dirs = "5"` (XDG paths)
   - `kb-app`: workspace deps + `kb-core`, `kb-config`, `tracing-subscriber`, `tracing-appender`
   - `kb-cli`: workspace deps + `kb-core`, `kb-config`, `kb-app`, `clap = { version = "4", features = ["derive"] }`
@@ -32,6 +33,7 @@ Every other task imports `kb-core`. If types or trait signatures wobble after th
 ## Forbidden dependencies
 
 - `kb-core` MUST NOT depend on any other `kb-*` crate.
+- `kb-parse-types` MUST depend ONLY on `kb-core`. No parser libraries (`pulldown-cmark`, `pdf-extract`, `image`, `whisper-rs`, …), no other `kb-*` crate.
 - `kb-config` MUST NOT depend on `kb-app`, `kb-cli`, parsers, stores, embedders, search, llm, rag, tui, desktop.
 - `kb-app` MUST NOT yet depend on parsers/stores/embedders/search/llm/rag (those crates do not exist yet — facade methods stub out and return `unimplemented!()` or `anyhow::bail!("not yet wired (Pn-i)")`).
 - `kb-cli` MUST NOT call any non-`kb-app` crate directly.
@@ -112,8 +114,7 @@ pub struct AudioRefBlock { /* per §3.4 */ }
 pub enum   Inline { /* per §3.4 */ }
 pub enum   SourceSpan { /* per §3.4 */ }
 
-// ParsedBlock (intermediate, exposed via core for normalize — see p1-4 spec)
-pub struct ParsedBlock { /* mirror of Block without BlockId */ }
+// (ParsedBlock + parser intermediates live in kb-parse-types per design §3.7b — NOT in kb-core.)
 
 // Chunk + Citation (§3.5)
 pub struct Chunk { /* per §3.5 */ }
@@ -231,6 +232,42 @@ pub fn nfc(input: &str) -> String;                              // §4.1
 ```
 
 ```rust
+// ── kb-parse-types ──────────────────────────────────────────────────────────
+// Per design §3.7b. Defines parser intermediate representations consumed by
+// kb-normalize. Depends on kb-core only — never on parser libraries.
+
+pub struct ParsedBlock {
+    pub kind: ParsedBlockKind,
+    pub heading_path: Vec<String>,
+    pub source_span: kb_core::SourceSpan,
+    pub payload: ParsedPayload,
+}
+
+pub enum ParsedBlockKind { Heading, Paragraph, List, Code, Table, Quote, ImageRef, AudioRef }
+
+pub enum ParsedPayload {
+    Heading   { level: u8, text: String },
+    Paragraph { text: String, inlines: Vec<kb_core::Inline> },
+    List      { ordered: bool, items: Vec<Vec<kb_core::Inline>> },
+    Code      { lang: Option<String>, code: String },
+    Table     { headers: Vec<String>, rows: Vec<Vec<String>> },
+    Quote     { text: String, inlines: Vec<kb_core::Inline> },
+    ImageRef  { src: String, alt: String },
+    AudioRef  { src: String },
+}
+
+// `Inline` itself lives in kb-core (§3.4) — parse-types references it, never duplicates it.
+
+pub struct Warning { pub kind: WarningKind, pub note: String }
+pub enum WarningKind { MalformedFrontmatter, MalformedTable, EncodingFallback, ExtractFailed }
+
+// Forward-ref for P6/P7/P8 — defined when those phases land.
+pub struct ParsedImageRegion;
+pub struct ParsedPdfPage;
+pub struct ParsedAudioSegment;
+```
+
+```rust
 // ── kb-config ───────────────────────────────────────────────────────────────
 pub struct Config { /* full schema per §6.4 */ }
 impl Config {
@@ -306,16 +343,17 @@ All tests must run with no network, no Ollama, no models.
 
 ## Definition of Done
 
-- [ ] `Cargo.toml` workspace lists `kb-core`, `kb-config`, `kb-app`, `kb-cli` and resolver=3, edition 2024
+- [ ] `Cargo.toml` workspace lists `kb-core`, `kb-parse-types`, `kb-config`, `kb-app`, `kb-cli` and resolver=3, edition 2024
 - [ ] `cargo check --workspace` passes
 - [ ] `cargo test --workspace` passes
+- [ ] `kb-parse-types` `cargo tree` shows ONLY `kb-core` + `serde`/`thiserror` style deps (no parser libs, no other `kb-*`)
 - [ ] `kb --help` prints subcommands
 - [ ] `kb init` creates XDG dirs idempotently and writes `config.toml`
 - [ ] `kb doctor` returns wire JSON conforming to `doctor.v1` (in `--json` mode)
 - [ ] `docs/wire-schema/v1/*.schema.json` stubs exist (7 files: citation, search_hit, answer, ingest_report, doc_summary, chunk_inspection, doctor)
 - [ ] `docs/spec/` stubs exist linking to the frozen design (one file per: domain-model, ids, canonical-document, chunk-policy, citation-policy, module-boundaries, ai-generation-guidelines)
 - [ ] No imports outside Allowed dependencies (CI deny check)
-- [ ] PR body links design §3, §4, §6, §7, §8, §9, §10
+- [ ] PR body links design §3, §3.7b, §4, §6, §7, §8, §9, §10
 
 ## Out of scope
 

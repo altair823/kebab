@@ -25,7 +25,7 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
 
 | # | 코드 | 제목 | 핵심 산출 crate | 선행 |
 |---|------|------|----------------|------|
-| P0 | [phase-0-skeleton.md](phase-0-skeleton.md) | Workspace 뼈대 + 도메인 계약 | kb-core, kb-config, kb-app, kb-cli | – |
+| P0 | [phase-0-skeleton.md](phase-0-skeleton.md) | Workspace 뼈대 + 도메인 계약 | kb-core, kb-parse-types, kb-config, kb-app, kb-cli | – |
 | P1 | [phase-1-markdown-ingestion.md](phase-1-markdown-ingestion.md) | Markdown ingestion 파이프라인 | kb-source-fs, kb-parse-md, kb-normalize, kb-chunk, kb-store-sqlite | P0 |
 | P2 | [phase-2-lexical-search.md](phase-2-lexical-search.md) | SQLite FTS5 lexical 검색 + citation | kb-search (lexical) | P1 |
 | P3 | [phase-3-vector-hybrid.md](phase-3-vector-hybrid.md) | Local embedding + LanceDB + hybrid | kb-embed, kb-embed-local, kb-store-vector, kb-search | P2 |
