@@ -93,7 +93,7 @@ impl kb_core::VectorStore for LanceVectorStore {
 - Tombstones: when a chunk is deleted (CASCADE from `chunks`), a `BEFORE DELETE` trigger flips `status='tombstone'` instead of letting the row be deleted, so a later GC can drop the matching Lance row in lockstep. GC scheduling itself is out of scope for v1; reserving the slot here keeps the schema honest.
 - Dimension mismatch (record dim ≠ table dim) returns `anyhow::Error` from `upsert` and writes nothing.
 - `search` performs cosine similarity, applies `SearchFilters` post-fetch (filter-then-limit may over-fetch internally — fetch `2 * k` then trim).
-- `VectorHit { chunk_id, score, doc_id, text, heading_path }`; score in [0, 1] (cosine similarity, clamped).
+- `VectorHit { chunk_id, score, doc_id, text, heading_path }`. LanceDB returns *cosine distance* in [0, 2] (= `1 - cosine_similarity` for L2-normalized vectors, range [-1, 1] → distance [0, 2]). Convert: `similarity = 1.0 - distance` ∈ [-1, 1], then **shift** to [0, 1] via `score = (similarity + 1.0) / 2.0` rather than clamping. Clamping would crush all negative similarities to 0 and discard ranking signal between \"unrelated\" (sim ≈ 0) and \"opposite\" (sim ≈ -1). The shift preserves order. Clamping is reserved for floating-point sentinels (`NaN` → score 0, log warning).
 - `search` returns empty `Vec` (not error) when table absent.
 - `index_id` for `ensure_table` per design §4.2 with `collection = "chunk_embeddings"`, `index_kind = "flat"`, `params_hash = blake3(serde_json(table_schema))`.
 

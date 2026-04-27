@@ -7,7 +7,7 @@ status: planned
 depends_on: [p3-1]
 unblocks: [p3-3, p3-4]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
-contract_sections: [§7.2 Embedder, §11.3 local embedding, §6.4 [models.embedding], §9 versioning]
+contract_sections: [design §7.2 Embedder, report §11.3 local embedding, design §6.4 [models.embedding], design §9 versioning]
 ---
 
 # p3-2 — fastembed adapter

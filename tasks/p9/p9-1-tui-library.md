@@ -7,7 +7,7 @@ status: planned
 depends_on: [p1-6]
 unblocks: [p9-2, p9-3, p9-4]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
-contract_sections: [§16.2 TUI epic (tasks/phase-9-ui.md), §3.7 SearchHit, §1 UX scenes for shared key bindings]
+contract_sections: [report §16.2 TUI (also tasks/phase-9-ui.md epic), design §3.7 SearchHit, design §1 UX scenes for shared key bindings]
 ---
 
 # p9-1 — TUI library view
@@ -52,7 +52,25 @@ Library is the cheapest screen and the natural anchor for the TUI shell. Subsequ
 ## Public surface (signatures only — no new types)
 
 ```rust
-pub struct App { /* state: docs, filter, selection, focus pane */ }
+// `App` is the SHELL — its full set of fields is owned by p9-1, but the layout
+// reserves one optional sub-state slot per pane so p9-2/3/4 can plug their own
+// state in WITHOUT modifying the App struct definition. This avoids merge
+// conflicts when p9-2/3/4 land in parallel; only p9-1 ever changes `App`.
+pub struct App {
+    pub config: kb_config::Config,
+    pub focus: Pane,
+    pub library: LibraryState,             // owned by p9-1
+    pub search:  Option<SearchState>,      // populated by p9-2 (None until that crate links in)
+    pub ask:     Option<AskState>,         // populated by p9-3
+    pub inspect: Option<InspectState>,     // populated by p9-4
+}
+
+// p9-1 defines LibraryState fully. The other 3 sub-states are forward-declared
+// as opaque (zero-field) here; their authoring tasks fill them.
+pub struct LibraryState { /* docs, filter, selection */ }
+pub struct SearchState;       // body filled by p9-2
+pub struct AskState;          // body filled by p9-3
+pub struct InspectState;      // body filled by p9-4
 
 impl App {
     pub fn new(config: kb_config::Config) -> anyhow::Result<Self>;
@@ -67,6 +85,8 @@ pub fn handle_key_library(state: &mut App, key: crossterm::event::KeyEvent) -> K
 
 pub enum KeyOutcome { Continue, Quit, SwitchPane(Pane), Refresh }
 ```
+
+**Parallel-safety contract:** p9-2 / p9-3 / p9-4 fill the bodies of `SearchState` / `AskState` / `InspectState` in their own crate's source — no edits to `App`, no edits to the other sub-state structs. Their `render_*` and `handle_key_*` functions take `&mut App` but read/write only their own `Option<...>` field. With this slot pattern, the four p9-* tasks can be authored in parallel and merged in any order without conflict on `App`.
 
 ## Behavior contract
 
@@ -108,7 +128,7 @@ All tests under `cargo test -p kb-tui library`.
 - [ ] `cargo test -p kb-tui library` passes
 - [ ] No imports outside `kb-core`, `kb-config`, `kb-app`
 - [ ] `kb tui` (or `kb` if TUI is the default) launches and shows Library on a real terminal (manual smoke)
-- [ ] PR links design §8 module boundary, §16.2 epic
+- [ ] PR links design §8 module boundary, report §16.2 (TUI epic)
 
 ## Out of scope
 

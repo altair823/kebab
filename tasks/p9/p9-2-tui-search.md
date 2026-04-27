@@ -57,7 +57,19 @@ pub fn handle_key_search(state: &mut App, key: crossterm::event::KeyEvent) -> Ke
 pub fn jump_to_citation(citation: &kb_core::Citation, editor_env: &str /* $EDITOR */) -> anyhow::Result<()>;
 ```
 
-`App` (from p9-1) is extended with: `search_input: String`, `search_mode: SearchMode`, `hits: Vec<SearchHit>`, `selected_hit: usize`.
+This task fills the body of `kb_tui::SearchState` (forward-declared in p9-1). The `App` struct itself is NOT edited — only `SearchState` gets fields:
+
+```rust
+pub struct SearchState {
+    pub input: String,
+    pub mode: kb_core::SearchMode,
+    pub hits: Vec<kb_core::SearchHit>,
+    pub selected_hit: usize,
+    pub last_query_at: Option<time::OffsetDateTime>,    // debounce timer
+}
+```
+
+The Library pane's keypress handler (in p9-1) sets `app.search = Some(SearchState::default())` on pane switch; p9-2's `render_search`/`handle_key_search` read `app.search.as_mut()` exclusively. Parallel-safety contract from p9-1 holds.
 
 ## Behavior contract
 
