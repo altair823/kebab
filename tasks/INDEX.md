@@ -36,6 +36,18 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
 | P8 | [phase-8-audio.md](phase-8-audio.md) | 음성 transcription + timestamp citation | kb-parse-audio | P5 |
 | P9 | [phase-9-ui.md](phase-9-ui.md) | TUI + desktop app | kb-tui, kb-desktop | P5 |
 
+## Component task decomposition (per phase)
+
+각 phase 의 component-level 분해. AI sub-agent 1세션 = 1 task 가 sweet spot.
+
+- P1 — [p1/](p1/) — Markdown ingestion 6 components
+  - [p1-1 source-fs](p1/p1-1-source-fs.md)
+  - [p1-2 parse-md frontmatter](p1/p1-2-parse-md-frontmatter.md)
+  - [p1-3 parse-md blocks](p1/p1-3-parse-md-blocks.md)
+  - [p1-4 normalize](p1/p1-4-normalize.md)
+  - [p1-5 chunk](p1/p1-5-chunk.md)
+  - [p1-6 store-sqlite](p1/p1-6-store-sqlite.md)
+
 ## 모든 task 공통 규약
 
 - 의존성 경계 (`Allowed` / `Forbidden`) 위반 금지. report §19 참조.
