@@ -83,7 +83,14 @@ impl kb_core::VectorStore for LanceVectorStore {
   created_at : Timestamp(Microsecond, UTC)
   ```
 - For corpora < 100k rows, no IVF index — flat cosine. Above that threshold, the next migration task (P+) introduces IVF; this task does not.
-- `upsert` is best-effort 2-step (Lance commit, then SQLite `INSERT OR REPLACE INTO embedding_records`). On SQLite failure after Lance commit, log a warning; the next `upsert` reconciles via the `UNIQUE(chunk_id, model_id, model_version, dimensions)` constraint.
+- `upsert` ordering: **SQLite-first, Lance-second** with an explicit 3-state marker so reconciliation is unambiguous (no \"best-effort 2PC\" hand-wave).
+  1. `INSERT OR REPLACE INTO embedding_records (..., status='pending', vector_committed=0)` for every input row (single SQLite tx).
+  2. Issue Lance upsert (`MergeInsert` keyed on `chunk_id`).
+  3. On Lance success: `UPDATE embedding_records SET status='committed', vector_committed=1 WHERE embedding_id IN (...)`.
+  4. On Lance failure or process crash: rows stay at `status='pending'`. Next `upsert` re-tries them automatically (idempotent — Lance `MergeInsert` dedupes on `chunk_id`).
+- `embedding_records.status` is the single source of truth: `search` joins `embedding_records` and filters `WHERE status='committed'`, so partial-write Lance rows are never returned even if they exist on disk. This guarantees `search` results' `embedding_id` always points at a committed Lance row.
+- Adds two columns to `embedding_records` (additive — `V003__embedding_status.sql` migration, not a v1 wire schema change): `status TEXT NOT NULL CHECK (status IN ('pending','committed','tombstone'))` default `'pending'`, and `vector_committed INTEGER NOT NULL DEFAULT 0`.
+- Tombstones: when a chunk is deleted (CASCADE from `chunks`), a `BEFORE DELETE` trigger flips `status='tombstone'` instead of letting the row be deleted, so a later GC can drop the matching Lance row in lockstep. GC scheduling itself is out of scope for v1; reserving the slot here keeps the schema honest.
 - Dimension mismatch (record dim ≠ table dim) returns `anyhow::Error` from `upsert` and writes nothing.
 - `search` performs cosine similarity, applies `SearchFilters` post-fetch (filter-then-limit may over-fetch internally — fetch `2 * k` then trim).
 - `VectorHit { chunk_id, score, doc_id, text, heading_path }`; score in [0, 1] (cosine similarity, clamped).

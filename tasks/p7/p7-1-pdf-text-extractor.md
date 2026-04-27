@@ -62,11 +62,15 @@ impl kb_core::Extractor for PdfTextExtractor {
 
 ## Behavior contract
 
-- Page count obtained via `lopdf::Document::load_mem`; iterate `1..=n`.
-- For each page:
-  - Try `pdf-extract::extract_text_from_mem_by_pages(bytes)` (or equivalent) to get a `Vec<String>` aligned with pages.
-  - If extraction returns text for page i: produce `Block::Paragraph(TextBlock { common, text, inlines: vec![Inline::Text(text)] })` with `common.source_span = SourceSpan::Page { page: i, char_start: Some(0), char_end: Some(text.len() as u32) }` and `common.heading_path = vec![]`.
-  - If text is empty or extraction errored: produce `Block::Paragraph` with `text: ""`, `Provenance::Warning { note: "page<i> empty (scanned candidate)" }`.
+- `pdf-extract` (0.7+) does NOT expose a per-page Rust API. Its public surface is `pdf_extract::extract_text(path)` and `pdf_extract::extract_text_from_mem(bytes)` — both return a single `String` for the whole document. Per-page text MUST therefore be obtained by iterating `lopdf::Document::load_mem(bytes)` page objects directly:
+  1. Load via `lopdf::Document::load_mem(bytes)`.
+  2. `doc.get_pages()` → `BTreeMap<u32, ObjectId>` (1-based page numbers).
+  3. For each `(page_num, page_id)`: call `doc.extract_text(&[page_num])` (lopdf's per-page text extraction), wrap with `catch_unwind` to absorb the rare crash on malformed pages.
+  4. Treat returned text as `text` for that page. Empty result OR Err → fall through to "scanned candidate" branch.
+- For each page (1-based `i` from above):
+  - On success: produce `Block::Paragraph(TextBlock { common, text, inlines: vec![Inline::Text(text)] })` with `common.source_span = SourceSpan::Page { page: i, char_start: Some(0), char_end: Some(text.chars().count() as u32) }` (NOTE: char count, not byte len, so spans match `Citation::Page` fragment semantics) and `common.heading_path = vec![]`.
+  - On empty/error: produce `Block::Paragraph` with `text: ""`, `Provenance::Warning { note: format!("page{} empty (scanned candidate)", i) }`. The warning marks the page as a candidate for the OCR fallback pipeline (out of scope for this task).
+- `pdf-extract` whole-document call MAY still be used as a sanity check (`extract_text_from_mem`) to detect catastrophic decoding failure early, but per-page text is sourced from `lopdf` only.
 - `title` precedence: `/Info/Title` from `lopdf` (when non-empty) → filename without extension.
 - `lang = Lang("und")` (PDFs rarely declare; lingua detection over the body could be a future enhancement).
 - `metadata.user["pdf"] = { "page_count": n, "producer": "...", "creator": "..." }` from `/Info`.

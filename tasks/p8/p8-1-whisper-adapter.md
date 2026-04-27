@@ -25,7 +25,8 @@ Audio stays a single, replaceable engine boundary (Transcriber trait). Extractor
 - `kb-core`
 - `kb-config`
 - `whisper-rs = "0.13"` (or current stable)
-- `symphonia` (decode `.m4a/.mp3/.wav/.flac/.ogg` → 16 kHz mono f32)
+- `symphonia = { version = "0.5", features = ["all"] }` — decode `.m4a/.mp3/.wav/.flac/.ogg` to interleaved f32 PCM at the source's native sample rate / channel layout. Symphonia does NOT resample; that is rubato's job.
+- `rubato = "0.15"` — sample-rate conversion to 16 kHz mono f32 (the input shape whisper.cpp expects). Use `rubato::FftFixedIn::new(input_sample_rate, 16_000, frames_per_chunk, sub_chunks, 1 /* channels after downmix */)` for fixed-input streaming; pre-mix multi-channel to mono via simple averaging before the resampler.
 - `serde`, `serde_json`
 - `time`
 - `tracing`
@@ -75,7 +76,7 @@ impl kb_core::Extractor for AudioExtractor {
 
 - Decode pipeline (in `extract`):
   1. `symphonia` opens the audio bytes, picks the best track, decodes to f32 PCM mono.
-  2. Resamples to 16 kHz mono via `symphonia::core::audio::SignalSpec` + linear resampler (or `rubato`; pick a stable crate and add to Allowed if needed).
+  2. Down-mixes to mono (mean of channels) and resamples to 16 kHz f32 via `rubato::FftFixedIn` (input rate from `SymphoniaTrack::codec_params.sample_rate`).
   3. Produces a single `Vec<f32>` for the entire audio.
 - Transcribe via `transcriber.transcribe(&pcm, lang_hint)`. The trait returns `Transcript { segments, language: detected_lang, engine, engine_version }`.
 - Build `AudioRefBlock { common, asset_id: asset.asset_id, duration_ms: ((pcm.len() as u64 * 1000) / 16_000), transcript: Some(transcript) }`.
@@ -136,4 +137,4 @@ All tests under `cargo test -p kb-parse-audio`. Mark slow/large-model tests `#[i
 - whisper.cpp model files are large (1+ GB for large-v3). Tests must default to `base.en` (~150 MB) and ship a 3-second fixture.
 - macOS Metal acceleration: ensure `whisper-rs` feature flags align with M-series builds; document any required env vars.
 - Decoding errors for variable-bitrate `.m4a` are common; symphonia is the most reliable Rust option but expect occasional unsupported codec; fail clean rather than panic.
-- Resampling: linear is fine for v1 quality. If quality issues arise, swap to `rubato` (sinc) with PR documenting the change.
+- Resampling: `rubato::FftFixedIn` is the v1 default — high enough quality that whisper.cpp recognition is not the bottleneck, fast enough that decode + resample stays under real-time on M-series. If a regression appears, switch to `SincFixedIn` with PR; record the change in `engine_version` since transcript stability depends on the resampler.

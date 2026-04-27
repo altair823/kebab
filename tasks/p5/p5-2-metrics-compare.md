@@ -103,6 +103,7 @@ pub fn render_report_md(report: &CompareReport) -> String;
   - Per-metric delta (`b - a`).
   - Per-query: `Win` if b found correct chunk, a did not. `Loss` opposite. `Draw` if both same rank. `Regression` if a hit but b miss for the same expected chunk.
   - `note` may explain known causes (chunker version diff, embedding diff, prompt diff).
+  - **Cross-version chunk_id matching is graceful, not a refusal.** When `chunker_version_a != chunker_version_b` the chunk-level criterion would be unstable (chunk_ids are part of the key), so per-query matching falls back to *doc_id + span overlap*: a hit counts if the run's top-k contains any chunk whose `doc_id` matches an expected `doc_id` AND whose `source_spans` overlap by at least 50% with one of the expected chunks' spans. The `CompareReport.deltas` JSON includes a top-level `"chunker_version_match": "exact" | "fallback_doc_span"` so consumers see which mode was used. Set `--strict-chunker-version` to revert to the old behavior (refuse). Default is graceful so chunker iteration is the natural workflow it should be.
 - `render_report_md` produces a single Markdown file summarizing aggregate deltas + a Wins/Losses/Regressions table; not a wire schema; for human consumption only.
 - `store_aggregate` updates `eval_runs.aggregate_json` (`UPDATE eval_runs SET aggregate_json = :json WHERE run_id = :id`).
 
@@ -148,4 +149,4 @@ All tests under `cargo test -p kb-eval metrics`.
 
 - Floating-point sums in MRR cause minor cross-platform drift; round to 4 decimals on storage to keep snapshots stable.
 - "Should refuse" queries are encoded as `expected_doc_ids: []`. Document this convention in the golden YAML header comment.
-- Chunker version drift across runs makes `expected_chunk_ids` invalid; `compare_runs` should refuse to compare runs with mismatched `chunker_version` and emit a clear error rather than silent miscompares.
+- Chunker version drift across runs is the COMMON case, not the error case (you almost always re-chunk before evaluating a chunker change). Default behavior is graceful fallback (doc + span overlap); only `--strict-chunker-version` refuses. The `chunker_version_match` field in `CompareReport.deltas` makes the mode auditable, so silent miscompares are still impossible.
