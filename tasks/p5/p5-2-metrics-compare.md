@@ -1,0 +1,151 @@
+---
+phase: P5
+component: kb-eval (metrics + compare)
+task_id: p5-2
+title: "Metrics computation + compare report"
+status: planned
+depends_on: [p5-1]
+unblocks: []
+contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_sections: [§5.7 eval_runs.aggregate_json, phase epic tasks/phase-5-evaluation.md]
+---
+
+# p5-2 — Metrics + compare
+
+## Goal
+
+Compute hit@k, MRR, recall@k_doc, citation_coverage, groundedness, empty_result_rate, refusal_correctness from stored `eval_query_results`. Write `aggregate_json` back into `eval_runs`. Provide `kb eval compare a b` that diffs two runs.
+
+## Why now / why this size
+
+Metric formulas + comparison logic are pure computation. Splitting them from p5-1 keeps the runner simple and lets us re-compute metrics over historical runs as formulas evolve.
+
+## Allowed dependencies
+
+- `kb-core`
+- `kb-config`
+- `kb-store-sqlite` (read eval rows, write `aggregate_json`)
+- `serde`, `serde_json`
+- `tracing`
+- `thiserror`
+
+## Forbidden dependencies
+
+- `kb-app`, `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-store-vector`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+
+## Inputs
+
+| input | type | source |
+|-------|------|--------|
+| `eval_query_results` rows | SQLite | from p5-1 |
+| `eval_runs` row | SQLite | from p5-1 |
+| `GoldenQuery[..]` | `Vec<GoldenQuery>` | re-loaded for `expected_*` and `must_contain` |
+
+## Outputs
+
+| output | type | downstream |
+|--------|------|------------|
+| `eval_runs.aggregate_json` updated | SQLite | history, CI checks |
+| `CompareReport` | `kb_eval::CompareReport` | `kb-cli` printer |
+| optional `runs_dir/<run_id>/report.md` | filesystem | human-readable summary |
+
+## Public surface (signatures only — no new types)
+
+```rust
+pub struct AggregateMetrics {
+    pub hit_at_k:           std::collections::BTreeMap<u32, f32>,   // k → hit@k
+    pub mrr:                f32,
+    pub recall_at_k_doc:    std::collections::BTreeMap<u32, f32>,
+    pub citation_coverage:  f32,
+    pub groundedness:       f32,
+    pub empty_result_rate:  f32,
+    pub refusal_correctness: f32,
+    pub total_queries:      u32,
+    pub failed_queries:     u32,
+}
+
+pub struct CompareReport {
+    pub run_a: String,
+    pub run_b: String,
+    pub aggregate_a: AggregateMetrics,
+    pub aggregate_b: AggregateMetrics,
+    pub deltas: serde_json::Value,             // per-metric delta
+    pub per_query: Vec<QueryComparison>,
+}
+
+pub struct QueryComparison {
+    pub query_id: String,
+    pub kind: ComparisonKind,                  // Win | Loss | Draw | Regression
+    pub a_hit_rank: Option<u32>,
+    pub b_hit_rank: Option<u32>,
+    pub note: Option<String>,
+}
+
+pub enum ComparisonKind { Win, Loss, Draw, Regression }
+
+pub fn compute_aggregate(run_id: &str) -> anyhow::Result<AggregateMetrics>;
+pub fn store_aggregate(run_id: &str, agg: &AggregateMetrics) -> anyhow::Result<()>;
+pub fn compare_runs(run_id_a: &str, run_id_b: &str) -> anyhow::Result<CompareReport>;
+pub fn render_report_md(report: &CompareReport) -> String;
+```
+
+## Behavior contract
+
+- `hit@k` for k ∈ {1, 3, 5, 10}: query is a hit if any of its `expected_chunk_ids` appears in the run's top-k for that query (chunk-level). Aggregate = mean across queries with non-empty `expected_chunk_ids`.
+- `MRR`: 1 / rank-of-first-correct-chunk; 0 if not found in top-10. Aggregate = mean across applicable queries.
+- `recall@k_doc` for k ∈ {1, 3, 5, 10}: fraction of `expected_doc_ids` covered by the top-k hits' `doc_id`s, averaged across applicable queries.
+- `citation_coverage`: fraction of RAG answers where every `Answer.citations[*].citation` resolves to a real chunk in the DB. Denominator = grounded RAG answers; if zero → metric is `NaN` and reported as `null` in JSON.
+- `groundedness`: fraction of RAG answers where ALL `must_contain` strings appear AND no `forbidden` string appears. Denominator = RAG answers (excluding errors).
+- `empty_result_rate`: fraction of queries returning zero `hits_top_k`.
+- `refusal_correctness`: fraction of queries with `expected_doc_ids = []` (i.e., should refuse) that the system actually refused (Answer.grounded == false). Denominator = queries marked as "should refuse"; if zero → null.
+- All metrics rounded to 4 decimal places for storage.
+- `compare_runs`:
+  - Per-metric delta (`b - a`).
+  - Per-query: `Win` if b found correct chunk, a did not. `Loss` opposite. `Draw` if both same rank. `Regression` if a hit but b miss for the same expected chunk.
+  - `note` may explain known causes (chunker version diff, embedding diff, prompt diff).
+- `render_report_md` produces a single Markdown file summarizing aggregate deltas + a Wins/Losses/Regressions table; not a wire schema; for human consumption only.
+- `store_aggregate` updates `eval_runs.aggregate_json` (`UPDATE eval_runs SET aggregate_json = :json WHERE run_id = :id`).
+
+## Storage / wire effects
+
+- Writes: `eval_runs.aggregate_json`, optional `runs_dir/<run_id>/report.md`.
+- Reads: `eval_runs`, `eval_query_results`.
+
+## Test plan
+
+| kind | description | fixture / data |
+|------|-------------|----------------|
+| unit | hit@k computation on hand-rolled fixture | inline (3 queries, ranks {1, 4, miss}) |
+| unit | MRR computation matches expected | inline |
+| unit | recall@k_doc computation | inline |
+| unit | citation_coverage with broken citation marks 0.0 | inline |
+| unit | groundedness false when forbidden string appears | inline |
+| unit | refusal_correctness 1.0 when all "should refuse" queries refused | inline |
+| unit | NaN metrics (zero denominator) serialize as `null` in JSON | inline |
+| unit | `compare_runs` per-query Win/Loss/Draw/Regression on synthetic ranks | inline |
+| determinism | running `compute_aggregate` twice produces identical `AggregateMetrics` | inline |
+| snapshot | `CompareReport` JSON for a fixed pair of runs stable | `fixtures/eval/compare-1.json` |
+
+All tests under `cargo test -p kb-eval metrics`.
+
+## Definition of Done
+
+- [ ] `cargo check -p kb-eval` passes
+- [ ] `cargo test -p kb-eval metrics` passes
+- [ ] No imports outside Allowed dependencies
+- [ ] `eval_runs.aggregate_json` always populated after `store_aggregate`
+- [ ] `kb eval compare` CLI surface integrated via `kb-app` (call `compare_runs` + `render_report_md`)
+- [ ] PR links phase epic tasks/phase-5-evaluation.md
+
+## Out of scope
+
+- LLM-as-judge groundedness.
+- Cross-corpus evaluation.
+- HTTP server / dashboards.
+- Metric weighting strategies (MRR weighting, etc.).
+
+## Risks / notes
+
+- Floating-point sums in MRR cause minor cross-platform drift; round to 4 decimals on storage to keep snapshots stable.
+- "Should refuse" queries are encoded as `expected_doc_ids: []`. Document this convention in the golden YAML header comment.
+- Chunker version drift across runs makes `expected_chunk_ids` invalid; `compare_runs` should refuse to compare runs with mismatched `chunker_version` and emit a clear error rather than silent miscompares.
