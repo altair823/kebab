@@ -579,6 +579,27 @@ pub struct RetrievalDetail {
 }
 ```
 
+### 3.7a Forward-declared types
+
+`Block::ImageRef` / `AudioRef` variant 은 v1 부터 존재하나, 그 안의 `ocr` / `caption` / `transcript` 필드는 P1 에선 항상 `None`. 다음 타입은 `kb-core` 에 stub 으로 둠:
+
+```rust
+pub struct OcrText      { pub joined: String, pub regions: Vec<OcrRegion>, pub engine: String, pub engine_version: String }
+pub struct OcrRegion    { pub bbox: (u32, u32, u32, u32), pub text: String, pub confidence: f32 }
+pub struct ModelCaption { pub text: String, pub model: String, pub model_version: String }
+pub struct Transcript   { pub segments: Vec<TranscriptSegment>, pub engine: String, pub engine_version: String, pub language: Lang }
+pub struct TranscriptSegment { pub start_ms: u64, pub end_ms: u64, pub text: String, pub speaker: Option<String>, pub confidence: Option<f32> }
+
+pub struct Checksum(pub String);    // full blake3 hex (64 chars)
+pub struct Lang(pub String);
+pub enum   ImageType { Png, Jpeg, Webp, Gif, Tiff, Other(String) }
+pub enum   AudioType { M4a, Mp3, Wav, Flac, Ogg, Other(String) }
+```
+
+`ExtractConfig`, `DocFilter`, `JobKind`, `JobStatus`, `JobFilter`, `JobRow`, `JobId`, `VectorRecord`, `VectorHit`, `RefusalSignal`, `NoHitSignal`, `DoctorUnhealthy` 도 `kb-core` 에 정의 (자세한 필드는 사용 시 결정, 이 spec 에서 forward-ref 만 보장).
+
+`OffsetDateTime` 는 `time::OffsetDateTime`, `Result` 는 crate-local alias.
+
 ### 3.8 Answer / RAG types
 
 ```rust
