@@ -581,7 +581,7 @@ pub struct RetrievalDetail {
 
 ### 3.7a Forward-declared types
 
-`Block::ImageRef` / `AudioRef` variant 은 v1 부터 존재하나, 그 안의 `ocr` / `caption` / `transcript` 필드는 P1 에선 항상 `None`. 다음 타입은 `kb-core` 에 stub 으로 둠:
+`Block::ImageRef` / `AudioRef` variant 은 v1 부터 존재하나, 그 안의 `ocr` / `caption` / `transcript` 필드는 P1 에선 항상 `None`. 다음 타입은 `kb-core` 에 stub 으로 둠 (최종 도메인 모델 슬롯):
 
 ```rust
 pub struct OcrText      { pub joined: String, pub regions: Vec<OcrRegion>, pub engine: String, pub engine_version: String }
@@ -599,6 +599,69 @@ pub enum   AudioType { M4a, Mp3, Wav, Flac, Ogg, Other(String) }
 `ExtractConfig`, `DocFilter`, `JobKind`, `JobStatus`, `JobFilter`, `JobRow`, `JobId`, `VectorRecord`, `VectorHit`, `RefusalSignal`, `NoHitSignal`, `DoctorUnhealthy` 도 `kb-core` 에 정의 (자세한 필드는 사용 시 결정, 이 spec 에서 forward-ref 만 보장).
 
 `OffsetDateTime` 는 `time::OffsetDateTime`, `Result` 는 crate-local alias.
+
+### 3.7b Parser intermediate types — `kb-parse-types`
+
+Parser 의 *중간* 표현 (`ParsedBlock` 류) 은 `kb-core` 가 아니라 별도의 thin crate **`kb-parse-types`** 에 둔다. 이유: `kb-normalize` 는 medium-agnostic 한 ID/Provenance lift 를 책임지고 어떤 parser 도 직접 import 하면 안 된다. 그러나 normalize 에 들어오는 입력 타입이 어딘가에 정의되어야 하는데, 그것을 `kb-core` 에 박으면 (a) parser-별 ParsedBlock 변종 (`ParsedImageRegion`, `ParsedPdfPage`, `ParsedAudioSegment`) 이 향후 합류할 때 core 의 namespace 가 폭발하고, (b) parser 의 의미 변경이 core 변경이 되어 모든 의존자가 영향을 받는다.
+
+`kb-parse-types` 는 이 둘 사이의 **유일한 layer** 다. 의존 그래프:
+
+```text
+kb-core (도메인 모델 — Block, Chunk, SourceSpan, IDs, …)
+   ▲
+   │
+kb-parse-types (parser 중간 표현 — ParsedBlock, ParsedImageRegion[P+], ParsedPdfPage[P+], ParsedAudioSegment[P+], Inline)
+   ▲                            ▲
+   │                            │
+kb-parse-md, kb-parse-pdf,      kb-normalize
+kb-parse-image, kb-parse-audio
+```
+
+`kb-parse-types` 는:
+- `kb-core` 에만 의존 (`Block`, `SourceSpan`, `Lang` 등 도메인 타입 사용).
+- 다른 어떤 `kb-*` 에도 의존하지 않는다.
+- 어떤 parser 의 구체 라이브러리 (`pulldown-cmark`, `pdf-extract`, `image`, `whisper-rs`) 에도 의존하지 않는다.
+- serde + thiserror 정도의 외부 의존만 가진다.
+
+P1 에서 정의되는 타입:
+
+```rust
+// kb-parse-types — depends on kb-core only.
+pub struct ParsedBlock {
+    pub kind: ParsedBlockKind,
+    pub heading_path: Vec<String>,
+    pub source_span: kb_core::SourceSpan,
+    pub payload: ParsedPayload,
+}
+
+pub enum ParsedBlockKind { Heading, Paragraph, List, Code, Table, Quote, ImageRef, AudioRef }
+
+pub enum ParsedPayload {
+    Heading   { level: u8, text: String },
+    Paragraph { text: String, inlines: Vec<kb_core::Inline> },
+    List      { ordered: bool, items: Vec<Vec<kb_core::Inline>> },
+    Code      { lang: Option<String>, code: String },
+    Table     { headers: Vec<String>, rows: Vec<Vec<String>> },
+    Quote     { text: String, inlines: Vec<kb_core::Inline> },
+    ImageRef  { src: String, alt: String },
+    AudioRef  { src: String },                        // duration_ms filled by extractor before chunking
+}
+
+pub struct Warning { pub kind: WarningKind, pub note: String }
+pub enum WarningKind { MalformedFrontmatter, MalformedTable, EncodingFallback, ExtractFailed }
+```
+
+`Inline` 은 `kb-core` (§3.4) 에 있는 도메인 타입. `kb-parse-types` 는 그것을 *참조* 만 한다 — 같은 의미를 두 crate 에 중복 정의하지 않는다 (그러면 normalize 가 identity-conversion 을 해야 해서 무의미).
+
+P6/P7/P8 에서 추가될 타입 (forward-ref):
+
+```rust
+pub struct ParsedImageRegion { /* OCR/EXIF 추출 전 단계 */ }
+pub struct ParsedPdfPage     { pub page: u32, pub text: String }
+pub struct ParsedAudioSegment { pub start_ms: u64, pub end_ms: u64, pub text: String }
+```
+
+→ 새 medium 추가 시 `kb-core::Block` 변종은 변하지 않고, `kb-parse-types` 만 확장된다.
 
 ### 3.8 Answer / RAG types
 
@@ -1151,7 +1214,9 @@ kb-cli, kb-tui, kb-desktop
    └─> kb-app
          ├─> kb-source-fs
          ├─> kb-parse-md / kb-parse-pdf / kb-parse-image / kb-parse-audio
+         │     └─> kb-parse-types (parser intermediate)
          ├─> kb-normalize
+         │     └─> kb-parse-types
          ├─> kb-chunk
          ├─> kb-store-sqlite (DocumentStore, JobRepo, Retriever[lexical])
          ├─> kb-store-vector (VectorStore)
@@ -1164,11 +1229,15 @@ kb-cli, kb-tui, kb-desktop
               └─> kb-core (모두 의존)
 ```
 
+`kb-parse-types` 는 `kb-core` 와 parsers/normalize 사이의 thin layer (§3.7b 참조). parser-별 중간 표현 (`ParsedBlock`, `ParsedImageRegion`, `ParsedPdfPage`, `ParsedAudioSegment`, `Inline`) 을 한 곳에 모아 (a) `kb-core` 의 namespace 폭발을 막고 (b) `kb-normalize` 가 parser 를 직접 import 하지 않게 한다.
+
 핵심 금지:
 - UI → store/llm/parse 직접 의존 ✗
 - parse-* → store/llm/embed ✗
+- parse-* → kb-normalize ✗ (단방향: parsers → kb-parse-types ← normalize)
 - chunk → llm/embed ✗
-- normalize → store ✗
+- normalize → store / parse-* ✗
+- kb-parse-types → 어떤 parser/normalize/store/llm/embed/search/rag/ui ✗ (`kb-core` 만 의존)
 - 다른 store 와 cross-write ✗
 
 `cargo deny` + workspace deny.toml + CI 체크로 강제.

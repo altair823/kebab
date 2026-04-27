@@ -7,14 +7,14 @@ status: planned
 depends_on: [p1-2, p1-3]
 unblocks: [p1-5, p1-6]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
-contract_sections: [§3.4, §4 ID recipe, §3.6 Provenance]
+contract_sections: [§3.4, §3.7b kb-parse-types, §4 ID recipe, §3.6 Provenance, §8 module boundaries]
 ---
 
 # p1-4 — Lift to CanonicalDocument
 
 ## Goal
 
-Combine `Metadata` (p1-2) + `Vec<ParsedBlock>` (p1-3) + `RawAsset` (p1-1) into a `CanonicalDocument` with deterministic `doc_id` and `block_id`s per design §4 recipe.
+Combine `Metadata` (p1-2) + `Vec<kb_parse_types::ParsedBlock>` (p1-3) + `RawAsset` (p1-1) into a `kb_core::CanonicalDocument` with deterministic `doc_id` and `block_id`s per design §4 recipe.
 
 ## Why now / why this size
 
@@ -23,6 +23,7 @@ Single responsibility: ID generation + struct assembly. Keeps `kb-parse-md` pure
 ## Allowed dependencies
 
 - `kb-core`
+- `kb-parse-types` (input shapes — `ParsedBlock`, `ParsedPayload`, `Warning`)
 - `kb-config`
 - `serde`
 - `serde-json-canonicalizer` (canonical JSON for ID hashing)
@@ -33,17 +34,15 @@ Single responsibility: ID generation + struct assembly. Keeps `kb-parse-md` pure
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md` (consumed via plain types only — must not couple back), `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
-
-Note: this crate accepts `ParsedBlock` from `kb-parse-md` either by (a) exposing `ParsedBlock` as a `kb-core` type, or (b) `kb-parse-md` re-exporting via a public DTO. Pick (a): move `ParsedBlock` into `kb-core` so this task does not import `kb-parse-md`.
+- `kb-source-fs`, `kb-parse-md` (consumed via shared `kb-parse-types` only — `kb-parse-md` must NOT appear in this crate's `cargo tree`), `kb-parse-pdf`, `kb-parse-image`, `kb-parse-audio`, `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
 | `RawAsset` | `kb_core::RawAsset` | p1-1 |
-| `Metadata` + frontmatter span + warnings | from p1-2 | parser caller |
-| `Vec<ParsedBlock>` + warnings | from p1-3 | parser caller |
+| `Metadata` + frontmatter span + warnings | `(kb_core::Metadata, Option<FrontmatterSpan>, Vec<kb_parse_types::Warning>)` | p1-2 |
+| `Vec<ParsedBlock>` + warnings | `(Vec<kb_parse_types::ParsedBlock>, Vec<kb_parse_types::Warning>)` | p1-3 |
 | `parser_version` | `kb_core::ParserVersion` | constant in `kb-parse-md` |
 
 ## Outputs
@@ -58,9 +57,9 @@ Note: this crate accepts `ParsedBlock` from `kb-parse-md` either by (a) exposing
 pub fn build_canonical_document(
     asset: &kb_core::RawAsset,
     metadata: kb_core::Metadata,
-    blocks: Vec<kb_core::ParsedBlock>,
+    blocks: Vec<kb_parse_types::ParsedBlock>,
     parser_version: &kb_core::ParserVersion,
-    warnings: Vec<Warning>,
+    warnings: Vec<kb_parse_types::Warning>,
 ) -> anyhow::Result<kb_core::CanonicalDocument>;
 
 pub fn id_for_doc(workspace_path: &kb_core::WorkspacePath, asset: &kb_core::AssetId, parser_version: &kb_core::ParserVersion) -> kb_core::DocumentId;
@@ -99,8 +98,8 @@ All tests under `cargo test -p kb-normalize`.
 - [ ] `cargo check -p kb-normalize` passes
 - [ ] `cargo test -p kb-normalize` passes
 - [ ] Determinism test runs ≥ 1000 iterations under 1 second
-- [ ] No `kb-parse-md` import (consumed via `kb-core::ParsedBlock`)
-- [ ] PR links design §4.2, §4.3
+- [ ] No `kb-parse-md` (or any other parser crate) appears in `cargo tree -p kb-normalize` — input types come from `kb-parse-types` only
+- [ ] PR links design §3.7b, §4.2, §4.3, §8
 
 ## Out of scope
 
