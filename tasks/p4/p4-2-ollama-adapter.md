@@ -7,7 +7,7 @@ status: planned
 depends_on: [p4-1]
 unblocks: [p4-3]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
-contract_sections: [§7.2 LanguageModel, §11.2 Ollama, §6.4 [models.llm], §0 Q5 streaming, §10 errors]
+contract_sections: [design §7.2 LanguageModel, report §11.2 Ollama, design §6.4 [models.llm], design §0 Q5 streaming, design §10 errors]
 ---
 
 # p4-2 — Ollama adapter

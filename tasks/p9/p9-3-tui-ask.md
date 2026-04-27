@@ -55,12 +55,26 @@ pub fn render_ask<B: ratatui::backend::Backend>(f: &mut ratatui::Frame, area: ra
 pub fn handle_key_ask(state: &mut App, key: crossterm::event::KeyEvent) -> KeyOutcome;
 ```
 
-`App` extended with: `ask_input: String`, `ask_explain: bool`, `ask_streaming: bool`, `ask_partial: String`, `ask_answer: Option<kb_core::Answer>`, `ask_thread: Option<std::thread::JoinHandle<anyhow::Result<kb_core::Answer>>>`, `ask_rx: Option<std::sync::mpsc::Receiver<String>>`.
+This task fills the body of `kb_tui::AskState` (forward-declared in p9-1). `App` is NOT edited — only `AskState` gets fields:
+
+```rust
+pub struct AskState {
+    pub input: String,
+    pub explain: bool,
+    pub streaming: bool,
+    pub partial: String,
+    pub answer: Option<kb_core::Answer>,
+    pub thread: Option<std::thread::JoinHandle<anyhow::Result<kb_core::Answer>>>,
+    pub rx: Option<std::sync::mpsc::Receiver<String>>,
+}
+```
+
+`render_ask`/`handle_key_ask` read `app.ask.as_mut()` exclusively. Parallel-safety contract from p9-1 holds.
 
 ## Behavior contract
 
 - Layout: top input bar (`?` prompt, query text), middle answer area (rendered Markdown-light: paragraphs + inline `[N]` markers), bottom-right citations panel (numbered list of citations with `path#fragment` and section label), bottom-left status (`grounded ✓/✗  model  prompt_v  k chunks`).
-- Submission: `Enter` triggers a worker thread that calls `kb-app::ask`. The thread receives a `mpsc::Sender<String>` it forwards each token through (closure plugged into `AskOpts.print_stream`). The TUI reads from the receiver and appends to `ask_partial`.
+- Submission: `Enter` triggers a worker thread that calls `kb-app::ask` with `AskOpts.stream_sink: Some(tx)` (`tx: mpsc::Sender<String>`). The thread holds the `tx`, the TUI holds the matching `rx` (set on `AskState.rx`). On each render frame the TUI drains `rx.try_iter()` into `state.partial`, no blocking.
 - Streaming: while `ask_streaming = true`, the Answer area shows `ask_partial` and a small "▍" cursor. When the worker finishes, `ask_answer` is populated and the citations panel switches to the final list.
 - Refusal rendering:
   - `grounded = false` and `refusal_reason = ScoreGate` → render the answer (which is the human-friendly "근거 부족…" message), citations show "가까운 후보".

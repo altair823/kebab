@@ -7,7 +7,7 @@ status: planned
 depends_on: [p9-1, p9-2, p9-3, p9-4]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
-contract_sections: [§16.3 desktop epic (tasks/phase-9-ui.md), §1 ask/search scenes, §2 wire schemas v1, §8 module boundaries]
+contract_sections: [report §16.3 desktop (also tasks/phase-9-ui.md epic), design §1 ask/search scenes, design §2 wire schemas v1, design §8 module boundaries]
 ---
 
 # p9-5 — Tauri desktop app
@@ -122,7 +122,7 @@ Backend tests under `cargo test -p kb-desktop`. Frontend tests are bonus and not
 - [ ] `tauri build` produces an unsigned dmg on macOS in CI (signed/notarized are out of scope)
 - [ ] Each Tauri command returns wire-schema-v1 JSON; frontend asserts `schema_version`
 - [ ] No imports outside Allowed dependencies (backend)
-- [ ] PR links design §16.3 epic, §1, §2 wire schemas, §8
+- [ ] PR links report §16.3 (desktop epic), design §1, §2 wire schemas, §8
 
 ## Out of scope
 

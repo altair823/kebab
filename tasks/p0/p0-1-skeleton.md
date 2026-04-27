@@ -352,6 +352,7 @@ All tests must run with no network, no Ollama, no models.
 - [ ] `kb doctor` returns wire JSON conforming to `doctor.v1` (in `--json` mode)
 - [ ] `docs/wire-schema/v1/*.schema.json` stubs exist (7 files: citation, search_hit, answer, ingest_report, doc_summary, chunk_inspection, doctor)
 - [ ] `docs/spec/` stubs exist linking to the frozen design (one file per: domain-model, ids, canonical-document, chunk-policy, citation-policy, module-boundaries, ai-generation-guidelines)
+- [ ] `fixtures/` root directory created with all subdirectories that downstream tasks reference: `fixtures/markdown/`, `fixtures/source-fs/`, `fixtures/search/lexical/`, `fixtures/search/hybrid/`, `fixtures/embed/`, `fixtures/vector/`, `fixtures/rag/`, `fixtures/eval/`, `fixtures/image/`, `fixtures/pdf/`, `fixtures/audio/`. Each subdir gets a `.gitkeep` so it tracks. P1 ships at minimum `fixtures/markdown/{simple-note,nested-headings,code-and-table}.md` (per epic phase-0); other dirs stay empty until their phase lands.
 - [ ] No imports outside Allowed dependencies (CI deny check)
 - [ ] PR body links design §3, §3.7b, §4, §6, §7, §8, §9, §10
 

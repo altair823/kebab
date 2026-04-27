@@ -7,7 +7,7 @@ status: planned
 depends_on: [p0-1]
 unblocks: [p1-4]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
-contract_sections: [§3.6 Metadata, §0 Q9 frontmatter, §10 errors]
+contract_sections: [design §3.6 Metadata, design §3.7b kb-parse-types (Warning), design §0 Q9 frontmatter, design §10 errors]
 ---
 
 # p1-2 — Markdown frontmatter parsing
@@ -23,6 +23,7 @@ Frontmatter is small but contractually load-bearing (Q9 spec). Isolating it from
 ## Allowed dependencies
 
 - `kb-core`
+- `kb-parse-types` (provides shared `Warning` + `WarningKind` per design §3.7b)
 - `serde`
 - `serde_yaml` (or `yaml-rust2`) for YAML
 - `toml` for TOML
@@ -45,7 +46,7 @@ Frontmatter is small but contractually load-bearing (Q9 spec). Isolating it from
 
 | output | type | downstream |
 |--------|------|------------|
-| `(Metadata, Option<FrontmatterSpan>, Vec<Warning>)` | tuple | `kb-normalize` → CanonicalDocument |
+| `(Metadata, Option<FrontmatterSpan>, Vec<kb_parse_types::Warning>)` | tuple | `kb-normalize` → CanonicalDocument |
 
 ## Public surface (signatures only — no new types)
 
@@ -53,10 +54,10 @@ Frontmatter is small but contractually load-bearing (Q9 spec). Isolating it from
 pub fn parse_frontmatter(
     bytes: &[u8],
     hints: &BodyHints,
-) -> anyhow::Result<(kb_core::Metadata, Option<FrontmatterSpan>, Vec<Warning>)>;
+) -> anyhow::Result<(kb_core::Metadata, Option<FrontmatterSpan>, Vec<kb_parse_types::Warning>)>;
 ```
 
-`FrontmatterSpan` and `Warning` are crate-internal helpers; if any new public type is needed, STOP and update the frozen design doc first.
+`Warning` / `WarningKind` come from `kb-parse-types` (shared with `p1-3` blocks parser and downstream `kb-normalize`). `FrontmatterSpan` is crate-internal; if any new public type is needed, STOP and update the frozen design doc first.
 
 ## Behavior contract
 
@@ -67,8 +68,8 @@ pub fn parse_frontmatter(
   - `source_type` default `markdown`; `trust_level` default `primary`.
   - `aliases`, `tags` default empty.
 - Unknown keys → `metadata.user` (`serde_json::Map`), preserved verbatim, no warning.
-- Unknown enum value (e.g. `trust_level: weird`) → warning + replaced with default; ingest continues.
-- Malformed YAML → frontmatter discarded, body still parsed, warning emitted.
+- Unknown enum value (e.g. `trust_level: weird`) → emit `kb_parse_types::Warning { kind: WarningKind::MalformedFrontmatter, note: "unknown trust_level=weird, defaulted to primary" }` + ingest continues with default.
+- Malformed YAML → frontmatter discarded, body still parsed, `Warning { kind: WarningKind::MalformedFrontmatter, note: "<error msg>" }` emitted.
 - No frontmatter at all → defaults applied silently.
 - `id:` field captured into `metadata.user_id_alias` (alias only — does NOT influence `doc_id` per design §4.2).
 

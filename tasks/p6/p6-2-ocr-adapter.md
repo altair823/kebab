@@ -83,7 +83,7 @@ pub fn apply_ocr(
   - Recognition produces `OcrRegion { bbox: (x, y, w, h), text, confidence }` for each "word" or "line" (configurable; default "line").
   - Drop regions with `confidence < config.ocr.min_confidence` (default 60.0). If all dropped, return `OcrText { joined: "", regions: vec![], engine, engine_version }`.
   - `joined` = `regions.iter().map(|r| r.text).join(" ")` (no smart layout reconstruction in v1).
-  - `engine = "tesseract"`, `engine_version = tesseract::version()`.
+  - `engine = "tesseract"`, `engine_version = <tesseract version string>`. The `tesseract` crate (0.13+) does NOT expose a stable Rust `version()` accessor. Use one of: (a) call libtesseract's `TessVersion()` via the bundled FFI surface, OR (b) at adapter construction, shell-out `tesseract --version` once and cache the parsed `"5.3.4"`-style string. Both are deterministic for a fixed install. Pin the chosen approach in the implementation PR.
 - Apple Vision sidecar (feature `apple-vision`):
   - Spawn a small Swift binary `kb-vision-ocr` (path from `config.ocr.apple_vision_binary`) feeding the image via stdin and reading JSON `{ regions: [{x,y,w,h,text,confidence}, ...] }` from stdout.
   - Same threshold and `joined` rules as Tesseract. `engine = "apple-vision"`, `engine_version = sidecar's --version`.

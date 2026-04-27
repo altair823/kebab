@@ -7,7 +7,7 @@ status: planned
 depends_on: [p0-1]
 unblocks: [p3-2, p3-3, p3-4]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
-contract_sections: [§3.7 SearchHit.embedding_model, §7.1 EmbeddingInput/Kind, §7.2 Embedder, §11 LLM/embedding split]
+contract_sections: [design §3.7 SearchHit.embedding_model, design §7.1 EmbeddingInput/Kind, design §7.2 Embedder, report §11 LLM/embedding split]
 ---
 
 # p3-1 — Embedder trait crate
@@ -27,6 +27,7 @@ Concrete adapters (fastembed, ollama-embed, candle) need a stable trait surface.
 - `serde`
 - `thiserror`
 - `tracing`
+- `[features] mock = []` — opt-in feature flag exposing `MockEmbedder`. Default OFF. Release builds (omit `--features mock`) compile `MockEmbedder` out entirely.
 
 ## Forbidden dependencies
 
@@ -50,11 +51,14 @@ Concrete adapters (fastembed, ollama-embed, candle) need a stable trait surface.
 ```rust
 pub use kb_core::{EmbeddingInput, EmbeddingKind, EmbeddingModelId, EmbeddingVersion, Embedder};
 
-/// Test-only mock that produces deterministic vectors.
+/// Test-only mock that produces deterministic vectors. Compiled only when `mock` feature is on.
+#[cfg(feature = "mock")]
 pub struct MockEmbedder { /* internal: model_id, dims, seed */ }
+#[cfg(feature = "mock")]
 impl MockEmbedder {
     pub fn new(model_id: kb_core::EmbeddingModelId, version: kb_core::EmbeddingVersion, dimensions: usize) -> Self;
 }
+#[cfg(feature = "mock")]
 impl kb_core::Embedder for MockEmbedder { /* per §7.2 */ }
 ```
 
@@ -96,5 +100,5 @@ All tests under `cargo test -p kb-embed`.
 
 ## Risks / notes
 
-- `MockEmbedder` is for tests; do not let it leak into release builds via default features. Gate behind `cfg(test)` or a `mock` feature flag.
+- `MockEmbedder` is gated by `mock` feature (default OFF). Downstream tests opt in via `[dev-dependencies] kb-embed = { path = "...", features = ["mock"] }`. CI build of release binary (`cargo build --release` without `--features mock`) MUST NOT include `MockEmbedder` symbol — verifiable via `cargo bloat` or `nm` symbol scan.
 - Trait re-exports keep the call site stable even if `kb-core` reorganizes; downstream crates should `use kb_embed::Embedder` rather than `use kb_core::Embedder`.

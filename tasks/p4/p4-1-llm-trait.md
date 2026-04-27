@@ -27,6 +27,7 @@ Provide the `kb-llm` crate that re-exports the `LanguageModel` trait and helper 
 - `serde`
 - `thiserror`
 - `tracing`
+- `[features] mock = []` — opt-in feature flag exposing `MockLanguageModel`. Default OFF. Release builds compile mock out entirely.
 
 ## Forbidden dependencies
 
@@ -51,7 +52,8 @@ Provide the `kb-llm` crate that re-exports the `LanguageModel` trait and helper 
 ```rust
 pub use kb_core::{LanguageModel, GenerateRequest, TokenChunk, FinishReason, TokenUsage, ModelRef};
 
-/// Test-only deterministic mock.
+/// Test-only deterministic mock. Compiled only when `mock` feature is on.
+#[cfg(feature = "mock")]
 pub struct MockLanguageModel {
     pub model_id: String,
     pub provider: String,
@@ -61,6 +63,7 @@ pub struct MockLanguageModel {
     pub canned_usage:  kb_core::TokenUsage,
 }
 
+#[cfg(feature = "mock")]
 impl kb_core::LanguageModel for MockLanguageModel { /* per §7.2 */ }
 ```
 

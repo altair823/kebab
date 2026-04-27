@@ -57,7 +57,19 @@ pub fn render_inspect<B: ratatui::backend::Backend>(f: &mut ratatui::Frame, area
 pub fn handle_key_inspect(state: &mut App, key: crossterm::event::KeyEvent) -> KeyOutcome;
 ```
 
-`App` extended with: `inspect_target: Option<InspectTarget>`, `inspect_doc: Option<kb_core::CanonicalDocument>`, `inspect_chunk: Option<kb_core::Chunk>`, `inspect_collapsed: HashSet<&'static str>` (sections collapsed), `inspect_scroll: u16`.
+This task fills the body of `kb_tui::InspectState` (forward-declared in p9-1). `App` is NOT edited.
+
+```rust
+pub struct InspectState {
+    pub target: Option<InspectTarget>,
+    pub doc: Option<kb_core::CanonicalDocument>,
+    pub chunk: Option<kb_core::Chunk>,
+    pub collapsed: std::collections::HashSet<&'static str>,
+    pub scroll: u16,
+}
+```
+
+`render_inspect`/`handle_key_inspect` read `app.inspect.as_mut()` exclusively. Parallel-safety contract from p9-1 holds.
 
 ## Behavior contract
 
