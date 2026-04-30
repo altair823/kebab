@@ -2,7 +2,7 @@
 //!
 //! Boundary code (`kb-app`, `kb-cli`) flattens these into `anyhow::Error`,
 //! so the trait impls return `anyhow::Result` directly. Internally we
-//! still distinguish `Conflict` (e.g. checksum mismatch) from `Sqlx` /
+//! still distinguish `Conflict` (e.g. checksum mismatch) from `Sqlite` /
 //! `Migration` so callers that downcast can route refusal-style flows.
 
 use thiserror::Error;
@@ -10,7 +10,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum StoreError {
     #[error("sqlite error: {0}")]
-    Sqlx(#[from] rusqlite::Error),
+    Sqlite(#[from] rusqlite::Error),
 
     #[error("migration error: {0}")]
     Migration(String),

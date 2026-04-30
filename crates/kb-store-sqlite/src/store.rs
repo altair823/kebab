@@ -397,10 +397,3 @@ fn expand_data_dir(raw: &str) -> PathBuf {
 fn dirs_home_fallback() -> Option<PathBuf> {
     None
 }
-
-/// Returns the root of the assets shard tree (`data_dir/assets/`). Used
-/// by tests; kept crate-private otherwise.
-#[allow(dead_code)]
-pub(crate) fn assets_root(data_dir: &Path) -> PathBuf {
-    data_dir.join(ASSETS_SUBDIR)
-}
