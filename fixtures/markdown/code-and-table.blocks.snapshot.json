@@ -1,0 +1,63 @@
+{
+  "blocks": [
+    {
+      "kind": "heading",
+      "heading_path": [],
+      "source_span": {
+        "kind": "line",
+        "start": 1,
+        "end": 1
+      },
+      "payload": {
+        "kind": "heading",
+        "level": 1,
+        "text": "Code And Table"
+      }
+    },
+    {
+      "kind": "code",
+      "heading_path": [
+        "Code And Table"
+      ],
+      "source_span": {
+        "kind": "line",
+        "start": 3,
+        "end": 7
+      },
+      "payload": {
+        "kind": "code",
+        "lang": "rust",
+        "code": "fn main() {\n    println!(\"hi\");\n}"
+      }
+    },
+    {
+      "kind": "table",
+      "heading_path": [
+        "Code And Table"
+      ],
+      "source_span": {
+        "kind": "line",
+        "start": 9,
+        "end": 12
+      },
+      "payload": {
+        "kind": "table",
+        "headers": [
+          "col a",
+          "col b"
+        ],
+        "rows": [
+          [
+            "1",
+            "2"
+          ],
+          [
+            "3",
+            "4"
+          ]
+        ]
+      }
+    }
+  ],
+  "warnings": []
+}
