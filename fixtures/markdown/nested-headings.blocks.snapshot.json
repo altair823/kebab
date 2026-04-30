@@ -1,0 +1,136 @@
+{
+  "blocks": [
+    {
+      "kind": "heading",
+      "heading_path": [],
+      "source_span": {
+        "kind": "line",
+        "start": 1,
+        "end": 1
+      },
+      "payload": {
+        "kind": "heading",
+        "level": 1,
+        "text": "Top"
+      }
+    },
+    {
+      "kind": "paragraph",
+      "heading_path": [
+        "Top"
+      ],
+      "source_span": {
+        "kind": "line",
+        "start": 3,
+        "end": 3
+      },
+      "payload": {
+        "kind": "paragraph",
+        "text": "intro",
+        "inlines_flat": "intro"
+      }
+    },
+    {
+      "kind": "heading",
+      "heading_path": [
+        "Top"
+      ],
+      "source_span": {
+        "kind": "line",
+        "start": 5,
+        "end": 5
+      },
+      "payload": {
+        "kind": "heading",
+        "level": 2,
+        "text": "Section A"
+      }
+    },
+    {
+      "kind": "paragraph",
+      "heading_path": [
+        "Top",
+        "Section A"
+      ],
+      "source_span": {
+        "kind": "line",
+        "start": 7,
+        "end": 7
+      },
+      "payload": {
+        "kind": "paragraph",
+        "text": "body of A",
+        "inlines_flat": "body of A"
+      }
+    },
+    {
+      "kind": "heading",
+      "heading_path": [
+        "Top",
+        "Section A"
+      ],
+      "source_span": {
+        "kind": "line",
+        "start": 9,
+        "end": 9
+      },
+      "payload": {
+        "kind": "heading",
+        "level": 3,
+        "text": "Sub A.1"
+      }
+    },
+    {
+      "kind": "paragraph",
+      "heading_path": [
+        "Top",
+        "Section A",
+        "Sub A.1"
+      ],
+      "source_span": {
+        "kind": "line",
+        "start": 11,
+        "end": 11
+      },
+      "payload": {
+        "kind": "paragraph",
+        "text": "deeper",
+        "inlines_flat": "deeper"
+      }
+    },
+    {
+      "kind": "heading",
+      "heading_path": [
+        "Top"
+      ],
+      "source_span": {
+        "kind": "line",
+        "start": 13,
+        "end": 13
+      },
+      "payload": {
+        "kind": "heading",
+        "level": 2,
+        "text": "Section B"
+      }
+    },
+    {
+      "kind": "paragraph",
+      "heading_path": [
+        "Top",
+        "Section B"
+      ],
+      "source_span": {
+        "kind": "line",
+        "start": 15,
+        "end": 15
+      },
+      "payload": {
+        "kind": "paragraph",
+        "text": "body of B",
+        "inlines_flat": "body of B"
+      }
+    }
+  ],
+  "warnings": []
+}

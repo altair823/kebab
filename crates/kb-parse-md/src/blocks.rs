@@ -528,7 +528,7 @@ impl<'a> WalkState<'a> {
                     let _ = level_u8;
 
                     // Update heading stack: clear deeper levels, set this level.
-                    if level_to_use >= 1 && level_to_use <= 6 {
+                    if (1..=6).contains(&level_to_use) {
                         let idx = (level_to_use - 1) as usize;
                         for slot in &mut self.heading_stack[idx + 1..] {
                             *slot = None;
