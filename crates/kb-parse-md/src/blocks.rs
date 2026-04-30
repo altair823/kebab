@@ -1080,7 +1080,15 @@ impl<'a> WalkState<'a> {
                     current_cell.push(' ');
                     return;
                 }
-                self.with_current_inlines(|buf| buf.push_text(" "));
+                // Update both `paragraph.text` (via push_text) and the
+                // open link's flattened text accumulator (via
+                // push_link_text). Without push_link_text here, a
+                // multi-line `[text\nmore](href)` collapses to "textmore"
+                // — losing the visible space between words.
+                self.with_current_inlines(|buf| {
+                    buf.push_text(" ");
+                    buf.push_link_text(" ");
+                });
             }
             // Everything else (HTML, footnote refs, task list markers, math,
             // rules, etc.) is dropped silently per design §3.4.
@@ -1638,6 +1646,53 @@ mod tests {
     }
 
     // ---- inline filter -------------------------------------------------------
+
+    #[test]
+    fn link_with_soft_break_preserves_space_in_text() {
+        // Without the push_link_text fix, this collapses to "multiline".
+        let body = "[multi\nline](http://x)\n";
+        let (blocks, _) = parse(body, 1);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0].payload {
+            ParsedPayload::Paragraph { inlines, .. } => {
+                let link = inlines
+                    .iter()
+                    .find(|i| matches!(i, Inline::Link { .. }))
+                    .expect("link present");
+                match link {
+                    Inline::Link { text, href } => {
+                        assert_eq!(text, "multi line");
+                        assert_eq!(href, "http://x");
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => panic!("expected paragraph, got {:?}", blocks[0].payload),
+        }
+    }
+
+    #[test]
+    fn link_with_hard_break_preserves_space_in_text() {
+        // Two trailing spaces + newline = HardBreak in CommonMark.
+        let body = "[multi  \nline](http://x)\n";
+        let (blocks, _) = parse(body, 1);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0].payload {
+            ParsedPayload::Paragraph { inlines, .. } => {
+                let link = inlines
+                    .iter()
+                    .find(|i| matches!(i, Inline::Link { .. }))
+                    .expect("link present");
+                match link {
+                    Inline::Link { text, .. } => {
+                        assert_eq!(text, "multi line");
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => panic!("expected paragraph"),
+        }
+    }
 
     #[test]
     fn only_allowed_inlines_emitted() {
