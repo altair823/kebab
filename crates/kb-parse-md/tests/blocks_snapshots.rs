@@ -4,6 +4,12 @@
 //! below. `body_offset_lines = 1` is used for both fixtures (no
 //! frontmatter, body starts at file line 1).
 //!
+//! Note: kb-parse-md's snapshot tests use the `#[ignore]` regenerator
+//! pattern (run `cargo test ... -- --ignored` to refresh baselines),
+//! whereas `kb-normalize`'s integration test uses an `UPDATE_SNAPSHOTS=1`
+//! env-var pattern. Migrating kb-parse-md to the env-var style is out of
+//! scope; both styles are intentional for now.
+//!
 //! Following the kb_core::Inline schema migration (struct-variant shape),
 //! `ParsedBlock` now serializes directly through serde — no projection
 //! shim is required. Inlines surface as structured objects, e.g.

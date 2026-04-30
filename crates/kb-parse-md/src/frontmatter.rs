@@ -379,8 +379,12 @@ fn derive_metadata(
 
     // ---- title ----
     // Frontmatter → BodyHints.first_h1 → None.
-    // Filename fallback is the caller's responsibility (P1-4 normalize), per
-    // task brief — `BodyHints` does not carry a filename.
+    // Filename fallback for title is deferred to a later phase (P1-7 or
+    // kb-app integration); the parse_frontmatter -> build_canonical_document
+    // pipeline does not currently know the workspace_path filename component
+    // for fallback. CanonicalDocument.title may be empty for files without
+    // frontmatter title and without an H1; downstream display layer should
+    // fall back to filename via WorkspacePath inspection.
     let title = raw.title.or_else(|| hints.first_h1.clone());
     if let Some(t) = title {
         user.insert("title".to_string(), Value::String(t));
