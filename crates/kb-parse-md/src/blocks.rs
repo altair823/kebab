@@ -1751,3 +1751,37 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod reviewer_probes {
+    use super::*;
+
+    #[test]
+    fn probe_overflow() {
+        let (b, w) = parse_blocks(b"# h\nbody\n", u32::MAX).unwrap();
+        assert!(b.is_empty(), "expected empty blocks, got {}", b.len());
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].kind, WarningKind::ExtractFailed);
+    }
+
+    #[test]
+    fn probe_list_escape() {
+        let body = b"- item\n\n  \x60\x60\x60rust\n  fn f(){}\n  \x60\x60\x60\n\n- next\n";
+        let (b, _) = parse_blocks(body, 0).unwrap();
+        assert_eq!(b.len(), 1, "expected single list block, got {}", b.len());
+        match &b[0].payload {
+            ParsedPayload::List { items, .. } => assert_eq!(items.len(), 2),
+            _ => panic!("expected list, got {:?}", b[0].payload),
+        }
+    }
+
+    #[test]
+    fn probe_empty_heading() {
+        let (b, _) = parse_blocks(b"# \n# Real\nbody\n", 0).unwrap();
+        let para = b
+            .iter()
+            .find(|x| matches!(x.payload, ParsedPayload::Paragraph { .. }))
+            .expect("paragraph present");
+        assert_eq!(para.heading_path, vec!["Real".to_string()]);
+    }
+}
