@@ -260,14 +260,23 @@ fn build_chunk(
     let source_spans: Vec<SourceSpan> =
         blocks.iter().map(|b| common(b).source_span.clone()).collect();
 
-    // heading_path: pick the first non-Heading block's heading_path; if
-    // every block is a Heading (only the heading itself made it into
-    // this chunk), use that heading's heading_path.
-    let heading_path = blocks
-        .iter()
-        .find(|b| !matches!(b, Block::Heading(_)))
-        .map(|b| common(b).heading_path.clone())
-        .unwrap_or_else(|| common(blocks[0]).heading_path.clone());
+    // heading_path: pick the first non-Heading block's heading_path
+    // (which already includes every parent heading per kb-normalize).
+    // When the FIRST block is a Heading — either a heading-only chunk,
+    // or a chunk that leads with `# H1` immediately followed by another
+    // Heading or atomic block — the Heading block's own
+    // `common.heading_path` records only its *parents* (kb-normalize
+    // does not include a heading inside its own path). We synthesize
+    // the leading heading into the path so the citation context is not
+    // lost on patterns like `# Alpha\n## Beta\n...`.
+    let heading_path = match blocks[0] {
+        Block::Heading(h) => {
+            let mut path = h.common.heading_path.clone();
+            path.push(h.text.clone());
+            path
+        }
+        _ => common(blocks[0]).heading_path.clone(),
+    };
 
     // Text rendering: simple double-newline join of each block's
     // contribution. We deliberately pick a stable, low-fidelity
@@ -433,6 +442,25 @@ mod tests {
     fn heading(level: u8, text: &str, ordinal: u32, line: u32) -> Block {
         Block::Heading(HeadingBlock {
             common: common_for("heading", &[], ordinal, span(line, line)),
+            level,
+            text: text.into(),
+        })
+    }
+
+    /// Heading variant that carries a parent path — kb-normalize stamps
+    /// every block under `# Alpha` with `heading_path = []` for the H1
+    /// itself but `["Alpha"]` for the H2 that follows. Tests covering
+    /// the heading-only chunk path (I2) need that asymmetry.
+    fn heading_with_parents(
+        level: u8,
+        text: &str,
+        parents: &[&str],
+        ordinal: u32,
+        line: u32,
+    ) -> Block {
+        let hp: Vec<String> = parents.iter().map(|s| (*s).into()).collect();
+        Block::Heading(HeadingBlock {
+            common: common_for("heading", &hp, ordinal, span(line, line)),
             level,
             text: text.into(),
         })
@@ -686,5 +714,45 @@ mod tests {
                 .collect();
             assert_eq!(again, baseline);
         }
+    }
+
+    /// I2 regression: when a Heading is followed immediately by another
+    /// Heading or atomic block (no intervening prose), the resulting
+    /// heading-only / heading-led chunk must carry the heading text in
+    /// its own `heading_path`. Pattern: `# Alpha`, `## Beta`, code.
+    ///
+    /// Before the fix, chunk[0] (Heading-only "Alpha") would have
+    /// `heading_path = []` because `kb-normalize` does not stamp a
+    /// heading inside its own path; the chunker fell back to the
+    /// heading's parent path. After the fix it is `["Alpha"]`.
+    ///
+    /// `chunk_id` recipe (`doc_id, chunker_version, block_ids,
+    /// policy_hash`) does NOT include `heading_path`, so this fix does
+    /// NOT shift chunk_ids — only `heading_path` fields.
+    #[test]
+    fn heading_only_chunk_carries_self_in_path() {
+        // # Alpha (H1, no parents)
+        // ## Beta (H2, parent = ["Alpha"])
+        // ```rust ... ``` (code, heading_path = ["Alpha", "Beta"])
+        let blocks = vec![
+            heading_with_parents(1, "Alpha", &[], 0, 1),
+            heading_with_parents(2, "Beta", &["Alpha"], 0, 2),
+            code_block("fn x() {}", &["Alpha", "Beta"], 0, span(3, 3)),
+        ];
+        let doc = make_doc(blocks);
+        let chunks = MdHeadingV1Chunker
+            .chunk(&doc, &default_policy(10_000, 0))
+            .unwrap();
+        // Three chunks: Heading-only Alpha, Heading-only Beta, code.
+        assert_eq!(chunks.len(), 3, "got {chunks:#?}");
+        assert_eq!(chunks[0].heading_path, vec!["Alpha".to_string()]);
+        assert_eq!(
+            chunks[1].heading_path,
+            vec!["Alpha".to_string(), "Beta".to_string()]
+        );
+        assert_eq!(
+            chunks[2].heading_path,
+            vec!["Alpha".to_string(), "Beta".to_string()]
+        );
     }
 }
