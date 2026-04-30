@@ -369,6 +369,88 @@ impl InlineBuf {
 
 }
 
+/// Flatten an emitted block into the inline buffer of an enclosing list
+/// item, preserving content but losing structure. This keeps document
+/// order and avoids "block escapes the list" — the alternative would be
+/// pushing the block to the top-level `blocks` vec, where it appears
+/// after the entire list and out of source order.
+///
+/// Code blocks render as a fenced-text approximation so the language
+/// hint and body survive. Images render as `![alt](src)`. Headings,
+/// tables, quotes, etc. render as their text payload.
+fn flatten_block_into_item(block: &ParsedBlock, inlines: &mut InlineBuf) {
+    match &block.payload {
+        ParsedPayload::Code { lang, code } => {
+            let mut rendered = String::from("\n\n```");
+            if let Some(l) = lang {
+                rendered.push_str(l);
+            }
+            rendered.push('\n');
+            rendered.push_str(code);
+            if !code.ends_with('\n') {
+                rendered.push('\n');
+            }
+            rendered.push_str("```\n");
+            inlines.push_text(&rendered);
+        }
+        ParsedPayload::ImageRef { src, alt } => {
+            inlines.push_text(&format!("![{alt}]({src})"));
+        }
+        ParsedPayload::AudioRef { src } => {
+            inlines.push_text(&format!("[audio]({src})"));
+        }
+        ParsedPayload::Heading { level, text } => {
+            // Render with leading hashes so structure is recognizable.
+            let hashes = "#".repeat((*level as usize).clamp(1, 6));
+            inlines.push_text(&format!("\n{hashes} {text}\n"));
+        }
+        ParsedPayload::Paragraph { text, inlines: child } => {
+            // Paragraphs inside list items normally don't reach this path
+            // (the Start(Tag::Paragraph) handler suppresses creating a
+            // Paragraph frame when the parent is a ListItem). This branch
+            // is defensive — e.g. a paragraph emitted via some future
+            // synthetic-event path.
+            inlines.push_text("\n");
+            for c in child {
+                inlines.push_inline(c.clone());
+            }
+            inlines.text.push_str(text);
+        }
+        ParsedPayload::Quote { text, .. } => {
+            inlines.push_text(&format!("\n> {text}\n"));
+        }
+        ParsedPayload::List { ordered, items } => {
+            // A non-nested-flag List that still ended up inside a ListItem
+            // (shouldn't normally happen — `nested_in_item` flattens at
+            // `End(List)`). Fall back to the same rendering as the nested
+            // path for safety.
+            let mut rendered = String::new();
+            for (i, item) in items.iter().enumerate() {
+                rendered.push('\n');
+                rendered.push_str("  ");
+                if *ordered {
+                    rendered.push_str(&format!("{}. ", i + 1));
+                } else {
+                    rendered.push_str("- ");
+                }
+                rendered.push_str(&flatten_inlines_to_text(item));
+            }
+            inlines.push_text(&rendered);
+        }
+        ParsedPayload::Table { headers, rows } => {
+            // Pipe-table approximation; structure lost, content preserved.
+            let mut rendered = String::from("\n");
+            rendered.push_str(&headers.join(" | "));
+            rendered.push('\n');
+            for row in rows {
+                rendered.push_str(&row.join(" | "));
+                rendered.push('\n');
+            }
+            inlines.push_text(&rendered);
+        }
+    }
+}
+
 fn flatten_inlines_to_text(inlines: &[Inline]) -> String {
     let mut out = String::new();
     for i in inlines {
@@ -446,12 +528,32 @@ impl<'a> WalkState<'a> {
 
     /// Where to emit a finished block: into the current container if any
     /// (Quote / ListItem), otherwise into the top-level `blocks` vec.
+    ///
+    /// Block-level content (code, image, heading, table, ...) inside a list
+    /// item cannot be represented structurally by `ParsedPayload::List`
+    /// (items hold `Vec<Inline>`, not child blocks). To preserve content
+    /// and document order we **flatten** such blocks into a textual
+    /// rendering and append it to the enclosing list item's inline buffer.
+    /// Without this, a code block inside a list item escapes to the
+    /// top-level `blocks` vec — out of order, and detached from its parent.
     fn emit_block(&mut self, block: ParsedBlock) {
         // Find the nearest enclosing container that accepts child blocks.
-        for frame in self.frames.iter_mut().rev() {
-            if let Frame::Quote { children, .. } = frame {
-                children.push(block);
-                return;
+        // Walk in reverse: ListItem and Quote both qualify; we honor
+        // whichever is closer to the top of the frame stack.
+        for idx in (0..self.frames.len()).rev() {
+            match &mut self.frames[idx] {
+                Frame::Quote { children, .. } => {
+                    children.push(block);
+                    return;
+                }
+                Frame::ListItem { inlines } => {
+                    // Render the block as text + inlines and append to the
+                    // item's inline buffer. Document order is preserved
+                    // because we run inside the item's frame.
+                    flatten_block_into_item(&block, inlines);
+                    return;
+                }
+                _ => continue,
             }
         }
         self.blocks.push(block);
@@ -1192,6 +1294,67 @@ mod tests {
                 assert_eq!(flat2.trim(), "b");
             }
             _ => panic!("expected list, got {:?}", blocks[0].payload),
+        }
+    }
+
+    // ---- block content inside list items ------------------------------------
+
+    #[test]
+    fn code_block_inside_list_item_flattens_into_parent() {
+        // Without the routing fix, the code block would escape the list and
+        // appear at top level (in wrong source order).
+        let body = "- item\n\n  ```rust\n  fn f(){}\n  ```\n\n- next\n";
+        let (blocks, _) = parse(body, 1);
+        // Expect a single List block, no escaped Code at top level.
+        assert_eq!(
+            blocks.len(),
+            1,
+            "code should not escape to top level: got {} blocks",
+            blocks.len()
+        );
+        match &blocks[0].payload {
+            ParsedPayload::List { ordered, items } => {
+                assert!(!ordered);
+                assert_eq!(items.len(), 2);
+                let flat = flatten_inlines_to_text(&items[0]);
+                assert!(flat.contains("item"), "first item missing 'item': {flat:?}");
+                assert!(flat.contains("fn f(){}"), "first item missing code body: {flat:?}");
+                assert!(flat.contains("```"), "first item missing fence: {flat:?}");
+                assert_eq!(flatten_inlines_to_text(&items[1]).trim(), "next");
+            }
+            _ => panic!("expected list, got {:?}", blocks[0].payload),
+        }
+    }
+
+    #[test]
+    fn image_inside_list_item_flattens_into_parent() {
+        let body = "- ![alt](pic.png)\n";
+        let (blocks, _) = parse(body, 1);
+        // The image should NOT escape to top level as a standalone ImageRef.
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0].payload {
+            ParsedPayload::List { items, .. } => {
+                assert_eq!(items.len(), 1);
+                let flat = flatten_inlines_to_text(&items[0]);
+                assert!(
+                    flat.contains("![alt](pic.png)") || flat.contains("alt"),
+                    "image should be rendered into item: {flat:?}"
+                );
+            }
+            _ => panic!("expected list, got {:?}", blocks[0].payload),
+        }
+    }
+
+    #[test]
+    fn block_content_in_list_preserves_document_order() {
+        // Two items with code between; the resulting blocks should be in
+        // strictly source order: just one List, no top-level code block.
+        let body = "- a\n\n  ```\n  c\n  ```\n\n- b\n";
+        let (blocks, _) = parse(body, 1);
+        assert_eq!(blocks.len(), 1, "expected single list block");
+        match &blocks[0].kind {
+            kb_parse_types::ParsedBlockKind::List => {}
+            other => panic!("expected list, got {other:?}"),
         }
     }
 
