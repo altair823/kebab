@@ -1,0 +1,13 @@
+[package]
+name          = "kb-parse-types"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "Parser intermediate representations (no parser libs allowed)"
+
+[dependencies]
+kb-core    = { path = "../kb-core" }
+serde      = { workspace = true }
+thiserror  = { workspace = true }
