@@ -93,13 +93,20 @@ impl Citation {
             Some(t) => t,
             None => bail!("citation has no '#' fragment: {s:?}"),
         };
-        let path = WorkspacePath(path_str.to_owned());
+        // `WorkspacePath::new` rejects any remaining `#` on the path side
+        // (e.g. the input had multiple `#` separators), closing the
+        // hash-in-path concern at construction rather than at every reader.
+        let path = WorkspacePath::new(path_str.to_owned())?;
 
         if let Some(rest) = frag.strip_prefix("L") {
             // line range: `L<a>` or `L<a>-L<b>`
             if let Some((a, b)) = rest.split_once("-L") {
-                let start: u32 = a.parse().map_err(|_| anyhow::anyhow!("bad line start"))?;
-                let end: u32 = b.parse().map_err(|_| anyhow::anyhow!("bad line end"))?;
+                let start: u32 = a
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("bad line start in {a:?} (input {s:?})"))?;
+                let end: u32 = b
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("bad line end in {b:?} (input {s:?})"))?;
                 return Ok(Citation::Line {
                     path,
                     start,
@@ -107,7 +114,9 @@ impl Citation {
                     section: None,
                 });
             }
-            let n: u32 = rest.parse().map_err(|_| anyhow::anyhow!("bad line number"))?;
+            let n: u32 = rest
+                .parse()
+                .map_err(|_| anyhow::anyhow!("bad line number in {rest:?} (input {s:?})"))?;
             return Ok(Citation::Line {
                 path,
                 start: n,
@@ -116,7 +125,9 @@ impl Citation {
             });
         }
         if let Some(rest) = frag.strip_prefix("p=") {
-            let page: u32 = rest.parse().map_err(|_| anyhow::anyhow!("bad page number"))?;
+            let page: u32 = rest
+                .parse()
+                .map_err(|_| anyhow::anyhow!("bad page number in {rest:?} (input {s:?})"))?;
             return Ok(Citation::Page {
                 path,
                 page,
@@ -126,12 +137,20 @@ impl Citation {
         if let Some(rest) = frag.strip_prefix("xywh=") {
             let parts: Vec<&str> = rest.split(',').collect();
             if parts.len() != 4 {
-                bail!("xywh= expects 4 comma-separated values: {rest:?}");
+                bail!("xywh= expects 4 comma-separated values, got {rest:?} (input {s:?})");
             }
-            let x: u32 = parts[0].parse().map_err(|_| anyhow::anyhow!("bad xywh.x"))?;
-            let y: u32 = parts[1].parse().map_err(|_| anyhow::anyhow!("bad xywh.y"))?;
-            let w: u32 = parts[2].parse().map_err(|_| anyhow::anyhow!("bad xywh.w"))?;
-            let h: u32 = parts[3].parse().map_err(|_| anyhow::anyhow!("bad xywh.h"))?;
+            let x: u32 = parts[0]
+                .parse()
+                .map_err(|_| anyhow::anyhow!("bad xywh.x in {:?} (input {s:?})", parts[0]))?;
+            let y: u32 = parts[1]
+                .parse()
+                .map_err(|_| anyhow::anyhow!("bad xywh.y in {:?} (input {s:?})", parts[1]))?;
+            let w: u32 = parts[2]
+                .parse()
+                .map_err(|_| anyhow::anyhow!("bad xywh.w in {:?} (input {s:?})", parts[2]))?;
+            let h: u32 = parts[3]
+                .parse()
+                .map_err(|_| anyhow::anyhow!("bad xywh.h in {:?} (input {s:?})", parts[3]))?;
             return Ok(Citation::Region { path, x, y, w, h });
         }
         if frag == "caption" {
@@ -145,13 +164,13 @@ impl Citation {
             let (range, speaker) = match rest.split_once('&') {
                 Some((r, kv)) => match kv.strip_prefix("speaker=") {
                     Some(sp) => (r, Some(sp.to_owned())),
-                    None => bail!("unknown time-fragment param: {kv:?}"),
+                    None => bail!("unknown time-fragment param {kv:?} (input {s:?})"),
                 },
                 None => (rest, None),
             };
             let (s_str, e_str) = match range.split_once(',') {
                 Some(t) => t,
-                None => bail!("time fragment expects '<start>,<end>': {range:?}"),
+                None => bail!("time fragment expects '<start>,<end>', got {range:?} (input {s:?})"),
             };
             let start_ms = parse_hms_ms(s_str)?;
             let end_ms = parse_hms_ms(e_str)?;
@@ -162,7 +181,7 @@ impl Citation {
                 speaker,
             });
         }
-        bail!("unrecognised citation fragment: {frag:?}")
+        bail!("unrecognised citation fragment {frag:?} (input {s:?})")
     }
 }
 
@@ -181,22 +200,32 @@ fn parse_hms_ms(s: &str) -> Result<u64> {
     if parts.len() != 3 {
         bail!("time component expects hh:mm:ss.mmm, got {s:?}");
     }
-    let h: u64 = parts[0].parse().map_err(|_| anyhow::anyhow!("bad hours"))?;
-    let m: u64 = parts[1].parse().map_err(|_| anyhow::anyhow!("bad minutes"))?;
+    let h: u64 = parts[0]
+        .parse()
+        .map_err(|_| anyhow::anyhow!("bad hours in {:?} (input {s:?})", parts[0]))?;
+    let m: u64 = parts[1]
+        .parse()
+        .map_err(|_| anyhow::anyhow!("bad minutes in {:?} (input {s:?})", parts[1]))?;
     let (sec, ms) = match parts[2].split_once('.') {
         Some((s_part, ms_part)) => {
-            let sec: u64 = s_part.parse().map_err(|_| anyhow::anyhow!("bad seconds"))?;
+            let sec: u64 = s_part
+                .parse()
+                .map_err(|_| anyhow::anyhow!("bad seconds in {s_part:?} (input {s:?})"))?;
             // Pad/truncate to exactly 3 digits.
             let mut ms_str = ms_part.to_owned();
             while ms_str.len() < 3 {
                 ms_str.push('0');
             }
             ms_str.truncate(3);
-            let ms: u64 = ms_str.parse().map_err(|_| anyhow::anyhow!("bad milliseconds"))?;
+            let ms: u64 = ms_str
+                .parse()
+                .map_err(|_| anyhow::anyhow!("bad milliseconds in {ms_part:?} (input {s:?})"))?;
             (sec, ms)
         }
         None => {
-            let sec: u64 = parts[2].parse().map_err(|_| anyhow::anyhow!("bad seconds"))?;
+            let sec: u64 = parts[2]
+                .parse()
+                .map_err(|_| anyhow::anyhow!("bad seconds in {:?} (input {s:?})", parts[2]))?;
             (sec, 0)
         }
     };
@@ -208,7 +237,7 @@ mod tests {
     use super::*;
 
     fn p(s: &str) -> WorkspacePath {
-        WorkspacePath(s.to_owned())
+        WorkspacePath::new(s.to_owned()).expect("test paths must not contain '#'")
     }
 
     #[test]
@@ -312,5 +341,17 @@ mod tests {
     #[test]
     fn parse_rejects_unknown_fragment() {
         assert!(Citation::parse("a.md#mystery=1").is_err());
+    }
+
+    /// `rsplit_once('#')` would otherwise leave a `#` on the path side when
+    /// the input contains multiple `#` separators (e.g. someone embeds a
+    /// fake fragment in the path). The `WorkspacePath::new` constructor
+    /// closes that hole at construction time.
+    #[test]
+    fn parse_path_with_hash_rejected_at_to_posix_layer() {
+        // `notes/x#evil.md#L7` — rsplit_once strips `#L7`, leaving
+        // `notes/x#evil.md` on the path side. WorkspacePath::new must reject.
+        let r = Citation::parse("notes/x#evil.md#L7");
+        assert!(r.is_err(), "path with embedded '#' must be rejected");
     }
 }

@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn id_for_doc_pinned() {
         let asset = AssetId("6cb0ef0eb89c63b8b6e76ec53dca6e7d".to_string());
-        let path = WorkspacePath("notes/test.md".to_string());
+        let path = WorkspacePath::new("notes/test.md".to_string()).unwrap();
         let pv = ParserVersion("pulldown-cmark-0.x".to_string());
         let id = id_for_doc(&path, &asset, &pv);
         assert_eq!(id.0, "8547fe58cb42d593fd761d77242401db");
