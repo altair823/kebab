@@ -50,7 +50,7 @@ pub fn to_posix(path: &Path) -> WorkspacePath {
         }
     }
     if out.is_empty() {
-        out.push_str(".");
+        out.push('.');
     }
     WorkspacePath(nfc(&out))
 }

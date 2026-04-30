@@ -3,6 +3,19 @@
 //!
 //! P0 implementations stub out — the signatures are frozen so that later
 //! phases swap in real bodies without breaking call sites.
+//!
+//! ## Wire-schema convention
+//!
+//! `kb-app` returns pure domain types (`IngestReport`, `DocSummary`,
+//! `Chunk`, `SearchHit`, `Answer`, …) re-exported from `kb-core`. These do
+//! NOT carry a `schema_version` field. The CLI (`kb-cli/src/wire.rs`) is
+//! responsible for wrapping each Ok-path return value with the matching
+//! `*.v1` envelope before emitting JSON on stdout in `--json` mode. The
+//! sole exception is [`DoctorReport`], whose `schema_version` is part of
+//! the struct because the doctor wire object IS its own structured
+//! surface (no domain-side equivalent in `kb-core`). When adding a new
+//! facade function in a later phase, remember: keep the return type pure,
+//! and add a matching `wire_*` helper in `kb-cli/src/wire.rs`.
 
 use std::path::PathBuf;
 

@@ -8,6 +8,8 @@ use clap::{Parser, Subcommand};
 
 use kb_app::doctor_signal::{DoctorUnhealthy, NoHitSignal, RefusalSignal};
 
+mod wire;
+
 #[derive(Parser, Debug)]
 #[command(name = "kb", version, about = "personal local knowledge base")]
 struct Cli {
@@ -217,7 +219,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             };
             let report = kb_app::ingest(scope, *summary_only)?;
             if cli.json {
-                println!("{}", serde_json::to_string(&wire_ingest(&report))?);
+                println!("{}", serde_json::to_string(&wire::wire_ingest(&report))?);
             } else {
                 println!(
                     "scanned {}  new {}  updated {}  skipped {}  errors {}  ({} ms)",
@@ -236,7 +238,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             ListWhat::Docs => {
                 let docs = kb_app::list_docs(kb_core::DocFilter::default())?;
                 if cli.json {
-                    println!("{}", serde_json::to_string(&docs)?);
+                    println!("{}", serde_json::to_string(&wire::wire_doc_summaries(&docs))?);
                 } else {
                     for d in &docs {
                         println!("{}\t{}", d.doc_id, d.doc_path.0);
@@ -250,13 +252,18 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             InspectWhat::Doc { id } => {
                 let doc_id: kb_core::DocumentId = id.parse()?;
                 let doc = kb_app::inspect_doc(&doc_id)?;
+                // Inspect doc emits a `CanonicalDocument` — there's no §2
+                // wire schema for it (P1-5 will decide whether this also
+                // becomes a tagged wrapper or stays as the raw domain
+                // object). Until then keep raw JSON, matching pre-P0-1
+                // behaviour.
                 println!("{}", serde_json::to_string(&doc)?);
                 Ok(())
             }
             InspectWhat::Chunk { id } => {
                 let chunk_id: kb_core::ChunkId = id.parse()?;
                 let chunk = kb_app::inspect_chunk(&chunk_id)?;
-                println!("{}", serde_json::to_string(&chunk)?);
+                println!("{}", serde_json::to_string(&wire::wire_chunk_inspection(&chunk))?);
                 Ok(())
             }
         },
@@ -275,7 +282,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             };
             let hits = kb_app::search(q)?;
             if cli.json {
-                println!("{}", serde_json::to_string(&hits)?);
+                println!("{}", serde_json::to_string(&wire::wire_search_hits(&hits))?);
             } else {
                 for h in &hits {
                     println!("{:>2}. {:.2}  {}", h.rank, h.retrieval.fusion_score, h.doc_path.0);
@@ -301,7 +308,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             };
             let ans = kb_app::ask(query, opts)?;
             if cli.json {
-                println!("{}", serde_json::to_string(&ans)?);
+                println!("{}", serde_json::to_string(&wire::wire_answer(&ans))?);
             } else {
                 println!("{}", ans.answer);
             }
@@ -315,7 +322,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
         Cmd::Doctor => {
             let report = kb_app::doctor()?;
             if cli.json {
-                println!("{}", serde_json::to_string(&report)?);
+                println!("{}", serde_json::to_string(&wire::wire_doctor(&report))?);
             } else {
                 for c in &report.checks {
                     let mark = if c.ok { "✓" } else { "✗" };
@@ -344,17 +351,3 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
     }
 }
 
-/// Convenience wrapper to emit `ingest_report.v1` schema_version.
-fn wire_ingest(r: &kb_core::IngestReport) -> serde_json::Value {
-    serde_json::json!({
-        "schema_version": "ingest_report.v1",
-        "scope":      r.scope,
-        "scanned":    r.scanned,
-        "new":        r.new,
-        "updated":    r.updated,
-        "skipped":    r.skipped,
-        "errors":     r.errors,
-        "duration_ms": r.duration_ms,
-        "items":      r.items,
-    })
-}
