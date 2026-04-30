@@ -11,6 +11,7 @@
 //! so a future swap to whichever fork wins (`serde_yml`, `yaml-rust2`, …)
 //! is a one-line dep change.
 
+use std::ops::Range;
 use std::sync::OnceLock;
 
 use kb_core::{Metadata, SourceType, TrustLevel};
@@ -75,15 +76,9 @@ pub fn parse_frontmatter(
 
     let (raw_opt, span_opt) = match detected {
         None => (None, None),
-        Some((delim, span)) => {
-            // SAFETY: detect_delimiters guarantees inner bytes are valid UTF-8
-            // because it scanned for ASCII delimiters and slices on those
-            // boundaries. We still go through `from_utf8` to surface non-ASCII
-            // bytes safely as a malformed-frontmatter warning.
-            let inner_start = span.start + delim.opening_len();
-            let inner_end = span.end - delim.closing_len();
-            let inner = &bytes[inner_start..inner_end];
-            match std::str::from_utf8(inner) {
+        Some((delim, span, inner)) => {
+            let inner_bytes = &bytes[inner.clone()];
+            match std::str::from_utf8(inner_bytes) {
                 Ok(s) => match parse_raw(delim, s) {
                     Ok(raw) => (Some(raw), Some(span)),
                     Err(e) => {
@@ -124,24 +119,6 @@ pub(crate) enum DelimKind {
 }
 
 impl DelimKind {
-    /// Bytes consumed at the start (delimiter line + newline).
-    fn opening_len(self) -> usize {
-        // "---\n" or "+++\n" — both 4 bytes; "---\r\n" handled by detect.
-        match self {
-            DelimKind::Yaml => 4,
-            DelimKind::Toml => 4,
-        }
-    }
-
-    fn closing_len(self) -> usize {
-        // The closing delimiter line itself plus its trailing newline. Same
-        // shape as opening; `detect_delimiters` adjusts for `\r\n`.
-        match self {
-            DelimKind::Yaml => 4,
-            DelimKind::Toml => 4,
-        }
-    }
-
     fn marker(self) -> &'static [u8] {
         match self {
             DelimKind::Yaml => b"---",
@@ -150,76 +127,176 @@ impl DelimKind {
     }
 }
 
+/// UTF-8 BOM. Stripped if present at byte 0; never elsewhere.
+const UTF8_BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
+
 /// Look for a YAML or TOML frontmatter block at the very start of `bytes`.
-/// Returns `(kind, span)` where `span.start = 0` and `span.end` points
-/// just past the closing delimiter's trailing newline (or EOF).
 ///
-/// Anything that isn't an exact `---\n` / `+++\n` opener at byte 0 is treated
-/// as "no frontmatter" — no leading whitespace, no BOM, etc. Per design §0 Q9.
-pub(crate) fn detect_delimiters(bytes: &[u8]) -> Option<(DelimKind, FrontmatterSpan)> {
-    let kind = match bytes.first()? {
-        b'-' if bytes.starts_with(b"---") => DelimKind::Yaml,
-        b'+' if bytes.starts_with(b"+++") => DelimKind::Toml,
+/// Returns `(kind, span, inner_range)` where:
+/// * `span.start` is the offset of the leading delimiter line (after BOM if
+///   any — i.e. `0` on BOM-less input, `3` on BOM-prefixed input). `span.end`
+///   points just past the closing delimiter line's trailing newline (or EOF).
+///   This is the "outer" range callers use for body slicing.
+/// * `inner_range` is the byte range of the YAML/TOML payload between the
+///   delimiter lines, not including either delimiter line nor their EOLs.
+///   This is what gets fed to the YAML/TOML parser.
+///
+/// All offsets are relative to the ORIGINAL `bytes` slice — callers that
+/// hold the original input can use both the span and the inner range
+/// directly without further bookkeeping.
+///
+/// A leading UTF-8 BOM (`EF BB BF`, exactly at byte 0) is tolerated and
+/// skipped; the returned `span.start` accounts for it. Subsequent
+/// BOM-shaped sequences are NOT stripped.
+///
+/// Trailing horizontal whitespace (ASCII spaces / tabs) is permitted on
+/// both the opening and closing delimiter lines: `---  \n` and `---\t\n`
+/// both count as a delimiter. This keeps editors that automatically trim
+/// trailing whitespace from silently breaking otherwise-valid frontmatter,
+/// and matches Hugo / Jekyll behaviour.
+///
+/// Anything else that isn't a delimiter at the very start (leading
+/// whitespace, indentation, prose) is treated as "no frontmatter" per
+/// design §0 Q9.
+pub(crate) fn detect_delimiters(
+    bytes: &[u8],
+) -> Option<(DelimKind, FrontmatterSpan, Range<usize>)> {
+    // Skip a leading UTF-8 BOM, but only at byte 0. The returned offsets
+    // remain relative to the original `bytes`, so we record `bom_offset`
+    // and add it to every position we compute below.
+    let bom_offset = if bytes.starts_with(UTF8_BOM) {
+        UTF8_BOM.len()
+    } else {
+        0
+    };
+    let scan = &bytes[bom_offset..];
+
+    let kind = match scan.first()? {
+        b'-' if scan.starts_with(b"---") => DelimKind::Yaml,
+        b'+' if scan.starts_with(b"+++") => DelimKind::Toml,
         _ => return None,
     };
 
     let marker = kind.marker();
 
-    // Opening line must be just the marker + newline (LF or CRLF). No trailing
-    // chars on the same line are allowed — that's not a frontmatter delimiter.
-    let after_open = match bytes.get(marker.len()) {
-        Some(b'\n') => marker.len() + 1,
-        Some(b'\r') if bytes.get(marker.len() + 1) == Some(&b'\n') => marker.len() + 2,
-        _ => return None,
-    };
+    // Opening line: marker, then optional horizontal whitespace, then EOL.
+    // `line_end_after_marker` returns `None` if a non-whitespace, non-EOL
+    // byte follows the marker — that's not a valid frontmatter opener.
+    let (_open_line_end, after_open_eol) = line_end_after_marker(scan, marker.len())?;
 
-    // Find the closing marker on its own line.
-    // Walk line by line. We need a line that is exactly `marker` (optionally
-    // followed by spaces? per §0 Q9 we keep it strict: marker + EOL only).
-    let mut i = after_open;
-    while i < bytes.len() {
+    let inner_start_in_scan = after_open_eol;
+
+    // Walk lines looking for a closing marker line. A line counts as a
+    // closer if `trim_ascii_end` of it equals the marker.
+    let mut i = after_open_eol;
+    while i < scan.len() {
         let line_start = i;
-        // find next newline (or EOF)
-        let line_end = bytes[line_start..]
+        let nl_pos = scan[line_start..]
             .iter()
             .position(|&b| b == b'\n')
-            .map(|p| line_start + p)
-            .unwrap_or(bytes.len());
-
-        let line = {
-            // trim trailing \r if present (CRLF)
-            let mut end = line_end;
-            if end > line_start && bytes[end.saturating_sub(1)] == b'\r' {
-                end -= 1;
+            .map(|p| line_start + p);
+        let line_content_end = match nl_pos {
+            Some(p) => {
+                // Trim trailing \r if present (CRLF).
+                if p > line_start && scan[p - 1] == b'\r' {
+                    p - 1
+                } else {
+                    p
+                }
             }
-            &bytes[line_start..end]
+            None => scan.len(),
         };
 
-        if line == marker {
-            // Closing delimiter found. Compute span end = line_end + 1 if a
-            // newline is present, else line_end (EOF).
-            let span_end = if line_end < bytes.len() {
-                line_end + 1
-            } else {
-                bytes.len()
+        let line = &scan[line_start..line_content_end];
+        if trim_ascii_end(line) == marker {
+            // Inner ends at the byte before this closing line's start; the
+            // EOL that terminates the previous content line is part of that
+            // line, not of the YAML/TOML payload, so strip one EOL.
+            //
+            // Clamp to `inner_start_in_scan` — when the frontmatter is
+            // empty (`---\n---\n`), the closing line sits directly after
+            // the opening's EOL and there is no preceding content line to
+            // strip from.
+            let inner_end_in_scan =
+                strip_one_trailing_eol(scan, line_start).max(inner_start_in_scan);
+
+            // span.end: just past the closing line's trailing newline (or
+            // EOF if the file ends without one).
+            let span_end_in_scan = match nl_pos {
+                Some(p) => p + 1,
+                None => scan.len(),
             };
+
             return Some((
                 kind,
                 FrontmatterSpan {
-                    start: 0,
-                    end: span_end,
+                    start: bom_offset,
+                    end: span_end_in_scan + bom_offset,
                 },
+                (inner_start_in_scan + bom_offset)..(inner_end_in_scan + bom_offset),
             ));
         }
 
-        if line_end >= bytes.len() {
-            break;
+        match nl_pos {
+            Some(p) => i = p + 1,
+            None => break,
         }
-        i = line_end + 1;
     }
 
     // No closing delimiter — not a frontmatter block.
     None
+}
+
+/// Find the line-end position of the opening delimiter line.
+///
+/// Given `scan` and `start = marker.len()`, returns
+/// `Some((line_content_end, after_eol))` where:
+/// * `line_content_end` is the byte index of the first `\r` (if `\r\n`)
+///   or `\n` ending the opening line — i.e. the slice `scan[marker.len()..line_content_end]`
+///   contains the trailing-whitespace-only region between the marker and
+///   the EOL.
+/// * `after_eol` is the byte index of the first byte of the next line
+///   (i.e. just past the `\n`).
+///
+/// Returns `None` if there is no EOL after the marker (treat as no frontmatter).
+fn line_end_after_marker(scan: &[u8], start: usize) -> Option<(usize, usize)> {
+    let mut i = start;
+    while i < scan.len() {
+        match scan[i] {
+            b'\n' => return Some((i, i + 1)),
+            b'\r' if scan.get(i + 1) == Some(&b'\n') => return Some((i, i + 2)),
+            b' ' | b'\t' => i += 1,
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// `[u8]::trim_ascii_end` requires Rust 1.80; we mirror it here for clarity
+/// and minimum-MSRV portability.
+fn trim_ascii_end(bs: &[u8]) -> &[u8] {
+    let mut end = bs.len();
+    while end > 0 && matches!(bs[end - 1], b' ' | b'\t') {
+        end -= 1;
+    }
+    &bs[..end]
+}
+
+/// Given a position `pos` that points to the start of a line, walk back over
+/// at most one EOL sequence (`\n` or `\r\n`) and return the resulting
+/// position. This trims exactly one terminator off the previous line so the
+/// inner payload doesn't capture the closing delimiter's preceding newline.
+fn strip_one_trailing_eol(scan: &[u8], pos: usize) -> usize {
+    if pos == 0 {
+        return pos;
+    }
+    if scan[pos - 1] == b'\n' {
+        if pos >= 2 && scan[pos - 2] == b'\r' {
+            return pos - 2;
+        }
+        return pos - 1;
+    }
+    pos
 }
 
 // ---------------------------------------------------------------------------
@@ -694,19 +771,22 @@ source_type: alien\n\
     #[test]
     fn detect_delimiters_yaml_basic() {
         let bytes = b"---\nfoo: bar\n---\nbody\n";
-        let (kind, span) = detect_delimiters(bytes).unwrap();
+        let (kind, span, inner) = detect_delimiters(bytes).unwrap();
         assert_eq!(kind, DelimKind::Yaml);
         assert_eq!(span.start, 0);
         // body starts at "body\n" — the closing "---\n" is part of the span.
         assert_eq!(&bytes[span.end..], b"body\n");
+        // inner range covers exactly "foo: bar" (no surrounding EOL).
+        assert_eq!(&bytes[inner], b"foo: bar");
     }
 
     #[test]
     fn detect_delimiters_toml_basic() {
         let bytes = b"+++\nfoo = \"bar\"\n+++\nbody\n";
-        let (kind, span) = detect_delimiters(bytes).unwrap();
+        let (kind, span, inner) = detect_delimiters(bytes).unwrap();
         assert_eq!(kind, DelimKind::Toml);
         assert_eq!(&bytes[span.end..], b"body\n");
+        assert_eq!(&bytes[inner], b"foo = \"bar\"");
     }
 
     #[test]
@@ -730,5 +810,162 @@ source_type: alien\n\
         let en = "Hello there. This document is written in English. The lingua language detector is statistical and works on short text too, given enough words.".as_bytes();
         assert_eq!(detect_lang(ko).as_deref(), Some("ko"));
         assert_eq!(detect_lang(en).as_deref(), Some("en"));
+    }
+
+    // ---- C1: CRLF line endings ------------------------------------------------
+
+    #[test]
+    fn detect_delimiters_crlf_yaml() {
+        let bytes = b"---\r\ntitle: Doc\r\n---\r\nbody\r\n";
+        let (kind, span, inner) = detect_delimiters(bytes).unwrap();
+        assert_eq!(kind, DelimKind::Yaml);
+        assert_eq!(span.start, 0);
+        // span ends just past the CRLF after the closing "---".
+        assert_eq!(&bytes[span.end..], b"body\r\n");
+        // Inner is exactly the YAML payload, sans surrounding EOLs.
+        assert_eq!(&bytes[inner], b"title: Doc");
+    }
+
+    #[test]
+    fn detect_delimiters_crlf_toml() {
+        let bytes = b"+++\r\ntitle = \"Doc\"\r\n+++\r\nbody\r\n";
+        let (kind, span, inner) = detect_delimiters(bytes).unwrap();
+        assert_eq!(kind, DelimKind::Toml);
+        assert_eq!(&bytes[span.end..], b"body\r\n");
+        assert_eq!(&bytes[inner], b"title = \"Doc\"");
+    }
+
+    #[test]
+    fn parse_frontmatter_crlf_yaml_end_to_end() {
+        let bytes = b"---\r\n\
+title: Doc\r\n\
+created_at: 2024-03-01T00:00:00Z\r\n\
+updated_at: 2024-03-02T00:00:00Z\r\n\
+---\r\nbody\r\n";
+        let (meta, span, warns) = parse_frontmatter(bytes, &hints()).unwrap();
+        assert!(warns.is_empty(), "warnings: {warns:?}");
+        assert!(span.is_some());
+        assert_eq!(
+            meta.user.get("title").and_then(|v| v.as_str()),
+            Some("Doc")
+        );
+        assert_eq!(meta.created_at, datetime!(2024-03-01 00:00:00 UTC));
+        assert_eq!(meta.updated_at, datetime!(2024-03-02 00:00:00 UTC));
+    }
+
+    #[test]
+    fn parse_frontmatter_crlf_toml_end_to_end() {
+        let bytes = b"+++\r\n\
+title = \"Doc\"\r\n\
+created_at = \"2024-03-01T00:00:00Z\"\r\n\
++++\r\nbody\r\n";
+        let (meta, span, warns) = parse_frontmatter(bytes, &hints()).unwrap();
+        assert!(warns.is_empty(), "warnings: {warns:?}");
+        assert!(span.is_some());
+        assert_eq!(
+            meta.user.get("title").and_then(|v| v.as_str()),
+            Some("Doc")
+        );
+        assert_eq!(meta.created_at, datetime!(2024-03-01 00:00:00 UTC));
+    }
+
+    /// Mixed-EOL input: opening uses `\n`, closing uses `\r\n` (or vice
+    /// versa). Policy: each line is considered independently, so any
+    /// combination of LF / CRLF parses correctly. This keeps tools that
+    /// edit only one end of a file (e.g. an editor that auto-wraps the
+    /// last line) from breaking otherwise-valid frontmatter.
+    #[test]
+    fn parse_frontmatter_mixed_lf_crlf() {
+        // Opening LF, closing CRLF.
+        let a = b"---\ntitle: A\n---\r\nbody\n";
+        let (meta, _span, warns) = parse_frontmatter(a, &hints()).unwrap();
+        assert!(warns.is_empty(), "case A warnings: {warns:?}");
+        assert_eq!(meta.user.get("title").and_then(|v| v.as_str()), Some("A"));
+
+        // Opening CRLF, closing LF.
+        let b = b"---\r\ntitle: B\r\n---\nbody\n";
+        let (meta, _span, warns) = parse_frontmatter(b, &hints()).unwrap();
+        assert!(warns.is_empty(), "case B warnings: {warns:?}");
+        assert_eq!(meta.user.get("title").and_then(|v| v.as_str()), Some("B"));
+    }
+
+    // ---- I1: trailing whitespace on delimiter lines ---------------------------
+
+    #[test]
+    fn detect_delimiters_yaml_with_trailing_whitespace_on_opener() {
+        let bytes = b"---  \ntitle: x\n---\nbody\n";
+        let (kind, span, inner) = detect_delimiters(bytes).unwrap();
+        assert_eq!(kind, DelimKind::Yaml);
+        assert_eq!(span.start, 0);
+        assert_eq!(&bytes[span.end..], b"body\n");
+        assert_eq!(&bytes[inner], b"title: x");
+    }
+
+    #[test]
+    fn detect_delimiters_yaml_with_trailing_whitespace_on_closer() {
+        let bytes = b"---\ntitle: x\n---  \nbody\n";
+        let (kind, span, inner) = detect_delimiters(bytes).unwrap();
+        assert_eq!(kind, DelimKind::Yaml);
+        assert_eq!(&bytes[span.end..], b"body\n");
+        assert_eq!(&bytes[inner], b"title: x");
+    }
+
+    #[test]
+    fn detect_delimiters_yaml_with_tabs_on_delimiter_line() {
+        let bytes = b"---\t\ntitle: x\n---\nbody\n";
+        let (kind, span, _inner) = detect_delimiters(bytes).unwrap();
+        assert_eq!(kind, DelimKind::Yaml);
+        assert_eq!(&bytes[span.end..], b"body\n");
+    }
+
+    // ---- I2: UTF-8 BOM at file start ------------------------------------------
+
+    #[test]
+    fn detect_delimiters_yaml_with_leading_bom() {
+        let mut bytes = Vec::from([0xEF, 0xBB, 0xBF].as_slice());
+        bytes.extend_from_slice(b"---\ntitle: Doc\n---\nbody\n");
+        let (kind, span, inner) = detect_delimiters(&bytes).unwrap();
+        assert_eq!(kind, DelimKind::Yaml);
+        // Span starts after the BOM (byte 3), not at byte 0.
+        assert_eq!(span.start, 3);
+        // Body slicing using span.end gives the original bytes after the
+        // closing delimiter — no BOM bookkeeping required by callers.
+        assert_eq!(&bytes[span.end..], b"body\n");
+        assert_eq!(&bytes[inner], b"title: Doc");
+    }
+
+    #[test]
+    fn parse_frontmatter_with_leading_bom_full_pipeline() {
+        let mut bytes = Vec::from([0xEF, 0xBB, 0xBF].as_slice());
+        bytes.extend_from_slice(
+            b"---\n\
+title: Doc\n\
+lang: en\n\
+created_at: 2024-03-01T00:00:00Z\n\
+---\nbody\n",
+        );
+        let (meta, span, warns) = parse_frontmatter(&bytes, &hints()).unwrap();
+        assert!(warns.is_empty(), "warnings: {warns:?}");
+        let span = span.expect("span present");
+        assert_eq!(span.start, 3);
+        assert_eq!(
+            meta.user.get("title").and_then(|v| v.as_str()),
+            Some("Doc")
+        );
+        assert_eq!(meta.user.get("lang").and_then(|v| v.as_str()), Some("en"));
+        assert_eq!(meta.created_at, datetime!(2024-03-01 00:00:00 UTC));
+    }
+
+    /// BOM-shaped bytes appearing later in the input are NOT stripped — only
+    /// a BOM at byte 0 of the original input is honoured.
+    #[test]
+    fn detect_delimiters_does_not_strip_mid_input_bom() {
+        // Leading byte is `#`, then a BOM, then a delimiter — there is no
+        // frontmatter here regardless of whether we strip BOM, but pin the
+        // behaviour: detection still fails (no leading marker).
+        let mut bytes = Vec::from(b"# heading\n".as_slice());
+        bytes.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+        bytes.extend_from_slice(b"---\nfoo: bar\n---\n");
+        assert!(detect_delimiters(&bytes).is_none());
     }
 }
