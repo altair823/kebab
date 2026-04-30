@@ -11,6 +11,7 @@
     "heading_path": [
       "Alpha"
     ],
+    "policy_hash": "de6868f3b7949242",
     "source_spans": [
       {
         "end": 1,
@@ -43,6 +44,7 @@
       "Alpha",
       "Alpha Sub"
     ],
+    "policy_hash": "de6868f3b7949242",
     "source_spans": [
       {
         "end": 7,
@@ -69,6 +71,7 @@
       "Alpha",
       "Alpha Sub"
     ],
+    "policy_hash": "de6868f3b7949242",
     "source_spans": [
       {
         "end": 53,
@@ -90,6 +93,7 @@
     "heading_path": [
       "Beta"
     ],
+    "policy_hash": "de6868f3b7949242",
     "source_spans": [
       {
         "end": 55,
@@ -115,6 +119,7 @@
     "heading_path": [
       "Beta"
     ],
+    "policy_hash": "de6868f3b7949242",
     "source_spans": [
       {
         "end": 64,
@@ -135,6 +140,7 @@
     "heading_path": [
       "Beta"
     ],
+    "policy_hash": "de6868f3b7949242",
     "source_spans": [
       {
         "end": 66,
@@ -157,6 +163,7 @@
     "heading_path": [
       "Gamma"
     ],
+    "policy_hash": "de6868f3b7949242",
     "source_spans": [
       {
         "end": 68,
@@ -188,6 +195,7 @@
     "heading_path": [
       "Gamma"
     ],
+    "policy_hash": "de6868f3b7949242",
     "source_spans": [
       {
         "end": 72,

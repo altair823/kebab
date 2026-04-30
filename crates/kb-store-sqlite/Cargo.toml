@@ -1,0 +1,34 @@
+[package]
+name          = "kb-store-sqlite"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "SQLite-backed DocumentStore + JobRepo for kb (§5 DDL, §7.2 traits)"
+
+[dependencies]
+kb-core      = { path = "../kb-core" }
+kb-config    = { path = "../kb-config" }
+# `bundled` ships SQLite source + builds in-tree (no system libsqlite3).
+# Explicitly NOT `bundled-sqlcipher` per task allowed-deps list.
+rusqlite     = { version = "0.32", features = ["bundled"] }
+refinery     = { version = "0.8", features = ["rusqlite"] }
+serde_json   = { workspace = true }
+time         = { workspace = true }
+blake3       = { workspace = true }
+tracing      = { workspace = true }
+anyhow       = { workspace = true }
+thiserror    = { workspace = true }
+
+[dev-dependencies]
+tempfile        = "3"
+serde_json      = { workspace = true }
+# kb-parse-md / kb-normalize / kb-chunk are dev-only — used to build a
+# CanonicalDocument + Vec<Chunk> from a fixture in the contract round-trip
+# test. Forbidden as regular deps per design §8 (store consumes domain
+# types from kb-core only); `cargo tree -p kb-store-sqlite --depth 1`
+# (default scope, excludes dev-deps) confirms this.
+kb-parse-md     = { path = "../kb-parse-md" }
+kb-normalize    = { path = "../kb-normalize" }
+kb-chunk        = { path = "../kb-chunk" }

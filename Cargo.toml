@@ -8,6 +8,7 @@ members = [
     "crates/kb-parse-md",
     "crates/kb-normalize",
     "crates/kb-chunk",
+    "crates/kb-store-sqlite",
     "crates/kb-app",
     "crates/kb-cli",
 ]
