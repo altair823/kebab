@@ -5,6 +5,7 @@ members = [
     "crates/kb-parse-types",
     "crates/kb-config",
     "crates/kb-source-fs",
+    "crates/kb-parse-md",
     "crates/kb-app",
     "crates/kb-cli",
 ]
