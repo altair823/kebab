@@ -27,7 +27,12 @@
       "payload": {
         "kind": "paragraph",
         "text": "intro",
-        "inlines_flat": "intro"
+        "inlines": [
+          {
+            "kind": "text",
+            "text": "intro"
+          }
+        ]
       }
     },
     {
@@ -60,7 +65,12 @@
       "payload": {
         "kind": "paragraph",
         "text": "body of A",
-        "inlines_flat": "body of A"
+        "inlines": [
+          {
+            "kind": "text",
+            "text": "body of A"
+          }
+        ]
       }
     },
     {
@@ -95,7 +105,12 @@
       "payload": {
         "kind": "paragraph",
         "text": "deeper",
-        "inlines_flat": "deeper"
+        "inlines": [
+          {
+            "kind": "text",
+            "text": "deeper"
+          }
+        ]
       }
     },
     {
@@ -128,7 +143,12 @@
       "payload": {
         "kind": "paragraph",
         "text": "body of B",
-        "inlines_flat": "body of B"
+        "inlines": [
+          {
+            "kind": "text",
+            "text": "body of B"
+          }
+        ]
       }
     }
   ],
