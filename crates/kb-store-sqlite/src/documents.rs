@@ -124,6 +124,9 @@ impl kb_core::DocumentStore for SqliteStore {
             // §5.5 has a `section_label` column but the in-memory Chunk
             // struct does not carry it (nor does the wire schema §2.6).
             // Persist NULL until a future bump introduces the field.
+            // TODO(P2/P3): populate `section_label` once Chunk and the
+            // wire schema gain the field; until then NULL is the correct
+            // canonical value.
             stmt.execute(params![
                 chunk.chunk_id.0,
                 chunk.doc_id.0,
@@ -203,6 +206,12 @@ impl kb_core::DocumentStore for SqliteStore {
             metadata,
             provenance,
             parser_version: kb_core::ParserVersion(row.parser_version),
+            // INVARIANT: `doc_version` is bumped by 1 on every re-ingest
+            // (see `upsert_document`). The column is INTEGER (i64) but
+            // CanonicalDocument carries u32; an overflow would require
+            // 2^32 re-ingests of the same document, which is well beyond
+            // any realistic ingest frequency. Truncating cast is safe
+            // under that invariant.
             schema_version: row.schema_version as u32,
             doc_version: row.doc_version as u32,
         }))
