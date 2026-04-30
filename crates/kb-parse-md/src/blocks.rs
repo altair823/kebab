@@ -213,6 +213,20 @@ enum Frame {
     Paragraph {
         range: Range<usize>,
         inlines: InlineBuf,
+        /// Block-level image detection: tracks the single-image-only
+        /// signature `![alt](src)` as a paragraph's *entire* content.
+        ///
+        /// When `Tag::Image` opens, `image_depth` is bumped (>0 ⇒ alt-text
+        /// accumulates into `image_alt` and is suppressed from `inlines`).
+        /// `image_count` records how many distinct images we've seen and
+        /// `non_image_text_seen` flags any other inline content. At
+        /// `End(Paragraph)` the paragraph is lifted to `ImageRef` iff
+        /// `image_count == 1 && !non_image_text_seen`.
+        image_depth: u32,
+        image_count: u32,
+        non_image_text_seen: bool,
+        image_src: Option<String>,
+        image_alt: String,
     },
     Quote {
         range: Range<usize>,
@@ -583,6 +597,11 @@ impl<'a> WalkState<'a> {
                 self.frames.push(Frame::Paragraph {
                     range,
                     inlines: InlineBuf::new(),
+                    image_depth: 0,
+                    image_count: 0,
+                    non_image_text_seen: false,
+                    image_src: None,
+                    image_alt: String::new(),
                 });
             }
             Event::Start(Tag::BlockQuote(_)) => {
@@ -656,18 +675,40 @@ impl<'a> WalkState<'a> {
                 }
             }
             Event::Start(Tag::Strong) => {
+                self.flag_non_image_in_paragraph();
                 self.with_current_inlines(|buf| buf.open_strong());
             }
             Event::Start(Tag::Emphasis) => {
+                self.flag_non_image_in_paragraph();
                 self.with_current_inlines(|buf| buf.open_emph());
             }
             Event::Start(Tag::Link { dest_url, .. }) => {
+                self.flag_non_image_in_paragraph();
                 let href = dest_url.into_string();
                 self.with_current_inlines(|buf| buf.open_link(href));
             }
-            // Block-level image is handled at End — see TagEnd::Image.
-            Event::Start(Tag::Image { .. }) => {
-                // No-op at start; we capture src/title at End.
+            Event::Start(Tag::Image { dest_url, .. }) => {
+                // If we're inside a paragraph, this image becomes a
+                // candidate for block-level lifting. Record its src and
+                // start accumulating the alt text from the upcoming Text
+                // events.
+                if let Some(Frame::Paragraph {
+                    image_depth,
+                    image_count,
+                    image_src,
+                    image_alt,
+                    ..
+                }) = self.frames.last_mut()
+                {
+                    *image_depth += 1;
+                    if *image_count == 0 {
+                        *image_src = Some(dest_url.into_string());
+                        image_alt.clear();
+                    }
+                    *image_count += 1;
+                }
+                // Outside a paragraph (e.g. inside a list item, heading,
+                // table cell): inline images are dropped silently per §3.4.
             }
 
             // ---- Container ends -------------------------------------------------
@@ -710,26 +751,43 @@ impl<'a> WalkState<'a> {
             }
             Event::End(TagEnd::Paragraph) => {
                 if matches!(self.frames.last(), Some(Frame::Paragraph { .. })) {
-                    if let Some(Frame::Paragraph { range, inlines }) = self.frames.pop() {
-                        let (inline_vec, text) = inlines.finish();
-                        // Block-level image: a paragraph whose only content
-                        // is `![alt](src)` becomes ImageRef. Detect by
-                        // scanning the original source for the canonical
-                        // shape.
-                        if let Some((alt, src)) = match_block_image(self.body, &range) {
+                    if let Some(Frame::Paragraph {
+                        range,
+                        inlines,
+                        image_count,
+                        non_image_text_seen,
+                        image_src,
+                        image_alt,
+                        ..
+                    }) = self.frames.pop()
+                    {
+                        // Block-level image lift: paragraph whose only
+                        // content is exactly one `![alt](src)`. Source
+                        // (with optional title), alt, and angle-bracket
+                        // wrapping are all captured by pulldown-cmark from
+                        // the `Tag::Image` event itself, so the title is
+                        // dropped and angle brackets are stripped without
+                        // any byte-level scanning.
+                        if image_count == 1 && !non_image_text_seen {
+                            let span = self.span_for(&range);
                             let block = ParsedBlock {
                                 kind: ParsedBlockKind::ImageRef,
                                 heading_path: self.heading_path(),
-                                source_span: self.span_for(&range),
-                                payload: ParsedPayload::ImageRef { src, alt },
+                                source_span: span,
+                                payload: ParsedPayload::ImageRef {
+                                    src: image_src.unwrap_or_default(),
+                                    alt: image_alt,
+                                },
                             };
                             self.emit_block(block);
                             return;
                         }
+                        let (inline_vec, text) = inlines.finish();
+                        let span = self.span_for(&range);
                         let block = ParsedBlock {
                             kind: ParsedBlockKind::Paragraph,
                             heading_path: self.heading_path(),
-                            source_span: self.span_for(&range),
+                            source_span: span,
                             payload: ParsedPayload::Paragraph { text, inlines: inline_vec },
                         };
                         self.emit_block(block);
@@ -932,8 +990,11 @@ impl<'a> WalkState<'a> {
                 self.with_current_inlines(|buf| buf.close_link());
             }
             Event::End(TagEnd::Image) => {
-                // Inline images are dropped silently. Block-level image refs
-                // are detected at paragraph End, not here.
+                if let Some(Frame::Paragraph { image_depth, .. }) = self.frames.last_mut() {
+                    if *image_depth > 0 {
+                        *image_depth -= 1;
+                    }
+                }
             }
 
             // ---- Leaf events -----------------------------------------------------
@@ -954,6 +1015,32 @@ impl<'a> WalkState<'a> {
                     current_cell.push_str(&s);
                     return;
                 }
+                // If this text is inside a `Tag::Image` opened inside a
+                // paragraph, route it to the image's alt accumulator and
+                // suppress it from the inline buffer (so a paragraph that
+                // is *only* an image doesn't carry the alt as visible
+                // inline text in the fallback case either).
+                if let Some(Frame::Paragraph {
+                    image_depth,
+                    image_alt,
+                    ..
+                }) = self.frames.last_mut()
+                {
+                    if *image_depth > 0 {
+                        image_alt.push_str(&s);
+                        return;
+                    }
+                }
+                // Otherwise: visible non-image content.
+                if let Some(Frame::Paragraph {
+                    non_image_text_seen,
+                    ..
+                }) = self.frames.last_mut()
+                {
+                    if !s.is_empty() {
+                        *non_image_text_seen = true;
+                    }
+                }
                 let owned = s.into_string();
                 self.with_current_inlines(|buf| {
                     buf.push_text(&owned);
@@ -964,6 +1051,19 @@ impl<'a> WalkState<'a> {
                 if let Some(Frame::Table { current_cell, .. }) = self.frames.last_mut() {
                     current_cell.push_str(&s);
                     return;
+                }
+                if let Some(Frame::Paragraph {
+                    non_image_text_seen,
+                    image_depth,
+                    ..
+                }) = self.frames.last_mut()
+                {
+                    // Code inside an image's alt — extremely rare but pin
+                    // behavior: count as visible non-image content so the
+                    // paragraph isn't lifted to ImageRef.
+                    if *image_depth == 0 {
+                        *non_image_text_seen = true;
+                    }
                 }
                 let owned = s.into_string();
                 self.with_current_inlines(|buf| {
@@ -985,6 +1085,22 @@ impl<'a> WalkState<'a> {
             // Everything else (HTML, footnote refs, task list markers, math,
             // rules, etc.) is dropped silently per design §3.4.
             _ => {}
+        }
+    }
+
+    /// If the top frame is an open paragraph that hasn't yet escaped the
+    /// "single image only" signature, mark it as containing visible
+    /// non-image content so it won't be lifted to ImageRef at End.
+    fn flag_non_image_in_paragraph(&mut self) {
+        if let Some(Frame::Paragraph {
+            non_image_text_seen,
+            image_depth,
+            ..
+        }) = self.frames.last_mut()
+        {
+            if *image_depth == 0 {
+                *non_image_text_seen = true;
+            }
         }
     }
 
@@ -1015,38 +1131,6 @@ fn heading_level_to_u8(level: HeadingLevel) -> u8 {
         HeadingLevel::H5 => 5,
         HeadingLevel::H6 => 6,
     }
-}
-
-/// Detect a paragraph whose entire trimmed source is `![alt](src)` — the
-/// canonical "block-level image" shape. Returns `(alt, src)` if so. We do
-/// this by scanning the original bytes (not the inline events) so it stays
-/// robust to pulldown-cmark's internal representation of images.
-fn match_block_image(body: &[u8], range: &Range<usize>) -> Option<(String, String)> {
-    let slice = body.get(range.clone())?;
-    let s = std::str::from_utf8(slice).ok()?.trim();
-    if !s.starts_with("![") {
-        return None;
-    }
-    // Find the closing `]` of the alt text. Markdown does not allow nested
-    // brackets without escaping — for a block-level image we only handle the
-    // simple form. Anything else falls through to ordinary paragraph parsing.
-    let close_bracket = s.find("](")?;
-    let alt = &s[2..close_bracket];
-    // The rest must be `(SRC)` and nothing else.
-    let after = &s[close_bracket + 2..];
-    let close_paren = after.rfind(')')?;
-    if close_paren != after.len() - 1 {
-        return None;
-    }
-    let src = &after[..close_paren];
-    // Reject if alt or src contain a newline — that means the paragraph has
-    // more content beyond the image and isn't a pure block-level image.
-    if alt.contains('\n') || src.contains('\n') {
-        return None;
-    }
-    // Reject brackets/parens inside src — tolerated by CommonMark via
-    // angle-bracket-wrap, but we keep this conservative for now.
-    Some((alt.to_string(), src.to_string()))
 }
 
 // ---------------------------------------------------------------------------
@@ -1307,6 +1391,60 @@ mod tests {
             _ => panic!("expected image ref, got {:?}", blocks[0].payload),
         }
         assert_eq!(blocks[0].kind, ParsedBlockKind::ImageRef);
+    }
+
+    #[test]
+    fn image_with_title_attribute() {
+        // Source includes a title, but pulldown-cmark exposes it
+        // separately on `Tag::Image`; we ignore the title — only `src`
+        // and `alt` survive. Previously the byte-scanner pulled
+        // `src "title"` into `src`.
+        let body = "![alt](src.png \"title\")\n";
+        let (blocks, _) = parse(body, 1);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0].payload {
+            ParsedPayload::ImageRef { src, alt } => {
+                assert_eq!(src, "src.png");
+                assert_eq!(alt, "alt");
+            }
+            _ => panic!("expected image ref, got {:?}", blocks[0].payload),
+        }
+    }
+
+    #[test]
+    fn image_with_angle_bracketed_url() {
+        // `<…>` wrapping is a CommonMark feature for URLs containing
+        // spaces. pulldown-cmark strips the angle brackets and decodes
+        // the URL; we should reflect that.
+        let body = "![alt](<https://x.com/a b>)\n";
+        let (blocks, _) = parse(body, 1);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0].payload {
+            ParsedPayload::ImageRef { src, alt } => {
+                assert_eq!(
+                    src, "https://x.com/a b",
+                    "angle brackets should be stripped"
+                );
+                assert_eq!(alt, "alt");
+            }
+            _ => panic!("expected image ref, got {:?}", blocks[0].payload),
+        }
+    }
+
+    #[test]
+    fn empty_image_alt_and_src() {
+        // Pin behavior on the degenerate `![]()` shape. Both fields are
+        // empty strings; the block is still classified as ImageRef.
+        let body = "![]()\n";
+        let (blocks, _) = parse(body, 1);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0].payload {
+            ParsedPayload::ImageRef { src, alt } => {
+                assert_eq!(src, "");
+                assert_eq!(alt, "");
+            }
+            _ => panic!("expected image ref, got {:?}", blocks[0].payload),
+        }
     }
 
     #[test]
