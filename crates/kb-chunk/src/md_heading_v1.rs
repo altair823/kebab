@@ -1,13 +1,26 @@
 //! `md-heading-v1` — heading-aware Markdown chunker.
 
 use kb_core::{
-    CanonicalDocument, Chunk, ChunkPolicy, Chunker, ChunkerVersion,
+    Block, BlockId, CanonicalDocument, Chunk, ChunkPolicy, Chunker,
+    ChunkerVersion, DocumentId, SourceSpan, id_for_chunk,
 };
 
 /// Version label emitted by [`MdHeadingV1Chunker`]. Bumping this label
 /// invalidates every downstream embedding record (design §9), so any change
 /// must ship with a documented migration plan.
 const VERSION_LABEL: &str = "md-heading-v1";
+
+/// Bytes-per-token proxy. We over-estimate (smaller divisor → larger
+/// token count) so that real tokenizers downstream never see a chunk
+/// exceeding their budget. English averages ~4 bytes/token under BPE,
+/// Korean averages ~3 bytes/token under E5; picking 3 covers both.
+const BYTES_PER_TOKEN: usize = 3;
+
+/// Maximum hex characters of `blake3(canonical_json(policy))` retained
+/// in `policy_hash`. 16 hex chars = 64 bits of policy entropy, which is
+/// far beyond enough to disambiguate the handful of policy variants a
+/// single workspace will see.
+const POLICY_HASH_HEX_LEN: usize = 16;
 
 /// Heading-aware Markdown chunker.
 ///
@@ -48,21 +61,9 @@ const VERSION_LABEL: &str = "md-heading-v1";
 /// constant is deliberately small (3) so the proxy *over*-estimates token
 /// count — chunks sized against this proxy are guaranteed to fit in any
 /// real BPE tokenizer's budget for English (~4 bytes/token) or Korean
-/// (~3 bytes/token under E5/M-BERT). See `BYTES_PER_TOKEN` for rationale.
+/// (~3 bytes/token under E5/M-BERT). See [`BYTES_PER_TOKEN`] for rationale.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MdHeadingV1Chunker;
-
-/// Bytes-per-token proxy. We over-estimate (smaller divisor → larger
-/// token count) so that real tokenizers downstream never see a chunk
-/// exceeding their budget. English averages ~4 bytes/token under BPE,
-/// Korean averages ~3 bytes/token under E5; picking 3 covers both.
-const BYTES_PER_TOKEN: usize = 3;
-
-/// Maximum hex characters of `blake3(canonical_json(policy))` retained
-/// in `policy_hash`. 16 hex chars = 64 bits of policy entropy, which is
-/// far beyond enough to disambiguate the handful of policy variants a
-/// single workspace will see.
-const POLICY_HASH_HEX_LEN: usize = 16;
 
 impl Chunker for MdHeadingV1Chunker {
     fn chunker_version(&self) -> ChunkerVersion {
@@ -78,16 +79,436 @@ impl Chunker for MdHeadingV1Chunker {
 
     fn chunk(
         &self,
-        _doc: &CanonicalDocument,
-        _policy: &ChunkPolicy,
+        doc: &CanonicalDocument,
+        policy: &ChunkPolicy,
     ) -> anyhow::Result<Vec<Chunk>> {
-        Ok(Vec::new())
+        let policy_hash = self.policy_hash(policy);
+        let chunker_version = self.chunker_version();
+        let mut out: Vec<Chunk> = Vec::new();
+
+        // Running accumulator: the paragraphs/lists/quotes (and the
+        // optional leading heading) that will be glued into the next
+        // emitted chunk.
+        let mut acc = ChunkAcc::default();
+
+        for block in &doc.blocks {
+            match block {
+                Block::Heading(_) => {
+                    // §0/§14 priority 1: heading is a hard boundary.
+                    // Flush whatever has accumulated, then seed a new
+                    // accumulator that owns this heading.
+                    flush(&mut acc, doc, &chunker_version, &policy_hash, &mut out);
+                    acc.push_block(block);
+                }
+                Block::Code(_) | Block::Table(_) => {
+                    // Atomic non-splittable text blocks. Flush running
+                    // accumulator, then emit the atomic block as its
+                    // own chunk. (Code never splits per priority 2;
+                    // tables stay single per priority 3.)
+                    flush(&mut acc, doc, &chunker_version, &policy_hash, &mut out);
+                    let mut single = ChunkAcc::default();
+                    single.push_block(block);
+                    flush(&mut single, doc, &chunker_version, &policy_hash, &mut out);
+                }
+                Block::ImageRef(_) | Block::AudioRef(_) => {
+                    // Independent searchable artifacts. token_estimate=0
+                    // is enforced inside `build_chunk` for these kinds.
+                    flush(&mut acc, doc, &chunker_version, &policy_hash, &mut out);
+                    let mut single = ChunkAcc::default();
+                    single.push_block(block);
+                    flush(&mut single, doc, &chunker_version, &policy_hash, &mut out);
+                }
+                Block::Paragraph(_) | Block::List(_) | Block::Quote(_) => {
+                    // Soft-split candidates. If adding this block would
+                    // exceed target_tokens (and we already have at least
+                    // one non-heading block in the accumulator), emit
+                    // the current chunk and seed the next one with
+                    // overlap from the prior tail.
+                    let next_tokens = estimate_block_tokens(block);
+                    let would_exceed = acc.text_tokens + next_tokens
+                        > policy.target_tokens
+                        && acc.has_non_heading_content();
+                    if would_exceed {
+                        let overlap_seed = collect_overlap_seed(
+                            &acc,
+                            policy.overlap_tokens,
+                        );
+                        flush(
+                            &mut acc,
+                            doc,
+                            &chunker_version,
+                            &policy_hash,
+                            &mut out,
+                        );
+                        // Seed next accumulator with the prior chunk's
+                        // tail blocks (paragraph-level overlap). The
+                        // heading is *not* re-included here — it lives
+                        // on the prior chunk. The follow-on chunk's
+                        // heading_path is taken from the first seeded
+                        // block (which carries the same path, as it sat
+                        // under the same heading).
+                        for b in overlap_seed {
+                            acc.push_block(b);
+                        }
+                    }
+                    acc.push_block(block);
+                }
+            }
+        }
+        flush(&mut acc, doc, &chunker_version, &policy_hash, &mut out);
+
+        tracing::debug!(
+            target: "kb-chunk",
+            doc_id = %doc.doc_id,
+            chunks = out.len(),
+            "md-heading-v1 chunked",
+        );
+
+        Ok(out)
+    }
+}
+
+/// Internal accumulator: pointers to blocks (lifetime-bound to the
+/// `CanonicalDocument`) plus the running token estimate of their text.
+#[derive(Default)]
+struct ChunkAcc<'a> {
+    blocks: Vec<&'a Block>,
+    text_tokens: usize,
+}
+
+impl<'a> ChunkAcc<'a> {
+    fn push_block(&mut self, b: &'a Block) {
+        self.text_tokens += estimate_block_tokens(b);
+        self.blocks.push(b);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
+    }
+
+    /// True if any non-heading block sits in the accumulator. Used to
+    /// avoid splitting a chunk that contains only its leading heading
+    /// (which would emit a heading-only chunk before any prose).
+    fn has_non_heading_content(&self) -> bool {
+        self.blocks.iter().any(|b| !matches!(b, Block::Heading(_)))
+    }
+}
+
+/// Drain `acc` into a fresh `Chunk` and push to `out`. No-op when empty.
+fn flush(
+    acc: &mut ChunkAcc<'_>,
+    doc: &CanonicalDocument,
+    chunker_version: &ChunkerVersion,
+    policy_hash: &str,
+    out: &mut Vec<Chunk>,
+) {
+    if acc.is_empty() {
+        return;
+    }
+    let blocks = std::mem::take(&mut acc.blocks);
+    acc.text_tokens = 0;
+    out.push(build_chunk(doc, &blocks, chunker_version, policy_hash));
+}
+
+/// Collect the trailing blocks of `acc` (in document order) whose
+/// combined token estimate fits under `overlap_tokens`. The heading
+/// block (if it leads the accumulator) is excluded from the seed —
+/// re-emitting the heading would conflate it with the next chunk's
+/// own heading_path provenance.
+fn collect_overlap_seed<'a>(
+    acc: &ChunkAcc<'a>,
+    overlap_tokens: usize,
+) -> Vec<&'a Block> {
+    if overlap_tokens == 0 {
+        return Vec::new();
+    }
+    let mut taken = Vec::new();
+    let mut budget = overlap_tokens;
+    for b in acc.blocks.iter().rev() {
+        if matches!(b, Block::Heading(_)) {
+            // Don't propagate the heading itself into the next chunk;
+            // its `heading_path` carries naturally on the next blocks
+            // (kb-normalize stamps every block under a heading with
+            // that heading's path).
+            continue;
+        }
+        let est = estimate_block_tokens(b);
+        if est > budget && !taken.is_empty() {
+            break;
+        }
+        taken.push(*b);
+        budget = budget.saturating_sub(est);
+        if budget == 0 {
+            break;
+        }
+    }
+    taken.reverse();
+    taken
+}
+
+/// Construct a `Chunk` from a non-empty contiguous slice of blocks.
+fn build_chunk(
+    doc: &CanonicalDocument,
+    blocks: &[&Block],
+    chunker_version: &ChunkerVersion,
+    policy_hash: &str,
+) -> Chunk {
+    debug_assert!(!blocks.is_empty(), "build_chunk requires ≥1 block");
+
+    let block_ids: Vec<BlockId> =
+        blocks.iter().map(|b| common(b).block_id.clone()).collect();
+    let source_spans: Vec<SourceSpan> =
+        blocks.iter().map(|b| common(b).source_span.clone()).collect();
+
+    // heading_path: pick the first non-Heading block's heading_path; if
+    // every block is a Heading (only the heading itself made it into
+    // this chunk), use that heading's heading_path.
+    let heading_path = blocks
+        .iter()
+        .find(|b| !matches!(b, Block::Heading(_)))
+        .map(|b| common(b).heading_path.clone())
+        .unwrap_or_else(|| common(blocks[0]).heading_path.clone());
+
+    // Text rendering: simple double-newline join of each block's
+    // contribution. We deliberately pick a stable, low-fidelity
+    // representation — embedding-quality rewrites land in P3.
+    let mut text = String::new();
+    let mut is_image_or_audio_only = true;
+    for (i, b) in blocks.iter().enumerate() {
+        let part = render_block_text(b);
+        if !matches!(b, Block::ImageRef(_) | Block::AudioRef(_)) {
+            is_image_or_audio_only = false;
+        }
+        if i > 0 {
+            text.push_str("\n\n");
+        }
+        text.push_str(&part);
+    }
+
+    let token_estimate = if is_image_or_audio_only {
+        0
+    } else {
+        // Token estimate is bytes / BYTES_PER_TOKEN, rounded up so the
+        // proxy never under-counts.
+        text.len().div_ceil(BYTES_PER_TOKEN)
+    };
+
+    let chunk_id = id_for_chunk(
+        &doc.doc_id,
+        chunker_version,
+        &block_ids,
+        policy_hash,
+    );
+
+    Chunk {
+        chunk_id,
+        doc_id: DocumentId(doc.doc_id.0.clone()),
+        block_ids,
+        text,
+        heading_path,
+        source_spans,
+        token_estimate,
+        chunker_version: chunker_version.clone(),
+    }
+}
+
+/// Render a block's contribution to a chunk's `text`. The rendering is
+/// deliberately minimal — embedding-time normalization is a P3 concern.
+fn render_block_text(b: &Block) -> String {
+    match b {
+        Block::Heading(h) => h.text.clone(),
+        Block::Paragraph(p) | Block::Quote(p) => p.text.clone(),
+        Block::List(l) => l
+            .items
+            .iter()
+            .map(|it| it.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Block::Code(c) => c.code.clone(),
+        Block::Table(t) => {
+            // Headers row joined with " | ", then each row likewise.
+            let mut s = t.headers.join(" | ");
+            for row in &t.rows {
+                s.push('\n');
+                s.push_str(&row.join(" | "));
+            }
+            s
+        }
+        // ImageRef text portion = alt (per task spec). Fall back to
+        // model caption text if alt is empty.
+        Block::ImageRef(i) => {
+            if !i.alt.is_empty() {
+                i.alt.clone()
+            } else {
+                i.caption
+                    .as_ref()
+                    .map(|c| c.text.clone())
+                    .unwrap_or_default()
+            }
+        }
+        // AudioRef has no caption preview yet (transcript joins land
+        // in P8). Empty string per task spec.
+        Block::AudioRef(_) => String::new(),
+    }
+}
+
+fn estimate_block_tokens(b: &Block) -> usize {
+    match b {
+        // ImageRef / AudioRef contribute 0 — they are independent
+        // chunks and never participate in size accounting.
+        Block::ImageRef(_) | Block::AudioRef(_) => 0,
+        _ => render_block_text(b).len().div_ceil(BYTES_PER_TOKEN),
+    }
+}
+
+/// Borrow the `CommonBlock` of any [`Block`] variant.
+fn common(b: &Block) -> &kb_core::CommonBlock {
+    match b {
+        Block::Heading(h) => &h.common,
+        Block::Paragraph(t) | Block::Quote(t) => &t.common,
+        Block::List(l) => &l.common,
+        Block::Code(c) => &c.common,
+        Block::Table(t) => &t.common,
+        Block::ImageRef(i) => &i.common,
+        Block::AudioRef(a) => &a.common,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kb_core::{
+        AssetId, CodeBlock, CommonBlock, HeadingBlock, ImageRefBlock, Lang,
+        Metadata, Provenance, SourceType, TableBlock, TextBlock, TrustLevel,
+        WorkspacePath, id_for_block,
+    };
+    use time::OffsetDateTime;
+
+    fn make_doc(blocks: Vec<Block>) -> CanonicalDocument {
+        CanonicalDocument {
+            doc_id: kb_core::DocumentId("d".repeat(32)),
+            source_asset_id: AssetId("a".repeat(32)),
+            workspace_path: WorkspacePath::new("notes/test.md".into()).unwrap(),
+            title: "Test".into(),
+            lang: Lang("en".into()),
+            blocks,
+            metadata: Metadata {
+                aliases: vec![],
+                tags: vec![],
+                created_at: OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap(),
+                updated_at: OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap(),
+                source_type: SourceType::Note,
+                trust_level: TrustLevel::Primary,
+                user_id_alias: None,
+                user: Default::default(),
+            },
+            provenance: Provenance { events: vec![] },
+            parser_version: kb_core::ParserVersion("test-parser-0".into()),
+            schema_version: 1,
+            doc_version: 1,
+        }
+    }
+
+    fn doc_id() -> kb_core::DocumentId {
+        kb_core::DocumentId("d".repeat(32))
+    }
+
+    fn span(start: u32, end: u32) -> SourceSpan {
+        SourceSpan::Line { start, end }
+    }
+
+    fn common_for(
+        kind: &str,
+        heading_path: &[String],
+        ordinal: u32,
+        s: SourceSpan,
+    ) -> CommonBlock {
+        CommonBlock {
+            block_id: id_for_block(&doc_id(), kind, heading_path, ordinal, &s),
+            heading_path: heading_path.to_vec(),
+            source_span: s,
+        }
+    }
+
+    fn heading(level: u8, text: &str, ordinal: u32, line: u32) -> Block {
+        Block::Heading(HeadingBlock {
+            common: common_for("heading", &[], ordinal, span(line, line)),
+            level,
+            text: text.into(),
+        })
+    }
+
+    fn paragraph(
+        text: &str,
+        heading_path: &[&str],
+        ordinal: u32,
+        line: u32,
+    ) -> Block {
+        let hp: Vec<String> = heading_path.iter().map(|s| (*s).into()).collect();
+        Block::Paragraph(TextBlock {
+            common: common_for("paragraph", &hp, ordinal, span(line, line)),
+            text: text.into(),
+            inlines: vec![],
+        })
+    }
+
+    fn code_block(
+        code: &str,
+        heading_path: &[&str],
+        ordinal: u32,
+        s: SourceSpan,
+    ) -> Block {
+        let hp: Vec<String> = heading_path.iter().map(|s| (*s).into()).collect();
+        Block::Code(CodeBlock {
+            common: common_for("code", &hp, ordinal, s),
+            lang: Some("rust".into()),
+            code: code.into(),
+        })
+    }
+
+    fn table(
+        headers: Vec<&str>,
+        rows: Vec<Vec<&str>>,
+        heading_path: &[&str],
+        ordinal: u32,
+        s: SourceSpan,
+    ) -> Block {
+        let hp: Vec<String> = heading_path.iter().map(|s| (*s).into()).collect();
+        Block::Table(TableBlock {
+            common: common_for("table", &hp, ordinal, s),
+            headers: headers.into_iter().map(String::from).collect(),
+            rows: rows
+                .into_iter()
+                .map(|r| r.into_iter().map(String::from).collect())
+                .collect(),
+        })
+    }
+
+    fn image_ref(
+        alt: &str,
+        heading_path: &[&str],
+        ordinal: u32,
+        line: u32,
+    ) -> Block {
+        let hp: Vec<String> = heading_path.iter().map(|s| (*s).into()).collect();
+        Block::ImageRef(ImageRefBlock {
+            common: common_for("imageref", &hp, ordinal, span(line, line)),
+            asset_id: None,
+            src: "img.png".into(),
+            alt: alt.into(),
+            ocr: None,
+            caption: None,
+        })
+    }
+
+    fn default_policy(target: usize, overlap: usize) -> ChunkPolicy {
+        ChunkPolicy {
+            target_tokens: target,
+            overlap_tokens: overlap,
+            respect_markdown_headings: true,
+            chunker_version: ChunkerVersion(VERSION_LABEL.into()),
+        }
+    }
 
     #[test]
     fn chunker_version_is_md_heading_v1() {
@@ -99,14 +520,9 @@ mod tests {
 
     #[test]
     fn policy_hash_is_deterministic_and_16_hex() {
-        let policy = ChunkPolicy {
-            target_tokens: 500,
-            overlap_tokens: 80,
-            respect_markdown_headings: true,
-            chunker_version: ChunkerVersion(VERSION_LABEL.to_string()),
-        };
-        let h1 = MdHeadingV1Chunker.policy_hash(&policy);
-        let h2 = MdHeadingV1Chunker.policy_hash(&policy);
+        let p = default_policy(500, 80);
+        let h1 = MdHeadingV1Chunker.policy_hash(&p);
+        let h2 = MdHeadingV1Chunker.policy_hash(&p);
         assert_eq!(h1, h2);
         assert_eq!(h1.len(), POLICY_HASH_HEX_LEN);
         assert!(h1.bytes().all(|b| b.is_ascii_hexdigit()));
@@ -114,21 +530,161 @@ mod tests {
 
     #[test]
     fn policy_hash_differs_when_policy_differs() {
-        let p1 = ChunkPolicy {
-            target_tokens: 500,
-            overlap_tokens: 80,
-            respect_markdown_headings: true,
-            chunker_version: ChunkerVersion(VERSION_LABEL.to_string()),
-        };
-        let p2 = ChunkPolicy {
-            target_tokens: 500,
-            overlap_tokens: 0, // <-- only this differs
-            respect_markdown_headings: true,
-            chunker_version: ChunkerVersion(VERSION_LABEL.to_string()),
-        };
+        let p1 = default_policy(500, 80);
+        let p2 = default_policy(500, 0);
         assert_ne!(
             MdHeadingV1Chunker.policy_hash(&p1),
             MdHeadingV1Chunker.policy_hash(&p2)
         );
+    }
+
+    /// Heading boundary respected: two H2 sections produce separate
+    /// chunks; no chunk's block_ids straddle the H2→H2 boundary.
+    #[test]
+    fn heading_boundary_respected() {
+        let blocks = vec![
+            heading(2, "First", 0, 1),
+            paragraph("body of first", &["First"], 0, 2),
+            heading(2, "Second", 1, 3),
+            paragraph("body of second", &["Second"], 0, 4),
+        ];
+        let doc = make_doc(blocks);
+        let chunks = MdHeadingV1Chunker
+            .chunk(&doc, &default_policy(10_000, 0))
+            .unwrap();
+        assert_eq!(chunks.len(), 2);
+        // First chunk = (heading "First", paragraph)
+        assert_eq!(chunks[0].block_ids.len(), 2);
+        // Second chunk = (heading "Second", paragraph)
+        assert_eq!(chunks[1].block_ids.len(), 2);
+        // heading_path on chunk 0 belongs to "First" section.
+        assert_eq!(chunks[0].heading_path, vec!["First".to_string()]);
+        assert_eq!(chunks[1].heading_path, vec!["Second".to_string()]);
+    }
+
+    /// A code block of ~800 tokens (≈2400 bytes) stays in a single
+    /// chunk even when target=500.
+    #[test]
+    fn code_block_never_splits() {
+        // 2400 bytes ≈ 800 tokens at BYTES_PER_TOKEN=3.
+        let big = "x".repeat(2400);
+        let blocks = vec![code_block(&big, &[], 0, span(1, 50))];
+        let doc = make_doc(blocks);
+        let chunks = MdHeadingV1Chunker
+            .chunk(&doc, &default_policy(500, 80))
+            .unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].block_ids.len(), 1);
+        assert!(chunks[0].token_estimate > 500);
+    }
+
+    /// A table of size < 2× target stays in a single chunk.
+    #[test]
+    fn table_stays_single_chunk_when_small() {
+        let t = table(
+            vec!["a", "b", "c"],
+            vec![vec!["1", "2", "3"], vec!["4", "5", "6"]],
+            &[],
+            0,
+            span(1, 4),
+        );
+        let blocks = vec![t];
+        let doc = make_doc(blocks);
+        let chunks = MdHeadingV1Chunker
+            .chunk(&doc, &default_policy(500, 80))
+            .unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].block_ids.len(), 1);
+    }
+
+    /// A long sequence of paragraphs splits at target_tokens with
+    /// overlap_tokens worth of seeded paragraph from the prior chunk.
+    #[test]
+    fn long_section_splits_with_overlap() {
+        // Each paragraph is 60 bytes ≈ 20 tokens. target=50, overlap=20
+        // → after ~3 paragraphs we hit the target; the next chunk
+        // starts seeded with one paragraph from the prior tail.
+        let mut bs = vec![heading(2, "Long", 0, 1)];
+        for i in 0..6u32 {
+            bs.push(paragraph(&"x".repeat(60), &["Long"], i, i + 2));
+        }
+        let doc = make_doc(bs);
+        let chunks = MdHeadingV1Chunker
+            .chunk(&doc, &default_policy(50, 20))
+            .unwrap();
+        assert!(
+            chunks.len() >= 2,
+            "expected ≥2 chunks, got {}: {chunks:#?}",
+            chunks.len()
+        );
+        // Every chunk lives under the same heading_path "Long".
+        for c in &chunks {
+            assert_eq!(c.heading_path, vec!["Long".to_string()]);
+        }
+        // Overlap propagates: the last block_id of chunk N appears in
+        // chunk N+1's block_ids (paragraph-level overlap rule).
+        for w in chunks.windows(2) {
+            let prev_tail = w[0].block_ids.last().unwrap();
+            assert!(
+                w[1].block_ids.contains(prev_tail),
+                "chunk N+1 must seed from chunk N's tail; \
+                 prev_tail={prev_tail:?}, next ids={:?}",
+                w[1].block_ids
+            );
+        }
+    }
+
+    /// ImageRef → own chunk, token_estimate=0.
+    #[test]
+    fn image_ref_emits_own_chunk_zero_tokens() {
+        let blocks = vec![
+            heading(2, "With image", 0, 1),
+            paragraph("intro", &["With image"], 0, 2),
+            image_ref("a cat", &["With image"], 0, 3),
+            paragraph("after", &["With image"], 1, 4),
+        ];
+        let doc = make_doc(blocks);
+        let chunks = MdHeadingV1Chunker
+            .chunk(&doc, &default_policy(10_000, 0))
+            .unwrap();
+        // Expect: (heading + intro), (image), (after). The image must
+        // be its own chunk and carry token_estimate=0.
+        assert!(chunks.len() >= 3, "unexpected chunk count: {chunks:#?}");
+        let img_chunk = chunks
+            .iter()
+            .find(|c| c.text == "a cat")
+            .expect("image chunk present");
+        assert_eq!(img_chunk.token_estimate, 0);
+        assert_eq!(img_chunk.block_ids.len(), 1);
+    }
+
+    /// Identical input + identical policy → identical chunk_ids over
+    /// 1000 iterations.
+    #[test]
+    fn deterministic_chunk_ids_1000() {
+        let blocks = vec![
+            heading(2, "Det", 0, 1),
+            paragraph("body 1", &["Det"], 0, 2),
+            paragraph("body 2", &["Det"], 1, 3),
+            heading(2, "Det 2", 1, 4),
+            paragraph("body 3", &["Det 2"], 0, 5),
+        ];
+        let doc = make_doc(blocks);
+        let policy = default_policy(50, 10);
+        let baseline: Vec<String> = MdHeadingV1Chunker
+            .chunk(&doc, &policy)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.chunk_id.0)
+            .collect();
+        for _ in 0..1000 {
+            let again: Vec<String> = MdHeadingV1Chunker
+                .chunk(&doc, &policy)
+                .unwrap()
+                .into_iter()
+                .map(|c| c.chunk_id.0)
+                .collect();
+            assert_eq!(again, baseline);
+        }
     }
 }
