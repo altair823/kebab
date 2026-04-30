@@ -158,7 +158,9 @@ fn main() -> ExitCode {
     } else {
         kb_app::logging::LogLevel::Default
     };
-    let _log_guard = kb_app::logging::init(level).ok().flatten();
+    // Fail-soft: if logging init errors (e.g. XDG state dir is read-only),
+    // proceed without a guard rather than crashing — `kb` is still usable.
+    let _log_guard = kb_app::logging::init(level).ok();
     match run(&cli) {
         Ok(()) => ExitCode::from(0),
         Err(e) => {

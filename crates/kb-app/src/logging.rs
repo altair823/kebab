@@ -16,8 +16,9 @@ pub enum LogLevel {
 }
 
 /// Initialize tracing. Returns a guard to keep alive until exit. Idempotent
-/// — a second call is a no-op.
-pub fn init(level: LogLevel) -> Result<Option<WorkerGuard>> {
+/// — a second call is a no-op (the second `try_init` is dropped silently
+/// but the guard is still returned so the caller can keep it alive).
+pub fn init(level: LogLevel) -> Result<WorkerGuard> {
     let log_dir = kb_config::Config::xdg_state_dir().join("logs");
     std::fs::create_dir_all(&log_dir)?;
 
@@ -38,5 +39,5 @@ pub fn init(level: LogLevel) -> Result<Option<WorkerGuard>> {
     // no-op.
     let _ = registry.try_init();
 
-    Ok(Some(guard))
+    Ok(guard)
 }
