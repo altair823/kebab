@@ -797,6 +797,15 @@ impl<'a> WalkState<'a> {
             Event::End(TagEnd::BlockQuote(_)) => {
                 if let Some(Frame::Quote { range, children }) = self.frames.pop() {
                     // Concatenate child text for the Quote payload.
+                    //
+                    // TODO(P1-future): `ParsedPayload::Quote { text, inlines }`
+                    // cannot represent block-level children structurally
+                    // (lists, code, tables, images), so they are silently
+                    // dropped here. Only Paragraph / Quote / Heading text
+                    // contributes to the assembled `text`. This matches
+                    // §3.4 for now but should be revisited when Quote
+                    // grows a `children: Vec<ParsedBlock>` field — see
+                    // pin test `quote_with_list_inside_drops_list`.
                     let mut text = String::new();
                     let mut inlines: Vec<Inline> = Vec::new();
                     for c in &children {
@@ -1500,6 +1509,32 @@ mod tests {
                 assert_eq!(flat2.trim(), "b");
             }
             _ => panic!("expected list, got {:?}", blocks[0].payload),
+        }
+    }
+
+    // ---- quote child handling (pinned) --------------------------------------
+
+    /// Pins current behavior: a list inside a blockquote contributes nothing
+    /// to the Quote's text/inlines because `ParsedPayload::Quote` cannot
+    /// represent non-text/non-paragraph block children. The list itself is
+    /// also not retained as a separate block — it lives only in the popped
+    /// `Frame::Quote.children` and is dropped. Tracked in TODO(P1-future)
+    /// near the Quote emission code.
+    #[test]
+    fn quote_with_list_inside_drops_list() {
+        let body = "> - a\n> - b\n";
+        let (blocks, _) = parse(body, 1);
+        // Exactly one Quote block, with empty text/inlines.
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0].payload {
+            ParsedPayload::Quote { text, inlines } => {
+                assert_eq!(text, "", "list content should not appear in quote text");
+                assert!(
+                    inlines.is_empty(),
+                    "list content should not appear in quote inlines"
+                );
+            }
+            _ => panic!("expected quote, got {:?}", blocks[0].payload),
         }
     }
 
