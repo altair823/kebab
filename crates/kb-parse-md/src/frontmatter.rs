@@ -367,15 +367,9 @@ fn derive_metadata(
     };
 
     // ---- id alias ----
-    // `id:` field becomes `metadata.user_id_alias` AND is mirrored into the
-    // user map under `user_id_alias` (per design §4.2 — not a doc_id factor).
+    // `id:` field becomes `metadata.user_id_alias` only (spec §"Behavior
+    // contract" line 74). It is NOT mirrored into the user map.
     let user_id_alias = raw.id;
-    if let Some(ref id) = user_id_alias {
-        user.insert(
-            "user_id_alias".to_string(),
-            Value::String(id.clone()),
-        );
-    }
 
     Metadata {
         aliases,

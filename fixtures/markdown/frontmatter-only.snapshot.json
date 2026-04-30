@@ -22,8 +22,7 @@
       "original_timestamps": {
         "created_at": "2024-01-15T10:00:00+09:00"
       },
-      "title": "Frontmatter Only",
-      "user_id_alias": "my-stable-handle"
+      "title": "Frontmatter Only"
     }
   },
   "span_present": true,
