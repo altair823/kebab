@@ -525,4 +525,68 @@ mod tests {
         assert!(!doc.metadata.user.contains_key("lang"));
         assert!(doc.metadata.user.contains_key("custom"));
     }
+
+    /// Determinism property: 1000 iterations of `build_canonical_document`
+    /// over identical inputs produce byte-identical JSON, modulo the two
+    /// non-deterministic `now_utc()` timestamps for the Parsed/Normalized
+    /// events. We strip those timestamps before comparing. Must finish
+    /// within 1 second.
+    #[test]
+    fn determinism_1000_iterations_under_1s() {
+        let asset = fixture_asset();
+        let metadata = fixture_metadata();
+        let pv = parser_version();
+
+        // Helper: serialize and replace the two now_utc-derived timestamps
+        // (Parsed + Normalized + any Warning events) with a sentinel so
+        // the comparison only checks the deterministic fields.
+        fn strip_dynamic_at(doc: &CanonicalDocument) -> Value {
+            let mut v = serde_json::to_value(doc).unwrap();
+            if let Some(events) = v
+                .get_mut("provenance")
+                .and_then(|p| p.get_mut("events"))
+                .and_then(|e| e.as_array_mut())
+            {
+                for (i, ev) in events.iter_mut().enumerate() {
+                    // index 0 is Discovered (deterministic — pinned in
+                    // the fixture). Strip everything after.
+                    if i > 0
+                        && let Some(obj) = ev.as_object_mut()
+                    {
+                        obj.insert("at".into(), Value::String("<stripped>".into()));
+                    }
+                }
+            }
+            v
+        }
+
+        let baseline = build_canonical_document(
+            &asset,
+            metadata.clone(),
+            vec![],
+            &pv,
+            vec![],
+        )
+        .unwrap();
+        let baseline_json = serde_json::to_string(&strip_dynamic_at(&baseline)).unwrap();
+
+        let start = std::time::Instant::now();
+        for _ in 0..1000 {
+            let next = build_canonical_document(
+                &asset,
+                metadata.clone(),
+                vec![],
+                &pv,
+                vec![],
+            )
+            .unwrap();
+            let next_json = serde_json::to_string(&strip_dynamic_at(&next)).unwrap();
+            assert_eq!(baseline_json, next_json);
+        }
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(1),
+            "1000 iterations took {:?}",
+            start.elapsed()
+        );
+    }
 }

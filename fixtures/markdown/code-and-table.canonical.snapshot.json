@@ -1,0 +1,102 @@
+{
+  "blocks": [
+    {
+      "common": {
+        "block_id": "dd1528c6e84d8a66087cbf6faafd67c6",
+        "heading_path": [],
+        "source_span": {
+          "end": 1,
+          "kind": "line",
+          "start": 1
+        }
+      },
+      "kind": "heading",
+      "level": 1,
+      "text": "Code And Table"
+    },
+    {
+      "code": "fn main() {\n    println!(\"hi\");\n}",
+      "common": {
+        "block_id": "68ea34aca04b83413dd8556126ae4584",
+        "heading_path": [
+          "Code And Table"
+        ],
+        "source_span": {
+          "end": 7,
+          "kind": "line",
+          "start": 3
+        }
+      },
+      "kind": "code",
+      "lang": "rust"
+    },
+    {
+      "common": {
+        "block_id": "b50a8e941b11f1834ae17adba9e08118",
+        "heading_path": [
+          "Code And Table"
+        ],
+        "source_span": {
+          "end": 12,
+          "kind": "line",
+          "start": 9
+        }
+      },
+      "headers": [
+        "col a",
+        "col b"
+      ],
+      "kind": "table",
+      "rows": [
+        [
+          "1",
+          "2"
+        ],
+        [
+          "3",
+          "4"
+        ]
+      ]
+    }
+  ],
+  "doc_id": "6a9ef317c9c097ff3f6aeb317559bd83",
+  "doc_version": 1,
+  "lang": "en",
+  "metadata": {
+    "aliases": [],
+    "created_at": "2023-11-14T22:13:20Z",
+    "source_type": "markdown",
+    "tags": [],
+    "trust_level": "primary",
+    "updated_at": "2023-11-14T22:13:20Z",
+    "user": {},
+    "user_id_alias": null
+  },
+  "parser_version": "kb-normalize-snapshot-test-0",
+  "provenance": {
+    "events": [
+      {
+        "agent": "kb-source-fs",
+        "at": "2023-11-14T22:13:20Z",
+        "kind": "discovered",
+        "note": null
+      },
+      {
+        "agent": "kb-parse-md",
+        "at": "<stripped>",
+        "kind": "parsed",
+        "note": "parser_version=kb-normalize-snapshot-test-0"
+      },
+      {
+        "agent": "kb-normalize",
+        "at": "<stripped>",
+        "kind": "normalized",
+        "note": null
+      }
+    ]
+  },
+  "schema_version": 1,
+  "source_asset_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "title": "",
+  "workspace_path": "notes/code-and-table.md"
+}
