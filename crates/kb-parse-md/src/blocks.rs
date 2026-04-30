@@ -300,12 +300,12 @@ impl InlineBuf {
 
     fn push_text(&mut self, s: &str) {
         self.text.push_str(s);
-        self.push_inline(Inline::Text(s.to_string()));
+        self.push_inline(Inline::Text { text: s.to_string() });
     }
 
     fn push_code(&mut self, s: &str) {
         self.text.push_str(s);
-        self.push_inline(Inline::Code(s.to_string()));
+        self.push_inline(Inline::Code { code: s.to_string() });
     }
 
     fn open_strong(&mut self) {
@@ -313,7 +313,7 @@ impl InlineBuf {
     }
     fn close_strong(&mut self) {
         if let Some(InlineFrame::Strong(kids)) = self.stack.pop() {
-            self.push_inline(Inline::Strong(kids));
+            self.push_inline(Inline::Strong { children: kids });
         }
     }
 
@@ -322,7 +322,7 @@ impl InlineBuf {
     }
     fn close_emph(&mut self) {
         if let Some(InlineFrame::Emph(kids)) = self.stack.pop() {
-            self.push_inline(Inline::Emph(kids));
+            self.push_inline(Inline::Emph { children: kids });
         }
     }
 
@@ -361,8 +361,8 @@ impl InlineBuf {
         // If formatting tags were unbalanced we close them defensively.
         while self.stack.len() > 1 {
             match self.stack.pop().unwrap() {
-                InlineFrame::Strong(kids) => self.push_inline(Inline::Strong(kids)),
-                InlineFrame::Emph(kids) => self.push_inline(Inline::Emph(kids)),
+                InlineFrame::Strong(kids) => self.push_inline(Inline::Strong { children: kids }),
+                InlineFrame::Emph(kids) => self.push_inline(Inline::Emph { children: kids }),
                 InlineFrame::Link { href, text, kids } => {
                     let flat = if !text.is_empty() {
                         text
@@ -475,10 +475,11 @@ fn flatten_inlines_to_text(inlines: &[Inline]) -> String {
 
 fn flatten_one(i: &Inline, out: &mut String) {
     match i {
-        Inline::Text(s) | Inline::Code(s) => out.push_str(s),
+        Inline::Text { text } => out.push_str(text),
+        Inline::Code { code } => out.push_str(code),
         Inline::Link { text, .. } => out.push_str(text),
-        Inline::Strong(v) | Inline::Emph(v) => {
-            for c in v {
+        Inline::Strong { children } | Inline::Emph { children } => {
+            for c in children {
                 flatten_one(c, out);
             }
         }
@@ -823,7 +824,7 @@ impl<'a> WalkState<'a> {
                                     text.push('\n');
                                 }
                                 text.push_str(t);
-                                inlines.push(Inline::Text(t.clone()));
+                                inlines.push(Inline::Text { text: t.clone() });
                             }
                             _ => {}
                         }
@@ -921,7 +922,7 @@ impl<'a> WalkState<'a> {
                             source_span: self.span_for(&range),
                             payload: ParsedPayload::Paragraph {
                                 text: raw.clone(),
-                                inlines: vec![Inline::Text(raw)],
+                                inlines: vec![Inline::Text { text: raw }],
                             },
                         }
                     } else {
@@ -1477,7 +1478,7 @@ mod tests {
                     assert!(
                         matches!(
                             inl,
-                            Inline::Text(_) | Inline::Code(_) | Inline::Link { .. } | Inline::Strong(_) | Inline::Emph(_)
+                            Inline::Text { .. } | Inline::Code { .. } | Inline::Link { .. } | Inline::Strong { .. } | Inline::Emph { .. }
                         ),
                         "unexpected inline kind: {:?}",
                         inl
@@ -1736,11 +1737,11 @@ mod tests {
         match &blocks[0].payload {
             ParsedPayload::Paragraph { inlines, .. } => {
                 let kinds: Vec<&'static str> = inlines.iter().map(|i| match i {
-                    Inline::Text(_) => "Text",
-                    Inline::Code(_) => "Code",
+                    Inline::Text { .. } => "Text",
+                    Inline::Code { .. } => "Code",
                     Inline::Link { .. } => "Link",
-                    Inline::Strong(_) => "Strong",
-                    Inline::Emph(_) => "Emph",
+                    Inline::Strong { .. } => "Strong",
+                    Inline::Emph { .. } => "Emph",
                 }).collect();
                 assert!(kinds.contains(&"Strong"));
                 assert!(kinds.contains(&"Emph"));

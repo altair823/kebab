@@ -578,6 +578,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "kb-normalize"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kb-core",
+ "kb-parse-md",
+ "kb-parse-types",
+ "serde",
+ "serde_json",
+ "time",
+ "tracing",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "kb-parse-md"
 version = "0.1.0"
 dependencies = [

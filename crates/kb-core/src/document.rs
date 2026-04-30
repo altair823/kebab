@@ -100,11 +100,11 @@ pub struct AudioRefBlock {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase", tag = "kind")]
 pub enum Inline {
-    Text(String),
-    Code(String),
+    Text { text: String },
+    Code { code: String },
     Link { text: String, href: String },
-    Strong(Vec<Inline>),
-    Emph(Vec<Inline>),
+    Strong { children: Vec<Inline> },
+    Emph { children: Vec<Inline> },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -174,4 +174,38 @@ pub struct TranscriptSegment {
     pub text: String,
     pub speaker: Option<String>,
     pub confidence: Option<f32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each `Inline` variant must serialize and deserialize cleanly under
+    /// the internally-tagged representation. Newtype-with-primitive variants
+    /// (`Text(String)`, `Code(String)`, `Strong(Vec<…>)`, `Emph(Vec<…>)`)
+    /// previously failed at serde runtime because `tag = "kind"` cannot
+    /// describe a newtype carrying a non-struct value. The struct-variant
+    /// shape used here is the §9 schema migration.
+    #[test]
+    fn inline_serde_round_trip() {
+        let cases = vec![
+            Inline::Text { text: "hi".into() },
+            Inline::Code { code: "x".into() },
+            Inline::Link {
+                text: "t".into(),
+                href: "h".into(),
+            },
+            Inline::Strong {
+                children: vec![Inline::Text { text: "bold".into() }],
+            },
+            Inline::Emph {
+                children: vec![Inline::Text { text: "em".into() }],
+            },
+        ];
+        for c in cases {
+            let s = serde_json::to_string(&c).expect("serialize");
+            let back: Inline = serde_json::from_str(&s).expect("deserialize");
+            assert_eq!(c, back);
+        }
+    }
 }
