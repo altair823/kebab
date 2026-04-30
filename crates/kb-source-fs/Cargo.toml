@@ -1,0 +1,23 @@
+[package]
+name          = "kb-source-fs"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "Local filesystem SourceConnector — walks workspace.root + applies gitignore filters"
+
+[dependencies]
+kb-core      = { path = "../kb-core" }
+kb-config    = { path = "../kb-config" }
+anyhow       = { workspace = true }
+serde        = { workspace = true }
+time         = { workspace = true }
+blake3       = { workspace = true }
+tracing      = { workspace = true }
+walkdir      = "2"
+ignore       = "0.4"
+
+[dev-dependencies]
+serde_json   = { workspace = true }
+tempfile     = "3"
