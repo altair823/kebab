@@ -23,25 +23,57 @@ use anyhow::Result;
 use kb_core::{
     AudioRefBlock, Block, BlockId, CanonicalDocument, CodeBlock, CommonBlock, DocumentId,
     HeadingBlock, ImageRefBlock, Inline, Lang, ListBlock, Metadata, ParserVersion, Provenance,
-    RawAsset, TableBlock, TextBlock,
+    ProvenanceEvent, ProvenanceKind, RawAsset, TableBlock, TextBlock,
 };
-use kb_parse_types::{ParsedBlock, ParsedPayload, Warning};
+use kb_parse_types::{ParsedBlock, ParsedPayload, Warning, WarningKind};
+use time::OffsetDateTime;
 
 pub use kb_core::{id_for_block, id_for_doc};
 
 /// Build a [`CanonicalDocument`] from the raw asset, frontmatter
 /// metadata, parser blocks, parser version, and any warnings.
 ///
-/// This commit fills in the §4.3 ordinal rule and the §3.4 block lift.
-/// `Provenance` and the title/lang lift are added in the next commit.
+/// Behavior contract (per design §3.4 / §4.2 / §4.3 / §3.6):
+///
+/// * `doc_id = id_for_doc(workspace_path, asset_id, parser_version)` —
+///   `workspace_path` is consumed verbatim from `asset` (already NFC +
+///   POSIX per `kb_core::normalize::to_posix`).
+/// * `block_id = id_for_block(doc_id, kind, heading_path, ordinal,
+///   source_span)` — `ordinal` is **0-based, scoped to (heading_path,
+///   block_kind), in document order** per §4.3.
+/// * `title` and `lang` are lifted from `metadata.user["title"]` /
+///   `metadata.user["lang"]` (where P1-2 stashes them) into the dedicated
+///   `CanonicalDocument` fields, and removed from the user map to avoid
+///   duplication. Missing keys default to empty string / empty `Lang`.
+/// * `provenance` is seeded with `Discovered` (from `asset.discovered_at`),
+///   `Parsed`, `Normalized` events, and one `Warning` event per upstream
+///   warning. The two normalize-side events share one `now_utc()` reading
+///   so the timestamp jitter inside a single call is bounded — event
+///   ordering is preserved by `Vec` position.
+/// * `schema_version` and `doc_version` are pinned to `1` (initial).
 pub fn build_canonical_document(
     asset: &RawAsset,
     metadata: Metadata,
     blocks: Vec<ParsedBlock>,
     parser_version: &ParserVersion,
-    _warnings: Vec<Warning>,
+    warnings: Vec<Warning>,
 ) -> Result<CanonicalDocument> {
     let doc_id = id_for_doc(&asset.workspace_path, &asset.asset_id, parser_version);
+
+    // Lift title / lang from `metadata.user` (P1-2 stashed them there
+    // because `Metadata` does not carry them directly). Strip after
+    // lifting so the wire form does not duplicate the data.
+    let mut metadata = metadata;
+    let title = metadata
+        .user
+        .remove("title")
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_default();
+    let lang = metadata
+        .user
+        .remove("lang")
+        .and_then(|v| v.as_str().map(|s| Lang(s.to_string())))
+        .unwrap_or_else(|| Lang(String::new()));
 
     // §4.3 ordinal rule — per (heading_path, block_kind), 0-based,
     // document order. A separate counter is kept for each grouping key.
@@ -51,19 +83,61 @@ pub fn build_canonical_document(
         .map(|pb| lift_block(&doc_id, pb, &mut counters))
         .collect();
 
+    // Provenance — share `now` between the parse + normalize stages so
+    // the per-call timestamp jitter is bounded.
+    let now = OffsetDateTime::now_utc();
+    let mut events: Vec<ProvenanceEvent> = Vec::with_capacity(3 + warnings.len());
+    events.push(ProvenanceEvent {
+        at: asset.discovered_at,
+        agent: "kb-source-fs".to_string(),
+        kind: ProvenanceKind::Discovered,
+        note: None,
+    });
+    events.push(ProvenanceEvent {
+        at: now,
+        agent: "kb-parse-md".to_string(),
+        kind: ProvenanceKind::Parsed,
+        note: Some(format!("parser_version={}", parser_version.0)),
+    });
+    events.push(ProvenanceEvent {
+        at: now,
+        agent: "kb-normalize".to_string(),
+        kind: ProvenanceKind::Normalized,
+        note: None,
+    });
+    for w in warnings {
+        events.push(ProvenanceEvent {
+            at: now,
+            agent: warning_agent(&w.kind).to_string(),
+            kind: ProvenanceKind::Warning,
+            note: Some(format!("{:?}: {}", w.kind, w.note)),
+        });
+    }
+    let provenance = Provenance { events };
+
     Ok(CanonicalDocument {
         doc_id,
         source_asset_id: asset.asset_id.clone(),
         workspace_path: asset.workspace_path.clone(),
-        title: String::new(),
-        lang: Lang(String::new()),
+        title,
+        lang,
         blocks: lifted_blocks,
         metadata,
-        provenance: Provenance { events: Vec::new() },
+        provenance,
         parser_version: parser_version.clone(),
         schema_version: 1,
         doc_version: 1,
     })
+}
+
+/// Resolve a `WarningKind` to the upstream agent that emitted it. Used
+/// to fill `ProvenanceEvent::agent` for the warning's event entry.
+fn warning_agent(kind: &WarningKind) -> &'static str {
+    match kind {
+        WarningKind::MalformedFrontmatter | WarningKind::EncodingFallback => "kb-parse-md",
+        WarningKind::MalformedTable => "kb-parse-md",
+        WarningKind::ExtractFailed => "kb-normalize",
+    }
 }
 
 /// Map a `ParsedPayload` variant to the lowercase, no-spaces string used
@@ -387,5 +461,68 @@ mod tests {
             })
             .collect();
         assert_eq!(ids, vec![&p1, &p2, &p3, &c0, &q0]);
+    }
+
+    /// Provenance events appear in the documented order: `Discovered`
+    /// (from the asset), `Parsed`, then `Normalized`. Warnings (none in
+    /// this test) would follow.
+    #[test]
+    fn provenance_contains_stage_events_in_order() {
+        let asset = fixture_asset();
+        let metadata = fixture_metadata();
+        let pv = parser_version();
+        let doc =
+            build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
+        let kinds: Vec<_> = doc.provenance.events.iter().map(|e| e.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ProvenanceKind::Discovered,
+                ProvenanceKind::Parsed,
+                ProvenanceKind::Normalized,
+            ]
+        );
+        assert_eq!(doc.provenance.events[0].at, asset.discovered_at);
+        assert_eq!(doc.provenance.events[0].agent, "kb-source-fs");
+        assert_eq!(doc.provenance.events[1].agent, "kb-parse-md");
+        assert_eq!(doc.provenance.events[2].agent, "kb-normalize");
+    }
+
+    /// Warnings carried into `build_canonical_document` are emitted as
+    /// `ProvenanceKind::Warning` events with the upstream agent.
+    #[test]
+    fn provenance_includes_warnings() {
+        let asset = fixture_asset();
+        let metadata = fixture_metadata();
+        let pv = parser_version();
+        let warnings = vec![Warning {
+            kind: WarningKind::MalformedFrontmatter,
+            note: "missing closing fence".into(),
+        }];
+        let doc =
+            build_canonical_document(&asset, metadata, vec![], &pv, warnings).unwrap();
+        assert_eq!(doc.provenance.events.len(), 4);
+        let last = doc.provenance.events.last().unwrap();
+        assert_eq!(last.kind, ProvenanceKind::Warning);
+        assert_eq!(last.agent, "kb-parse-md");
+        assert!(last.note.as_deref().unwrap().contains("missing closing fence"));
+    }
+
+    /// `metadata.user["title"]` and `metadata.user["lang"]` are lifted
+    /// to the dedicated `CanonicalDocument` fields and stripped from
+    /// the user map (so the wire form does not duplicate the data).
+    /// Other user keys survive intact.
+    #[test]
+    fn lifts_title_and_lang_from_user_map() {
+        let asset = fixture_asset();
+        let metadata = fixture_metadata();
+        let pv = parser_version();
+        let doc =
+            build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
+        assert_eq!(doc.title, "Example");
+        assert_eq!(doc.lang, Lang("en".into()));
+        assert!(!doc.metadata.user.contains_key("title"));
+        assert!(!doc.metadata.user.contains_key("lang"));
+        assert!(doc.metadata.user.contains_key("custom"));
     }
 }
