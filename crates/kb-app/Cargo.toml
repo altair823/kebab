@@ -1,0 +1,21 @@
+[package]
+name          = "kb-app"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "Facade — orchestrates components for kb-cli/tui/desktop"
+
+[dependencies]
+kb-core              = { path = "../kb-core" }
+kb-config            = { path = "../kb-config" }
+anyhow               = { workspace = true }
+thiserror            = { workspace = true }
+serde                = { workspace = true }
+serde_json           = { workspace = true }
+tracing              = { workspace = true }
+tracing-subscriber   = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tracing-appender     = "0.2"
+toml                 = "0.8"
+dirs                 = "5"
