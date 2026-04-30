@@ -43,8 +43,10 @@ const POLICY_HASH_HEX_LEN: usize = 16;
 ///    with the previous chunk's tail blocks contributing roughly
 ///    `overlap_tokens` of content (paragraph-level overlap).
 /// 5. **`heading_path` propagates.** Each chunk's `heading_path` is the
-///    `heading_path` of its first contributing non-Heading block, or the
-///    Heading block itself if that is the first.
+///    `heading_path` of its first contributing non-Heading block, or —
+///    when the chunk leads with (or contains only) a Heading — the
+///    parent path **plus the heading's own text** so heading-only or
+///    heading-led chunks never lose their citation context.
 /// 6. **`source_spans` merge.** A chunk lists every contributing block's
 ///    `source_span` in document order.
 /// 7. **Version + policy hash recorded.** Each chunk records
@@ -62,6 +64,13 @@ const POLICY_HASH_HEX_LEN: usize = 16;
 /// count — chunks sized against this proxy are guaranteed to fit in any
 /// real BPE tokenizer's budget for English (~4 bytes/token) or Korean
 /// (~3 bytes/token under E5/M-BERT). See [`BYTES_PER_TOKEN`] for rationale.
+///
+/// **`policy.respect_markdown_headings`.** This field flows into
+/// `policy_hash` (so flipping it yields fresh chunk IDs), but the
+/// chunker variant `md-heading-v1` unconditionally treats headings as
+/// boundaries by design — the `md-heading-v1` name is the contract. To
+/// disable heading awareness, ship a different `chunker_version`; none
+/// is shipped in P1-5.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MdHeadingV1Chunker;
 
@@ -70,6 +79,19 @@ impl Chunker for MdHeadingV1Chunker {
         ChunkerVersion(VERSION_LABEL.to_string())
     }
 
+    /// Compute the policy hash folded into `chunk_id` per design §4.2.
+    ///
+    /// # Panics
+    ///
+    /// Panics if canonical JSON serialization of `ChunkPolicy` fails.
+    /// This is unreachable in practice — `ChunkPolicy` is composed of
+    /// owned primitives (`usize`, `bool`, owned `String`) and
+    /// `serde_json_canonicalizer::to_vec` only fails on
+    /// non-serializable values such as non-finite floats or maps with
+    /// non-string keys, neither of which can be constructed via
+    /// `ChunkPolicy`'s public surface. The `expect` is preserved as a
+    /// future-proofing guard against drift if `ChunkPolicy` ever gains
+    /// a field with such a property.
     fn policy_hash(&self, policy: &ChunkPolicy) -> String {
         let bytes = serde_json_canonicalizer::to_vec(policy)
             .expect("canonical JSON serialization of ChunkPolicy must not fail");
@@ -125,6 +147,11 @@ impl Chunker for MdHeadingV1Chunker {
                     // the current chunk and seed the next one with
                     // overlap from the prior tail.
                     let next_tokens = estimate_block_tokens(block);
+                    // Note: `acc.text_tokens` already includes the prior
+                    // chunk's overlap seed. The clamp in
+                    // `collect_overlap_seed` keeps seed ≤ target/2, so
+                    // a flush here never produces a chunk smaller than
+                    // the seed budget.
                     let would_exceed = acc.text_tokens + next_tokens
                         > policy.target_tokens
                         && acc.has_non_heading_content();
