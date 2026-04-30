@@ -5,7 +5,7 @@ edition       = { workspace = true }
 rust-version  = { workspace = true }
 license       = { workspace = true }
 repository    = { workspace = true }
-description   = "Markdown frontmatter (and, in p1-3, block) parsing into kb-core::Metadata / kb-parse-types intermediates"
+description   = "Markdown frontmatter and block parsing into kb-core::Metadata / kb-parse-types intermediates"
 
 [dependencies]
 kb-core         = { path = "../kb-core" }
@@ -14,6 +14,12 @@ anyhow          = { workspace = true }
 serde           = { workspace = true }
 serde_json      = { workspace = true }
 time            = { workspace = true }
+tracing         = { workspace = true }
+# pulldown-cmark is the CommonMark parser used by the `blocks` submodule.
+# GFM tables are gated by the runtime `Options::ENABLE_TABLES` flag, not a
+# cargo feature; we strip the default `getopts` + `html` features since we
+# only use the pull-parser API.
+pulldown-cmark  = { version = "0.13", default-features = false }
 # serde_yaml (dtolnay) was archived as unmaintained in 2024.
 # We use the maintained fork serde_yaml_ng. Keeping the same `serde_yaml`-style
 # API surface lets us swap if a different fork wins long term.
