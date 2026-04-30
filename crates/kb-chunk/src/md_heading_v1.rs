@@ -132,6 +132,7 @@ impl Chunker for MdHeadingV1Chunker {
                         let overlap_seed = collect_overlap_seed(
                             &acc,
                             policy.overlap_tokens,
+                            policy.target_tokens,
                         );
                         flush(
                             &mut acc,
@@ -211,19 +212,28 @@ fn flush(
 }
 
 /// Collect the trailing blocks of `acc` (in document order) whose
-/// combined token estimate fits under `overlap_tokens`. The heading
+/// combined token estimate fits under the seed budget. The heading
 /// block (if it leads the accumulator) is excluded from the seed —
 /// re-emitting the heading would conflate it with the next chunk's
 /// own heading_path provenance.
+///
+/// The seed budget is clamped to `min(overlap_tokens, target_tokens / 2)`.
+/// Without the clamp, an `overlap_tokens >= target_tokens` policy
+/// degenerates into 1-block-per-chunk: the seed already exceeds budget
+/// before any new content lands, so the very next paragraph trips the
+/// `would_exceed` flush. Halving the target guarantees the seed leaves
+/// at least target/2 worth of room for fresh content in the next chunk.
 fn collect_overlap_seed<'a>(
     acc: &ChunkAcc<'a>,
     overlap_tokens: usize,
+    target_tokens: usize,
 ) -> Vec<&'a Block> {
-    if overlap_tokens == 0 {
+    let seed_budget = overlap_tokens.min(target_tokens / 2);
+    if seed_budget == 0 {
         return Vec::new();
     }
     let mut taken = Vec::new();
-    let mut budget = overlap_tokens;
+    let mut budget = seed_budget;
     for b in acc.blocks.iter().rev() {
         if matches!(b, Block::Heading(_)) {
             // Don't propagate the heading itself into the next chunk;
@@ -754,5 +764,44 @@ mod tests {
             chunks[2].heading_path,
             vec!["Alpha".to_string(), "Beta".to_string()]
         );
+    }
+
+    /// I3 regression: a pathological policy with
+    /// `overlap_tokens >= target_tokens` must NOT degenerate into
+    /// 1-block-per-chunk. The seed budget is clamped to `target/2`,
+    /// guaranteeing every flushed chunk has space for fresh content.
+    #[test]
+    fn overlap_clamped_when_overlap_exceeds_target() {
+        // 5 paragraphs of ~20 tokens each (60 bytes / 3 BPT).
+        // target = 50, overlap = 200 (4× target → would trip flush
+        // immediately without clamp).
+        let mut bs = vec![heading_with_parents(2, "Long", &[], 0, 1)];
+        for i in 0..5u32 {
+            bs.push(paragraph(&"x".repeat(60), &["Long"], i, i + 2));
+        }
+        let doc = make_doc(bs);
+        let policy = ChunkPolicy {
+            target_tokens: 50,
+            overlap_tokens: 200,
+            respect_markdown_headings: true,
+            chunker_version: ChunkerVersion(VERSION_LABEL.into()),
+        };
+        let chunks = MdHeadingV1Chunker.chunk(&doc, &policy).unwrap();
+        // Without the clamp, every chunk after the first would have
+        // exactly 1 paragraph (because seed alone already exceeds
+        // target and acc.has_non_heading_content() is true the moment
+        // any seed lands). With the clamp, follow-on chunks must hold
+        // at least the seed paragraph + the new paragraph = ≥2 blocks.
+        for (i, c) in chunks.iter().enumerate() {
+            // The very first chunk includes the heading + first para
+            // (no seed), so it is also ≥2. Subsequent chunks must be
+            // seed+new ≥ 2.
+            assert!(
+                c.block_ids.len() >= 2,
+                "chunk {i} degenerated to {} block(s); pathology not \
+                 prevented: {chunks:#?}",
+                c.block_ids.len()
+            );
+        }
     }
 }
