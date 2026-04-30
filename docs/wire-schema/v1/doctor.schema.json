@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/doctor.schema.json",
+  "title": "DoctorReport v1",
+  "description": "Stub schema — declares the schema_version label and the required fields per design §2.7.",
+  "type": "object",
+  "required": ["schema_version", "ok", "checks"],
+  "properties": {
+    "schema_version": { "const": "doctor.v1" },
+    "ok":     { "type": "boolean" },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "ok", "detail"],
+        "properties": {
+          "name":   { "type": "string" },
+          "ok":     { "type": "boolean" },
+          "detail": { "type": "string" },
+          "hint":   { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

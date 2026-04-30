@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/chunk_inspection.schema.json",
+  "title": "ChunkInspection v1",
+  "description": "Stub schema — declares the schema_version label and the required fields per design §2.6.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "chunk_id",
+    "doc_id",
+    "doc_path",
+    "heading_path",
+    "text",
+    "source_spans",
+    "block_ids",
+    "token_estimate",
+    "chunker_version"
+  ],
+  "properties": {
+    "schema_version":  { "const": "chunk_inspection.v1" },
+    "chunk_id":        { "type": "string" },
+    "doc_id":          { "type": "string" },
+    "doc_path":        { "type": "string" },
+    "heading_path":    { "type": "array", "items": { "type": "string" } },
+    "text":            { "type": "string" },
+    "source_spans":    { "type": "array" },
+    "block_ids":       { "type": "array", "items": { "type": "string" } },
+    "token_estimate":  { "type": "integer", "minimum": 0 },
+    "chunker_version": { "type": "string" },
+    "embeddings":      { "type": "array" }
+  }
+}

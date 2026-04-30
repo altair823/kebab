@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/citation.schema.json",
+  "title": "Citation v1",
+  "description": "Stub schema — declares the schema_version label and the always-present fields. Variant-discriminated property validation lands in a later phase.",
+  "type": "object",
+  "required": ["schema_version", "kind", "path", "uri"],
+  "properties": {
+    "schema_version": { "const": "citation.v1" },
+    "kind": { "enum": ["line", "page", "region", "caption", "time"] },
+    "path": { "type": "string" },
+    "uri":  { "type": "string" },
+    "line":    { "type": "object" },
+    "page":    { "type": "object" },
+    "region":  { "type": "object" },
+    "caption": { "type": "object" },
+    "time":    { "type": "object" }
+  }
+}

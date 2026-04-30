@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/ingest_report.schema.json",
+  "title": "IngestReport v1",
+  "description": "Stub schema — declares the schema_version label and the required fields per design §2.4.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "scope",
+    "scanned",
+    "new",
+    "updated",
+    "skipped",
+    "errors",
+    "duration_ms"
+  ],
+  "properties": {
+    "schema_version": { "const": "ingest_report.v1" },
+    "scope":          { "type": "object" },
+    "scanned":        { "type": "integer", "minimum": 0 },
+    "new":            { "type": "integer", "minimum": 0 },
+    "updated":        { "type": "integer", "minimum": 0 },
+    "skipped":        { "type": "integer", "minimum": 0 },
+    "errors":         { "type": "integer", "minimum": 0 },
+    "duration_ms":    { "type": "integer", "minimum": 0 },
+    "items":          { "type": ["array", "null"] }
+  }
+}
