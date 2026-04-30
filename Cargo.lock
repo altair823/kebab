@@ -283,7 +283,6 @@ dependencies = [
  "kb-core",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
  "toml",
  "tracing",
  "tracing-appender",
@@ -311,7 +310,6 @@ dependencies = [
  "kb-core",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
  "toml",
 ]
 
@@ -335,7 +333,6 @@ version = "0.1.0"
 dependencies = [
  "kb-core",
  "serde",
- "thiserror 2.0.18",
 ]
 
 [[package]]

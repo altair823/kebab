@@ -53,10 +53,7 @@ fn validate_hex32(s: &str) -> Result<(), CoreError> {
             s.len()
         )));
     }
-    if !s
-        .bytes()
-        .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F'))
-    {
+    if !s.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(CoreError::InvalidId(format!(
             "non-hex character in {s:?}"
         )));

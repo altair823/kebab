@@ -11,7 +11,6 @@ description   = "Facade — orchestrates components for kb-cli/tui/desktop"
 kb-core              = { path = "../kb-core" }
 kb-config            = { path = "../kb-config" }
 anyhow               = { workspace = true }
-thiserror            = { workspace = true }
 serde                = { workspace = true }
 serde_json           = { workspace = true }
 tracing              = { workspace = true }

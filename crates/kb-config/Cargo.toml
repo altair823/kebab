@@ -8,9 +8,9 @@ repository    = { workspace = true }
 description   = "Config schema + XDG path resolution"
 
 [dependencies]
+# kb-core::CoreError reserved for P1-* config errors
 kb-core      = { path = "../kb-core" }
 anyhow       = { workspace = true }
-thiserror    = { workspace = true }
 serde        = { workspace = true }
 serde_json   = { workspace = true }
 toml         = "0.8"
