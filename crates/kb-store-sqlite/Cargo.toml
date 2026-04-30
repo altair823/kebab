@@ -14,7 +14,6 @@ kb-config    = { path = "../kb-config" }
 # Explicitly NOT `bundled-sqlcipher` per task allowed-deps list.
 rusqlite     = { version = "0.32", features = ["bundled"] }
 refinery     = { version = "0.8", features = ["rusqlite"] }
-serde        = { workspace = true }
 serde_json   = { workspace = true }
 time         = { workspace = true }
 blake3       = { workspace = true }
