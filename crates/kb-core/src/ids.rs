@@ -1,8 +1,9 @@
 //! Newtype IDs (§3.1) + ID generation recipe (§4.2).
 //!
 //! Every ID is `blake3(canonical_json(tuple))[..32]`. `Display` returns the
-//! inner hex string; `FromStr` rejects strings that are not exactly 32
-//! lowercase hex characters.
+//! inner hex string; `FromStr` accepts 32 hex characters (mixed case) and
+//! normalizes the stored representation to lowercase so equality and hashing
+//! are canonical.
 
 use std::fmt;
 use std::str::FromStr;
@@ -31,7 +32,8 @@ macro_rules! newtype_id {
         impl FromStr for $name {
             type Err = CoreError;
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                validate_hex32(s).map(|()| Self(s.to_owned()))
+                validate_hex32(s)?;
+                Ok(Self(s.to_ascii_lowercase()))
             }
         }
     };
@@ -51,9 +53,12 @@ fn validate_hex32(s: &str) -> Result<(), CoreError> {
             s.len()
         )));
     }
-    if !s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+    if !s
+        .bytes()
+        .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F'))
+    {
         return Err(CoreError::InvalidId(format!(
-            "non-lowercase-hex character in {s:?}"
+            "non-hex character in {s:?}"
         )));
     }
     Ok(())
@@ -231,8 +236,17 @@ mod tests {
     }
 
     #[test]
-    fn newtype_rejects_uppercase() {
+    fn newtype_accepts_uppercase_normalizes_to_lowercase() {
         let r: Result<AssetId, _> = "0123456789ABCDEF0123456789ABCDEF".parse();
+        let id = r.expect("uppercase hex must be accepted");
+        assert_eq!(id.0, "0123456789abcdef0123456789abcdef");
+        assert_eq!(id.to_string(), "0123456789abcdef0123456789abcdef");
+    }
+
+    #[test]
+    fn newtype_rejects_invalid_chars_after_uppercase_pass() {
+        // Mix of upper-hex (would pass) and non-hex `XYZ` (must reject).
+        let r: Result<AssetId, _> = "DEADBEEFCAFEBAB1XYZ23456789ABCD0".parse();
         assert!(r.is_err());
     }
 
@@ -299,5 +313,168 @@ mod tests {
         let pv = ParserVersion("pulldown-cmark-0.x".to_string());
         let id = id_for_doc(&path, &asset, &pv);
         assert_eq!(id.0, "8547fe58cb42d593fd761d77242401db");
+    }
+
+    /// Independent pin for id_for_block.
+    /// inputs:
+    ///   doc=DocumentId("aabbccdd00112233445566778899aabb"),
+    ///   block_kind="paragraph", heading_path=["Intro"], ordinal=3,
+    ///   span=SourceSpan::Line { start: 10, end: 20 }
+    /// canonical JSON (key-sorted, compact, no whitespace):
+    ///   {"block_kind":"paragraph",
+    ///    "doc_id":"aabbccdd00112233445566778899aabb",
+    ///    "heading_path":["Intro"],
+    ///    "kind":"block",
+    ///    "ordinal":3,
+    ///    "source_span":{"end":20,"kind":"line","start":10}}
+    /// computed via:
+    ///   printf '{"block_kind":"paragraph","doc_id":"aabbccdd00112233445566778899aabb","heading_path":["Intro"],"kind":"block","ordinal":3,"source_span":{"end":20,"kind":"line","start":10}}' \
+    ///     | ~/.cargo/bin/b3sum --no-names | cut -c1-32
+    ///   → 8a7bf22de7ec3293a792028c829b3812
+    #[test]
+    fn id_for_block_pinned() {
+        let doc = DocumentId("aabbccdd00112233445566778899aabb".to_string());
+        let heading = vec!["Intro".to_string()];
+        let span = SourceSpan::Line { start: 10, end: 20 };
+
+        // Sanity check: confirm that the canonical JSON our code produces
+        // matches the literal we hashed externally. If a future field-order
+        // change (or rename) silently shifts the hash, this assertion fails
+        // before the hex comparison and points at the JSON layer directly.
+        let expected_json = b"{\"block_kind\":\"paragraph\",\"doc_id\":\"aabbccdd00112233445566778899aabb\",\"heading_path\":[\"Intro\"],\"kind\":\"block\",\"ordinal\":3,\"source_span\":{\"end\":20,\"kind\":\"line\",\"start\":10}}";
+        let tuple = BlockTuple {
+            kind: "block",
+            doc_id: &doc.0,
+            block_kind: "paragraph",
+            heading_path: &heading,
+            ordinal: 3,
+            source_span: &span,
+        };
+        assert_eq!(
+            serde_json_canonicalizer::to_vec(&tuple).unwrap(),
+            expected_json
+        );
+
+        let id = id_for_block(&doc, "paragraph", &heading, 3, &span);
+        assert_eq!(id.0, "8a7bf22de7ec3293a792028c829b3812");
+    }
+
+    /// Independent pin for id_for_chunk.
+    /// inputs:
+    ///   doc=DocumentId("aabbccdd00112233445566778899aabb"),
+    ///   chunker_version=ChunkerVersion("greedy-1.0"),
+    ///   block_ids=[BlockId("a1b2c3d4e5f6789012345678abcdef00")],
+    ///   policy_hash="abc123"
+    /// canonical JSON (key-sorted, compact, no whitespace):
+    ///   {"block_ids":["a1b2c3d4e5f6789012345678abcdef00"],
+    ///    "chunker_version":"greedy-1.0",
+    ///    "doc_id":"aabbccdd00112233445566778899aabb",
+    ///    "kind":"chunk",
+    ///    "policy_hash":"abc123"}
+    /// computed via:
+    ///   printf '{"block_ids":["a1b2c3d4e5f6789012345678abcdef00"],"chunker_version":"greedy-1.0","doc_id":"aabbccdd00112233445566778899aabb","kind":"chunk","policy_hash":"abc123"}' \
+    ///     | ~/.cargo/bin/b3sum --no-names | cut -c1-32
+    ///   → 8809f627777fe7ca5c4433b97dd88ce9
+    #[test]
+    fn id_for_chunk_pinned() {
+        let doc = DocumentId("aabbccdd00112233445566778899aabb".to_string());
+        let cv = ChunkerVersion("greedy-1.0".to_string());
+        let blocks = vec![BlockId("a1b2c3d4e5f6789012345678abcdef00".to_string())];
+
+        let expected_json = b"{\"block_ids\":[\"a1b2c3d4e5f6789012345678abcdef00\"],\"chunker_version\":\"greedy-1.0\",\"doc_id\":\"aabbccdd00112233445566778899aabb\",\"kind\":\"chunk\",\"policy_hash\":\"abc123\"}";
+        let tuple = ChunkTuple {
+            kind: "chunk",
+            doc_id: &doc.0,
+            chunker_version: &cv.0,
+            block_ids: blocks.iter().map(|b| b.0.as_str()).collect(),
+            policy_hash: "abc123",
+        };
+        assert_eq!(
+            serde_json_canonicalizer::to_vec(&tuple).unwrap(),
+            expected_json
+        );
+
+        let id = id_for_chunk(&doc, &cv, &blocks, "abc123");
+        assert_eq!(id.0, "8809f627777fe7ca5c4433b97dd88ce9");
+    }
+
+    /// Independent pin for id_for_embedding.
+    /// inputs:
+    ///   chunk=ChunkId("d1e2f3a4b5c6789012345678aabbccdd"),
+    ///   model_id=EmbeddingModelId("BAAI/bge-small-en"),
+    ///   model_version=EmbeddingVersion("v1"), dimensions=384
+    /// canonical JSON (key-sorted, compact, no whitespace):
+    ///   {"chunk_id":"d1e2f3a4b5c6789012345678aabbccdd",
+    ///    "dimensions":384,
+    ///    "kind":"embedding",
+    ///    "model_id":"BAAI/bge-small-en",
+    ///    "model_version":"v1"}
+    /// computed via:
+    ///   printf '{"chunk_id":"d1e2f3a4b5c6789012345678aabbccdd","dimensions":384,"kind":"embedding","model_id":"BAAI/bge-small-en","model_version":"v1"}' \
+    ///     | ~/.cargo/bin/b3sum --no-names | cut -c1-32
+    ///   → 71992c457a5da39880a6d17d646ed0fd
+    #[test]
+    fn id_for_embedding_pinned() {
+        let chunk = ChunkId("d1e2f3a4b5c6789012345678aabbccdd".to_string());
+        let model = EmbeddingModelId("BAAI/bge-small-en".to_string());
+        let version = EmbeddingVersion("v1".to_string());
+
+        let expected_json = b"{\"chunk_id\":\"d1e2f3a4b5c6789012345678aabbccdd\",\"dimensions\":384,\"kind\":\"embedding\",\"model_id\":\"BAAI/bge-small-en\",\"model_version\":\"v1\"}";
+        let tuple = EmbeddingTuple {
+            kind: "embedding",
+            chunk_id: &chunk.0,
+            model_id: &model.0,
+            model_version: &version.0,
+            dimensions: 384,
+        };
+        assert_eq!(
+            serde_json_canonicalizer::to_vec(&tuple).unwrap(),
+            expected_json
+        );
+
+        let id = id_for_embedding(&chunk, &model, &version, 384);
+        assert_eq!(id.0, "71992c457a5da39880a6d17d646ed0fd");
+    }
+
+    /// Independent pin for id_for_index.
+    /// inputs:
+    ///   collection="default",
+    ///   embedding_model=EmbeddingModelId("BAAI/bge-small-en"),
+    ///   dimensions=384, version=IndexVersion("v1"),
+    ///   kind="hnsw", params_hash="xyz"
+    /// canonical JSON (key-sorted, compact, no whitespace):
+    ///   {"collection":"default",
+    ///    "dimensions":384,
+    ///    "embedding_model":"BAAI/bge-small-en",
+    ///    "index_kind":"hnsw",
+    ///    "index_params_hash":"xyz",
+    ///    "index_version":"v1",
+    ///    "kind":"index"}
+    /// computed via:
+    ///   printf '{"collection":"default","dimensions":384,"embedding_model":"BAAI/bge-small-en","index_kind":"hnsw","index_params_hash":"xyz","index_version":"v1","kind":"index"}' \
+    ///     | ~/.cargo/bin/b3sum --no-names | cut -c1-32
+    ///   → e733ee2f9936f0e1ac5143cdbf0f2b54
+    #[test]
+    fn id_for_index_pinned() {
+        let model = EmbeddingModelId("BAAI/bge-small-en".to_string());
+        let version = IndexVersion("v1".to_string());
+
+        let expected_json = b"{\"collection\":\"default\",\"dimensions\":384,\"embedding_model\":\"BAAI/bge-small-en\",\"index_kind\":\"hnsw\",\"index_params_hash\":\"xyz\",\"index_version\":\"v1\",\"kind\":\"index\"}";
+        let tuple = IndexTuple {
+            kind: "index",
+            collection: "default",
+            embedding_model: &model.0,
+            dimensions: 384,
+            index_version: &version.0,
+            index_kind: "hnsw",
+            index_params_hash: "xyz",
+        };
+        assert_eq!(
+            serde_json_canonicalizer::to_vec(&tuple).unwrap(),
+            expected_json
+        );
+
+        let id = id_for_index("default", &model, 384, &version, "hnsw", "xyz");
+        assert_eq!(id.0, "e733ee2f9936f0e1ac5143cdbf0f2b54");
     }
 }
