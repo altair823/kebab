@@ -6,10 +6,14 @@
 //!
 //! # YAML library
 //!
-//! Upstream `serde_yaml` (dtolnay) was archived as unmaintained in 2024. We
-//! use [`serde_yaml_ng`], a maintained fork with an API-compatible surface,
-//! so a future swap to whichever fork wins (`serde_yml`, `yaml-rust2`, …)
-//! is a one-line dep change.
+//! Upstream `serde_yaml` (dtolnay) was archived as unmaintained in 2024. The
+//! two viable maintained forks at the time of this writing are `serde_yaml_ng`
+//! and `serde_yml`. We picked [`serde_yaml_ng`] because it advertises stricter
+//! adherence to the original `serde_yaml` semantics (notably around `null`
+//! handling and tagged enums) while `serde_yml` has taken some liberties
+//! around YAML 1.1 vs 1.2 booleans. Both are actively released; either would
+//! work and the swap is a one-line dep change should the ecosystem
+//! consolidate (incl. a future move to `yaml-rust2` directly).
 
 use std::ops::Range;
 use std::sync::OnceLock;
@@ -46,9 +50,8 @@ pub struct BodyHints {
 /// `end` is the offset just past the closing delimiter line's trailing
 /// newline (i.e. the body starts at `bytes[end..]`).
 ///
-/// Per the task brief this is technically meant to be crate-internal, but
-/// the [`parse_frontmatter`] return type forces it to be `pub`. P1-3 / P1-4
-/// reuse it via this same crate.
+/// Shared with future P1-3/P1-4 callers via the [`parse_frontmatter`] return
+/// tuple — they slice the body using `bytes[span.end..]`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FrontmatterSpan {
     pub start: usize,
@@ -64,8 +67,15 @@ pub struct FrontmatterSpan {
 /// covers the delimited region so the caller can skip it during body
 /// slicing.
 ///
+/// # Errors
+///
 /// `Err` is reserved for genuinely fatal conditions (e.g. non-UTF-8 input
-/// that can't even be lossy-decoded), which currently cannot arise here.
+/// that can't even be lossy-decoded). The current implementation has no
+/// such path — every recoverable problem (missing/garbled frontmatter,
+/// malformed timestamps, unknown enum values) is downgraded to a warning
+/// and the function returns `Ok`. The `Result` is kept on the signature so
+/// future hard-fail conditions (e.g. an I/O-backed input) can be added
+/// without breaking callers.
 pub fn parse_frontmatter(
     bytes: &[u8],
     hints: &BodyHints,
