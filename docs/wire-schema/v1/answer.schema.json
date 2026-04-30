@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/answer.schema.json",
+  "title": "Answer v1",
+  "description": "Stub schema — declares the schema_version label and the required fields per design §2.3.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "answer",
+    "citations",
+    "grounded",
+    "model",
+    "prompt_template_version",
+    "retrieval",
+    "usage",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version":          { "const": "answer.v1" },
+    "answer":                  { "type": "string" },
+    "citations":               { "type": "array" },
+    "grounded":                { "type": "boolean" },
+    "refusal_reason":          { "type": ["string", "null"] },
+    "model":                   { "type": "object" },
+    "embedding":               { "type": ["object", "null"] },
+    "prompt_template_version": { "type": "string" },
+    "retrieval":               { "type": "object" },
+    "usage":                   { "type": "object" },
+    "created_at":              { "type": "string" }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/doc_summary.schema.json",
+  "title": "DocSummary v1",
+  "description": "Stub schema — declares the schema_version label and the required fields per design §2.5.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "doc_id",
+    "doc_path",
+    "title",
+    "lang",
+    "tags",
+    "trust_level",
+    "source_type",
+    "byte_len",
+    "chunk_count",
+    "created_at",
+    "updated_at",
+    "parser_version",
+    "chunker_version"
+  ],
+  "properties": {
+    "schema_version":  { "const": "doc_summary.v1" },
+    "doc_id":          { "type": "string" },
+    "doc_path":        { "type": "string" },
+    "title":           { "type": "string" },
+    "lang":            { "type": "string" },
+    "tags":            { "type": "array", "items": { "type": "string" } },
+    "trust_level":     { "type": "string" },
+    "source_type":     { "type": "string" },
+    "byte_len":        { "type": "integer", "minimum": 0 },
+    "chunk_count":     { "type": "integer", "minimum": 0 },
+    "created_at":      { "type": "string" },
+    "updated_at":      { "type": "string" },
+    "parser_version":  { "type": "string" },
+    "chunker_version": { "type": "string" }
+  }
+}

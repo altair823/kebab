@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/search_hit.schema.json",
+  "title": "SearchHit v1",
+  "description": "Stub schema — declares the schema_version label and the required top-level fields per design §2.2.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "rank",
+    "score",
+    "chunk_id",
+    "doc_id",
+    "doc_path",
+    "heading_path",
+    "snippet",
+    "citation",
+    "retrieval",
+    "index_version",
+    "chunker_version"
+  ],
+  "properties": {
+    "schema_version": { "const": "search_hit.v1" },
+    "rank":            { "type": "integer", "minimum": 1 },
+    "score":           { "type": "number" },
+    "chunk_id":        { "type": "string" },
+    "doc_id":          { "type": "string" },
+    "doc_path":        { "type": "string" },
+    "heading_path":    { "type": "array", "items": { "type": "string" } },
+    "section_label":   { "type": ["string", "null"] },
+    "snippet":         { "type": "string" },
+    "snippet_full_text": { "type": "boolean" },
+    "citation":        { "type": "object" },
+    "retrieval":       { "type": "object" },
+    "index_version":   { "type": "string" },
+    "embedding_model": { "type": ["string", "null"] },
+    "chunker_version": { "type": "string" }
+  }
+}

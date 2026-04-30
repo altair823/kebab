@@ -1,0 +1,20 @@
+[package]
+name          = "kb-cli"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "kb command-line interface"
+
+[[bin]]
+name = "kb"
+path = "src/main.rs"
+
+[dependencies]
+kb-core      = { path = "../kb-core" }
+kb-config    = { path = "../kb-config" }
+kb-app       = { path = "../kb-app" }
+anyhow       = { workspace = true }
+serde_json   = { workspace = true }
+clap         = { version = "4", features = ["derive"] }
