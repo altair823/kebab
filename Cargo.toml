@@ -7,6 +7,7 @@ members = [
     "crates/kb-source-fs",
     "crates/kb-parse-md",
     "crates/kb-normalize",
+    "crates/kb-chunk",
     "crates/kb-app",
     "crates/kb-cli",
 ]

@@ -1,0 +1,28 @@
+[package]
+name          = "kb-chunk"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "Chunkers that turn kb-core::CanonicalDocument into kb-core::Chunk batches (§3.5, §4.2, §7.2)"
+
+[dependencies]
+kb-core                    = { path = "../kb-core" }
+kb-config                  = { path = "../kb-config" }
+serde                      = { workspace = true }
+serde_json_canonicalizer   = "0.3"
+blake3                     = { workspace = true }
+anyhow                     = { workspace = true }
+tracing                    = { workspace = true }
+
+[dev-dependencies]
+# kb-parse-md / kb-normalize are dev-only — used by the snapshot integration
+# test to build a CanonicalDocument from a fixture Markdown file. Forbidden as
+# regular deps per design §8 (chunker consumes CanonicalDocument from kb-core
+# only); `cargo tree -p kb-chunk --depth 1` (default scope, excludes dev-deps)
+# confirms this.
+kb-parse-md     = { path = "../kb-parse-md" }
+kb-normalize    = { path = "../kb-normalize" }
+serde_json      = { workspace = true }
+time            = { workspace = true }
