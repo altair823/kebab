@@ -17,6 +17,15 @@
 //! `a -> b -> a`. `walkdir` does NOT detect cycles for us when
 //! `follow_links(true)`; we layer our own visited-set on top, keyed by the
 //! canonical path of every entry, and skip any entry we've already seen.
+//!
+//! ## Why `walkdir` instead of `ignore::WalkBuilder`?
+//!
+//! `ignore::WalkBuilder` bundles gitignore semantics + cycle detection in
+//! one API. We use `walkdir` directly because we need explicit control
+//! over canonical-path comparison for sibling-subtree symlinks (a case
+//! `walkdir`'s ancestor-only check can miss). Override-based filtering
+//! still uses the `ignore` crate's `Override` matcher, just decoupled from
+//! its walker.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -136,8 +145,12 @@ pub(crate) fn walk_files(root: &Path, overrides: &Override) -> Result<Vec<PathBu
                         continue;
                     }
                 }
-                Err(_) => {
-                    // Broken symlink etc. — skip silently.
+                Err(err) => {
+                    tracing::debug!(
+                        path = %path.display(),
+                        error = %err,
+                        "skipping: canonicalize failed (broken/permission-denied symlink target)"
+                    );
                     continue;
                 }
             }

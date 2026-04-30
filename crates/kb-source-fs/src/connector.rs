@@ -80,10 +80,17 @@ impl SourceConnector for FsSourceConnector {
         // can layer a per-call narrowing.
         let mut excludes = self.default_exclude.clone();
         excludes.extend(scope.exclude.iter().cloned());
+        // .kbignore is re-read on every scan() so users can edit it without
+        // restarting any long-running process.
         let kbignore = read_kbignore(&root)?;
 
         let overrides = build_overrides(&root, &excludes, &kbignore)?;
 
+        // TODO(P1-2/P1-3 router): apply SourceScope::include glob filter at the
+        // extractor router layer once that crate lands. SourceConnector emits all
+        // non-excluded files; routing by include-glob is a downstream concern
+        // (design §6.2 + §7.2 are silent on this split, treat it as router work).
+        //
         // `scope.include` is intentionally ignored at this stage of the
         // pipeline: per §6.2 the workspace-level include lives in
         // `WorkspaceCfg` and is enforced by the asset writer / extractors.
@@ -159,6 +166,9 @@ impl SourceConnector for FsSourceConnector {
     }
 }
 
+// TODO(kb-config): hoist tilde + ${VAR} expansion into a kb-config helper
+// once that crate gains a path-expansion API. Today this duplicates logic
+// that P1-6 (store-sqlite) and future crates will also need.
 /// Expand a leading `~` to the current user's home directory. No-op for
 /// any other shape (absolute, relative, `${VAR}`-style).
 fn expand_tilde(s: &str) -> PathBuf {
@@ -242,13 +252,15 @@ mod tests {
                 .unwrap();
         let v = conn.scan(&SourceScope::default()).unwrap();
         let names: Vec<_> = v.iter().map(|a| a.workspace_path.0.clone()).collect();
-        // .kbignore itself starts with `.` and is not in DEFAULT_EXCLUDES,
-        // so it is *not* automatically hidden — but the task spec only
-        // requires `*.tmp` and `.DS_Store` / `._*` filtering, and the
-        // `.kbignore` file is a legitimate "Other(\"\")" asset. Either
-        // present-or-absent is acceptable; the assertion below pins
-        // current behaviour: .kbignore appears, b.tmp does not.
-        assert!(names.contains(&".kbignore".to_string()));
+        // Decision: `.kbignore` itself IS emitted as a RawAsset (MediaType::Other("")).
+        // Rationale: a config file that affects ingest is itself part of the
+        // workspace contents; the markdown extractor (P1-2) will reject Other("")
+        // on its own. If we ever decide to omit `.kbignore` from the asset list,
+        // this test will catch it.
+        assert!(
+            names.contains(&".kbignore".to_string()),
+            ".kbignore must be emitted as an asset; got: {names:?}"
+        );
         assert!(names.contains(&"a.md".to_string()));
         assert!(!names.contains(&"b.tmp".to_string()));
     }
