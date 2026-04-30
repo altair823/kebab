@@ -1,0 +1,206 @@
+[
+  {
+    "block_ids": [
+      "39308c41feedcbbc2f92d5d133366f6d",
+      "5e978557db4fd5d88807b00ce0d8ca01",
+      "52fbbe749357ad142492968e8febafb2"
+    ],
+    "chunk_id": "04903321ed830fcb4b8a50fa795e6c14",
+    "chunker_version": "md-heading-v1",
+    "doc_id": "550b21c4a6a3c526f4f39b759a5fb740",
+    "heading_path": [
+      "Alpha"
+    ],
+    "source_spans": [
+      {
+        "end": 1,
+        "kind": "line",
+        "start": 1
+      },
+      {
+        "end": 3,
+        "kind": "line",
+        "start": 3
+      },
+      {
+        "end": 5,
+        "kind": "line",
+        "start": 5
+      }
+    ],
+    "text": "Alpha\n\nAlpha intro paragraph one. This first paragraph in the alpha section gives a brief overview of what is to follow and serves as the lead-in for the subsequent material covered under the alpha heading.\n\nAlpha intro paragraph two. The second paragraph extends the discussion with additional sentences, padding out the paragraph so that paragraph-level chunk splitting actually has multiple candidates to consider when deciding where to slice the content stream.",
+    "token_estimate": 155
+  },
+  {
+    "block_ids": [
+      "839080233875e832d37ba80d4b9ef97a",
+      "1390fa96500a55669123383889c472c4"
+    ],
+    "chunk_id": "661a4e5ae606d4327eee70bd4e346b52",
+    "chunker_version": "md-heading-v1",
+    "doc_id": "550b21c4a6a3c526f4f39b759a5fb740",
+    "heading_path": [
+      "Alpha",
+      "Alpha Sub"
+    ],
+    "source_spans": [
+      {
+        "end": 7,
+        "kind": "line",
+        "start": 7
+      },
+      {
+        "end": 9,
+        "kind": "line",
+        "start": 9
+      }
+    ],
+    "text": "Alpha Sub\n\nSome prose under the alpha sub-heading. The nested heading should still be respected as a chunk boundary distinct from the parent alpha heading.",
+    "token_estimate": 52
+  },
+  {
+    "block_ids": [
+      "7e923dfac89c5d8a31879418ec194026"
+    ],
+    "chunk_id": "c8b0f5d9405fa8c36eb70dd9005a29dc",
+    "chunker_version": "md-heading-v1",
+    "doc_id": "550b21c4a6a3c526f4f39b759a5fb740",
+    "heading_path": [
+      "Alpha",
+      "Alpha Sub"
+    ],
+    "source_spans": [
+      {
+        "end": 53,
+        "kind": "line",
+        "start": 11
+      }
+    ],
+    "text": "// A code block long enough to easily clear any reasonable target_tokens\n// so the never-split-code-block rule is exercised by this fixture. The\n// rest of the function body is intentional filler: line after line of\n// content that, were the chunker permitted to split it, would exceed\n// the target threshold and force a break in the middle of the snippet.\nfn long_code_example_one() {\n    let mut numbers = Vec::new();\n    for i in 0..10 {\n        numbers.push(i * 2);\n    }\n    let mut total = 0_i64;\n    for n in &numbers {\n        total += *n as i64;\n    }\n    println!(\"total = {total}\");\n}\n\nfn long_code_example_two() {\n    let words = [\"alpha\", \"beta\", \"gamma\", \"delta\", \"epsilon\"];\n    for w in words.iter() {\n        if w.starts_with('a') {\n            println!(\"starts with a: {w}\");\n        } else if w.starts_with('b') {\n            println!(\"starts with b: {w}\");\n        } else if w.starts_with('g') {\n            println!(\"starts with g: {w}\");\n        } else {\n            println!(\"other: {w}\");\n        }\n    }\n}\n\nfn long_code_example_three() {\n    let mut buf = String::new();\n    for ch in \"lorem ipsum dolor sit amet\".chars() {\n        if ch.is_ascii_alphabetic() {\n            buf.push(ch.to_ascii_uppercase());\n        }\n    }\n    println!(\"buf = {buf}\");\n}",
+    "token_estimate": 427
+  },
+  {
+    "block_ids": [
+      "53e0b44f880cca19d9f0ff99d917f4f6",
+      "8f794bb2314006e07fb7650ad28d2bb9"
+    ],
+    "chunk_id": "3a01e78c14f3d2e3737d9b0b1411a535",
+    "chunker_version": "md-heading-v1",
+    "doc_id": "550b21c4a6a3c526f4f39b759a5fb740",
+    "heading_path": [
+      "Beta"
+    ],
+    "source_spans": [
+      {
+        "end": 55,
+        "kind": "line",
+        "start": 55
+      },
+      {
+        "end": 57,
+        "kind": "line",
+        "start": 57
+      }
+    ],
+    "text": "Beta\n\nBeta paragraph one. The beta section opens with an introductory paragraph that sets up the table appearing further down.",
+    "token_estimate": 42
+  },
+  {
+    "block_ids": [
+      "dc1a3da1f6c0de0cc0ecaf93deb3ed30"
+    ],
+    "chunk_id": "6acd3b817583ebfd2f6639db2c47b4f0",
+    "chunker_version": "md-heading-v1",
+    "doc_id": "550b21c4a6a3c526f4f39b759a5fb740",
+    "heading_path": [
+      "Beta"
+    ],
+    "source_spans": [
+      {
+        "end": 64,
+        "kind": "line",
+        "start": 59
+      }
+    ],
+    "text": "name | kind | note\none | small | first row\ntwo | medium | second row\nthree | large | third row\nfour | huge | fourth row",
+    "token_estimate": 40
+  },
+  {
+    "block_ids": [
+      "8b8ba26ffe0e34d4a33c26ce0d302654"
+    ],
+    "chunk_id": "f79e267b7e498702e1bd35d2a373e5c5",
+    "chunker_version": "md-heading-v1",
+    "doc_id": "550b21c4a6a3c526f4f39b759a5fb740",
+    "heading_path": [
+      "Beta"
+    ],
+    "source_spans": [
+      {
+        "end": 66,
+        "kind": "line",
+        "start": 66
+      }
+    ],
+    "text": "Beta closing paragraph. After the table we have one more paragraph of prose that anchors the end of the beta section before we move on to gamma.",
+    "token_estimate": 48
+  },
+  {
+    "block_ids": [
+      "a5bb8d0a4f33ef9276f287c6b2876864",
+      "6358dda59f10540018ef85d776ee2ec2",
+      "1ee4ebef26433d6d6b585d7bd6497028"
+    ],
+    "chunk_id": "880fa807ed5aac2c31b76de8294ed270",
+    "chunker_version": "md-heading-v1",
+    "doc_id": "550b21c4a6a3c526f4f39b759a5fb740",
+    "heading_path": [
+      "Gamma"
+    ],
+    "source_spans": [
+      {
+        "end": 68,
+        "kind": "line",
+        "start": 68
+      },
+      {
+        "end": 70,
+        "kind": "line",
+        "start": 70
+      },
+      {
+        "end": 72,
+        "kind": "line",
+        "start": 72
+      }
+    ],
+    "text": "Gamma\n\nGamma paragraph one. The gamma section is intentionally long to exercise the paragraph-level split with overlap rule when chunking under a single heading without any nested sub-headings to break things up further.\n\nGamma paragraph two. We continue accumulating prose so that the running token estimator climbs steadily and eventually trips the target_tokens threshold, forcing the chunker to emit a chunk and seed the next chunk with overlap from the prior tail.",
+    "token_estimate": 157
+  },
+  {
+    "block_ids": [
+      "1ee4ebef26433d6d6b585d7bd6497028",
+      "38db826bf29bd64a90a698926d94d83e"
+    ],
+    "chunk_id": "6584ae54bbf25ea275ee380648eb3ccb",
+    "chunker_version": "md-heading-v1",
+    "doc_id": "550b21c4a6a3c526f4f39b759a5fb740",
+    "heading_path": [
+      "Gamma"
+    ],
+    "source_spans": [
+      {
+        "end": 72,
+        "kind": "line",
+        "start": 72
+      },
+      {
+        "end": 74,
+        "kind": "line",
+        "start": 74
+      }
+    ],
+    "text": "Gamma paragraph two. We continue accumulating prose so that the running token estimator climbs steadily and eventually trips the target_tokens threshold, forcing the chunker to emit a chunk and seed the next chunk with overlap from the prior tail.\n\nGamma paragraph three. Yet another paragraph under the gamma heading, padded with words to ensure the byte count clears the threshold and the splitting behaviour shows up unambiguously in the snapshot output.",
+    "token_estimate": 153
+  }
+]
