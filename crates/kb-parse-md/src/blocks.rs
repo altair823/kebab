@@ -519,13 +519,13 @@ impl<'a> WalkState<'a> {
             }
 
             // ---- Container ends -------------------------------------------------
-            Event::End(TagEnd::Heading(level)) => {
-                let level_u8 = heading_level_to_u8(level);
-                if let Some(Frame::Heading { level: lvl, range, inlines }) = self.frames.pop() {
+            Event::End(TagEnd::Heading(_level)) => {
+                // The Tag::Heading frame is the source of truth for the
+                // level — `_level` from TagEnd is identical for well-formed
+                // input. We trust the frame.
+                if let Some(Frame::Heading { level: level_to_use, range, inlines }) = self.frames.pop() {
                     let (_inline_vec, text) = inlines.finish();
                     let text = text.trim().to_string();
-                    let level_to_use = lvl;
-                    let _ = level_u8;
 
                     // Update heading stack: clear deeper levels, set this level.
                     if (1..=6).contains(&level_to_use) {
@@ -679,12 +679,10 @@ impl<'a> WalkState<'a> {
                     range,
                     headers,
                     rows,
-                    cols,
                     malformed,
                     ..
                 }) = self.frames.pop()
                 {
-                    let header_count = if cols > 0 { cols } else { headers.len() };
                     let block = if let Some(note) = malformed {
                         // Fall back to a paragraph carrying the raw markdown.
                         warnings.push(Warning {
@@ -706,7 +704,6 @@ impl<'a> WalkState<'a> {
                             },
                         }
                     } else {
-                        let _ = header_count;
                         ParsedBlock {
                             kind: ParsedBlockKind::Table,
                             heading_path: self.heading_path(),
