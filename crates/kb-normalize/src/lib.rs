@@ -21,12 +21,13 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use kb_core::{
-    AudioRefBlock, Block, BlockId, CanonicalDocument, CodeBlock, CommonBlock, DocumentId,
-    HeadingBlock, ImageRefBlock, Inline, Lang, ListBlock, Metadata, ParserVersion, Provenance,
-    ProvenanceEvent, ProvenanceKind, RawAsset, TableBlock, TextBlock,
+    Block, BlockId, CanonicalDocument, CodeBlock, CommonBlock, DocumentId, HeadingBlock,
+    ImageRefBlock, Inline, Lang, ListBlock, Metadata, ParserVersion, Provenance, ProvenanceEvent,
+    ProvenanceKind, RawAsset, TableBlock, TextBlock,
 };
 use kb_parse_types::{ParsedBlock, ParsedPayload, Warning, WarningKind};
 use time::OffsetDateTime;
+use unicode_normalization::UnicodeNormalization;
 
 pub use kb_core::{id_for_block, id_for_doc};
 
@@ -44,7 +45,11 @@ pub use kb_core::{id_for_block, id_for_doc};
 /// * `title` and `lang` are lifted from `metadata.user["title"]` /
 ///   `metadata.user["lang"]` (where P1-2 stashes them) into the dedicated
 ///   `CanonicalDocument` fields, and removed from the user map to avoid
-///   duplication. Missing keys default to empty string / empty `Lang`.
+///   duplication. Both keys are lifted only if present and stringy;
+///   non-stringy values (e.g. `Number`, `Array`) and missing keys
+///   silently default to empty title / empty `Lang`. P1-2's frontmatter
+///   parser only writes these keys when the source value parses as a
+///   string, so the non-stringy branches are defense-in-depth.
 /// * `provenance` is seeded with `Discovered` (from `asset.discovered_at`),
 ///   `Parsed`, `Normalized` events, and one `Warning` event per upstream
 ///   warning. The two normalize-side events share one `now_utc()` reading
@@ -78,15 +83,30 @@ pub fn build_canonical_document(
     // §4.3 ordinal rule — per (heading_path, block_kind), 0-based,
     // document order. A separate counter is kept for each grouping key.
     let mut counters: HashMap<(Vec<String>, &'static str), u32> = HashMap::new();
+    // Some lift paths (e.g. AudioRef pre-P8) drop the block entirely and
+    // synthesize a Warning so the wire form never carries an invalid
+    // `AssetId`. These warnings originate at the lift stage and are
+    // attributed to `kb-normalize` (not to whatever upstream emitter the
+    // bare `WarningKind` would resolve to via `warning_agent`). They are
+    // tracked separately so the agent string is correct in Provenance.
+    let mut lift_warnings: Vec<Warning> = Vec::new();
     let lifted_blocks: Vec<Block> = blocks
         .into_iter()
-        .map(|pb| lift_block(&doc_id, pb, &mut counters))
+        .filter_map(|pb| lift_block(&doc_id, pb, &mut counters, &mut lift_warnings))
         .collect();
+
+    tracing::debug!(
+        target: "kb-normalize",
+        "built canonical document doc_id={} blocks={}",
+        doc_id.0,
+        lifted_blocks.len()
+    );
 
     // Provenance — share `now` between the parse + normalize stages so
     // the per-call timestamp jitter is bounded.
     let now = OffsetDateTime::now_utc();
-    let mut events: Vec<ProvenanceEvent> = Vec::with_capacity(3 + warnings.len());
+    let mut events: Vec<ProvenanceEvent> =
+        Vec::with_capacity(3 + warnings.len() + lift_warnings.len());
     events.push(ProvenanceEvent {
         at: asset.discovered_at,
         agent: "kb-source-fs".to_string(),
@@ -105,10 +125,22 @@ pub fn build_canonical_document(
         kind: ProvenanceKind::Normalized,
         note: None,
     });
+    // {:?} on WarningKind renders camel-case variant name; intentional
+    // for human-readable Provenance trace.
     for w in warnings {
         events.push(ProvenanceEvent {
             at: now,
             agent: warning_agent(&w.kind).to_string(),
+            kind: ProvenanceKind::Warning,
+            note: Some(format!("{:?}: {}", w.kind, w.note)),
+        });
+    }
+    // Lift-stage warnings (currently only AudioRef-deferred drops) are
+    // unconditionally attributed to `kb-normalize`.
+    for w in lift_warnings {
+        events.push(ProvenanceEvent {
+            at: now,
+            agent: "kb-normalize".to_string(),
             kind: ProvenanceKind::Warning,
             note: Some(format!("{:?}: {}", w.kind, w.note)),
         });
@@ -132,11 +164,19 @@ pub fn build_canonical_document(
 
 /// Resolve a `WarningKind` to the upstream agent that emitted it. Used
 /// to fill `ProvenanceEvent::agent` for the warning's event entry.
+///
+/// `ExtractFailed` is emitted today by `kb-parse-md`'s panic-recovery
+/// guard around `parse_blocks` — see `crates/kb-parse-md/src/blocks.rs`.
+/// If a future stage (e.g. `kb-normalize` itself, an extractor, …) starts
+/// emitting `ExtractFailed`, this mapping needs to grow context (perhaps
+/// a separate `WarningSource` field on `Warning`) so attribution stays
+/// honest. For now, all `ExtractFailed` warnings observed by
+/// `build_canonical_document` originated in the parser.
 fn warning_agent(kind: &WarningKind) -> &'static str {
     match kind {
         WarningKind::MalformedFrontmatter | WarningKind::EncodingFallback => "kb-parse-md",
         WarningKind::MalformedTable => "kb-parse-md",
-        WarningKind::ExtractFailed => "kb-normalize",
+        WarningKind::ExtractFailed => "kb-parse-md",
     }
 }
 
@@ -171,16 +211,28 @@ fn lift_block(
     doc_id: &DocumentId,
     pb: ParsedBlock,
     counters: &mut HashMap<(Vec<String>, &'static str), u32>,
-) -> Block {
+    warnings: &mut Vec<Warning>,
+) -> Option<Block> {
     let kind = payload_kind(&pb.payload);
-    let ordinal = next_ordinal(counters, &pb.heading_path, kind);
-    let block_id: BlockId = id_for_block(doc_id, kind, &pb.heading_path, ordinal, &pb.source_span);
+    // Task spec line 73: "All input strings normalized to NFC before
+    // hashing." `pulldown-cmark` does not NFC heading text, and
+    // `serde_json_canonicalizer` v0.3 does not normalize strings either,
+    // so we must NFC-normalize `heading_path` here before it feeds both
+    // the §4.2 ID recipe AND the on-disk `CommonBlock.heading_path` (so
+    // wire form matches ID input). Without this, NFD `\u{1100}\u{1161}`
+    // and NFC `\u{AC00}` (both render as 가) would produce different
+    // `block_id`s for what is logically the same heading.
+    let heading_path_nfc: Vec<String> =
+        pb.heading_path.iter().map(|s| s.nfc().collect()).collect();
+    let ordinal = next_ordinal(counters, &heading_path_nfc, kind);
+    let block_id: BlockId =
+        id_for_block(doc_id, kind, &heading_path_nfc, ordinal, &pb.source_span);
     let common = CommonBlock {
         block_id,
-        heading_path: pb.heading_path,
+        heading_path: heading_path_nfc,
         source_span: pb.source_span,
     };
-    match pb.payload {
+    let block = match pb.payload {
         ParsedPayload::Heading { level, text } => Block::Heading(HeadingBlock {
             common,
             level,
@@ -197,11 +249,14 @@ fn lift_block(
             items: items
                 .into_iter()
                 .map(|item_inlines| TextBlock {
-                    // List items inherit the parent list's CommonBlock; spec
-                    // (§3.4) defines `ListBlock.items: Vec<TextBlock>` and
+                    // All list items currently inherit the parent's
+                    // CommonBlock (incl. block_id). Per-item IDs would
+                    // require a §4.2 recipe extension. Spec (§3.4)
+                    // defines `ListBlock.items: Vec<TextBlock>` and
                     // does not allocate per-item BlockIds. Re-using the
                     // parent's common keeps the wire form deterministic
-                    // while letting the inline tree carry the item content.
+                    // while letting the inline tree carry the item
+                    // content.
                     common: common.clone(),
                     text: flatten_inlines(&item_inlines),
                     inlines: item_inlines,
@@ -227,17 +282,24 @@ fn lift_block(
             ocr: None,
             caption: None,
         }),
-        // P1-4 does not extract audio metadata from disk — `asset_id`
-        // and `duration_ms` placeholders are filled in by the audio
-        // extractor (P8). For now we synthesize a minimal record so
-        // the document is well-typed.
-        ParsedPayload::AudioRef { src: _ } => Block::AudioRef(AudioRefBlock {
-            common,
-            asset_id: kb_core::AssetId(String::new()),
-            duration_ms: 0,
-            transcript: None,
-        }),
-    }
+        // TODO(P8): audio extractor will resolve workspace assets and
+        // produce real AssetIds. This skip-and-warn shim is a
+        // placeholder. `AssetId::from_str` requires a 32-hex string, so
+        // synthesizing `AssetId(String::new())` would break the
+        // invariant — instead we drop the block and surface a Warning
+        // (attributed to `kb-normalize` per §3.6 since this is the
+        // lift-stage decision).
+        ParsedPayload::AudioRef { src } => {
+            warnings.push(Warning {
+                kind: WarningKind::ExtractFailed,
+                note: format!(
+                    "audio-ref AssetId resolution deferred to P8 — block dropped (src={src})"
+                ),
+            });
+            return None;
+        }
+    };
+    Some(block)
 }
 
 /// Flatten a `Vec<Inline>` into a plain text string. Used by list-item
@@ -316,6 +378,61 @@ mod tests {
         ParserVersion("kb-normalize-test-0".into())
     }
 
+    /// Fixed 5-block input used by both the ordinal-scoping pinning test
+    /// and the determinism stress test (so the latter exercises the
+    /// `lift_block` path, not just the empty-blocks path).
+    fn fixture_blocks_five() -> Vec<ParsedBlock> {
+        let h1_a = vec!["A".to_string()];
+        let h1_b = vec!["B".to_string()];
+        vec![
+            ParsedBlock {
+                kind: kb_parse_types::ParsedBlockKind::Paragraph,
+                heading_path: h1_a.clone(),
+                source_span: SourceSpan::Line { start: 1, end: 1 },
+                payload: ParsedPayload::Paragraph {
+                    text: "p1".into(),
+                    inlines: vec![],
+                },
+            },
+            ParsedBlock {
+                kind: kb_parse_types::ParsedBlockKind::Paragraph,
+                heading_path: h1_a.clone(),
+                source_span: SourceSpan::Line { start: 2, end: 2 },
+                payload: ParsedPayload::Paragraph {
+                    text: "p2".into(),
+                    inlines: vec![],
+                },
+            },
+            ParsedBlock {
+                kind: kb_parse_types::ParsedBlockKind::Paragraph,
+                heading_path: h1_a.clone(),
+                source_span: SourceSpan::Line { start: 3, end: 3 },
+                payload: ParsedPayload::Paragraph {
+                    text: "p3".into(),
+                    inlines: vec![],
+                },
+            },
+            ParsedBlock {
+                kind: kb_parse_types::ParsedBlockKind::Code,
+                heading_path: h1_a,
+                source_span: SourceSpan::Line { start: 4, end: 5 },
+                payload: ParsedPayload::Code {
+                    lang: None,
+                    code: "x".into(),
+                },
+            },
+            ParsedBlock {
+                kind: kb_parse_types::ParsedBlockKind::Paragraph,
+                heading_path: h1_b,
+                source_span: SourceSpan::Line { start: 6, end: 6 },
+                payload: ParsedPayload::Paragraph {
+                    text: "q1".into(),
+                    inlines: vec![],
+                },
+            },
+        ]
+    }
+
     /// `id_for_doc` is deterministic across 1000 invocations on the same
     /// input — a regression in canonical JSON or BLAKE3 would surface
     /// here immediately.
@@ -358,56 +475,9 @@ mod tests {
     /// H1 also starts a fresh counter at 0.
     #[test]
     fn block_ordinals_scoped_per_heading_and_kind() {
-        let span = SourceSpan::Line { start: 1, end: 1 };
         let h1_a = vec!["A".to_string()];
         let h1_b = vec!["B".to_string()];
-        let blocks = vec![
-            ParsedBlock {
-                kind: kb_parse_types::ParsedBlockKind::Paragraph,
-                heading_path: h1_a.clone(),
-                source_span: span.clone(),
-                payload: ParsedPayload::Paragraph {
-                    text: "p1".into(),
-                    inlines: vec![],
-                },
-            },
-            ParsedBlock {
-                kind: kb_parse_types::ParsedBlockKind::Paragraph,
-                heading_path: h1_a.clone(),
-                source_span: SourceSpan::Line { start: 2, end: 2 },
-                payload: ParsedPayload::Paragraph {
-                    text: "p2".into(),
-                    inlines: vec![],
-                },
-            },
-            ParsedBlock {
-                kind: kb_parse_types::ParsedBlockKind::Paragraph,
-                heading_path: h1_a.clone(),
-                source_span: SourceSpan::Line { start: 3, end: 3 },
-                payload: ParsedPayload::Paragraph {
-                    text: "p3".into(),
-                    inlines: vec![],
-                },
-            },
-            ParsedBlock {
-                kind: kb_parse_types::ParsedBlockKind::Code,
-                heading_path: h1_a.clone(),
-                source_span: SourceSpan::Line { start: 4, end: 5 },
-                payload: ParsedPayload::Code {
-                    lang: None,
-                    code: "x".into(),
-                },
-            },
-            ParsedBlock {
-                kind: kb_parse_types::ParsedBlockKind::Paragraph,
-                heading_path: h1_b.clone(),
-                source_span: SourceSpan::Line { start: 6, end: 6 },
-                payload: ParsedPayload::Paragraph {
-                    text: "q1".into(),
-                    inlines: vec![],
-                },
-            },
-        ];
+        let blocks = fixture_blocks_five();
         let asset = fixture_asset();
         let metadata = fixture_metadata();
         let pv = parser_version();
@@ -417,7 +487,13 @@ mod tests {
         // Compute the expected IDs out-of-band so the test pins both
         // the (heading_path, kind) ordinal grouping AND the value of
         // each block_id under the recipe.
-        let p1 = id_for_block(&doc.doc_id, "paragraph", &h1_a, 0, &span);
+        let p1 = id_for_block(
+            &doc.doc_id,
+            "paragraph",
+            &h1_a,
+            0,
+            &SourceSpan::Line { start: 1, end: 1 },
+        );
         let p2 = id_for_block(
             &doc.doc_id,
             "paragraph",
@@ -482,10 +558,14 @@ mod tests {
                 ProvenanceKind::Normalized,
             ]
         );
-        assert_eq!(doc.provenance.events[0].at, asset.discovered_at);
-        assert_eq!(doc.provenance.events[0].agent, "kb-source-fs");
-        assert_eq!(doc.provenance.events[1].agent, "kb-parse-md");
-        assert_eq!(doc.provenance.events[2].agent, "kb-normalize");
+        let events = &doc.provenance.events;
+        assert_eq!(events[0].at, asset.discovered_at);
+        assert_eq!(events[0].agent, "kb-source-fs");
+        assert_eq!(events[1].agent, "kb-parse-md");
+        assert_eq!(events[2].agent, "kb-normalize");
+        // Pin the implementation invariant that Parsed and Normalized
+        // share the single `now_utc()` reading inside one call.
+        assert_eq!(events[1].at, events[2].at, "Parsed and Normalized share now_utc");
     }
 
     /// Warnings carried into `build_canonical_document` are emitted as
@@ -560,10 +640,14 @@ mod tests {
             v
         }
 
+        // Use the same 5-block fixture as the ordinal-scoping test so
+        // determinism is exercised on a non-empty `lift_block` path
+        // (block_id hashing, NFC normalization, ordinal counters), not
+        // just an empty Vec.
         let baseline = build_canonical_document(
             &asset,
             metadata.clone(),
-            vec![],
+            fixture_blocks_five(),
             &pv,
             vec![],
         )
@@ -575,7 +659,7 @@ mod tests {
             let next = build_canonical_document(
                 &asset,
                 metadata.clone(),
-                vec![],
+                fixture_blocks_five(),
                 &pv,
                 vec![],
             )
@@ -588,5 +672,172 @@ mod tests {
             "1000 iterations took {:?}",
             start.elapsed()
         );
+    }
+
+    /// I1 regression — `WarningKind::ExtractFailed` is emitted by
+    /// `kb-parse-md` (panic-recovery in `blocks.rs`), so the resulting
+    /// `ProvenanceEvent::agent` must read `"kb-parse-md"`. A regression
+    /// to `"kb-normalize"` would mis-attribute parse panics and break
+    /// stage-filtered debugging.
+    #[test]
+    fn provenance_with_extract_failed_warning_attributes_to_kb_parse_md() {
+        let asset = fixture_asset();
+        let metadata = fixture_metadata();
+        let pv = parser_version();
+        let warnings = vec![Warning {
+            kind: WarningKind::ExtractFailed,
+            note: "pulldown-cmark panicked; body discarded".into(),
+        }];
+        let doc =
+            build_canonical_document(&asset, metadata, vec![], &pv, warnings).unwrap();
+        let warning_event = doc
+            .provenance
+            .events
+            .iter()
+            .find(|e| e.kind == ProvenanceKind::Warning)
+            .expect("warning event present");
+        assert_eq!(warning_event.agent, "kb-parse-md");
+        assert!(
+            warning_event
+                .note
+                .as_deref()
+                .unwrap()
+                .contains("ExtractFailed")
+        );
+    }
+
+    /// I2 regression — `ParsedPayload::AudioRef` is dropped (not lifted
+    /// into a `Block::AudioRef` with a synthesized empty `AssetId`,
+    /// which would violate `AssetId::from_str`'s 32-hex invariant). A
+    /// `Warning` is surfaced in Provenance, attributed to
+    /// `"kb-normalize"` because the decision is made at the lift stage.
+    #[test]
+    fn audio_ref_block_skipped_with_warning() {
+        let span = SourceSpan::Line { start: 1, end: 1 };
+        let blocks = vec![ParsedBlock {
+            kind: kb_parse_types::ParsedBlockKind::AudioRef,
+            heading_path: vec![],
+            source_span: span,
+            payload: ParsedPayload::AudioRef {
+                src: "voice.m4a".into(),
+            },
+        }];
+        let asset = fixture_asset();
+        let metadata = fixture_metadata();
+        let pv = parser_version();
+        let doc =
+            build_canonical_document(&asset, metadata, blocks, &pv, vec![]).unwrap();
+
+        // No AudioRef block in the canonical output.
+        assert!(
+            !doc.blocks
+                .iter()
+                .any(|b| matches!(b, Block::AudioRef(_))),
+            "AudioRef block should be skipped pre-P8"
+        );
+
+        // Exactly one Warning event mentioning the AudioRef src.
+        let warning_events: Vec<_> = doc
+            .provenance
+            .events
+            .iter()
+            .filter(|e| e.kind == ProvenanceKind::Warning)
+            .collect();
+        assert_eq!(warning_events.len(), 1);
+        let w = warning_events[0];
+        assert_eq!(w.agent, "kb-normalize");
+        assert!(w.note.as_deref().unwrap().contains("voice.m4a"));
+    }
+
+    /// I3 regression — heading-path strings are NFC-normalized before
+    /// feeding into `id_for_block`, so canonically-equivalent NFD and
+    /// NFC inputs produce the same `block_id`. Mirrors
+    /// `nfc_nfd_korean_path_same_id` for `doc_id`.
+    #[test]
+    fn nfc_nfd_korean_heading_path_same_block_id() {
+        let span = SourceSpan::Line { start: 1, end: 1 };
+        let nfd_heading = "\u{1100}\u{1161}".to_string(); // 가 (NFD)
+        let nfc_heading = "\u{AC00}".to_string(); // 가 (NFC)
+        let mk_block = |heading: String| ParsedBlock {
+            kind: kb_parse_types::ParsedBlockKind::Paragraph,
+            heading_path: vec![heading],
+            source_span: span.clone(),
+            payload: ParsedPayload::Paragraph {
+                text: "p".into(),
+                inlines: vec![],
+            },
+        };
+        let asset = fixture_asset();
+        let pv = parser_version();
+        let doc_nfd = build_canonical_document(
+            &asset,
+            fixture_metadata(),
+            vec![mk_block(nfd_heading)],
+            &pv,
+            vec![],
+        )
+        .unwrap();
+        let doc_nfc = build_canonical_document(
+            &asset,
+            fixture_metadata(),
+            vec![mk_block(nfc_heading)],
+            &pv,
+            vec![],
+        )
+        .unwrap();
+        let id_nfd = match &doc_nfd.blocks[0] {
+            Block::Paragraph(t) => &t.common.block_id,
+            _ => panic!("expected Paragraph"),
+        };
+        let id_nfc = match &doc_nfc.blocks[0] {
+            Block::Paragraph(t) => &t.common.block_id,
+            _ => panic!("expected Paragraph"),
+        };
+        assert_eq!(id_nfd, id_nfc, "NFD and NFC heading paths must hash equal");
+    }
+
+    /// M7 — `metadata.user["title"] = ""` is stringy and lifts to an
+    /// empty `CanonicalDocument.title`. This pins the policy: an
+    /// explicit empty string is *not* dropped, it's lifted as-is.
+    #[test]
+    fn title_empty_string_in_user_map_falls_back_to_default() {
+        let asset = fixture_asset();
+        let mut metadata = fixture_metadata();
+        metadata
+            .user
+            .insert("title".into(), Value::String(String::new()));
+        let pv = parser_version();
+        let doc =
+            build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
+        assert_eq!(doc.title, "");
+    }
+
+    /// M7 — `metadata.user["title"] = 42` is non-stringy and silently
+    /// drops; the fallback default (empty title) is used.
+    #[test]
+    fn title_non_string_in_user_map_silently_drops() {
+        let asset = fixture_asset();
+        let mut metadata = fixture_metadata();
+        metadata
+            .user
+            .insert("title".into(), Value::Number(42.into()));
+        let pv = parser_version();
+        let doc =
+            build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
+        assert_eq!(doc.title, "");
+    }
+
+    /// M7 — non-stringy `lang` (e.g. an array) silently drops. This is
+    /// defensive: P1-2 frontmatter validates the shape upstream, but we
+    /// don't trust it.
+    #[test]
+    fn lang_invalid_shape_silently_drops() {
+        let asset = fixture_asset();
+        let mut metadata = fixture_metadata();
+        metadata.user.insert("lang".into(), Value::Array(vec![]));
+        let pv = parser_version();
+        let doc =
+            build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
+        assert_eq!(doc.lang, Lang(String::new()));
     }
 }

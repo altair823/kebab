@@ -76,9 +76,15 @@ fn code_and_table_canonical_snapshot() {
     // Frontmatter parse — code-and-table.md has none, so we provide
     // BodyHints with deterministic timestamps so the lifted Metadata
     // is reproducible. The body offset is 1 (no frontmatter prefix).
+    //
+    // We pin `first_h1` so the BodyHints → user.title → CanonicalDocument.title
+    // lift chain is exercised end-to-end (see `assert_eq!` on
+    // `doc.title` below). Without this, `code-and-table.md`'s lack of
+    // frontmatter title would leave `title == ""` and the chain would
+    // be uncovered by the snapshot.
     let asset = fixed_asset("notes/code-and-table.md");
     let hints = BodyHints {
-        first_h1: None,
+        first_h1: Some("Code And Table".into()),
         fs_ctime: asset.discovered_at,
         fs_mtime: asset.discovered_at,
         fallback_lang: Some("en".into()),
@@ -114,6 +120,11 @@ fn code_and_table_canonical_snapshot() {
         parse_warns,
     )
     .expect("build_canonical_document");
+
+    // Assert the BodyHints → first_h1 → user.title → CanonicalDocument.title
+    // lift chain end-to-end. Pinned in the snapshot too, but the explicit
+    // assertion makes a future drift fail with a clearer message.
+    assert_eq!(doc.title, "Code And Table");
 
     let actual = strip_dynamic(serde_json::to_value(&doc).unwrap());
 

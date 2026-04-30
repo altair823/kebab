@@ -582,14 +582,11 @@ name = "kb-normalize"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "blake3",
- "kb-config",
  "kb-core",
  "kb-parse-md",
  "kb-parse-types",
  "serde",
  "serde_json",
- "serde_json_canonicalizer",
  "time",
  "tracing",
  "unicode-normalization",

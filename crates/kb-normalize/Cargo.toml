@@ -10,11 +10,8 @@ description   = "Lift parser output (kb-parse-types) into kb-core::CanonicalDocu
 [dependencies]
 kb-core         = { path = "../kb-core" }
 kb-parse-types  = { path = "../kb-parse-types" }
-kb-config       = { path = "../kb-config" }
 serde                     = { workspace = true }
 serde_json                = { workspace = true }
-serde_json_canonicalizer  = "0.3"
-blake3                    = { workspace = true }
 unicode-normalization     = "0.1"
 time                      = { workspace = true }
 anyhow                    = { workspace = true }
