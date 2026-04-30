@@ -490,9 +490,14 @@ impl<'a> WalkState<'a> {
     }
 
     fn heading_path(&self) -> Vec<String> {
+        // Skip slots whose stored heading text is empty (e.g. a `#` heading
+        // with no following text). We deliberately keep `Some("")` in the
+        // stack so deeper headings still nest under their implicit slot,
+        // but the path itself filters empties out so child blocks don't
+        // get a `""` segment polluting their ancestry.
         self.heading_stack
             .iter()
-            .filter_map(|s| s.clone())
+            .filter_map(|s| s.clone().filter(|t| !t.is_empty()))
             .collect()
     }
 
@@ -685,11 +690,13 @@ impl<'a> WalkState<'a> {
 
                     // The heading_path on the heading block ITSELF excludes
                     // the heading's own text (it's the path of ancestors).
+                    // Empty heading texts are skipped so they don't create
+                    // a `""` segment in the path (matches `heading_path()`).
                     let path = self
                         .heading_stack
                         .iter()
                         .take((level_to_use - 1) as usize)
-                        .filter_map(|s| s.clone())
+                        .filter_map(|s| s.clone().filter(|t| !t.is_empty()))
                         .collect();
 
                     let block = ParsedBlock {
@@ -1090,6 +1097,59 @@ mod tests {
         let p2 = blocks.iter().find(|b| matches!(b.payload, ParsedPayload::Paragraph { ref text, .. } if text == "p2")).unwrap();
         assert_eq!(p1.heading_path, vec!["A".to_string(), "A.1".to_string()]);
         assert_eq!(p2.heading_path, vec!["B".to_string()]);
+    }
+
+    // ---- empty heading edge cases -------------------------------------------
+
+    #[test]
+    fn empty_heading_does_not_pollute_path() {
+        // `# ` with no text used to seed the heading_stack with `Some("")`,
+        // which then leaked into every child block's `heading_path` as a
+        // `""` segment. Now empty entries are filtered from the path.
+        let body = "# \n# Real H1\n## Sub\nbody\n";
+        let (blocks, _) = parse(body, 1);
+        // body is the last block; verify its heading_path.
+        let para = blocks
+            .iter()
+            .find(|b| matches!(b.payload, ParsedPayload::Paragraph { .. }))
+            .expect("paragraph present");
+        assert_eq!(
+            para.heading_path,
+            vec!["Real H1".to_string(), "Sub".to_string()],
+            "empty heading should not appear in path; got {:?}",
+            para.heading_path
+        );
+    }
+
+    #[test]
+    fn empty_h1_then_h2_does_not_break_stack() {
+        // An empty H1 overwrites the H1 slot with `Some("")` (so a later
+        // H2 is still treated as positioned at level 2), but the path
+        // filter drops the empty entry. So Inner's path is `[]` not `[""]`,
+        // and the body's path is `["Inner"]` — neither carries a `""` and
+        // the parser doesn't panic or skip blocks.
+        let body = "# Outer\n\n# \n\n## Inner\nbody\n";
+        let (blocks, _) = parse(body, 1);
+        let inner = blocks
+            .iter()
+            .find(|b| {
+                matches!(b.payload, ParsedPayload::Heading { ref text, .. } if text == "Inner")
+            })
+            .expect("Inner heading present");
+        assert_eq!(
+            inner.heading_path,
+            Vec::<String>::new(),
+            "empty H1 leaves an empty slot, filtered from the path"
+        );
+        let para = blocks
+            .iter()
+            .find(|b| matches!(b.payload, ParsedPayload::Paragraph { .. }))
+            .expect("paragraph present");
+        assert_eq!(
+            para.heading_path,
+            vec!["Inner".to_string()],
+            "body's path drops the empty H1 between root and Inner"
+        );
     }
 
     // ---- code blocks ---------------------------------------------------------
