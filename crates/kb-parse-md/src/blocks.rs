@@ -96,6 +96,24 @@ fn parse_blocks_inner(body: &[u8], body_offset_lines: u32) -> (Vec<ParsedBlock>,
         state.handle_event(event, range, &mut warnings);
     }
 
+    // If line-number arithmetic saturated at any point (e.g. caller passed
+    // `body_offset_lines = u32::MAX`), discard the (potentially clamped)
+    // blocks and surface a single `ExtractFailed` warning. Returning the
+    // possibly-inverted spans would be more harmful than dropping output.
+    if state.overflow_detected {
+        let at = state
+            .overflow_at_body_line
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "?".to_string());
+        return (
+            Vec::new(),
+            vec![Warning {
+                kind: WarningKind::ExtractFailed,
+                note: format!("body_offset_lines overflow at body line {at}"),
+            }],
+        );
+    }
+
     (state.finish(), warnings)
 }
 
@@ -174,6 +192,14 @@ struct WalkState<'a> {
     /// Accumulator for the currently-open block. We push events into this
     /// frame and convert to a `ParsedBlock` when the matching End tag fires.
     frames: Vec<Frame>,
+
+    /// Set if any line-number arithmetic in [`WalkState::span_for`] would
+    /// overflow `u32::MAX`. When set, [`Self::finish`] discards accumulated
+    /// blocks and the caller emits a single `Warning::ExtractFailed` instead.
+    overflow_detected: bool,
+    /// Body-line (0-indexed) where overflow was first observed, for the
+    /// warning note.
+    overflow_at_body_line: Option<u32>,
 }
 
 /// One in-flight container we are accumulating events into. Stack-shaped so
@@ -372,6 +398,8 @@ impl<'a> WalkState<'a> {
             blocks: Vec::new(),
             heading_stack: Default::default(),
             frames: Vec::new(),
+            overflow_detected: false,
+            overflow_at_body_line: None,
         }
     }
 
@@ -386,16 +414,33 @@ impl<'a> WalkState<'a> {
             .collect()
     }
 
-    fn span_for(&self, range: &Range<usize>) -> SourceSpan {
+    fn span_for(&mut self, range: &Range<usize>) -> SourceSpan {
         let start_body = self.line_index.line_zero_indexed(range.start);
         let end_body = if range.end <= range.start {
             start_body
         } else {
             self.line_index.end_line_zero_indexed(range.end)
         };
-        SourceSpan::Line {
-            start: start_body + self.body_offset_lines,
-            end: end_body + self.body_offset_lines,
+        // Saturating add — but also remember whether overflow happened so the
+        // caller can degrade gracefully rather than silently emitting an
+        // inverted span. Without this guard, debug builds panic with
+        // "attempt to add with overflow" (caught by `catch_unwind`, masking
+        // the real cause) and release builds wrap to `start > end`.
+        match (
+            start_body.checked_add(self.body_offset_lines),
+            end_body.checked_add(self.body_offset_lines),
+        ) {
+            (Some(start), Some(end)) => SourceSpan::Line { start, end },
+            _ => {
+                if !self.overflow_detected {
+                    self.overflow_detected = true;
+                    self.overflow_at_body_line = Some(start_body);
+                }
+                SourceSpan::Line {
+                    start: start_body.saturating_add(self.body_offset_lines),
+                    end: end_body.saturating_add(self.body_offset_lines),
+                }
+            }
         }
     }
 
@@ -1156,6 +1201,9 @@ mod tests {
     fn random_bytes_do_not_panic() {
         // Tiny xorshift PRNG seeded with a constant; deterministic inputs
         // covering both valid-ish and invalid markdown / utf-8 mixes.
+        // We also vary `body_offset_lines` across the full u32 range —
+        // including u32::MAX — to exercise the saturating-add path in
+        // `span_for` and confirm the overflow guard prevents panics.
         let mut state: u32 = 0x1234_5678;
         let mut next = || {
             state ^= state << 13;
@@ -1163,11 +1211,47 @@ mod tests {
             state ^= state << 5;
             state
         };
-        for _ in 0..100 {
+        for i in 0..100 {
             let len = (next() as usize) % 256;
             let bytes: Vec<u8> = (0..len).map(|_| next() as u8).collect();
-            let _ = parse_blocks(&bytes, 1).expect("must be Ok");
+            // Mix a u32::MAX-style offset every few iterations so the fuzz
+            // exercises the overflow path explicitly.
+            let offset = match i % 4 {
+                0 => 0,
+                1 => 1,
+                2 => next(),
+                _ => u32::MAX - (next() % 16),
+            };
+            let _ = parse_blocks(&bytes, offset).expect("must be Ok");
         }
+    }
+
+    #[test]
+    fn body_offset_lines_max_returns_extract_failed() {
+        // u32::MAX + any positive line number overflows; the parser must
+        // surface `ExtractFailed` and discard blocks rather than panic
+        // (debug) or emit an inverted span (release).
+        let body = b"# h\nbody\n";
+        let (blocks, warns) = parse_blocks(body, u32::MAX).expect("must be Ok");
+        assert!(blocks.is_empty(), "blocks should be discarded on overflow");
+        assert_eq!(warns.len(), 1, "expected one warning, got: {warns:?}");
+        assert_eq!(warns[0].kind, WarningKind::ExtractFailed);
+        assert!(
+            warns[0].note.contains("overflow"),
+            "note should mention overflow: {:?}",
+            warns[0].note
+        );
+    }
+
+    #[test]
+    fn body_offset_lines_zero_at_max_minus_one_no_overflow() {
+        // A body with exactly one logical line + offset = u32::MAX would
+        // still saturate. Pick offset such that no line ever reaches
+        // overflow — this should succeed normally.
+        let body = b"hi\n";
+        let (blocks, warns) = parse_blocks(body, u32::MAX - 100).expect("must be Ok");
+        assert_eq!(blocks.len(), 1);
+        assert!(warns.is_empty(), "no overflow expected, got: {warns:?}");
     }
 
     #[test]
