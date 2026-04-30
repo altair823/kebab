@@ -7,13 +7,23 @@
 //! mutex on the hot path.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 use crate::error::StoreError;
 use crate::schema;
+
+/// Monotonic counter used to namespace per-process temp file names so
+/// concurrent `put_asset_with_bytes` calls in the same millisecond cannot
+/// collide on `<final>.tmp.<pid>.<n>`.
+static TEMP_SUFFIX_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Length, in hex chars, of a valid `kb_core::AssetId`. blake3 first-half
+/// truncated, mirrored from `kb-core`'s newtype invariant.
+const ASSET_ID_HEX_LEN: usize = 32;
 
 /// Default file name under `config.storage.data_dir`. Kept private — the
 /// path layout is a §6.3 design decision, not part of the store's public
@@ -80,12 +90,23 @@ impl SqliteStore {
     /// Apply all pending migrations bundled at compile time
     /// (`migrations/V001__init.sql` and any later additions).
     pub fn run_migrations(&self) -> Result<()> {
-        let mut conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut conn = self.lock_conn();
         schema::runner()
             .run(&mut *conn)
             .map_err(|e| StoreError::Migration(e.to_string()))?;
         tracing::debug!(target: "kb-store-sqlite", "migrations applied");
         Ok(())
+    }
+
+    /// Acquire the connection mutex, recovering from poison.
+    ///
+    /// Poisoning here means a previous holder panicked while holding the
+    /// guard. The active rusqlite transaction (if any) was rolled back by
+    /// the `Transaction` `Drop` impl, so the connection state is still
+    /// safe to reuse — we simply unwrap the inner guard rather than
+    /// propagate the panic to every subsequent call.
+    pub(crate) fn lock_conn(&self) -> MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     /// Persist a `RawAsset` *with its raw bytes*: row goes into `assets`,
@@ -101,6 +122,13 @@ impl SqliteStore {
         asset: &kb_core::RawAsset,
         bytes: &[u8],
     ) -> Result<()> {
+        // 0. Validate the AssetId shape before any I/O. `kb_core::AssetId`
+        // is a `pub String` newtype: `FromStr` enforces the 32-hex-char
+        // invariant, but a hand-constructed `AssetId("../etc/passwd…")`
+        // can bypass that and reach `assets_path_for`. Refuse such IDs at
+        // the store boundary to keep shard-dir slicing safe.
+        validate_asset_id(&asset.asset_id)?;
+
         // 1. Verify the caller's checksum matches what's actually on the
         // wire. A drift here means the bytes the parser saw and the bytes
         // we're about to durably store disagree — refuse persistence.
@@ -116,54 +144,103 @@ impl SqliteStore {
         // 2. Decide copy vs. reference. The threshold compares the
         // declared `byte_len` (caller-vouched) rather than `bytes.len()`
         // because some sources stream and `byte_len` is authoritative.
-        let (storage_kind, storage_path) = if asset.byte_len <= self.copy_threshold_bytes {
+        if asset.byte_len <= self.copy_threshold_bytes {
+            // Copy mode. To prevent file orphans on UPSERT failure we use
+            // the temp-file + atomic-rename pattern:
+            //   (a) write bytes to `<final>.tmp.<pid>.<counter>`
+            //   (b) fsync the temp file
+            //   (c) UPSERT the row
+            //   (d) on UPSERT success: rename temp → final (atomic on
+            //       same fs)
+            //   (e) on any failure between (a) and (d): best-effort delete
+            //       of the temp file so we never leak bytes on disk.
             let dest = self.assets_path_for(&asset.asset_id);
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent).with_context(|| {
                     format!("create asset shard dir {}", parent.display())
                 })?;
             }
-            std::fs::write(&dest, bytes)
-                .with_context(|| format!("write asset bytes to {}", dest.display()))?;
-            // Mirror §6.6: files 0o644.
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let mut perms = std::fs::metadata(&dest)?.permissions();
-                perms.set_mode(0o644);
-                std::fs::set_permissions(&dest, perms).with_context(|| {
-                    format!("chmod 0o644 on {}", dest.display())
+            let temp_path = temp_path_for(&dest);
+            // Inline closure so any `?` in (a)/(b) cleans up the temp
+            // file before bubbling out.
+            let write_and_upsert = || -> Result<()> {
+                {
+                    let mut f = std::fs::File::create(&temp_path).with_context(|| {
+                        format!("create temp asset file {}", temp_path.display())
+                    })?;
+                    use std::io::Write;
+                    f.write_all(bytes).with_context(|| {
+                        format!("write asset bytes to {}", temp_path.display())
+                    })?;
+                    f.sync_all().with_context(|| {
+                        format!("fsync temp asset file {}", temp_path.display())
+                    })?;
+                }
+                // Mirror §6.6: files 0o644.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let mut perms = std::fs::metadata(&temp_path)?.permissions();
+                    perms.set_mode(0o644);
+                    std::fs::set_permissions(&temp_path, perms).with_context(|| {
+                        format!("chmod 0o644 on {}", temp_path.display())
+                    })?;
+                }
+                // UPSERT the row first; only after a successful row write
+                // do we publish the file via rename. A second
+                // `put_asset_with_bytes` for the same asset_id overwrites
+                // in place.
+                {
+                    let conn = self.lock_conn();
+                    upsert_asset_row(
+                        &conn,
+                        asset,
+                        "copied",
+                        &dest.to_string_lossy(),
+                    )?;
+                }
+                std::fs::rename(&temp_path, &dest).with_context(|| {
+                    format!(
+                        "atomic rename {} -> {}",
+                        temp_path.display(),
+                        dest.display()
+                    )
                 })?;
+                Ok(())
+            };
+            match write_and_upsert() {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    // Best-effort cleanup; ignore errors so the original
+                    // failure (likely the more useful one) propagates.
+                    let _ = std::fs::remove_file(&temp_path);
+                    Err(e)
+                }
             }
-            ("copied", dest.to_string_lossy().into_owned())
         } else {
             // Reference: caller's source path is recorded verbatim. We
             // accept either a `File(path)` or `Kb(uri)` SourceUri; the
-            // latter stores the raw `kb://...` string.
-            let path = match &asset.source_uri {
+            // latter stores the raw `kb://...` string. No file I/O ⇒ no
+            // orphan risk; just UPSERT the row.
+            let storage_path = match &asset.source_uri {
                 kb_core::SourceUri::File(p) => p.to_string_lossy().into_owned(),
                 kb_core::SourceUri::Kb(u) => u.clone(),
             };
-            ("reference", path)
-        };
-
-        // 3. UPSERT the assets row. A second `put_asset_with_bytes` for
-        // the same asset_id (e.g. re-ingest) overwrites in place — the
-        // row is uniquely keyed by asset_id and re-derived from the
-        // RawAsset every time.
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
-        upsert_asset_row(&conn, asset, storage_kind, &storage_path)?;
-        Ok(())
+            let conn = self.lock_conn();
+            upsert_asset_row(&conn, asset, "reference", &storage_path)?;
+            Ok(())
+        }
     }
 
     /// Compute the `data_dir/assets/<aa>/<asset_id>` path for an asset.
     /// `<aa>` is the first [`ASSET_SHARD_LEN`] hex chars of `asset_id`.
+    ///
+    /// Callers that build paths from caller-controlled IDs MUST first
+    /// invoke [`validate_asset_id`] (already enforced at every store
+    /// entry that takes a `RawAsset`). The `id.len() >= ASSET_SHARD_LEN`
+    /// guard below is a defense-in-depth fallback only.
     pub(crate) fn assets_path_for(&self, asset_id: &kb_core::AssetId) -> PathBuf {
         let id = &asset_id.0;
-        // Defensive: kb-core enforces 32 hex chars on AssetId construction
-        // (`FromStr` validates). If a future code path bypasses that, we
-        // fall back to the full id as the shard so we never panic on
-        // slicing.
         let shard = if id.len() >= ASSET_SHARD_LEN {
             &id[..ASSET_SHARD_LEN]
         } else {
@@ -171,6 +248,38 @@ impl SqliteStore {
         };
         self.data_dir.join(ASSETS_SUBDIR).join(shard).join(id)
     }
+}
+
+/// Reject an `AssetId` whose shape would let a malicious caller escape
+/// the `data_dir/assets/<aa>/` shard tree. `kb_core::AssetId(pub String)`
+/// permits hand-construction, so any function that turns an `AssetId`
+/// into a filesystem path must call this first.
+pub(crate) fn validate_asset_id(asset_id: &kb_core::AssetId) -> Result<()> {
+    if asset_id.0.len() != ASSET_ID_HEX_LEN
+        || !asset_id.0.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        anyhow::bail!(
+            "invalid AssetId shape (expected {} ASCII hex chars): {:?}",
+            ASSET_ID_HEX_LEN,
+            asset_id.0
+        );
+    }
+    Ok(())
+}
+
+/// Compute a per-call temp-file path next to `dest` that is unlikely to
+/// collide with any other in-flight writer (process pid + monotonic
+/// counter). The temp file lives in the same parent directory so the
+/// final `rename` is an atomic same-filesystem rename on POSIX.
+fn temp_path_for(dest: &Path) -> PathBuf {
+    let pid = std::process::id();
+    let n = TEMP_SUFFIX_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let parent = dest.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = dest
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "asset".to_string());
+    parent.join(format!("{file_name}.tmp.{pid}.{n}"))
 }
 
 /// UPSERT a row into `assets`. Used by both the `put_asset_with_bytes`

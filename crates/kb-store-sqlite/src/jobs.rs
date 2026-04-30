@@ -29,7 +29,7 @@ impl kb_core::JobRepo for SqliteStore {
         let kind_label = job_kind_label(&kind);
         let payload_json = serde_json::to_string(&payload)
             .context("serialize job payload")?;
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.lock_conn();
         conn.execute(
             "INSERT INTO jobs (
                 job_id, kind, status, payload_json, progress_json,
@@ -51,7 +51,7 @@ impl kb_core::JobRepo for SqliteStore {
         let now = OffsetDateTime::now_utc()
             .format(&time::format_description::well_known::Rfc3339)
             .context("format job updated_at")?;
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.lock_conn();
         // status='pending' → 'running' on first progress update; later
         // progress calls keep status='running' until finish().
         conn.execute(
@@ -80,7 +80,7 @@ impl kb_core::JobRepo for SqliteStore {
             .map(|e| serde_json::to_string(&serde_json::json!({ "message": e })))
             .transpose()
             .context("serialize job error")?;
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.lock_conn();
         conn.execute(
             "UPDATE jobs SET
                 status = ?,
@@ -98,7 +98,7 @@ impl kb_core::JobRepo for SqliteStore {
         &self,
         filter: &kb_core::JobFilter,
     ) -> Result<Vec<kb_core::JobRow>> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.lock_conn();
         let mut sql = String::from(
             "SELECT job_id, kind, status, payload_json, progress_json,
                     error_json, created_at, updated_at, finished_at

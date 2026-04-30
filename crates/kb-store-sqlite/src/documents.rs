@@ -16,10 +16,14 @@ use rusqlite::params;
 use time::OffsetDateTime;
 
 use crate::error::StoreError;
-use crate::store::{SqliteStore, upsert_asset_row};
+use crate::store::{SqliteStore, upsert_asset_row, validate_asset_id};
 
 impl kb_core::DocumentStore for SqliteStore {
     fn put_asset(&self, asset: &kb_core::RawAsset) -> Result<()> {
+        // Validate the AssetId shape before any row work — defense in
+        // depth against hand-constructed `kb_core::AssetId` values that
+        // bypass `FromStr`. See `validate_asset_id` for rationale.
+        validate_asset_id(&asset.asset_id)?;
         // No bytes here — read storage_kind/storage_path from the
         // RawAsset's `stored` field per its convention (§3.3). Callers
         // that have raw bytes go through `put_asset_with_bytes` instead;
@@ -33,12 +37,12 @@ impl kb_core::DocumentStore for SqliteStore {
                 ("reference", path.to_string_lossy().into_owned())
             }
         };
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.lock_conn();
         upsert_asset_row(&conn, asset, storage_kind, &storage_path)
     }
 
     fn put_document(&self, doc: &kb_core::CanonicalDocument) -> Result<()> {
-        let mut conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut conn = self.lock_conn();
         let tx = conn.transaction().map_err(StoreError::from)?;
         upsert_document(&tx, doc)?;
         replace_document_tags(&tx, &doc.doc_id, &doc.metadata.tags)?;
@@ -51,7 +55,7 @@ impl kb_core::DocumentStore for SqliteStore {
         doc: &kb_core::DocumentId,
         blocks: &[kb_core::Block],
     ) -> Result<()> {
-        let mut conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut conn = self.lock_conn();
         let tx = conn.transaction().map_err(StoreError::from)?;
         // DELETE-then-INSERT: §5.4 has no UNIQUE on (doc_id, ordinal)
         // so we cannot rely on UPSERT to surface block_id collisions. The
@@ -97,7 +101,7 @@ impl kb_core::DocumentStore for SqliteStore {
         let now = OffsetDateTime::now_utc()
             .format(&time::format_description::well_known::Rfc3339)
             .context("format chunk created_at")?;
-        let mut conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let mut conn = self.lock_conn();
         let tx = conn.transaction().map_err(StoreError::from)?;
         tx.execute("DELETE FROM chunks WHERE doc_id = ?", params![doc.0])
             .map_err(StoreError::from)?;
@@ -144,7 +148,7 @@ impl kb_core::DocumentStore for SqliteStore {
         &self,
         id: &kb_core::DocumentId,
     ) -> Result<Option<kb_core::CanonicalDocument>> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.lock_conn();
         let row: Option<DocumentRow> = conn
             .query_row(
                 "SELECT
@@ -205,7 +209,7 @@ impl kb_core::DocumentStore for SqliteStore {
     }
 
     fn get_chunk(&self, id: &kb_core::ChunkId) -> Result<Option<kb_core::Chunk>> {
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.lock_conn();
         let row = conn
             .query_row(
                 "SELECT
@@ -248,7 +252,7 @@ impl kb_core::DocumentStore for SqliteStore {
         // Build a dynamic WHERE clause from the filter. Each condition
         // appends one positional `?` placeholder and one `Box<dyn
         // ToSql>` to `params` so order stays in sync.
-        let conn = self.conn.lock().expect("sqlite mutex poisoned");
+        let conn = self.lock_conn();
         let mut sql = String::from(
             "SELECT d.doc_id, d.workspace_path, d.title, d.lang,
                     d.source_type, d.trust_level, d.parser_version,
