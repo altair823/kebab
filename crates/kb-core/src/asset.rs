@@ -40,6 +40,18 @@ impl WorkspacePath {
     }
 }
 
+/// On-disk storage decision for a `RawAsset`.
+///
+/// **Important convention** — `path` field semantics differ by variant:
+///
+/// - `Copied { path }`: at scan time, `path` is the **source** path on the
+///   user's filesystem. The asset writer (P1-6) is responsible for actually
+///   copying the bytes into the workspace asset store, AND for overwriting
+///   `path` with the destination path after the copy completes.
+///
+/// - `Reference { path, sha }`: `path` is always the **source** path. No
+///   bytes are ever copied; downstream readers stream from `path` directly.
+///   `sha` is the BLAKE3 full hex (matches `RawAsset::checksum`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase", tag = "kind")]
 pub enum AssetStorage {

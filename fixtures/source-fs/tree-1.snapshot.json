@@ -1,0 +1,68 @@
+[
+  {
+    "asset_id": "bd6e5649e546d6ac94c3269ffe7192c5",
+    "byte_len": 6,
+    "checksum": "f6b71def043f1fd92f2d34969a7272a9d134730551de8c9754c4be79fbc0aef3",
+    "discovered_at": "<stripped>",
+    "media_type": {
+      "other": ""
+    },
+    "source_uri": {
+      "kind": "file",
+      "value": "<stripped>"
+    },
+    "stored": {
+      "kind": "copied",
+      "path": "<stripped>"
+    },
+    "workspace_path": ".kbignore"
+  },
+  {
+    "asset_id": "ba6cd31cab86eff7a86638ee76494bcf",
+    "byte_len": 169,
+    "checksum": "b0124489083674f6ad99a57ee5fc425feb71754a538a97a1ab580e8eb9b1f1c1",
+    "discovered_at": "<stripped>",
+    "media_type": "markdown",
+    "source_uri": {
+      "kind": "file",
+      "value": "<stripped>"
+    },
+    "stored": {
+      "kind": "copied",
+      "path": "<stripped>"
+    },
+    "workspace_path": "README.md"
+  },
+  {
+    "asset_id": "3381fcc34cf9415a391ba6b0dc6037c5",
+    "byte_len": 11,
+    "checksum": "e9fa9a5e0725d7bf6ec9d1565d3921eb6b62aa7f0db40c1c3ffebda7475d4258",
+    "discovered_at": "<stripped>",
+    "media_type": "markdown",
+    "source_uri": {
+      "kind": "file",
+      "value": "<stripped>"
+    },
+    "stored": {
+      "kind": "copied",
+      "path": "<stripped>"
+    },
+    "workspace_path": "notes/alpha.md"
+  },
+  {
+    "asset_id": "e300aa98aec843d2df1dd8f43702b257",
+    "byte_len": 10,
+    "checksum": "3e4df2f43563730d61672ce67a9bf479bc7c7a2f1384e2081d52e06f143353ed",
+    "discovered_at": "<stripped>",
+    "media_type": "markdown",
+    "source_uri": {
+      "kind": "file",
+      "value": "<stripped>"
+    },
+    "stored": {
+      "kind": "copied",
+      "path": "<stripped>"
+    },
+    "workspace_path": "notes/beta.md"
+  }
+]
