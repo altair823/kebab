@@ -9,8 +9,6 @@ description   = "Chunkers that turn kb-core::CanonicalDocument into kb-core::Chu
 
 [dependencies]
 kb-core                    = { path = "../kb-core" }
-kb-config                  = { path = "../kb-config" }
-serde                      = { workspace = true }
 serde_json_canonicalizer   = "0.3"
 blake3                     = { workspace = true }
 anyhow                     = { workspace = true }
