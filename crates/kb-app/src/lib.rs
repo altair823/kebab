@@ -1,8 +1,11 @@
 //! `kb-app` — facade that downstream `kb-cli` / `kb-tui` / `kb-desktop`
 //! depend on (§7, §8).
 //!
-//! P0 implementations stub out — the signatures are frozen so that later
-//! phases swap in real bodies without breaking call sites.
+//! P3-5 swapped the `bail!("not yet wired")` stubs for real bodies that
+//! compose the libraries shipped through P3-4. After this task, `kb
+//! ingest` actually walks a workspace and persists chunks, and `kb
+//! search --mode {lexical,vector,hybrid}` returns real `SearchHit`s.
+//! `kb-app::ask` stays stubbed (P4-3 owns it).
 //!
 //! ## Wire-schema convention
 //!
@@ -16,19 +19,47 @@
 //! surface (no domain-side equivalent in `kb-core`). When adding a new
 //! facade function in a later phase, remember: keep the return type pure,
 //! and add a matching `wire_*` helper in `kb-cli/src/wire.rs`.
+//!
+//! ## Test seam
+//!
+//! Each public free function has a `pub(crate) fn *_with_config`
+//! companion that takes a fully-resolved `Config` directly. Public
+//! callers go through the top-level functions which call
+//! `load_config()`; integration tests call the `_with_config` variant
+//! and pass a mutated `Config` pointing at a `TempDir` to avoid
+//! polluting the user's real `data_dir` / `model_dir`.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use anyhow::bail;
+use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
+use kb_chunk::MdHeadingV1Chunker;
 use kb_core::{
-    Answer, CanonicalDocument, Chunk, ChunkId, DocFilter, DocSummary, DocumentId,
-    IngestReport, SearchHit, SearchMode, SearchQuery, SourceScope,
+    Answer, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
+    DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
+    EmbeddingKind, IndexVersion, IngestReport, ParserVersion, RawAsset, Retriever,
+    SearchHit, SearchMode, SearchQuery, SourceConnector, SourceScope, SourceUri,
+    VectorRecord, VectorStore,
 };
+use kb_normalize::build_canonical_document;
+use kb_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
+use kb_search::{HybridRetriever, LexicalRetriever, VectorRetriever};
+use kb_source_fs::FsSourceConnector;
 
+mod app;
 pub mod doctor_signal;
 pub mod logging;
+
+use app::App;
+
+/// Parser-version label persisted in `documents.parser_version` for
+/// every Markdown file ingested through the `kb-parse-md` pipeline.
+/// Kept in lock-step with the literal used in the `kb-store-sqlite`
+/// idempotency / round-trip tests so the version label written by the
+/// app and the one used in cross-crate fixtures match.
+const KB_PARSE_MD_VERSION: &str = "pulldown-cmark-0.x";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AskOpts {
@@ -101,28 +132,679 @@ fn expand_tilde(s: &str) -> PathBuf {
     PathBuf::from(s)
 }
 
-pub fn ingest(_scope: SourceScope, _summary_only: bool) -> anyhow::Result<IngestReport> {
-    bail!("not yet wired (P1-2)")
+/// Load the active Config from XDG (or fall back to defaults). Mirrors
+/// what `kb-cli` does at the top of every subcommand path; we re-do
+/// the load inside each facade entry so callers don't have to thread
+/// a Config through.
+fn load_config() -> anyhow::Result<kb_config::Config> {
+    kb_config::Config::load(None)
 }
 
-pub fn list_docs(_filter: DocFilter) -> anyhow::Result<Vec<DocSummary>> {
-    bail!("not yet wired (P1-5)")
+// ── ingest ────────────────────────────────────────────────────────────────
+
+pub fn ingest(scope: SourceScope, summary_only: bool) -> anyhow::Result<IngestReport> {
+    let config = load_config()?;
+    ingest_with_config(config, scope, summary_only)
 }
 
-pub fn inspect_doc(_id: &DocumentId) -> anyhow::Result<CanonicalDocument> {
-    bail!("not yet wired (P1-5)")
+/// Test-only seam — kb-cli must call the public free function
+/// ([`ingest`]), not this. See module docs.
+#[doc(hidden)]
+pub fn ingest_with_config(
+    config: kb_config::Config,
+    scope: SourceScope,
+    summary_only: bool,
+) -> anyhow::Result<IngestReport> {
+    let started_instant = std::time::Instant::now();
+
+    let app = App::open(config)?;
+
+    // Walk the workspace.
+    let connector = FsSourceConnector::new(&app.config)
+        .context("kb-app::ingest: build FsSourceConnector")?;
+    let assets = connector
+        .scan(&scope)
+        .context("kb-app::ingest: scan workspace")?;
+
+    // Embedder + vector store: build once at the top so the cold-start
+    // cost is paid once even when the workspace has 1000 markdown files.
+    let embedder = app.embedder()?;
+    let vector_store = app.vector()?;
+
+    // If both are present, ensure the table exists for the (model, dim)
+    // pair so the first per-doc upsert doesn't pay the create-table
+    // round-trip.
+    if let (Some(emb), Some(vec)) = (embedder.as_ref(), vector_store.as_ref()) {
+        let mid = emb.model_id();
+        vec.ensure_table(&mid, emb.dimensions())
+            .context("kb-app::ingest: ensure Lance table")?;
+    }
+
+    let parser_version = ParserVersion(KB_PARSE_MD_VERSION.to_string());
+    let chunk_policy = chunk_policy_from_config(&app.config);
+
+    // Pre-load every existing doc_id so we can label `IngestItem.kind`
+    // as `New` vs `Updated` correctly. `list_documents` returns one
+    // row per `(workspace_path, asset_id)` — index by the deterministic
+    // `doc_id` recipe input so the first ingest of an unseen file is
+    // labelled `New`.
+    let existing_doc_ids: std::collections::HashSet<String> = app
+        .sqlite
+        .list_documents(&DocFilter::default())
+        .context("kb-app::ingest: list existing documents")?
+        .into_iter()
+        .map(|d| d.doc_id.0)
+        .collect();
+
+    let started_at = time::OffsetDateTime::now_utc();
+
+    let mut items: Vec<kb_core::IngestItem> = Vec::new();
+    let mut new_count: u32 = 0;
+    let mut updated_count: u32 = 0;
+    let mut skipped_count: u32 = 0;
+    let mut error_count: u32 = 0;
+    // Aggregate counts surfaced into `ingest_runs` (and tracing). Not
+    // exposed on `IngestReport` today — `kb_core::IngestReport` is a
+    // wire-stable struct without these fields — but persisting them
+    // means audit tooling and `kb jobs` (P+) can recover the totals
+    // without re-walking the DB.
+    let mut chunks_indexed: u32 = 0;
+    let mut embeddings_indexed: u32 = 0;
+    let scanned_count: u32 = u32::try_from(assets.len()).unwrap_or(u32::MAX);
+
+    let embed_active = embedder.is_some() && vector_store.is_some();
+
+    for asset in assets {
+        let item = ingest_one_asset(
+            &app,
+            &asset,
+            &parser_version,
+            &chunk_policy,
+            embedder.as_ref(),
+            vector_store.as_ref(),
+            &existing_doc_ids,
+        );
+
+        let item = match item {
+            Ok(i) => i,
+            Err(e) => {
+                tracing::error!(
+                    target: "kb-app",
+                    path = %asset.workspace_path.0,
+                    error = %e,
+                    "kb-app::ingest: per-file fatal"
+                );
+                error_count = error_count.saturating_add(1);
+                kb_core::IngestItem {
+                    kind: kb_core::IngestItemKind::Error,
+                    doc_id: None,
+                    doc_path: asset.workspace_path.clone(),
+                    asset_id: Some(asset.asset_id.clone()),
+                    byte_len: Some(asset.byte_len),
+                    block_count: None,
+                    chunk_count: None,
+                    parser_version: None,
+                    chunker_version: None,
+                    warnings: Vec::new(),
+                    error: Some(format!("{e:#}")),
+                }
+            }
+        };
+
+        match item.kind {
+            kb_core::IngestItemKind::New => {
+                new_count = new_count.saturating_add(1);
+                let n = item.chunk_count.unwrap_or(0);
+                chunks_indexed = chunks_indexed.saturating_add(n);
+                if embed_active {
+                    embeddings_indexed = embeddings_indexed.saturating_add(n);
+                }
+            }
+            kb_core::IngestItemKind::Updated => {
+                updated_count = updated_count.saturating_add(1);
+                let n = item.chunk_count.unwrap_or(0);
+                chunks_indexed = chunks_indexed.saturating_add(n);
+                if embed_active {
+                    embeddings_indexed = embeddings_indexed.saturating_add(n);
+                }
+            }
+            kb_core::IngestItemKind::Skipped => {
+                skipped_count = skipped_count.saturating_add(1)
+            }
+            kb_core::IngestItemKind::Error => {
+                error_count = error_count.saturating_add(1)
+            }
+        }
+        items.push(item);
+    }
+
+    // Record a row in `jobs` so `kb jobs` (P+) can list the run. Distinct
+    // from the `ingest_runs` row written below — the `jobs` table is the
+    // generic job-lifecycle surface (`kind=ingest`), `ingest_runs` is the
+    // ingest-specific aggregate counts row.
+    let payload = serde_json::json!({
+        "scope": scope,
+        "summary_only": summary_only,
+    });
+    let job_id_res = <SqliteStoreAlias as kb_core::JobRepo>::create(
+        &app.sqlite,
+        kb_core::JobKind::Ingest,
+        payload,
+    );
+    match job_id_res {
+        Ok(jid) => {
+            // Stash the aggregate counts as the job's `progress_json`
+            // so a future `kb jobs show` can surface them without
+            // joining `ingest_runs`.
+            let progress = serde_json::json!({
+                "scanned": scanned_count,
+                "new": new_count,
+                "updated": updated_count,
+                "skipped": skipped_count,
+                "errors": error_count,
+                "chunks_indexed": chunks_indexed,
+                "embeddings_indexed": embeddings_indexed,
+            });
+            if let Err(e) = <SqliteStoreAlias as kb_core::JobRepo>::update_progress(
+                &app.sqlite,
+                &jid,
+                progress,
+            ) {
+                tracing::warn!(
+                    target: "kb-app",
+                    error = %e,
+                    "kb-app::ingest: JobRepo::update_progress failed"
+                );
+            }
+            if let Err(e) = <SqliteStoreAlias as kb_core::JobRepo>::finish(
+                &app.sqlite,
+                &jid,
+                kb_core::JobStatus::Succeeded,
+                None,
+            ) {
+                tracing::warn!(
+                    target: "kb-app",
+                    error = %e,
+                    "kb-app::ingest: JobRepo::finish failed"
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: "kb-app",
+                error = %e,
+                "kb-app::ingest: JobRepo::create failed; run not recorded in `jobs`"
+            );
+        }
+    }
+
+    let duration_ms = u32::try_from(started_instant.elapsed().as_millis())
+        .unwrap_or(u32::MAX);
+    let finished_at = time::OffsetDateTime::now_utc();
+
+    // Record the ingest_runs row with aggregate counts.
+    // `summary_only=true` writes `items_json=NULL` (per design §5.7);
+    // the count columns are populated either way.
+    let scope_json = serde_json::to_string(&scope)
+        .context("kb-app::ingest: serialize scope for ingest_runs.scope_json")?;
+    let items_json: Option<String> = if summary_only {
+        None
+    } else {
+        match serde_json::to_string(&items) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                tracing::warn!(
+                    target: "kb-app",
+                    error = %e,
+                    "kb-app::ingest: failed to serialize items_json; storing NULL"
+                );
+                None
+            }
+        }
+    };
+    let run_id = mint_ingest_run_id(&scope_json, started_at);
+    let row = kb_store_sqlite::IngestRunRow {
+        run_id: &run_id,
+        scope_json: &scope_json,
+        scanned: scanned_count,
+        new_count,
+        updated_count,
+        skipped_count,
+        error_count,
+        duration_ms,
+        started_at,
+        finished_at,
+        items_json: items_json.as_deref(),
+    };
+    if let Err(e) = app.sqlite.record_ingest_run(&row) {
+        tracing::warn!(
+            target: "kb-app",
+            error = %e,
+            "kb-app::ingest: record_ingest_run failed"
+        );
+    }
+
+    tracing::info!(
+        target: "kb-app",
+        scanned = scanned_count,
+        new = new_count,
+        updated = updated_count,
+        skipped = skipped_count,
+        errors = error_count,
+        chunks_indexed,
+        embeddings_indexed,
+        duration_ms,
+        "kb-app::ingest: run complete"
+    );
+
+    Ok(IngestReport {
+        scope,
+        scanned: scanned_count,
+        new: new_count,
+        updated: updated_count,
+        skipped: skipped_count,
+        errors: error_count,
+        duration_ms,
+        items: if summary_only { None } else { Some(items) },
+    })
 }
 
-pub fn inspect_chunk(_id: &ChunkId) -> anyhow::Result<Chunk> {
-    bail!("not yet wired (P1-5)")
+/// Mint a stable 32-hex-char `run_id` for an `ingest_runs` row.
+/// `(scope, started_at_nanos)` is enough to make two runs with the
+/// same scope started a nanosecond apart distinguish — same shape as
+/// the JobId recipe in `kb-store-sqlite::jobs`.
+fn mint_ingest_run_id(scope_json: &str, at: time::OffsetDateTime) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(scope_json.as_bytes());
+    hasher.update(&at.unix_timestamp_nanos().to_be_bytes());
+    let hex = hasher.finalize().to_hex().to_string();
+    hex[..32].to_string()
 }
 
-pub fn search(_query: SearchQuery) -> anyhow::Result<Vec<SearchHit>> {
-    bail!("not yet wired (P3-1/P4-1)")
+/// Trait alias type used to disambiguate the two impls (`DocumentStore`
+/// vs `JobRepo`) on the same store. Plain `app.sqlite.create(...)`
+/// would pick one based on inherent vs trait methods; we go through
+/// `<… as JobRepo>` to be explicit.
+type SqliteStoreAlias = kb_store_sqlite::SqliteStore;
+
+/// Process a single asset: read bytes, parse, normalize, chunk,
+/// persist, embed. Per-asset failures bubble up to the caller for
+/// labelling as `IngestItemKind::Error` — they do NOT abort the
+/// whole run.
+fn ingest_one_asset(
+    app: &App,
+    asset: &RawAsset,
+    parser_version: &ParserVersion,
+    chunk_policy: &ChunkPolicy,
+    embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
+    vector_store: Option<&Arc<kb_store_vector::LanceVectorStore>>,
+    existing_doc_ids: &std::collections::HashSet<String>,
+) -> anyhow::Result<kb_core::IngestItem> {
+    tracing::debug!(
+        target: "kb-app::ingest",
+        path = %asset.workspace_path.0,
+        "processing asset"
+    );
+    // Only handle Markdown for now; other media types are P6+ work.
+    if asset.media_type != kb_core::MediaType::Markdown {
+        return Ok(kb_core::IngestItem {
+            kind: kb_core::IngestItemKind::Skipped,
+            doc_id: None,
+            doc_path: asset.workspace_path.clone(),
+            asset_id: Some(asset.asset_id.clone()),
+            byte_len: Some(asset.byte_len),
+            block_count: None,
+            chunk_count: None,
+            parser_version: None,
+            chunker_version: None,
+            warnings: Vec::new(),
+            error: None,
+        });
+    }
+
+    let path = match &asset.source_uri {
+        SourceUri::File(p) => p.clone(),
+        SourceUri::Kb(_) => {
+            return Ok(kb_core::IngestItem {
+                kind: kb_core::IngestItemKind::Skipped,
+                doc_id: None,
+                doc_path: asset.workspace_path.clone(),
+                asset_id: Some(asset.asset_id.clone()),
+                byte_len: Some(asset.byte_len),
+                block_count: None,
+                chunk_count: None,
+                parser_version: None,
+                chunker_version: None,
+                warnings: vec![
+                    "kb:// source URIs are not supported by the fs ingester".into(),
+                ],
+                error: None,
+            });
+        }
+    };
+
+    let bytes = std::fs::read(&path)
+        .with_context(|| format!("read asset bytes from {}", path.display()))?;
+
+    let body_hints = build_body_hints(asset);
+
+    // Frontmatter — `parse_frontmatter` returns Ok even on malformed
+    // frontmatter (warnings are surfaced through the `Vec<Warning>`).
+    let (metadata, fm_span, fm_warns) = parse_frontmatter(&bytes, &body_hints)
+        .context("kb-parse-md::parse_frontmatter")?;
+
+    let body_offset_lines = match fm_span {
+        Some(span) => count_lines_in(&bytes[..span.end]),
+        None => 0,
+    };
+
+    let (parsed_blocks, blk_warns) = parse_blocks(&bytes[fm_span_end(fm_span)..], body_offset_lines)
+        .context("kb-parse-md::parse_blocks")?;
+
+    let mut all_warnings = Vec::with_capacity(fm_warns.len() + blk_warns.len());
+    all_warnings.extend(fm_warns);
+    all_warnings.extend(blk_warns);
+
+    // Snapshot warning notes for the IngestItem before the vec is
+    // consumed by `build_canonical_document`.
+    let warning_notes: Vec<String> = all_warnings
+        .iter()
+        .map(|w| format!("{:?}: {}", w.kind, w.note))
+        .collect();
+
+    let canonical = build_canonical_document(
+        asset,
+        metadata,
+        parsed_blocks,
+        parser_version,
+        all_warnings,
+    )
+    .context("kb-normalize::build_canonical_document")?;
+
+    let chunks = MdHeadingV1Chunker
+        .chunk(&canonical, chunk_policy)
+        .context("kb-chunk::MdHeadingV1Chunker::chunk")?;
+
+    // Persist. Each `put_*` call wraps its own short transaction
+    // (per-document tx semantics per design §5.8); composing them is
+    // the kb-app job. A failure mid-way leaves the DB in a state the
+    // next ingest run can re-converge (UPSERT + DELETE-then-INSERT).
+    app.sqlite
+        .put_asset_with_bytes(asset, &bytes)
+        .context("DocumentStore::put_asset_with_bytes")?;
+    app.sqlite
+        .put_document(&canonical)
+        .context("DocumentStore::put_document")?;
+    app.sqlite
+        .put_blocks(&canonical.doc_id, &canonical.blocks)
+        .context("DocumentStore::put_blocks")?;
+    app.sqlite
+        .put_chunks(&canonical.doc_id, &chunks)
+        .context("DocumentStore::put_chunks")?;
+
+    // Embed + vector upsert (only when both sides are configured).
+    if let (Some(emb), Some(vec_store)) = (embedder, vector_store) {
+        if !chunks.is_empty() {
+            let inputs: Vec<EmbeddingInput<'_>> = chunks
+                .iter()
+                .map(|c| EmbeddingInput {
+                    text: c.text.as_str(),
+                    kind: EmbeddingKind::Document,
+                })
+                .collect();
+            let vectors = emb
+                .embed(&inputs)
+                .context("Embedder::embed (document chunks)")?;
+            let model_id = emb.model_id();
+            let model_version = emb.model_version();
+            let dimensions = emb.dimensions();
+            let records: Vec<VectorRecord> = chunks
+                .iter()
+                .zip(vectors)
+                .map(|(c, v)| VectorRecord {
+                    embedding_id: kb_core::id_for_embedding(
+                        &c.chunk_id,
+                        &model_id,
+                        &model_version,
+                        dimensions,
+                    ),
+                    chunk_id: c.chunk_id.clone(),
+                    vector: v,
+                    doc_id: canonical.doc_id.clone(),
+                    text: c.text.clone(),
+                    heading_path: c.heading_path.clone(),
+                    model_id: model_id.clone(),
+                    model_version: model_version.clone(),
+                    dimensions,
+                })
+                .collect();
+            vec_store
+                .upsert(&records)
+                .context("VectorStore::upsert")?;
+        }
+    }
+
+    let kind = if existing_doc_ids.contains(&canonical.doc_id.0) {
+        kb_core::IngestItemKind::Updated
+    } else {
+        kb_core::IngestItemKind::New
+    };
+
+    Ok(kb_core::IngestItem {
+        kind,
+        doc_id: Some(canonical.doc_id.clone()),
+        doc_path: asset.workspace_path.clone(),
+        asset_id: Some(asset.asset_id.clone()),
+        byte_len: Some(asset.byte_len),
+        block_count: u32::try_from(canonical.blocks.len()).ok(),
+        chunk_count: u32::try_from(chunks.len()).ok(),
+        parser_version: Some(parser_version.clone()),
+        chunker_version: Some(MdHeadingV1Chunker.chunker_version()),
+        warnings: warning_notes,
+        error: None,
+    })
 }
+
+/// Convenience: end byte of the frontmatter region (or 0 when absent).
+fn fm_span_end(span: Option<kb_parse_md::FrontmatterSpan>) -> usize {
+    span.map(|s| s.end).unwrap_or(0)
+}
+
+/// Count `\n` in a byte prefix to convert frontmatter byte span to
+/// the line-offset `parse_blocks` expects.
+fn count_lines_in(bytes: &[u8]) -> u32 {
+    let n = bytes.iter().filter(|&&b| b == b'\n').count();
+    u32::try_from(n).unwrap_or(u32::MAX)
+}
+
+/// Build `BodyHints` from the asset alone. We use the asset's
+/// `discovered_at` for both `fs_ctime` and `fs_mtime` because going
+/// through the FS metadata API for every file would be a noticeable
+/// overhead for large workspaces and the source-of-truth timestamps
+/// are written into the document's frontmatter when the user wants
+/// authoritative values.
+fn build_body_hints(asset: &RawAsset) -> BodyHints {
+    BodyHints {
+        first_h1: None,
+        fs_ctime: asset.discovered_at,
+        fs_mtime: asset.discovered_at,
+        fallback_lang: None,
+    }
+}
+
+/// Build a `ChunkPolicy` from the active config.
+fn chunk_policy_from_config(config: &kb_config::Config) -> ChunkPolicy {
+    ChunkPolicy {
+        target_tokens: config.chunking.target_tokens,
+        overlap_tokens: config.chunking.overlap_tokens,
+        respect_markdown_headings: config.chunking.respect_markdown_headings,
+        chunker_version: ChunkerVersion(config.chunking.chunker_version.clone()),
+    }
+}
+
+// ── list_docs / inspect_doc / inspect_chunk ───────────────────────────────
+
+pub fn list_docs(filter: DocFilter) -> anyhow::Result<Vec<DocSummary>> {
+    let config = load_config()?;
+    list_docs_with_config(config, filter)
+}
+
+/// Test-only seam — kb-cli must call the public free function
+/// ([`list_docs`]), not this.
+#[doc(hidden)]
+pub fn list_docs_with_config(
+    config: kb_config::Config,
+    filter: DocFilter,
+) -> anyhow::Result<Vec<DocSummary>> {
+    let app = App::open(config)?;
+    app.sqlite.list_documents(&filter)
+}
+
+pub fn inspect_doc(id: &DocumentId) -> anyhow::Result<CanonicalDocument> {
+    let config = load_config()?;
+    inspect_doc_with_config(config, id)
+}
+
+/// Test-only seam — kb-cli must call the public free function
+/// ([`inspect_doc`]), not this.
+#[doc(hidden)]
+pub fn inspect_doc_with_config(
+    config: kb_config::Config,
+    id: &DocumentId,
+) -> anyhow::Result<CanonicalDocument> {
+    let app = App::open(config)?;
+    app.sqlite
+        .get_document(id)?
+        .ok_or_else(|| anyhow!("document not found: {} (try `kb list docs`)", id.0))
+}
+
+pub fn inspect_chunk(id: &ChunkId) -> anyhow::Result<Chunk> {
+    let config = load_config()?;
+    inspect_chunk_with_config(config, id)
+}
+
+/// Test-only seam — kb-cli must call the public free function
+/// ([`inspect_chunk`]), not this.
+#[doc(hidden)]
+pub fn inspect_chunk_with_config(
+    config: kb_config::Config,
+    id: &ChunkId,
+) -> anyhow::Result<Chunk> {
+    let app = App::open(config)?;
+    app.sqlite
+        .get_chunk(id)?
+        .ok_or_else(|| anyhow!("chunk not found: {} (try `kb inspect doc <id>`)", id.0))
+}
+
+// ── search ────────────────────────────────────────────────────────────────
+
+pub fn search(query: SearchQuery) -> anyhow::Result<Vec<SearchHit>> {
+    let config = load_config()?;
+    search_with_config(config, query)
+}
+
+/// Test-only seam — kb-cli must call the public free function
+/// ([`search`]), not this.
+#[doc(hidden)]
+pub fn search_with_config(
+    config: kb_config::Config,
+    query: SearchQuery,
+) -> anyhow::Result<Vec<SearchHit>> {
+    let app = App::open(config)?;
+
+    match query.mode {
+        SearchMode::Lexical => {
+            let lex = LexicalRetriever::with_settings(
+                app.sqlite.clone(),
+                lexical_index_version(&app.config),
+                app.config.search.snippet_chars,
+            );
+            lex.search(&query)
+        }
+        SearchMode::Vector => {
+            let (emb, vec_store) = require_embeddings(&app)?;
+            let vec_iv = vector_index_version(emb.as_ref());
+            let vec_dyn: Arc<dyn VectorStore + Send + Sync> = vec_store;
+            let emb_dyn: Arc<dyn Embedder> = emb;
+            let retr = VectorRetriever::with_settings(
+                vec_dyn,
+                emb_dyn,
+                app.sqlite.clone(),
+                vec_iv,
+                app.config.search.snippet_chars,
+            );
+            retr.search(&query)
+        }
+        SearchMode::Hybrid => {
+            let lex = Arc::new(LexicalRetriever::with_settings(
+                app.sqlite.clone(),
+                lexical_index_version(&app.config),
+                app.config.search.snippet_chars,
+            )) as Arc<dyn Retriever>;
+            let (emb, vec_store) = require_embeddings(&app)?;
+            let vec_iv = vector_index_version(emb.as_ref());
+            let vec_dyn: Arc<dyn VectorStore + Send + Sync> = vec_store;
+            let emb_dyn: Arc<dyn Embedder> = emb;
+            let vec_retr = Arc::new(VectorRetriever::with_settings(
+                vec_dyn,
+                emb_dyn,
+                app.sqlite.clone(),
+                vec_iv,
+                app.config.search.snippet_chars,
+            )) as Arc<dyn Retriever>;
+            let hybrid = HybridRetriever::new(&app.config, lex, vec_retr);
+            hybrid.search(&query)
+        }
+    }
+}
+
+fn require_embeddings(
+    app: &App,
+) -> anyhow::Result<(
+    Arc<dyn Embedder + Send + Sync>,
+    Arc<kb_store_vector::LanceVectorStore>,
+)> {
+    let emb = app.embedder()?.ok_or_else(|| {
+        anyhow!(
+            "embeddings disabled (config.models.embedding.provider == \"none\" \
+             or dimensions == 0); vector / hybrid search require embeddings — \
+             switch to --mode lexical or enable an embedding provider in config.toml"
+        )
+    })?;
+    let vec_store = app.vector()?.ok_or_else(|| {
+        anyhow!(
+            "vector store unavailable while embedder is configured — this should \
+             not happen; check `kb doctor` and the data_dir permissions"
+        )
+    })?;
+    Ok((emb, vec_store))
+}
+
+/// Compose a stable `IndexVersion` for the lexical retriever from
+/// the active config. This token surfaces in `SearchHit.index_version`
+/// and on snapshot tests; including the chunker version pins it to
+/// the chunking policy in effect.
+fn lexical_index_version(config: &kb_config::Config) -> IndexVersion {
+    IndexVersion(format!("lex:{}", config.chunking.chunker_version))
+}
+
+/// Compose a stable `IndexVersion` for the vector retriever. Tracks
+/// `(embedding_model, embedding_version, dimensions)` so a model swap
+/// flags drift via the existing index_version mismatch warning in
+/// `HybridRetriever::new`.
+fn vector_index_version(embedder: &dyn Embedder) -> IndexVersion {
+    IndexVersion(format!(
+        "vec:{}@{}:{}",
+        embedder.model_id().0,
+        embedder.model_version().0,
+        embedder.dimensions(),
+    ))
+}
+
+// ── ask (still stubbed — P4-3) ────────────────────────────────────────────
 
 pub fn ask(_query: &str, _opts: AskOpts) -> anyhow::Result<Answer> {
-    bail!("not yet wired (P5-1)")
+    anyhow::bail!("not yet wired (P4-3)")
 }
 
 /// Run the doctor checks. P0 emits `config_loaded` + `data_dir_writable`

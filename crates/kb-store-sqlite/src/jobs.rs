@@ -3,6 +3,14 @@
 //! The `jobs` table is the §5.7 schema. JobIds are minted via blake3 over
 //! `(now, kind, payload)` so two `create` calls in the same millisecond
 //! still distinguish.
+//!
+//! This module also owns the `ingest_runs` writer. `ingest_runs` is the
+//! §5.7 sibling table that records per-run aggregate counts (`scanned`,
+//! `new_count`, `updated_count`, …) alongside the `jobs` row that
+//! `kb jobs` shows. The aggregate-counts surface is intentionally a
+//! direct INSERT (not a `JobRepo` trait method) because `JobRepo` is
+//! generic across job kinds, while `ingest_runs` is ingest-specific
+//! schema with dedicated columns.
 
 use anyhow::{Context, Result};
 use rusqlite::params;
@@ -11,6 +19,71 @@ use time::OffsetDateTime;
 
 use crate::error::StoreError;
 use crate::store::SqliteStore;
+
+/// Aggregate counts for one ingest run. Written into the `ingest_runs`
+/// table so `kb jobs` (P+) and audit tooling can surface the per-run
+/// summary without re-walking the workspace.
+///
+/// `items_json` carries the per-item detail when the run was NOT
+/// `summary_only`; it is `None` when the caller asked for a summary
+/// (the table column is then NULL per design §5.7).
+#[derive(Clone, Debug)]
+pub struct IngestRunRow<'a> {
+    pub run_id: &'a str,
+    pub scope_json: &'a str,
+    pub scanned: u32,
+    pub new_count: u32,
+    pub updated_count: u32,
+    pub skipped_count: u32,
+    pub error_count: u32,
+    pub duration_ms: u32,
+    pub started_at: OffsetDateTime,
+    pub finished_at: OffsetDateTime,
+    pub items_json: Option<&'a str>,
+}
+
+impl SqliteStore {
+    /// Write one row into `ingest_runs` with the aggregate counts. Mirrors
+    /// the schema in `migrations/V001__init.sql` (§5.7). Called by
+    /// `kb-app::ingest` at the very end of a run, after the per-document
+    /// transactions have committed and the totals are known.
+    ///
+    /// `items_json = None` ↔ the column stores SQL `NULL`, which is the
+    /// `summary_only=true` contract.
+    pub fn record_ingest_run(&self, row: &IngestRunRow<'_>) -> Result<()> {
+        let started = row
+            .started_at
+            .format(&time::format_description::well_known::Rfc3339)
+            .context("format ingest_run started_at")?;
+        let finished = row
+            .finished_at
+            .format(&time::format_description::well_known::Rfc3339)
+            .context("format ingest_run finished_at")?;
+        let conn = self.lock_conn();
+        conn.execute(
+            "INSERT INTO ingest_runs (
+                run_id, scope_json, scanned, new_count, updated_count,
+                skipped_count, error_count, duration_ms,
+                started_at, finished_at, items_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                row.run_id,
+                row.scope_json,
+                row.scanned as i64,
+                row.new_count as i64,
+                row.updated_count as i64,
+                row.skipped_count as i64,
+                row.error_count as i64,
+                row.duration_ms as i64,
+                started,
+                finished,
+                row.items_json,
+            ],
+        )
+        .map_err(StoreError::from)?;
+        Ok(())
+    }
+}
 
 impl kb_core::JobRepo for SqliteStore {
     fn create(

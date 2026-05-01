@@ -29,4 +29,5 @@ mod store;
 pub use embeddings::EmbeddingRecordRow;
 pub use error::StoreError;
 pub use fts::rebuild_chunks_fts;
+pub use jobs::IngestRunRow;
 pub use store::SqliteStore;
