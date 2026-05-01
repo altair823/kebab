@@ -13,11 +13,13 @@
 //! `kb-chunk` may appear as **dev-deps** — see `Cargo.toml` — to drive
 //! the contract round-trip test off a real Markdown fixture.)
 
+mod documents;
 mod error;
+mod fts;
+mod jobs;
 mod schema;
 mod store;
-mod documents;
-mod jobs;
 
 pub use error::StoreError;
+pub use fts::rebuild_chunks_fts;
 pub use store::SqliteStore;
