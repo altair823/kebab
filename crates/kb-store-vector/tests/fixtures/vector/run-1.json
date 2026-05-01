@@ -1,4 +1,34 @@
-{
-  "_comment": "PLACEHOLDER — regenerate via `KB_UPDATE_SNAPSHOTS=1 cargo test -p kb-store-vector -- --ignored snapshot` on an AVX-capable host. Until then the snapshot test panics with a clear 'placeholder' message.",
-  "hits": []
-}
+[
+  {
+    "chunk_id": "00000000000000000000000000001100",
+    "payload": {
+      "doc_id": "0000000000000000000000000000d0c0",
+      "heading_path": [
+        "A"
+      ],
+      "text": "alpha"
+    },
+    "score_in_unit_interval": true
+  },
+  {
+    "chunk_id": "00000000000000000000000000001101",
+    "payload": {
+      "doc_id": "0000000000000000000000000000d0c1",
+      "heading_path": [
+        "A",
+        "B"
+      ],
+      "text": "beta"
+    },
+    "score_in_unit_interval": true
+  },
+  {
+    "chunk_id": "00000000000000000000000000001103",
+    "payload": {
+      "doc_id": "0000000000000000000000000000d0c3",
+      "heading_path": [],
+      "text": "delta"
+    },
+    "score_in_unit_interval": true
+  }
+]
