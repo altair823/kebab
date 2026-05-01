@@ -219,7 +219,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 include: cfg.workspace.include.clone(),
                 exclude: cfg.workspace.exclude.clone(),
             };
-            let report = kb_app::ingest(scope, *summary_only)?;
+            let report = kb_app::ingest_with_config(cfg, scope, *summary_only)?;
             if cli.json {
                 println!("{}", serde_json::to_string(&wire::wire_ingest(&report))?);
             } else {
@@ -238,7 +238,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
 
         Cmd::List { what } => match what {
             ListWhat::Docs => {
-                let docs = kb_app::list_docs(kb_core::DocFilter::default())?;
+                let cfg = kb_config::Config::load(cli.config.as_deref())?;
+                let docs = kb_app::list_docs_with_config(cfg, kb_core::DocFilter::default())?;
                 if cli.json {
                     println!("{}", serde_json::to_string(&wire::wire_doc_summaries(&docs))?);
                 } else {
@@ -252,8 +253,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
 
         Cmd::Inspect { what } => match what {
             InspectWhat::Doc { id } => {
+                let cfg = kb_config::Config::load(cli.config.as_deref())?;
                 let doc_id: kb_core::DocumentId = id.parse()?;
-                let doc = kb_app::inspect_doc(&doc_id)?;
+                let doc = kb_app::inspect_doc_with_config(cfg, &doc_id)?;
                 // Inspect doc emits a `CanonicalDocument` — there's no §2
                 // wire schema for it (P1-5 will decide whether this also
                 // becomes a tagged wrapper or stays as the raw domain
@@ -263,8 +265,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 Ok(())
             }
             InspectWhat::Chunk { id } => {
+                let cfg = kb_config::Config::load(cli.config.as_deref())?;
                 let chunk_id: kb_core::ChunkId = id.parse()?;
-                let chunk = kb_app::inspect_chunk(&chunk_id)?;
+                let chunk = kb_app::inspect_chunk_with_config(cfg, &chunk_id)?;
                 println!("{}", serde_json::to_string(&wire::wire_chunk_inspection(&chunk))?);
                 Ok(())
             }
@@ -276,18 +279,34 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             mode,
             explain: _,
         } => {
+            let cfg = kb_config::Config::load(cli.config.as_deref())?;
             let q = kb_core::SearchQuery {
                 text: query.clone(),
                 mode: (*mode).into(),
                 k: *k,
                 filters: kb_core::SearchFilters::default(),
             };
-            let hits = kb_app::search(q)?;
+            let hits = kb_app::search_with_config(cfg, q)?;
             if cli.json {
                 println!("{}", serde_json::to_string(&wire::wire_search_hits(&hits))?);
             } else {
                 for h in &hits {
-                    println!("{:>2}. {:.2}  {}", h.rank, h.retrieval.fusion_score, h.doc_path.0);
+                    // Show 4-digit score so RRF fused scores (bounded
+                    // ~0–0.033 for k_rrf=60) don't all collapse to "0.02".
+                    // Append heading_path so multiple chunks from the same
+                    // document are distinguishable on a single line.
+                    let heading = if h.heading_path.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  >  {}", h.heading_path.join(" / "))
+                    };
+                    println!(
+                        "{:>2}. {:.4}  {}{}",
+                        h.rank,
+                        h.retrieval.fusion_score,
+                        h.doc_path.0,
+                        heading,
+                    );
                 }
             }
             Ok(())
@@ -322,7 +341,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
         }
 
         Cmd::Doctor => {
-            let report = kb_app::doctor()?;
+            let report = kb_app::doctor_with_config_path(cli.config.as_deref())?;
             if cli.json {
                 println!("{}", serde_json::to_string(&wire::wire_doctor(&report))?);
             } else {
