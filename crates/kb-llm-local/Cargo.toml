@@ -1,0 +1,36 @@
+[package]
+name          = "kb-llm-local"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "Ollama HTTP adapter implementing kb_core::LanguageModel via reqwest::blocking"
+
+[dependencies]
+kb-core    = { path = "../kb-core" }
+kb-config  = { path = "../kb-config" }
+kb-llm     = { path = "../kb-llm" }
+# `default-features = false` drops the `default-tls` (native-tls / openssl)
+# feature so we don't pull in a system OpenSSL; we explicitly pin rustls.
+# Note: `default-features = false` does NOT drop tokio — reqwest 0.12's
+# `blocking` feature internally wraps a private current-thread tokio
+# runtime, so `cargo tree -p kb-llm-local --edges normal | grep tokio`
+# will list tokio. The auditable invariant for this crate is "no
+# top-level tokio dep + no async surface (`async`/`await`/`tokio::*`)
+# exposed to callers" rather than "tokio absent from the tree".
+reqwest    = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde      = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tracing    = { workspace = true }
+thiserror  = { workspace = true }
+anyhow     = { workspace = true }
+
+[dev-dependencies]
+# wiremock requires a tokio runtime to host the mock HTTP server. tokio
+# is also pulled transitively at runtime by reqwest's `blocking` feature
+# (private current-thread runtime); see the dependency comment above.
+# What we DO guarantee: this crate's source has zero `async`/`await`/
+# `tokio::*` symbols, so the public/runtime API stays sync.
+wiremock   = { workspace = true }
+tokio      = { workspace = true, features = ["macros", "rt"] }

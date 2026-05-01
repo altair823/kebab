@@ -14,6 +14,7 @@ members = [
     "crates/kb-embed",
     "crates/kb-embed-local",
     "crates/kb-llm",
+    "crates/kb-llm-local",
     "crates/kb-app",
     "crates/kb-cli",
 ]
@@ -55,3 +56,7 @@ arrow-array  = "56"
 arrow-schema = "56"
 tokio        = { version = "1", features = ["rt", "macros"] }
 futures      = "0.3"
+# Dev-only HTTP mock server for kb-llm-local Ollama adapter tests. Requires
+# a tokio runtime to host its mock server (the runtime adapter crate stays
+# sync via reqwest::blocking — wiremock is dev-only there).
+wiremock     = "0.6"
