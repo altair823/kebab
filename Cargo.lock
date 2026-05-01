@@ -3377,9 +3377,12 @@ dependencies = [
  "kb-core",
  "kb-embed",
  "kb-embed-local",
+ "kb-llm",
+ "kb-llm-local",
  "kb-normalize",
  "kb-parse-md",
  "kb-parse-types",
+ "kb-rag",
  "kb-search",
  "kb-source-fs",
  "kb-store-sqlite",
@@ -3539,6 +3542,27 @@ version = "0.1.0"
 dependencies = [
  "kb-core",
  "serde",
+]
+
+[[package]]
+name = "kb-rag"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "kb-config",
+ "kb-core",
+ "kb-llm",
+ "kb-search",
+ "kb-store-sqlite",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "time",
+ "tracing",
 ]
 
 [[package]]

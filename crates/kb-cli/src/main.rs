@@ -326,6 +326,10 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 mode: (*mode).into(),
                 temperature: *temperature,
                 seed: *seed,
+                // CLI ask is non-streaming today (the answer prints all at
+                // once on completion). The TUI ask pane (P9-3) is what
+                // wires up a real `mpsc::Sender` here.
+                stream_sink: None,
             };
             let ans = kb_app::ask(query, opts)?;
             if cli.json {

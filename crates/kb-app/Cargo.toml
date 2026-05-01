@@ -20,6 +20,9 @@ kb-store-vector      = { path = "../kb-store-vector" }
 kb-search            = { path = "../kb-search" }
 kb-embed             = { path = "../kb-embed" }
 kb-embed-local       = { path = "../kb-embed-local" }
+kb-llm               = { path = "../kb-llm" }
+kb-llm-local         = { path = "../kb-llm-local" }
+kb-rag               = { path = "../kb-rag" }
 anyhow               = { workspace = true }
 blake3               = { workspace = true }
 serde                = { workspace = true }
