@@ -13,6 +13,7 @@ members = [
     "crates/kb-search",
     "crates/kb-embed",
     "crates/kb-embed-local",
+    "crates/kb-llm",
     "crates/kb-app",
     "crates/kb-cli",
 ]
