@@ -320,6 +320,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             temperature,
             seed,
         } => {
+            let cfg = kb_config::Config::load(cli.config.as_deref())?;
             let opts = kb_app::AskOpts {
                 k: *k,
                 explain: *explain,
@@ -331,7 +332,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 // wires up a real `mpsc::Sender` here.
                 stream_sink: None,
             };
-            let ans = kb_app::ask(query, opts)?;
+            let ans = kb_app::ask_with_config(cfg, query, opts)?;
             if cli.json {
                 println!("{}", serde_json::to_string(&wire::wire_answer(&ans))?);
             } else {
