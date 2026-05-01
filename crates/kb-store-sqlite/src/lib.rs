@@ -17,6 +17,7 @@
 //! appear as **dev-deps** — see `Cargo.toml` — to drive the contract
 //! round-trip test off a real Markdown fixture.)
 
+mod answers;
 mod documents;
 mod embeddings;
 mod error;

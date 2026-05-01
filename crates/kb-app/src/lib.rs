@@ -43,12 +43,14 @@ use kb_chunk::MdHeadingV1Chunker;
 use kb_core::{
     Answer, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
-    EmbeddingKind, IndexVersion, IngestReport, ParserVersion, RawAsset, Retriever,
-    SearchHit, SearchMode, SearchQuery, SourceConnector, SourceScope, SourceUri,
-    VectorRecord, VectorStore,
+    EmbeddingKind, IndexVersion, IngestReport, LanguageModel, ParserVersion, RawAsset,
+    Retriever, SearchHit, SearchMode, SearchQuery, SourceConnector, SourceScope,
+    SourceUri, VectorRecord, VectorStore,
 };
+use kb_llm_local::OllamaLanguageModel;
 use kb_normalize::build_canonical_document;
 use kb_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
+use kb_rag::RagPipeline;
 use kb_search::{HybridRetriever, LexicalRetriever, VectorRetriever};
 use kb_source_fs::FsSourceConnector;
 
@@ -65,14 +67,13 @@ use app::App;
 /// app and the one used in cross-crate fixtures match.
 const KB_PARSE_MD_VERSION: &str = "pulldown-cmark-0.x";
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct AskOpts {
-    pub k: usize,
-    pub explain: bool,
-    pub mode: SearchMode,
-    pub temperature: Option<f32>,
-    pub seed: Option<u64>,
-}
+/// Caller-supplied knobs for one [`ask`] invocation.
+///
+/// Re-exported from [`kb_rag::AskOpts`] (P4-3 owns the type) so kb-cli's
+/// `use kb_app::AskOpts` keeps working without churn. The struct gained
+/// a `stream_sink` field in P4-3; non-streaming callers (kb-cli today)
+/// pass `stream_sink: None`.
+pub use kb_rag::AskOpts;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DoctorReport {
@@ -811,10 +812,78 @@ fn vector_index_version(embedder: &dyn Embedder) -> IndexVersion {
     ))
 }
 
-// ── ask (still stubbed — P4-3) ────────────────────────────────────────────
+// ── ask ──────────────────────────────────────────────────────────────────
+//
+// P4-3 wires `ask` end-to-end. The retriever is built per `opts.mode`;
+// vector / hybrid require an enabled embedding provider (else we surface
+// the same "switch to --mode lexical" error as `search`). The LLM is
+// always Ollama for now — when we grow a second provider (llama.cpp,
+// candle, etc.) this is the place to switch on `config.models.llm.provider`.
 
-pub fn ask(_query: &str, _opts: AskOpts) -> anyhow::Result<Answer> {
-    anyhow::bail!("not yet wired (P4-3)")
+pub fn ask(query: &str, opts: AskOpts) -> anyhow::Result<Answer> {
+    let config = load_config()?;
+    ask_with_config(config, query, opts)
+}
+
+/// Test-only seam — kb-cli must call the public free function
+/// ([`ask`]), not this. Mirrors the `*_with_config` pattern documented
+/// at the top of this module.
+#[doc(hidden)]
+pub fn ask_with_config(
+    config: kb_config::Config,
+    query: &str,
+    opts: AskOpts,
+) -> anyhow::Result<Answer> {
+    let app = App::open(config)?;
+
+    let retriever: Arc<dyn Retriever> = match opts.mode {
+        SearchMode::Lexical => Arc::new(LexicalRetriever::with_settings(
+            app.sqlite.clone(),
+            lexical_index_version(&app.config),
+            app.config.search.snippet_chars,
+        )),
+        SearchMode::Vector => {
+            let (emb, vec_store) = require_embeddings(&app)?;
+            let vec_iv = vector_index_version(emb.as_ref());
+            let vec_dyn: Arc<dyn VectorStore + Send + Sync> = vec_store;
+            let emb_dyn: Arc<dyn Embedder> = emb;
+            Arc::new(VectorRetriever::with_settings(
+                vec_dyn,
+                emb_dyn,
+                app.sqlite.clone(),
+                vec_iv,
+                app.config.search.snippet_chars,
+            ))
+        }
+        SearchMode::Hybrid => {
+            let lex = Arc::new(LexicalRetriever::with_settings(
+                app.sqlite.clone(),
+                lexical_index_version(&app.config),
+                app.config.search.snippet_chars,
+            )) as Arc<dyn Retriever>;
+            let (emb, vec_store) = require_embeddings(&app)?;
+            let vec_iv = vector_index_version(emb.as_ref());
+            let vec_dyn: Arc<dyn VectorStore + Send + Sync> = vec_store;
+            let emb_dyn: Arc<dyn Embedder> = emb;
+            let vec_retr = Arc::new(VectorRetriever::with_settings(
+                vec_dyn,
+                emb_dyn,
+                app.sqlite.clone(),
+                vec_iv,
+                app.config.search.snippet_chars,
+            )) as Arc<dyn Retriever>;
+            Arc::new(HybridRetriever::new(&app.config, lex, vec_retr))
+        }
+    };
+
+    let llm: Arc<dyn LanguageModel> = Arc::new(
+        OllamaLanguageModel::new(&app.config)
+            .context("kb-app::ask: build OllamaLanguageModel")?,
+    );
+
+    let pipeline =
+        RagPipeline::new(app.config.clone(), retriever, llm, app.sqlite.clone());
+    pipeline.ask(query, opts)
 }
 
 /// Run the doctor checks against the explicit config path the user
