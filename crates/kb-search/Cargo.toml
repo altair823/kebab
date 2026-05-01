@@ -1,0 +1,22 @@
+[package]
+name          = "kb-search"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "Retriever implementations for kb (P2-2 lexical FTS5; P3 vector / hybrid will follow)"
+
+[dependencies]
+kb-core         = { path = "../kb-core" }
+kb-config       = { path = "../kb-config" }
+kb-store-sqlite = { path = "../kb-store-sqlite" }
+rusqlite        = { workspace = true }
+globset         = { workspace = true }
+serde_json      = { workspace = true }
+tracing         = { workspace = true }
+thiserror       = { workspace = true }
+anyhow          = { workspace = true }
+
+[dev-dependencies]
+tempfile        = { workspace = true }
