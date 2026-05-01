@@ -9,6 +9,7 @@ members = [
     "crates/kb-normalize",
     "crates/kb-chunk",
     "crates/kb-store-sqlite",
+    "crates/kb-search",
     "crates/kb-app",
     "crates/kb-cli",
 ]
@@ -29,3 +30,8 @@ time         = { version = "0.3", features = ["serde", "macros", "formatting", "
 uuid         = { version = "1", features = ["v7", "serde"] }
 blake3       = "1"
 tracing      = "0.1"
+# `bundled` ships SQLite source so the workspace doesn't depend on a
+# system libsqlite3 (matches the kb-store-sqlite feature set).
+rusqlite     = { version = "0.32", features = ["bundled"] }
+globset      = "0.4"
+tempfile     = "3"

@@ -802,6 +802,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "kb-search"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "globset",
+ "kb-config",
+ "kb-core",
+ "kb-store-sqlite",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "kb-source-fs"
 version = "0.1.0"
 dependencies = [

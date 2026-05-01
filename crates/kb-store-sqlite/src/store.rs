@@ -109,6 +109,22 @@ impl SqliteStore {
         self.conn.lock().unwrap_or_else(|p| p.into_inner())
     }
 
+    /// Read-only borrow of the connection.
+    ///
+    /// Provided so sibling crates (e.g. `kb-search`) can run SELECTs
+    /// against the schema owned by this crate without re-opening the
+    /// SQLite file. Callers MUST treat the returned `Connection` as
+    /// read-only — issuing mutating SQL (INSERT / UPDATE / DELETE / DDL)
+    /// through this guard bypasses the per-document transaction discipline
+    /// (`put_*` methods) and the FTS5 backfill helpers that the store
+    /// layer enforces. Mutating callers must use `kb-store-sqlite`'s own
+    /// public write methods instead.
+    ///
+    /// Poisoning is recovered the same way as [`Self::lock_conn`].
+    pub fn read_conn(&self) -> MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     /// Persist a `RawAsset` *with its raw bytes*: row goes into `assets`,
     /// bytes go to `data_dir/assets/<aa>/<asset_id>` if `byte_len ≤
     /// copy_threshold_mb`, otherwise the row records the source URI's
