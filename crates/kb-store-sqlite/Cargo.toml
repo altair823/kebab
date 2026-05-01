@@ -14,6 +14,11 @@ kb-config    = { path = "../kb-config" }
 # Explicitly NOT `bundled-sqlcipher` per task allowed-deps list.
 rusqlite     = { version = "0.32", features = ["bundled"] }
 refinery     = { version = "0.8", features = ["rusqlite"] }
+# Used by `filter_chunks` for the optional `path_glob` post-filter.
+# The SQL prefilter handles tags / lang / trust / committed-status; the
+# Rust-side glob keeps the SQL surface small (no LIKE-vs-glob impedance
+# mismatch) and matches the pattern kb-search/src/lexical.rs uses.
+globset      = { workspace = true }
 serde_json   = { workspace = true }
 time         = { workspace = true }
 blake3       = { workspace = true }

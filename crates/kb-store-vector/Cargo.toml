@@ -1,0 +1,55 @@
+[package]
+name          = "kb-store-vector"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "LanceDB-backed VectorStore for kb (§5.6 embedding_records, §6.3 lancedb tables, §7.2 VectorStore)"
+
+[dependencies]
+kb-core         = { path = "../kb-core" }
+kb-config       = { path = "../kb-config" }
+# kb-store-sqlite is allowed for the embedding_records writers only
+# (P3-3 spec: "Allowed dep `kb-store-sqlite` for writing/reading rows in
+# embedding_records"). The Two-phase upsert flow uses
+# `put_embedding_records_pending` + `mark_embedding_records_committed`.
+kb-store-sqlite = { path = "../kb-store-sqlite" }
+
+# LanceDB embedded vector store. `default-features=false` opts out of
+# the cloud object-store integrations (aws / gcs / azure / dynamodb /
+# oss); kb is always-local for v1, so dragging in those SDKs would just
+# inflate the build.
+lancedb         = { workspace = true }
+arrow           = { workspace = true }
+arrow-array     = { workspace = true }
+arrow-schema    = { workspace = true }
+# Embedded async runtime. The VectorStore trait is sync (§7.2) but
+# LanceDB's Rust API is async-only; we own a current-thread
+# tokio::Runtime and `block_on` per trait method. current-thread saves
+# the two worker threads a multi-thread runtime would spawn — kb-app
+# already serializes vector ops behind its own job scheduler so the
+# extra parallelism wouldn't be exploited.
+tokio           = { workspace = true }
+# `try_collect` for streaming Lance query results into a Vec<RecordBatch>.
+futures         = { workspace = true }
+
+serde           = { workspace = true }
+serde_json      = { workspace = true }
+tracing         = { workspace = true }
+thiserror       = { workspace = true }
+anyhow          = { workspace = true }
+blake3          = { workspace = true }
+time            = { workspace = true }
+
+[dev-dependencies]
+tempfile        = { workspace = true }
+serde_json      = { workspace = true }
+# Integration tests seed `documents` / `chunks` fixtures by raw SQL
+# (no kb-parse-md / kb-normalize / kb-chunk dep) so they can construct
+# adversarial filter / dim-mismatch states. rusqlite is a `[dev-]`
+# dep only — the runtime crate uses kb-store-sqlite's typed surface
+# (`filter_chunks`, `put_embedding_records_pending`, …) and does not
+# touch rusqlite directly (P3-3 spec: kb-store-vector must not list
+# rusqlite/globset as direct deps).
+rusqlite        = { workspace = true }
