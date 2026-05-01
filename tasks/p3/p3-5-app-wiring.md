@@ -165,6 +165,7 @@ All tests under `cargo test -p kb-app`. CLI smoke optional via `assert_cmd` if i
 ## Risks / notes
 
 - Cold-start cost: first `kb index` run downloads the fastembed model (~470MB) and warms the ONNX session. Surface via `tracing::info!` (already wired in P3-2).
+- **Post-merge fix (2026-05)**: original P3-5 implementation left every `kb-cli` subcommand calling the bare `kb_app::*` free functions, which silently re-loaded `Config::load(None)` (XDG default) and ignored the user's `--config <path>` flag. CLI now goes through `kb_app::*_with_config(cfg, ...)` everywhere. The `#[doc(hidden)] pub fn *_with_config` companions originally framed as "test seam" are now the official config-explicit API for CLI / TUI / integration tests. See [HOTFIXES.md](../HOTFIXES.md) for details.
 - The `App` lifecycle struct is internal but its construction is the natural seam for adding caching / connection pooling later. Keep it `pub(crate)` so future refactors don't break the CLI.
 - Mismatched `index_version` across stored records and the live retriever should fail loud at `App::open` (not at first search). Reuse the `tracing::warn!` from `HybridRetriever::new` (P3-4).
 - The fastembed adapter holds a `tokio::runtime` (P3-3); `App` must be constructed from a synchronous context. Document on `App::open`.

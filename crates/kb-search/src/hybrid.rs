@@ -191,8 +191,32 @@ impl HybridRetriever {
         }
 
         // Compute fused score per chunk.
+        //
+        // Raw RRF: `Σ 1/(k_rrf + rank_m(c))` over the retrievers a chunk
+        // appears in. With two retrievers the raw upper bound is
+        // `2/(k_rrf + 1)` — at k_rrf=60 that's only ≈0.0328, which makes
+        // a single `config.rag.score_gate` default of 0.05 silently
+        // refuse every hybrid query (and is incomparable with lexical /
+        // vector `fusion_score` already in [0, 1]).
+        //
+        // Normalize by the theoretical max so `fusion_score` lives in
+        // [0, 1] across all three SearchModes. The normalization factor
+        // is `num_retrievers / (k_rrf + 1)`. With both retrievers
+        // contributing rank=1 the normalized score is exactly 1.0;
+        // chunks present in only one retriever cap at ≈0.5 (≈ 1 / 2);
+        // all other rank combinations fall in between. RRF's rank-
+        // ordering invariants are preserved (we divide every score by
+        // the same positive constant), so the sort + tiebreak path is
+        // unchanged. Wire schema label `fusion_score` keeps its slot in
+        // `RetrievalDetail`; only the magnitude shifts.
         let FusionPolicy::Rrf { k_rrf } = self.fusion;
         let k_rrf_f = f64::from(k_rrf);
+        // Both retrievers can contribute, so the per-mode RRF max is
+        // 2 / (k_rrf + 1). Even when a chunk lands in only one mode, we
+        // still divide by this same constant — the score then caps
+        // around 0.5 which is exactly the "half-aligned" semantic we
+        // want users to compare against `score_gate`.
+        let rrf_normalizer = 2.0_f64 / (k_rrf_f + 1.0);
 
         struct Scored {
             chunk_id: String,
@@ -212,6 +236,7 @@ impl HybridRetriever {
                 if let Some(r) = vec_rank {
                     rrf += 1.0 / (k_rrf_f + f64::from(r));
                 }
+                rrf /= rrf_normalizer;
                 Scored {
                     chunk_id: cid,
                     rrf,
@@ -462,8 +487,12 @@ mod tests {
     #[test]
     fn rrf_formula_matches_known_value() {
         // chunk A appears at lexical rank 1, vector rank 2; k_rrf=60.
-        // Expected: 1/(60+1) + 1/(60+2) = 1/61 + 1/62.
-        let expected = 1.0_f64 / 61.0 + 1.0_f64 / 62.0;
+        // Raw RRF: 1/(60+1) + 1/(60+2) = 1/61 + 1/62.
+        // After normalization by `2 / (60 + 1)` (theoretical max with
+        // both retrievers contributing rank=1), the score lives in
+        // [0, 1]: `(1/61 + 1/62) / (2/61) = 0.5 + 61/124 ≈ 0.9919`.
+        let raw = 1.0_f64 / 61.0 + 1.0_f64 / 62.0;
+        let expected = raw / (2.0_f64 / 61.0);
         let lex = Arc::new(CannedRetriever::new(
             vec![mk_hit("aaaa", 1, SearchMode::Lexical, 0.5)],
             "lex-v1",
