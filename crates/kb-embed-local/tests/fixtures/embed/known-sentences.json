@@ -1,0 +1,10 @@
+{
+  "_comment": "Snapshot fixture for FastembedEmbedder. Five short sentences in mixed languages chosen so the multilingual-e5-small model exercises both Latin and CJK token paths. The kb-embed-local snapshot test embeds these as `EmbeddingKind::Document`, rounds each f32 component to 4 decimal places, and checks an aggregate hash against a constant baked into the test source. The 4-decimal tolerance hides the per-platform ONNX kernel jitter we observed during P3 bring-up; tighter tolerances would make the test flaky across hardware.",
+  "sentences": [
+    "The quick brown fox jumps over the lazy dog.",
+    "Vector search is fast on small models.",
+    "Knowledge bases benefit from hybrid retrieval.",
+    "한국어 문장도 임베딩이 잘 됩니다.",
+    "Embeddings should be deterministic given the same input."
+  ]
+}
