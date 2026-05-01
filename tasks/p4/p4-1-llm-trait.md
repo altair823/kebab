@@ -3,7 +3,7 @@ phase: P4
 component: kb-llm (trait crate)
 task_id: p4-1
 title: "LanguageModel trait + GenerateRequest/TokenChunk"
-status: planned
+status: completed
 depends_on: [p0-1]
 unblocks: [p4-2, p4-3]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

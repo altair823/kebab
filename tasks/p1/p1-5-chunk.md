@@ -3,7 +3,7 @@ phase: P1
 component: kb-chunk
 task_id: p1-5
 title: "Markdown heading-aware chunker (md-heading-v1)"
-status: planned
+status: completed
 depends_on: [p1-4]
 unblocks: [p1-6, p2-2, p3-2]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

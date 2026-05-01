@@ -3,7 +3,7 @@ phase: P2
 component: kb-store-sqlite (FTS5 migration)
 task_id: p2-1
 title: "FTS5 virtual table + triggers (V002 migration)"
-status: planned
+status: completed
 depends_on: [p1-6]
 unblocks: [p2-2]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

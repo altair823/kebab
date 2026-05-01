@@ -1,7 +1,7 @@
 ---
 phase: P3
 title: "Local embedding + LanceDB + hybrid search"
-status: planned
+status: completed
 depends_on: [P2]
 source: kb_local_rust_report.md §10, §11, §15, §17 Phase 3
 ---

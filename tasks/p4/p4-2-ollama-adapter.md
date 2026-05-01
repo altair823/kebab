@@ -3,7 +3,7 @@ phase: P4
 component: kb-llm-local (Ollama adapter)
 task_id: p4-2
 title: "OllamaLanguageModel — streaming /api/generate"
-status: planned
+status: completed
 depends_on: [p4-1]
 unblocks: [p4-3]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

@@ -3,7 +3,7 @@ phase: P1
 component: kb-normalize
 task_id: p1-4
 title: "Lift parser output → CanonicalDocument with deterministic IDs"
-status: planned
+status: completed
 depends_on: [p1-2, p1-3]
 unblocks: [p1-5, p1-6]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

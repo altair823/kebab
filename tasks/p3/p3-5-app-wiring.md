@@ -3,7 +3,7 @@ phase: P3
 component: kb-app (facade wiring)
 task_id: p3-5
 title: "Wire kb-app facade — ingest / search / list / inspect end-to-end"
-status: planned
+status: completed
 depends_on: [p1-6, p2-2, p3-2, p3-3, p3-4]
 unblocks: [p4-3, p9-1, p9-2, p9-4]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

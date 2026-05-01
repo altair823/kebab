@@ -1,7 +1,7 @@
 ---
 phase: P1
 title: "Markdown ingestion 파이프라인"
-status: planned
+status: completed
 depends_on: [P0]
 source: kb_local_rust_report.md §8, §14, §17 Phase 1
 ---

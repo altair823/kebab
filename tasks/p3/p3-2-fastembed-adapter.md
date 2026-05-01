@@ -3,7 +3,7 @@ phase: P3
 component: kb-embed-local (fastembed adapter)
 task_id: p3-2
 title: "fastembed-rs Embedder for multilingual-e5-small"
-status: planned
+status: completed
 depends_on: [p3-1]
 unblocks: [p3-3, p3-4]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

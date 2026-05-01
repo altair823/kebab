@@ -1,7 +1,7 @@
 ---
 phase: P4
 title: "Local LLM + RAG + grounded answer"
-status: planned
+status: completed
 depends_on: [P3]
 source: kb_local_rust_report.md §11, §15.2, §17 Phase 4
 ---
