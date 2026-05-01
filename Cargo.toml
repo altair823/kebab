@@ -9,6 +9,7 @@ members = [
     "crates/kb-normalize",
     "crates/kb-chunk",
     "crates/kb-store-sqlite",
+    "crates/kb-store-vector",
     "crates/kb-search",
     "crates/kb-embed",
     "crates/kb-embed-local",
@@ -43,3 +44,13 @@ proptest     = "1"
 # downloads). Pinned to the 4.x line per task p3-2 (current 5.x release
 # remains untested for this workspace).
 fastembed    = "4.9"
+# LanceDB embedded vector store (P3-3). 0.23.x pulls arrow / arrow-array /
+# arrow-schema 56.x transitively (via lance 1.0); the kb-store-vector
+# crate matches that major to share the same Arrow types without a
+# re-export adapter.
+lancedb      = { version = "0.23", default-features = false }
+arrow        = "56"
+arrow-array  = "56"
+arrow-schema = "56"
+tokio        = { version = "1", features = ["rt", "macros"] }
+futures      = "0.3"
