@@ -120,6 +120,18 @@ fn write_golden(dir: &Path, body: &str) -> PathBuf {
     path
 }
 
+/// Bind a fresh ephemeral port, then release it. The returned URL
+/// points at a port that was just freed; very likely still unbound
+/// when the test issues its outbound connection a moment later, in
+/// which case `connect()` fails fast with `ECONNREFUSED`. Beats
+/// hard-coding port 1 which can timeout slowly on hardened hosts.
+fn unreachable_endpoint() -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    format!("http://127.0.0.1:{port}")
+}
+
 fn lexical_opts() -> EvalRunOpts {
     EvalRunOpts {
         suite: "test".to_string(),
@@ -212,10 +224,14 @@ fn runner_records_config_snapshot_with_versions() {
 #[test]
 fn runner_captures_per_query_error_when_rag_unreachable() {
     let env = RunEnv::new();
-    // Point Ollama at a guaranteed-dead port so `ask_with_config`
-    // surfaces a connection error per query.
+    // Point Ollama at an unbound port so `ask_with_config` surfaces a
+    // connection error per query. We use bind-then-release rather than
+    // a hard-coded `:1` because port 1 is reserved-but-not-guaranteed-
+    // unbound (some hardened systems answer with ICMP unreachable
+    // instantly, others timeout slowly). TOCTOU race is theoretically
+    // possible but rare in practice and faster-failing than `:1`.
     let mut config = env.config.clone();
-    config.models.llm.endpoint = "http://127.0.0.1:1".to_string();
+    config.models.llm.endpoint = unreachable_endpoint();
 
     let yaml = write_golden(env.data_dir().as_path(), "- id: q1\n  query: ownership\n");
 

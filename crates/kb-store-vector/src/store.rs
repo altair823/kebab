@@ -22,8 +22,10 @@ use serde_json::json;
 use time::OffsetDateTime;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 
+use kb_config::expand_path;
+
 use crate::arrow_batch::{build_batch, schema_for, schema_params_hash};
-use crate::paths::{expand_path, lance_table_name};
+use crate::paths::lance_table_name;
 
 /// Overfetch multiplier: when post-filtering Lance results against
 /// SQLite-side filters we ask for `2 * k` candidates so a moderately

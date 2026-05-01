@@ -3,14 +3,25 @@
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
+use kb_app::App;
+use kb_config::expand_path;
 use kb_core::{SearchFilters, SearchQuery};
 use kb_store_sqlite::{EvalRunRow, SqliteStore};
 use time::OffsetDateTime;
 
 use crate::loader::{load_golden_set, validate_against_db};
 use crate::types::{EvalRun, EvalRunOpts, GoldenQuery, QueryResult};
+
+/// Convert a wall-clock duration since `start` into milliseconds clamped
+/// to `u32::MAX`. The `QueryResult.elapsed_ms` and `eval_runs.duration_ms`
+/// fields are `u32`; saturate (rather than wrap) so a stuck run never
+/// reports a misleading sub-second duration.
+fn elapsed_ms_u32(start: Instant) -> u32 {
+    start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32
+}
 
 /// Env var that overrides the default `fixtures/golden_queries.yaml`
 /// path. Resolved relative to the current working directory.
@@ -32,15 +43,13 @@ pub fn run_eval(opts: &EvalRunOpts) -> Result<EvalRun> {
 /// data_dir) and any future caller that wants to drive the runner
 /// against a non-default config.
 pub fn run_eval_with_config(cfg: &kb_config::Config, opts: &EvalRunOpts) -> Result<EvalRun> {
-    let started = std::time::Instant::now();
+    let started = Instant::now();
 
     // ── 1. Load golden set ────────────────────────────────────────────────
+    //
+    // `with_context` already names the path on error, so a separate
+    // `tracing::debug!` here would just be noise.
     let golden_path = resolve_golden_path();
-    tracing::debug!(
-        target: "kb-eval",
-        path = %golden_path.display(),
-        "kb-eval: loading golden set"
-    );
     let queries = load_golden_set(&golden_path).with_context(|| {
         format!(
             "load golden set from {} (override via KB_EVAL_GOLDEN)",
@@ -69,9 +78,15 @@ pub fn run_eval_with_config(cfg: &kb_config::Config, opts: &EvalRunOpts) -> Resu
         serde_json::to_string(&config_snapshot_json).context("serialize config_snapshot_json")?;
 
     // ── 4. Per-query execution ────────────────────────────────────────────
+    //
+    // Open one `App` for the whole suite. The embedder / vector store /
+    // LLM are memoized on the App, so a 50-query run pays the ~470 MB
+    // ONNX init + Lance reopen + Ollama handshake exactly once.
+    let app = App::open_with_config(cfg.clone()).context("open App for run_eval")?;
+
     let mut per_query: Vec<QueryResult> = Vec::with_capacity(queries.len());
     for gq in &queries {
-        let qr = execute_query(cfg, gq, opts);
+        let qr = execute_query(&app, gq, opts);
         per_query.push(qr);
     }
 
@@ -99,7 +114,7 @@ pub fn run_eval_with_config(cfg: &kb_config::Config, opts: &EvalRunOpts) -> Resu
     // ── 6. Mirror to runs_dir/<run_id>/per_query.jsonl ────────────────────
     write_per_query_jsonl(cfg, &run_id, &per_query)?;
 
-    let duration_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+    let duration_ms = elapsed_ms_u32(started);
     tracing::info!(
         target: "kb-eval",
         run_id = %run_id,
@@ -139,8 +154,8 @@ fn resolve_golden_path() -> PathBuf {
 
 /// Run one [`GoldenQuery`] through the kb-app facade. Errors are
 /// captured into `QueryResult.error` so the run continues.
-fn execute_query(cfg: &kb_config::Config, gq: &GoldenQuery, opts: &EvalRunOpts) -> QueryResult {
-    let started = std::time::Instant::now();
+fn execute_query(app: &App, gq: &GoldenQuery, opts: &EvalRunOpts) -> QueryResult {
+    let started = Instant::now();
 
     let search_query = SearchQuery {
         text: gq.query.clone(),
@@ -149,7 +164,7 @@ fn execute_query(cfg: &kb_config::Config, gq: &GoldenQuery, opts: &EvalRunOpts) 
         filters: SearchFilters::default(),
     };
 
-    let (hits_top_k, mut error) = match kb_app::search_with_config(cfg.clone(), search_query) {
+    let (hits_top_k, mut error) = match app.search(search_query) {
         Ok(hits) => (hits, None),
         Err(e) => (Vec::new(), Some(format!("{e:#}"))),
     };
@@ -166,7 +181,7 @@ fn execute_query(cfg: &kb_config::Config, gq: &GoldenQuery, opts: &EvalRunOpts) 
             seed: opts.seed,
             stream_sink: None,
         };
-        match kb_app::ask_with_config(cfg.clone(), &gq.query, ask_opts) {
+        match app.ask(&gq.query, ask_opts) {
             Ok(ans) => Some(ans),
             Err(e) => {
                 error = Some(format!("{e:#}"));
@@ -177,15 +192,13 @@ fn execute_query(cfg: &kb_config::Config, gq: &GoldenQuery, opts: &EvalRunOpts) 
         None
     };
 
-    let elapsed_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
-
     QueryResult {
         query_id: gq.id.clone(),
         query: gq.query.clone(),
         mode: opts.mode,
         hits_top_k,
         answer,
-        elapsed_ms,
+        elapsed_ms: elapsed_ms_u32(started),
         error,
     }
 }
@@ -231,7 +244,14 @@ fn write_per_query_jsonl(
     run_id: &str,
     per_query: &[QueryResult],
 ) -> Result<()> {
-    let runs_dir = expand_path(&cfg.storage.runs_dir, &cfg.storage.data_dir);
+    // `data_dir` may itself contain `${XDG_DATA_HOME:-…}` / `~` (the
+    // workspace-default does); resolve it before threading it into the
+    // `{data_dir}` substitution of `runs_dir`.
+    let resolved_data_dir = expand_path(&cfg.storage.data_dir, "");
+    let runs_dir = expand_path(
+        &cfg.storage.runs_dir,
+        &resolved_data_dir.to_string_lossy(),
+    );
     let run_dir = runs_dir.join(run_id);
     std::fs::create_dir_all(&run_dir)
         .with_context(|| format!("create run dir {}", run_dir.display()))?;
@@ -247,84 +267,4 @@ fn write_per_query_jsonl(
     }
     w.flush().context("flush per_query.jsonl")?;
     Ok(())
-}
-
-/// Expand `{data_dir}` / `${XDG_DATA_HOME:-…}` / leading `~`. Mirror
-/// of `kb-store-vector::paths::expand_path` and
-/// `kb-store-sqlite::expand_data_dir` — kept private here because
-/// `kb-config` does not (yet) expose a shared resolver helper.
-fn expand_path(raw: &str, data_dir: &str) -> PathBuf {
-    let mut s = raw.to_string();
-
-    // First, resolve `data_dir` itself so any `{data_dir}` substitution
-    // points at an already-expanded base path. `data_dir` may contain
-    // `${XDG_DATA_HOME:-…}` and `~`; resolve them once and re-use the
-    // result.
-    let resolved_data_dir = expand_xdg_and_tilde(data_dir);
-    s = s.replace("{data_dir}", &resolved_data_dir);
-
-    expand_xdg_and_tilde_path(&s)
-}
-
-fn expand_xdg_and_tilde(raw: &str) -> String {
-    let s = expand_xdg(raw);
-    expand_tilde_str(&s)
-}
-
-fn expand_xdg_and_tilde_path(raw: &str) -> PathBuf {
-    let s = expand_xdg_and_tilde(raw);
-    PathBuf::from(s)
-}
-
-fn expand_xdg(raw: &str) -> String {
-    let mut s = raw.to_string();
-    if let Some(start) = s.find("${XDG_DATA_HOME") {
-        if let Some(rel_end) = s[start..].find('}') {
-            let end = start + rel_end + 1;
-            let inner = &s[start + 2..end - 1];
-            let replacement = match std::env::var("XDG_DATA_HOME") {
-                Ok(v) if !v.is_empty() => v,
-                _ => match inner.split_once(":-") {
-                    Some((_, default)) => default.to_string(),
-                    None => String::new(),
-                },
-            };
-            s.replace_range(start..end, &replacement);
-        }
-    }
-    s
-}
-
-fn expand_tilde_str(raw: &str) -> String {
-    if let Some(rest) = raw.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            let mut p = PathBuf::from(home);
-            p.push(rest);
-            return p.to_string_lossy().into_owned();
-        }
-    }
-    if raw == "~" {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).to_string_lossy().into_owned();
-        }
-    }
-    raw.to_string()
-}
-
-#[cfg(test)]
-mod expand_tests {
-    use super::*;
-    use std::path::Path;
-
-    #[test]
-    fn expand_substitutes_data_dir() {
-        let p = expand_path("{data_dir}/runs", "/tmp/kbtest");
-        assert_eq!(p, Path::new("/tmp/kbtest/runs"));
-    }
-
-    #[test]
-    fn expand_passthrough_absolute() {
-        let p = expand_path("/abs/runs", "/ignored");
-        assert_eq!(p, Path::new("/abs/runs"));
-    }
 }

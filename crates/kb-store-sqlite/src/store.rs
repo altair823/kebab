@@ -64,7 +64,7 @@ impl SqliteStore {
     /// temp_store=MEMORY), and create parent directories as needed.
     /// **Does not run migrations** — call [`Self::run_migrations`] next.
     pub fn open(config: &kb_config::Config) -> Result<Self> {
-        let data_dir = expand_data_dir(&config.storage.data_dir);
+        let data_dir = kb_config::expand_path(&config.storage.data_dir, "");
         std::fs::create_dir_all(&data_dir)
             .with_context(|| format!("create data_dir {}", data_dir.display()))?;
         let db_path = data_dir.join(SQLITE_FILE);
@@ -363,53 +363,3 @@ fn apply_pragmas(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Expand the placeholders / `~` / env-vars used by `Config::storage.data_dir`.
-///
-/// Supported substitutions, in order:
-/// - `${XDG_DATA_HOME:-~/.local/share}` (and the bare `${XDG_DATA_HOME}`)
-/// - leading `~` → `$HOME`
-///
-/// If neither produces an absolute path, the input is returned as-is
-/// (relative paths are kept relative to the caller's CWD).
-fn expand_data_dir(raw: &str) -> PathBuf {
-    let mut s = raw.to_string();
-
-    // ${XDG_DATA_HOME:-~/.local/share}: respect the env override, else
-    // fall back to the suffix after `:-`.
-    if let Some(start) = s.find("${XDG_DATA_HOME") {
-        if let Some(rel_end) = s[start..].find('}') {
-            let end = start + rel_end + 1; // include trailing '}'
-            let inner = &s[start + 2..end - 1]; // strip ${ and }
-            let replacement = match std::env::var("XDG_DATA_HOME") {
-                Ok(v) if !v.is_empty() => v,
-                _ => {
-                    // inner is e.g. `XDG_DATA_HOME:-~/.local/share`.
-                    if let Some((_, default)) = inner.split_once(":-") {
-                        default.to_string()
-                    } else {
-                        // No default supplied; mimic Bash and yield "".
-                        String::new()
-                    }
-                }
-            };
-            s.replace_range(start..end, &replacement);
-        }
-    }
-
-    // ~ at the front → $HOME (or `dirs::home_dir`).
-    if let Some(rest) = s.strip_prefix('~') {
-        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from).or_else(dirs_home_fallback)
-        {
-            return home.join(rest.trim_start_matches('/'));
-        }
-    }
-
-    PathBuf::from(s)
-}
-
-/// Tiny shim to avoid pulling in the `dirs` crate as a direct dep — we
-/// only fall back when `$HOME` is unset, which is exotic on the platforms
-/// we target. Returns `None` so the caller keeps the literal `~`.
-fn dirs_home_fallback() -> Option<PathBuf> {
-    None
-}
