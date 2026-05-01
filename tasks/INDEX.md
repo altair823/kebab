@@ -52,11 +52,12 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
 - P2 — [p2/](p2/) — 2 components
   - [p2-1 fts-schema](p2/p2-1-fts-schema.md)
   - [p2-2 lexical-retriever](p2/p2-2-lexical-retriever.md)
-- P3 — [p3/](p3/) — 4 components
+- P3 — [p3/](p3/) — 5 components
   - [p3-1 embedder-trait](p3/p3-1-embedder-trait.md)
   - [p3-2 fastembed-adapter](p3/p3-2-fastembed-adapter.md)
   - [p3-3 lancedb-store](p3/p3-3-lancedb-store.md)
   - [p3-4 hybrid-fusion](p3/p3-4-hybrid-fusion.md)
+  - [p3-5 app-wiring](p3/p3-5-app-wiring.md)
 - P4 — [p4/](p4/) — 3 components
   - [p4-1 llm-trait](p4/p4-1-llm-trait.md)
   - [p4-2 ollama-adapter](p4/p4-2-ollama-adapter.md)
