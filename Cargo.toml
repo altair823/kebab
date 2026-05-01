@@ -10,6 +10,7 @@ members = [
     "crates/kb-chunk",
     "crates/kb-store-sqlite",
     "crates/kb-search",
+    "crates/kb-embed",
     "crates/kb-app",
     "crates/kb-cli",
 ]
@@ -35,3 +36,4 @@ tracing      = "0.1"
 rusqlite     = { version = "0.32", features = ["bundled"] }
 globset      = "0.4"
 tempfile     = "3"
+proptest     = "1"
