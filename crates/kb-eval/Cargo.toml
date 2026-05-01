@@ -1,0 +1,30 @@
+[package]
+name          = "kb-eval"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "Golden-fixture eval runner: load YAML, drive kb-app search/ask, persist eval_runs / eval_query_results / per_query.jsonl"
+
+[dependencies]
+# Allowed deps per p5-1 spec — domain types + facade only.
+kb-core         = { path = "../kb-core" }
+kb-config       = { path = "../kb-config" }
+kb-app          = { path = "../kb-app" }
+kb-store-sqlite = { path = "../kb-store-sqlite" }
+serde           = { workspace = true }
+serde_json      = { workspace = true }
+serde_yaml      = { workspace = true }
+time            = { workspace = true }
+tracing         = { workspace = true }
+anyhow          = { workspace = true }
+# `uuid::Uuid::now_v7()` powers the `run_<ulid_lower>`-shaped run_id;
+# v7 UUIDs are timestamp-ordered (same monotonicity as ULID) and `uuid`
+# is already in workspace deps, so we avoid pulling a new ULID crate
+# just for the lower-cased timestamp prefix.
+uuid            = { workspace = true }
+
+[dev-dependencies]
+tempfile        = { workspace = true }
+rusqlite        = { workspace = true }

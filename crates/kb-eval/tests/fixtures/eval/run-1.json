@@ -1,0 +1,30 @@
+[
+  {
+    "error": null,
+    "first_hit": {
+      "chunk_id": "chunk000000000000000000000000000000",
+      "doc_id": "doc00000000000000000000000000000000",
+      "heading_path": [],
+      "score": 0.3429983854293823
+    },
+    "has_answer": false,
+    "hits_count": 1,
+    "mode": "lexical",
+    "query": "ownership",
+    "query_id": "q1"
+  },
+  {
+    "error": null,
+    "first_hit": {
+      "chunk_id": "chunk000000000000000000000000000002",
+      "doc_id": "doc00000000000000000000000000000002",
+      "heading_path": [],
+      "score": 0.3585492968559265
+    },
+    "has_answer": false,
+    "hits_count": 1,
+    "mode": "lexical",
+    "query": "heading",
+    "query_id": "q2"
+  }
+]

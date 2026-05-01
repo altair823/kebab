@@ -21,6 +21,7 @@ mod answers;
 mod documents;
 mod embeddings;
 mod error;
+mod eval;
 mod filters;
 mod fts;
 mod jobs;
@@ -29,6 +30,7 @@ mod store;
 
 pub use embeddings::EmbeddingRecordRow;
 pub use error::StoreError;
+pub use eval::EvalRunRow;
 pub use fts::rebuild_chunks_fts;
 pub use jobs::IngestRunRow;
 pub use store::SqliteStore;
