@@ -82,6 +82,10 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
   - [p9-4 tui-inspect](p9/p9-4-tui-inspect.md)
   - [p9-5 desktop-tauri](p9/p9-5-desktop-tauri.md)
 
+## Post-merge 핫픽스
+
+머지 후 발견된 버그들과 그 follow-up PR들은 [HOTFIXES.md](HOTFIXES.md)에 dated 로그로 기록한다. 원래 task spec은 frozen 상태로 두고, post-merge 동작 변경은 HOTFIXES.md를 source of truth로 본다.
+
 ## 모든 task 공통 규약
 
 - 의존성 경계 (`Allowed` / `Forbidden`) 위반 금지. report §19 참조.

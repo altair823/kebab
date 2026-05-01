@@ -93,9 +93,10 @@ impl kb_core::Retriever for VectorRetriever { /* per §7.2 */ }
 - `SearchMode::Vector` dispatches solely to `vector`. `RetrievalDetail.method = Vector`, `lexical_*` fields are `None`.
 - `SearchMode::Hybrid`:
   - run `lexical.search(query)` and `vector.search(query)` in sequence (fan-out is fine; not required).
-  - fuse with RRF: `score(c) = Σ_{m ∈ {lex, vec}} 1 / (k_rrf + rank_m(c))` where `k_rrf` from config (default 60). `rank_m` is 1-based; chunks not appearing in retriever `m` contribute 0.
+  - fuse with RRF: `raw(c) = Σ_{m ∈ {lex, vec}} 1 / (k_rrf + rank_m(c))` where `k_rrf` from config (default 60). `rank_m` is 1-based; chunks not appearing in retriever `m` contribute 0.
+  - **normalize fusion_score to [0, 1]** (post-merge fix, 2026-05): divide by `num_retrievers / (k_rrf + 1)` so the top-1-everywhere case maps to `1.0` and single-retriever chunks cap around `0.5`. Without this, raw RRF tops out at `≈ 0.033` and is incomparable with the `[0, 1]` lexical / vector `fusion_score` (and incompatible with the `config.rag.score_gate` default `0.05` — every hybrid query refused). RRF's rank ordering is preserved (we divide every score by the same positive constant). See [HOTFIXES.md](../HOTFIXES.md).
   - sort by fused score DESC, take top `query.k`.
-  - populate every `SearchHit.retrieval`: `method = Hybrid`, `lexical_score` / `lexical_rank` / `vector_score` / `vector_rank` from each retriever's hit (or `None` if absent), `fusion_score` = computed fused score.
+  - populate every `SearchHit.retrieval`: `method = Hybrid`, `lexical_score` / `lexical_rank` / `vector_score` / `vector_rank` from each retriever's hit (or `None` if absent), `fusion_score` = normalized fused score.
   - if a chunk appears in only one retriever, its `RetrievalDetail` still gets populated with `Some(...)` from that side and `None` for the other.
   - tie-break by `lexical_rank` ascending, then `chunk_id` ascending (deterministic).
 - `VectorRetriever`:

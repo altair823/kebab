@@ -80,11 +80,14 @@ pub enum SearchMode { Lexical, Vector, Hybrid }
 Hybrid 점수 융합 (1차): RRF (Reciprocal Rank Fusion).
 
 ```text
-score(chunk) = sum_over_methods( 1 / (k_rrf + rank_method(chunk)) )
+raw(chunk)   = sum_over_methods( 1 / (k_rrf + rank_method(chunk)) )
+fusion_score = raw / (num_retrievers / (k_rrf + 1))   # ∈ [0, 1]
 k_rrf 기본 60.
 ```
 
 이유: bm25 score 와 cosine sim 의 절대값 스케일이 다름. RRF 는 rank 기반이라 안정적.
+
+**정규화 (2026-05 hotfix)**: raw RRF top score 가 `num_retrievers / (k_rrf+1)` (k_rrf=60에서 ≈ 0.0328) 로 bounded 라 lexical / vector 의 `[0, 1]` 점수와 incomparable 했고 `config.rag.score_gate` default 0.05 와도 incompatible (모든 hybrid query 가 ScoreGate refusal). `2/(k_rrf+1)` 로 나눠서 fusion_score 가 모든 mode 에서 `[0, 1]` 로 정렬되게 함. 자세한 이력은 [HOTFIXES.md](HOTFIXES.md) 참조.
 
 P3 범위에선 reranker 미도입 (P+ 단계 노트).
 

@@ -179,6 +179,8 @@ All tests under `cargo test -p kb-rag` with no real Ollama (mock LM only).
 ## Risks / notes
 
 - Citation regex is STRICT `\[#(\d{1,3})\]` only. Models that emit `[1]`/`[ #1 ]`/`[foo]` are treated as no-marker → refusal. This is intentional: a noisy citation grammar lets prose `[1]` or `vec![1]` slip through as false positives, which corrupts both `grounded` and `kb eval` `citation_coverage`. The prompt template (`rag-v1`) explicitly instructs `[#번호]`.
+- **Post-merge fix (2026-05)**: kb-cli's `Cmd::Ask` arm originally called bare `kb_app::ask(query, opts)`, ignoring `--config <path>` and silently using XDG defaults (manifested as wrong model id / score_gate / data_dir surfacing in `Answer.retrieval`). Fixed by routing through `kb_app::ask_with_config(cfg, query, opts)`. See [HOTFIXES.md](../HOTFIXES.md).
+- **Post-merge fix (2026-05)**: `config.rag.score_gate` default `0.05` was incompatible with hybrid RRF `fusion_score` (raw range `(0, 2/k_rrf]` ≈ `≤ 0.033` at default k_rrf=60), refusing every hybrid `kb ask`. Closed by normalizing RRF in p3-4 to `[0, 1]`. See p3-4 spec + HOTFIXES.md.
 - `stream_sink` channel: pipeline `send`s tokens; if the receiver is dropped (caller cancelled), `SendError` is silently swallowed and generation continues to completion (so the `Answer` row still gets persisted). Pipeline does NOT panic on a dead sink.
 - `temperature=0` does not fully eliminate stochasticity in some quantized Ollama models; document this and rely on `must_contain` rule-based metrics in P5 instead of exact match.
 - Prompt-injection defense lives entirely in the system prompt; do NOT mutate `[근거]` text. If chunk text contains `<|system|>` or similar tokens, do not strip them — they are inert when wrapped.
