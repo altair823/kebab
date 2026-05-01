@@ -11,6 +11,14 @@ description   = "Retriever implementations for kb (P2-2 lexical FTS5; P3 vector 
 kb-core         = { path = "../kb-core" }
 kb-config       = { path = "../kb-config" }
 kb-store-sqlite = { path = "../kb-store-sqlite" }
+# P3-4 hybrid retriever wraps a `dyn VectorStore` (typically backed by
+# `kb-store-vector::LanceVectorStore`) and a `dyn Embedder` (any P3-2
+# adapter). Listed as a runtime dep so callers can construct
+# `VectorRetriever::new` against the trait objects without a concrete
+# adapter — the concrete adapter (`kb-embed-local`) stays out of this
+# crate per the spec's Forbidden deps list.
+kb-store-vector = { path = "../kb-store-vector" }
+kb-embed        = { path = "../kb-embed" }
 rusqlite        = { workspace = true }
 globset         = { workspace = true }
 serde_json      = { workspace = true }
@@ -20,3 +28,8 @@ anyhow          = { workspace = true }
 
 [dev-dependencies]
 tempfile        = { workspace = true }
+# Hybrid integration tests inject a `MockEmbedder` (kb-embed `mock`
+# feature) and stand up a real `LanceVectorStore` on a tmp directory.
+# The mock-retriever unit tests (the bulk of the hybrid suite) do not
+# need either, but the integration / snapshot lane does.
+kb-embed        = { path = "../kb-embed", features = ["mock"] }

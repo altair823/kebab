@@ -1,0 +1,42 @@
+[
+  {
+    "chunk_id": "c1000000000000000000000000000000",
+    "fusion_score_positive": true,
+    "lex_some": true,
+    "lexical_rank": 1,
+    "method": "hybrid",
+    "rank": 1,
+    "vec_some": true,
+    "vector_rank": 3
+  },
+  {
+    "chunk_id": "c2000000000000000000000000000000",
+    "fusion_score_positive": true,
+    "lex_some": true,
+    "lexical_rank": 2,
+    "method": "hybrid",
+    "rank": 2,
+    "vec_some": true,
+    "vector_rank": 2
+  },
+  {
+    "chunk_id": "c4000000000000000000000000000000",
+    "fusion_score_positive": true,
+    "lex_some": false,
+    "lexical_rank": null,
+    "method": "hybrid",
+    "rank": 3,
+    "vec_some": true,
+    "vector_rank": 1
+  },
+  {
+    "chunk_id": "c3000000000000000000000000000000",
+    "fusion_score_positive": true,
+    "lex_some": false,
+    "lexical_rank": null,
+    "method": "hybrid",
+    "rank": 4,
+    "vec_some": true,
+    "vector_rank": 4
+  }
+]
