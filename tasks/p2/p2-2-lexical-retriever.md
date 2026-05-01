@@ -3,7 +3,7 @@ phase: P2
 component: kb-search (lexical mode)
 task_id: p2-2
 title: "Lexical Retriever via SQLite FTS5 + bm25 + citation"
-status: planned
+status: completed
 depends_on: [p2-1]
 unblocks: [p3-4, p4-3]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

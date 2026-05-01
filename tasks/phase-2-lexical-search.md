@@ -1,7 +1,7 @@
 ---
 phase: P2
 title: "SQLite FTS5 lexical 검색 + citation"
-status: planned
+status: completed
 depends_on: [P1]
 source: kb_local_rust_report.md §10, §15, §17 Phase 2
 ---

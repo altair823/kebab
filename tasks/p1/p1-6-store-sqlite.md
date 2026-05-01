@@ -3,7 +3,7 @@ phase: P1
 component: kb-store-sqlite (P1 subset)
 task_id: p1-6
 title: "SQLite store: assets/documents/blocks/chunks + asset writer + migrations"
-status: planned
+status: completed
 depends_on: [p1-1, p1-4, p1-5]
 unblocks: [p2-1, p3-3, p4-3]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

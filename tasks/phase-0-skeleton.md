@@ -1,7 +1,7 @@
 ---
 phase: P0
 title: "Workspace 뼈대 + 도메인 계약"
-status: planned
+status: completed
 depends_on: []
 source: kb_local_rust_report.md §3, §4, §6, §7, §13
 ---

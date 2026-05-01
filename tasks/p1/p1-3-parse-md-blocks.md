@@ -3,7 +3,7 @@ phase: P1
 component: kb-parse-md (blocks submodule)
 task_id: p1-3
 title: "Markdown body → Block tree with line spans"
-status: planned
+status: completed
 depends_on: [p0-1]
 unblocks: [p1-4]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

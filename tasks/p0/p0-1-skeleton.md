@@ -3,7 +3,7 @@ phase: P0
 component: workspace + kb-core + kb-config + kb-app + kb-cli
 task_id: p0-1
 title: "Workspace skeleton + frozen domain types/traits + ID recipe + facade"
-status: planned
+status: completed
 depends_on: []
 unblocks: [p1-1, p1-2, p1-3, p1-4, p1-5, p1-6, p2-1, p2-2, p3-1, p3-2, p3-3, p3-4, p4-1, p4-2, p4-3, p5-1, p5-2, p6-1, p6-2, p6-3, p7-1, p7-2, p8-1, p8-2, p9-1, p9-2, p9-3, p9-4, p9-5]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

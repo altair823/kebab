@@ -3,7 +3,7 @@ phase: P1
 component: kb-source-fs
 task_id: p1-1
 title: "Local filesystem source connector"
-status: planned
+status: completed
 depends_on: [p0-1]
 unblocks: [p1-2, p1-3, p1-4, p1-5, p1-6]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

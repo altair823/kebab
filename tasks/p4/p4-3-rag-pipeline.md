@@ -3,7 +3,7 @@ phase: P4
 component: kb-rag
 task_id: p4-3
 title: "RAG pipeline: retrieve → gate → pack → generate → cite-validate"
-status: planned
+status: completed
 depends_on: [p3-4, p4-2]
 unblocks: [p5-1]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

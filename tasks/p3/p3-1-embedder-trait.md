@@ -3,7 +3,7 @@ phase: P3
 component: kb-embed (trait crate)
 task_id: p3-1
 title: "Embedder trait + EmbeddingInput/Kind validation"
-status: planned
+status: completed
 depends_on: [p0-1]
 unblocks: [p3-2, p3-3, p3-4]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

@@ -3,7 +3,7 @@ phase: P3
 component: kb-store-vector (LanceDB)
 task_id: p3-3
 title: "LanceDB VectorStore + embedding_records writer"
-status: planned
+status: completed
 depends_on: [p3-2, p1-6]
 unblocks: [p3-4]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md

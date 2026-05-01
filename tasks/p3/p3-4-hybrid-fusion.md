@@ -3,7 +3,7 @@ phase: P3
 component: kb-search (hybrid)
 task_id: p3-4
 title: "Hybrid Retriever (RRF) over lexical + vector"
-status: planned
+status: completed
 depends_on: [p2-2, p3-3]
 unblocks: [p4-3]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
