@@ -20,14 +20,18 @@
 //! facade function in a later phase, remember: keep the return type pure,
 //! and add a matching `wire_*` helper in `kb-cli/src/wire.rs`.
 //!
-//! ## Test seam
+//! ## Config seam (`*_with_config`)
 //!
-//! Each public free function has a `pub(crate) fn *_with_config`
-//! companion that takes a fully-resolved `Config` directly. Public
-//! callers go through the top-level functions which call
-//! `load_config()`; integration tests call the `_with_config` variant
-//! and pass a mutated `Config` pointing at a `TempDir` to avoid
-//! polluting the user's real `data_dir` / `model_dir`.
+//! Each public free function has a `#[doc(hidden)] pub fn *_with_config`
+//! companion that takes a fully-resolved [`kb_config::Config`] directly.
+//! Three callers go through it: (1) the top-level free functions
+//! themselves, after `load_config()`; (2) `kb-cli` when the user passes
+//! `--config <path>` (CLI builds the Config via
+//! `Config::load(cli.config.as_deref())` and threads it in directly so
+//! the flag is honored); (3) integration tests, which mutate a Config
+//! to point at a `TempDir` to avoid polluting the user's real
+//! `data_dir` / `model_dir`. `#[doc(hidden)]` keeps rustdoc clean while
+//! still allowing the cross-crate calls.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -136,6 +140,10 @@ fn expand_tilde(s: &str) -> PathBuf {
 /// what `kb-cli` does at the top of every subcommand path; we re-do
 /// the load inside each facade entry so callers don't have to thread
 /// a Config through.
+///
+/// Callers that already have a Config in hand (CLI honoring `--config`,
+/// integration tests, TUI session) should bypass this and call the
+/// matching `*_with_config` helper directly.
 fn load_config() -> anyhow::Result<kb_config::Config> {
     kb_config::Config::load(None)
 }
@@ -147,8 +155,10 @@ pub fn ingest(scope: SourceScope, summary_only: bool) -> anyhow::Result<IngestRe
     ingest_with_config(config, scope, summary_only)
 }
 
-/// Test-only seam — kb-cli must call the public free function
-/// ([`ingest`]), not this. See module docs.
+/// Config-explicit variant — bypasses [`load_config`] when the
+/// caller (kb-cli with `--config`, integration tests, TUI session)
+/// already has a [`kb_config::Config`] in hand. The public free
+/// function [`ingest`] wraps this with the XDG-default load.
 #[doc(hidden)]
 pub fn ingest_with_config(
     config: kb_config::Config,
@@ -807,22 +817,38 @@ pub fn ask(_query: &str, _opts: AskOpts) -> anyhow::Result<Answer> {
     anyhow::bail!("not yet wired (P4-3)")
 }
 
-/// Run the doctor checks. P0 emits `config_loaded` + `data_dir_writable`
-/// (downstream checks land in later phases).
-pub fn doctor() -> anyhow::Result<DoctorReport> {
+/// Run the doctor checks against the explicit config path the user
+/// requested via `--config` (or the XDG default if `None`). The
+/// `config_loaded` check reports the actual path probed and the
+/// `data_dir_writable` check probes the resolved `storage.data_dir`
+/// from that config (so `--config` users see their custom paths
+/// reflected in the report rather than the XDG defaults).
+pub fn doctor_with_config_path(config_path: Option<&std::path::Path>) -> anyhow::Result<DoctorReport> {
     tracing::debug!("doctor() invoked");
     let mut checks = Vec::new();
 
-    // config_loaded — defaults always load; from-file is best-effort.
-    let cfg_path = kb_config::Config::xdg_config_path();
-    let (config_ok, config_detail) = if cfg_path.exists() {
+    // Resolve the config path the same way `Config::load` does: explicit
+    // override first, else XDG default. Report whichever was probed.
+    let cfg_path: PathBuf = match config_path {
+        Some(p) => p.to_path_buf(),
+        None => kb_config::Config::xdg_config_path(),
+    };
+    let (config_ok, config_detail, loaded_cfg) = if cfg_path.exists() {
         match kb_config::Config::from_file(&cfg_path) {
-            Ok(_) => (true, cfg_path.display().to_string()),
-            Err(e) => (false, format!("{} ({e})", cfg_path.display())),
+            Ok(c) => (true, cfg_path.display().to_string(), Some(c)),
+            Err(e) => (false, format!("{} ({e})", cfg_path.display()), None),
         }
+    } else if config_path.is_some() {
+        // Explicit `--config <path>` that doesn't exist is a hard error
+        // — defaults would silently mask the user's intent.
+        (
+            false,
+            format!("{} (not found)", cfg_path.display()),
+            None,
+        )
     } else {
-        // Defaults are always loadable; report the path that would be read.
-        (true, format!("{} (defaults)", cfg_path.display()))
+        // No `--config` and no XDG file: defaults are always loadable.
+        (true, format!("{} (defaults)", cfg_path.display()), None)
     };
     checks.push(DoctorCheck {
         name: "config_loaded".to_string(),
@@ -830,13 +856,26 @@ pub fn doctor() -> anyhow::Result<DoctorReport> {
         detail: config_detail,
         hint: if config_ok {
             None
+        } else if config_path.is_some() {
+            Some("--config path does not exist or is malformed".to_string())
         } else {
             Some("run `kb init` to seed config".to_string())
         },
     });
 
-    // data_dir_writable — try to create the dir and write a probe file.
-    let data_dir = kb_config::Config::xdg_data_dir();
+    // data_dir_writable — probe the resolved storage.data_dir from the
+    // loaded config when present, else the XDG default. Apply env
+    // overrides so KB_STORAGE_DATA_DIR is respected too.
+    let data_dir = match loaded_cfg.as_ref() {
+        Some(c) => {
+            // Re-apply env overrides on top so the same precedence as
+            // Config::load is preserved here.
+            let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+            let merged = c.clone().apply_env(&env);
+            expand_tilde(&merged.storage.data_dir)
+        }
+        None => kb_config::Config::xdg_data_dir(),
+    };
     let writable = (|| -> anyhow::Result<()> {
         std::fs::create_dir_all(&data_dir)?;
         let probe = data_dir.join(".kb-doctor-probe");
@@ -849,7 +888,7 @@ pub fn doctor() -> anyhow::Result<DoctorReport> {
         Err(e) => (
             false,
             format!("{} ({e})", data_dir.display()),
-            Some("ensure XDG_DATA_HOME is writable".to_string()),
+            Some("ensure the configured data_dir is writable".to_string()),
         ),
     };
     checks.push(DoctorCheck {
@@ -865,4 +904,12 @@ pub fn doctor() -> anyhow::Result<DoctorReport> {
         ok,
         checks,
     })
+}
+
+/// Run the doctor checks against the XDG-default config. Convenience
+/// wrapper that mirrors the historical `kb-app::doctor()` signature
+/// for callers that don't honor `--config` (e.g., legacy code paths
+/// or smoke harnesses).
+pub fn doctor() -> anyhow::Result<DoctorReport> {
+    doctor_with_config_path(None)
 }
