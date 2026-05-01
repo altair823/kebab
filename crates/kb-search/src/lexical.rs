@@ -10,12 +10,14 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use globset::GlobMatcher;
 use kb_core::{
-    ChunkId, ChunkerVersion, Citation, DocumentId, IndexVersion, RetrievalDetail,
-    Retriever, SearchFilters, SearchHit, SearchMode, SearchQuery, SourceSpan,
-    TrustLevel, WorkspacePath,
+    ChunkId, ChunkerVersion, DocumentId, IndexVersion, RetrievalDetail, Retriever,
+    SearchFilters, SearchHit, SearchMode, SearchQuery, SourceSpan, TrustLevel,
+    WorkspacePath,
 };
 use kb_store_sqlite::SqliteStore;
 use rusqlite::{params_from_iter, Connection, Row, ToSql};
+
+use crate::citation_helper::citation_from_first_span;
 
 // ── Tunables ─────────────────────────────────────────────────────────────
 
@@ -367,7 +369,7 @@ fn build_hit(
     let workspace_path = WorkspacePath::new(raw.workspace_path)
         .context("kb-search lexical: documents.workspace_path violates WorkspacePath invariant")?;
 
-    let citation = build_citation(
+    let citation = citation_from_first_span(
         &raw.chunk_id,
         workspace_path.clone(),
         raw.section_label.clone(),
@@ -411,64 +413,6 @@ fn normalize_bm25(bm25_raw: f64) -> f32 {
     let abs = bm25_raw.abs();
     let normalized = -bm25_raw / (1.0_f64 + abs);
     normalized as f32
-}
-
-/// Build a `Citation` from the chunk's first `SourceSpan`. P1 markdown
-/// only emits `Line`, so the other variants are mostly defensive — we
-/// forward them as faithfully as possible so a future PDF / image
-/// extractor can flow through without churn.
-fn build_citation(
-    chunk_id: &str,
-    path: WorkspacePath,
-    section: Option<String>,
-    first_span: Option<&SourceSpan>,
-) -> Citation {
-    match first_span {
-        Some(SourceSpan::Line { start, end }) => Citation::Line {
-            path,
-            start: *start,
-            end: *end,
-            section,
-        },
-        Some(SourceSpan::Page { page, .. }) => Citation::Page {
-            path,
-            page: *page,
-            section,
-        },
-        Some(SourceSpan::Region { x, y, w, h }) => Citation::Region {
-            path,
-            x: *x,
-            y: *y,
-            w: *w,
-            h: *h,
-        },
-        Some(SourceSpan::Time { start_ms, end_ms }) => Citation::Time {
-            path,
-            start_ms: *start_ms,
-            end_ms: *end_ms,
-            speaker: None,
-        },
-        // Byte-spans don't have a Citation variant. Fall back to a Line
-        // citation pointing at the document head — better than fabricating
-        // a position. Spans-empty falls into the same branch.
-        other @ (Some(SourceSpan::Byte { .. }) | None) => {
-            let span_shape = match other {
-                Some(_) => "Byte",
-                None => "empty array",
-            };
-            tracing::warn!(
-                chunk_id,
-                span_shape,
-                "kb-search lexical: SourceSpan has no Citation mapping; falling back to Line {{1, 1}}"
-            );
-            Citation::Line {
-                path,
-                start: 1,
-                end: 1,
-                section,
-            }
-        }
-    }
 }
 
 /// Cap the snippet at `max_chars` characters (Unicode scalar values, not
@@ -579,9 +523,10 @@ mod tests {
 
     #[test]
     fn build_citation_line_round_trip() {
+        use kb_core::Citation;
         let p = WorkspacePath::new("a/b.md".to_string()).unwrap();
         let span = SourceSpan::Line { start: 7, end: 12 };
-        let c = build_citation("c1", p.clone(), Some("S1".to_string()), Some(&span));
+        let c = citation_from_first_span("c1", p.clone(), Some("S1".to_string()), Some(&span));
         match c {
             Citation::Line {
                 start,
@@ -600,13 +545,14 @@ mod tests {
 
     #[test]
     fn build_citation_page_forwards_section() {
+        use kb_core::Citation;
         let p = WorkspacePath::new("doc.pdf".to_string()).unwrap();
         let span = SourceSpan::Page {
             page: 4,
             char_start: None,
             char_end: None,
         };
-        let c = build_citation("c1", p, Some("Intro".to_string()), Some(&span));
+        let c = citation_from_first_span("c1", p, Some("Intro".to_string()), Some(&span));
         match c {
             Citation::Page {
                 page,
@@ -622,8 +568,9 @@ mod tests {
 
     #[test]
     fn build_citation_none_falls_back_to_line_one() {
+        use kb_core::Citation;
         let p = WorkspacePath::new("x.md".to_string()).unwrap();
-        let c = build_citation("c1", p, None, None);
+        let c = citation_from_first_span("c1", p, None, None);
         match c {
             Citation::Line { start, end, .. } => {
                 assert_eq!((start, end), (1, 1));
