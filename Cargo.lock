@@ -3440,6 +3440,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kb-llm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kb-core",
+ "proptest",
+]
+
+[[package]]
 name = "kb-normalize"
 version = "0.1.0"
 dependencies = [
