@@ -10,11 +10,27 @@ description   = "Facade — orchestrates components for kb-cli/tui/desktop"
 [dependencies]
 kb-core              = { path = "../kb-core" }
 kb-config            = { path = "../kb-config" }
+kb-source-fs         = { path = "../kb-source-fs" }
+kb-parse-md          = { path = "../kb-parse-md" }
+kb-parse-types       = { path = "../kb-parse-types" }
+kb-normalize         = { path = "../kb-normalize" }
+kb-chunk             = { path = "../kb-chunk" }
+kb-store-sqlite      = { path = "../kb-store-sqlite" }
+kb-store-vector      = { path = "../kb-store-vector" }
+kb-search            = { path = "../kb-search" }
+kb-embed             = { path = "../kb-embed" }
+kb-embed-local       = { path = "../kb-embed-local" }
 anyhow               = { workspace = true }
+blake3               = { workspace = true }
 serde                = { workspace = true }
 serde_json           = { workspace = true }
+time                 = { workspace = true }
 tracing              = { workspace = true }
 tracing-subscriber   = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 tracing-appender     = "0.2"
 toml                 = "0.8"
 dirs                 = "5"
+
+[dev-dependencies]
+rusqlite             = { workspace = true }
+tempfile             = { workspace = true }
