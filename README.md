@@ -34,7 +34,7 @@ cargo install --git https://gitea.altair823.xyz/altair823-org/kebab.git --bin ke
 
 업데이트는 `git pull && cargo install --path crates/kebab-cli --locked --force` 또는 git URL 형식의 경우 `cargo install --git ... --force`.
 
-제거는 `cargo uninstall kebab-cli`. 이 명령은 binary 만 지우고 워크스페이스 데이터 (`~/.local/share/kebab/`, `~/.config/kebab/`) 는 그대로 남는다 — 데이터까지 정리하려면 `rm -rf ~/.local/share/kebab ~/.config/kebab ~/.cache/kebab ~/.local/state/kebab`.
+제거는 `cargo uninstall kebab-cli`. 이 명령은 binary 만 지우고 워크스페이스 데이터는 그대로 남는다. 데이터까지 정리하려면 `kebab reset --all --yes` (config + data + cache + state 4 개 XDG 경로 모두 wipe — **irreversible**, 재시작 시 `kebab init` 다시 실행). 부분 wipe 는 `kebab reset --data-only` (config 보존), `kebab reset --vector-only` (Lance + `embedding_records` 만, 다음 ingest 가 re-embed) 등.
 
 ## Quick start
 
@@ -77,6 +77,7 @@ kebab doctor
 | `kebab ask "<query>"` | RAG 답변 + 근거 인용. 근거 부족 시 거절. Ollama 필요 |
 | `kebab doctor` | 설정/모델/DB 헬스 체크 |
 | `kebab tui` | Ratatui 셸 (Library + Search + Ask + Inspect 패널, desktop 진행 중) |
+| `kebab reset [--all / --data-only / --vector-only / --config-only] [--yes]` | XDG 데이터 wipe. **Irreversible.** TTY 면 confirm prompt, 아니면 `--yes` 필수. `--vector-only` 는 SQLite `embedding_records` 도 함께 truncate (orphan 방지) |
 | `kebab eval run / compare` | golden query 회귀 측정 |
 
 모든 명령에 `--json` 플래그. 출력은 frozen wire schema v1 (`schema_version` 항상 포함, 예: `ingest_report.v1`, `search_hit.v1`, `answer.v1`, `doctor.v1`).
