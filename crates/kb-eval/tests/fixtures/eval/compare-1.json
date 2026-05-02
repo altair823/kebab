@@ -1,0 +1,89 @@
+{
+  "aggregate_a": {
+    "citation_coverage": null,
+    "empty_result_rate": 0.0,
+    "failed_queries": 0,
+    "groundedness": 0.0,
+    "hit_at_k": {
+      "1": 0.33329999446868896,
+      "10": 0.666700005531311,
+      "3": 0.33329999446868896,
+      "5": 0.666700005531311
+    },
+    "mrr": 0.41670000553131104,
+    "recall_at_k_doc": {
+      "1": 0.33329999446868896,
+      "10": 0.666700005531311,
+      "3": 0.33329999446868896,
+      "5": 0.666700005531311
+    },
+    "refusal_correctness": null,
+    "total_queries": 3
+  },
+  "aggregate_b": {
+    "citation_coverage": null,
+    "empty_result_rate": 0.0,
+    "failed_queries": 0,
+    "groundedness": 0.0,
+    "hit_at_k": {
+      "1": 0.666700005531311,
+      "10": 1.0,
+      "3": 1.0,
+      "5": 1.0
+    },
+    "mrr": 0.833299994468689,
+    "recall_at_k_doc": {
+      "1": 0.666700005531311,
+      "10": 1.0,
+      "3": 1.0,
+      "5": 1.0
+    },
+    "refusal_correctness": null,
+    "total_queries": 3
+  },
+  "deltas": {
+    "chunker_version_match": "exact",
+    "citation_coverage": null,
+    "empty_result_rate": 0.0,
+    "groundedness": 0.0,
+    "hit_at_k": {
+      "1": 0.33340001106262207,
+      "10": 0.33329999446868896,
+      "3": 0.666700005531311,
+      "5": 0.33329999446868896
+    },
+    "mrr": 0.41659998893737793,
+    "recall_at_k_doc": {
+      "1": 0.33340001106262207,
+      "10": 0.33329999446868896,
+      "3": 0.666700005531311,
+      "5": 0.33329999446868896
+    },
+    "refusal_correctness": null
+  },
+  "per_query": [
+    {
+      "a_hit_rank": 1,
+      "b_hit_rank": 2,
+      "kind": "loss",
+      "note": "rank 1→2",
+      "query_id": "q-001"
+    },
+    {
+      "a_hit_rank": 4,
+      "b_hit_rank": 1,
+      "kind": "win",
+      "note": "rank 4→1",
+      "query_id": "q-002"
+    },
+    {
+      "a_hit_rank": null,
+      "b_hit_rank": 1,
+      "kind": "win",
+      "note": null,
+      "query_id": "q-003"
+    }
+  ],
+  "run_a": "run_a",
+  "run_b": "run_b"
+}

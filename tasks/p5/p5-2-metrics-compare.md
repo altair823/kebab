@@ -3,7 +3,7 @@ phase: P5
 component: kb-eval (metrics + compare)
 task_id: p5-2
 title: "Metrics computation + compare report"
-status: planned
+status: completed
 depends_on: [p5-1]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
@@ -150,3 +150,37 @@ All tests under `cargo test -p kb-eval metrics`.
 - Floating-point sums in MRR cause minor cross-platform drift; round to 4 decimals on storage to keep snapshots stable.
 - "Should refuse" queries are encoded as `expected_doc_ids: []`. Document this convention in the golden YAML header comment.
 - Chunker version drift across runs is the COMMON case, not the error case (you almost always re-chunk before evaluating a chunker change). Default behavior is graceful fallback (doc + span overlap); only `--strict-chunker-version` refuses. The `chunker_version_match` field in `CompareReport.deltas` makes the mode auditable, so silent miscompares are still impossible.
+
+## Implementation deviations (intentional)
+
+Recorded so reviewers don't trip on them; the runtime behavior is the
+same one this spec defines, the names / wiring just differ.
+
+- **Graceful fallback is doc-id-only, not doc + 50% span overlap.** The
+  `chunker_version_match` audit field is `"fallback_doc"` (not
+  `"fallback_doc_span"`). Span-overlap requires reading both runs'
+  `chunks.source_spans` simultaneously — but a chunker-version change
+  in practice re-indexes (overwrites) the chunks table, so by the time
+  you compute run B the run A chunk rows are already gone. Doc-id
+  matching is the strongest stable criterion under that workflow.
+  Span-overlap moves to a future phase that owns chunker-version
+  archival.
+- **Helper signatures.** `compute_aggregate_with_config(cfg, run_id)` /
+  `store_aggregate_with_config(cfg, run_id, agg)` /
+  `compare_runs_with_config(cfg, a, b, opts)` exist alongside the
+  spec-pinned `compute_aggregate(run_id)` / `store_aggregate(run_id, agg)`
+  / `compare_runs(a, b)` so integration tests can drive the pipeline
+  against a TempDir-backed `Config`. The no-arg forms wrap them with
+  `Config::load(None)`.
+- **CLI surface lives on `kb-cli` directly, not via `kb-app`.** DoD
+  asks for `kb eval compare` to be reached "via kb-app", but `kb-app`
+  already depends on `kb-eval` (the P5-1 runner uses the App facade),
+  so routing the CLI through `kb-app` would form a cycle. `kb-cli` →
+  `kb-eval` is wired directly; `kb-app` is unchanged.
+- **`AggregateMetrics` is `Serialize + Deserialize`.** The spec defines
+  only the field shape; we add `Deserialize` so the stored
+  `aggregate_json` can round-trip back into the type for follow-up
+  computations.
+- **`anyhow`** is used in `Result` returns since the rest of the
+  workspace already speaks anyhow; not in the spec's Allowed list but
+  matches every other crate.

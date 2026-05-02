@@ -20,10 +20,20 @@
 //!
 //! `run_id` uses UUIDv7 simple — timestamp-ordered, lowercase hex.
 
+mod compare;
 mod loader;
+mod metrics;
 mod runner;
 mod types;
 
+pub use compare::{
+    CompareOpts, CompareReport, ComparisonKind, QueryComparison, compare_runs,
+    compare_runs_with_config, render_report_md,
+};
 pub use loader::load_golden_set;
+pub use metrics::{
+    AggregateMetrics, TOP_K_VARIANTS, compute_aggregate, compute_aggregate_with_config,
+    store_aggregate, store_aggregate_with_config,
+};
 pub use runner::{run_eval, run_eval_with_config};
 pub use types::{EvalRun, EvalRunOpts, GoldenQuery, QueryResult};
