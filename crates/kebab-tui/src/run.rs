@@ -10,7 +10,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use std::time::Duration;
 
-use crate::app::{App, KeyOutcome, Pane, SearchState};
+use crate::app::{App, AskState, KeyOutcome, Pane, SearchState};
+use crate::ask::{drain_stream, handle_key_ask, poll_worker, render_ask};
 use crate::error_popup::{ErrorOverlay, render_error_overlay};
 use crate::library::{handle_key_library, refresh_docs, render_library};
 use crate::search::{
@@ -61,6 +62,13 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                         }
                     }
                 }
+                Pane::Ask => {
+                    // Token stream + worker completion polled every
+                    // tick so the answer area updates without
+                    // blocking the event loop.
+                    drain_stream(app);
+                    poll_worker(app);
+                }
                 _ => {}
             }
         }
@@ -73,10 +81,11 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                     let outcome = match app.focus {
                         Pane::Library => handle_key_library(app, key),
                         Pane::Search => handle_key_search(app, key),
-                        // p9-3/4/5 plug their handlers here as their
+                        Pane::Ask => handle_key_ask(app, key),
+                        // p9-4/5 plug their handlers here as their
                         // crates land. Until then, those panes accept
                         // only `q` / `Esc` to return.
-                        Pane::Ask | Pane::Inspect | Pane::Jobs => {
+                        Pane::Inspect | Pane::Jobs => {
                             handle_key_unimplemented_pane(app, key)
                         }
                     };
@@ -87,6 +96,9 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                             // Lazy-init pane state on first switch.
                             if p == Pane::Search && app.search.is_none() {
                                 app.search = Some(SearchState::default());
+                            }
+                            if p == Pane::Ask && app.ask.is_none() {
+                                app.ask = Some(AskState::default());
                             }
                         }
                         KeyOutcome::Refresh => {
@@ -135,9 +147,10 @@ fn render_root(f: &mut Frame, app: &App) {
     match app.focus {
         Pane::Library => render_library(f, outer[1], app),
         Pane::Search => render_search(f, outer[1], app),
-        // p9-3/4/5 panes are not yet rendered; placeholder is the
-        // Library frame — focus state already reads "Search" /
-        // "Ask" / etc. in the header so the user is not misled.
+        Pane::Ask => render_ask(f, outer[1], app),
+        // p9-4/5 panes (Inspect / Jobs) not yet rendered; placeholder
+        // is the Library frame — focus state header still reads
+        // "Inspect" / "Jobs" so the user is not misled.
         _ => render_library(f, outer[1], app),
     }
     render_footer(f, outer[2], app);
@@ -175,7 +188,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
             }
         }
         Pane::Search => "type=query  Tab=mode  Enter=search  j/k=move  g=open in $EDITOR  Esc=back",
-        Pane::Ask => "Ask pane not yet implemented (lands with p9-3) — q to return",
+        Pane::Ask => "type=question  Enter=submit  e=explain (when input empty)  j/k=scroll (when input empty)  Esc=back",
         Pane::Inspect => "Inspect pane not yet implemented (lands with p9-4) — q to return",
         Pane::Jobs => "Jobs pane not yet implemented — q to return",
     };

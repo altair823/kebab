@@ -92,8 +92,35 @@ impl Default for SearchState {
     }
 }
 
-/// Forward-declared opaque sub-state. p9-3 fills the body.
-pub struct AskState;
+/// Ask pane state — owned by p9-3.
+///
+/// The worker thread (`thread`) owns the `mpsc::Sender<String>` that
+/// `kebab-app::ask` writes tokens into. The pane keeps the matching
+/// `rx` and drains it once per render frame (no blocking).
+#[derive(Default)]
+pub struct AskState {
+    pub input: String,
+    /// Toggled by the `e` key. Re-applied on the next `Enter`.
+    pub explain: bool,
+    /// True between `Enter` press and worker thread completion.
+    pub streaming: bool,
+    /// Tokens accumulated from the worker so far. Cleared on each
+    /// new submission.
+    pub partial: String,
+    /// Final `Answer` once the worker thread finishes.
+    pub answer: Option<kebab_core::Answer>,
+    /// In-flight worker; `take()`n when it finishes.
+    pub thread: Option<std::thread::JoinHandle<anyhow::Result<kebab_core::Answer>>>,
+    /// Token receiver paired with the worker's `Sender`. Drained
+    /// every render frame.
+    pub rx: Option<std::sync::mpsc::Receiver<String>>,
+    /// Vertical scroll offset for the answer area when content
+    /// exceeds the viewport.
+    pub scroll: u16,
+    /// Last error from the worker thread (rendered in popup if Some).
+    pub last_error: Option<String>,
+}
+
 
 /// Forward-declared opaque sub-state. p9-4 fills the body.
 pub struct InspectState;
