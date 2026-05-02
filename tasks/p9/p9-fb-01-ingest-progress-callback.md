@@ -3,7 +3,7 @@ phase: P9
 component: kebab-app + kebab-core
 task_id: p9-fb-01
 title: "Ingest progress callback / event channel"
-status: in_progress
+status: completed
 depends_on: []
 unblocks: [p9-fb-02, p9-fb-03]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

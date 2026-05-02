@@ -30,6 +30,12 @@ kebab-tui    = { path = "../kebab-tui" }
 anyhow       = { workspace = true }
 serde_json   = { workspace = true }
 clap         = { version = "4", features = ["derive"] }
+# p9-fb-02: ingest progress UI.
+# - TTY 사람 모드: indicatif spinner + bar (stderr).
+# - --json 모드 / non-TTY: indicatif 끄고 raw line emit.
+# - timestamp formatting (RFC 3339) 은 time crate.
+indicatif    = "0.17"
+time         = { workspace = true }
 
 [dev-dependencies]
 tempfile     = { workspace = true }

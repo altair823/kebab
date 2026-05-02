@@ -3,7 +3,7 @@ phase: P9
 component: kebab-cli
 task_id: p9-fb-02
 title: "CLI progress display (spinner + text + --json line events)"
-status: planned
+status: in_progress
 depends_on: [p9-fb-01]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

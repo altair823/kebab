@@ -70,7 +70,7 @@ kebab doctor
 | 명령 | 동작 |
 |------|------|
 | `kebab init` | XDG 경로에 데이터 디렉토리 + config.toml 생성 |
-| `kebab ingest [<path>]` | Markdown / 이미지 / PDF 색인 (idempotent) |
+| `kebab ingest [<path>]` | Markdown / 이미지 / PDF 색인 (idempotent). TTY 에서는 stderr 진행 바, non-TTY (CI / pipe) 는 stderr 한 줄씩, `--json` 은 stdout 에 `ingest_progress.v1` 라인 streaming 후 마지막에 `ingest_report.v1` |
 | `kebab search --mode {lexical,vector,hybrid} "<query>"` | 검색. hybrid는 RRF fusion, citation 포함 |
 | `kebab list docs` | 색인된 문서 목록 |
 | `kebab inspect doc <id>` / `kebab inspect chunk <id>` | raw record 보기 |
@@ -80,7 +80,7 @@ kebab doctor
 | `kebab reset [--all / --data-only / --vector-only / --config-only] [--yes]` | XDG 데이터 wipe. **Irreversible.** TTY 면 confirm prompt, 아니면 `--yes` 필수. `--vector-only` 는 SQLite `embedding_records` 도 함께 truncate (orphan 방지) |
 | `kebab eval run / compare` | golden query 회귀 측정 |
 
-모든 명령에 `--json` 플래그. 출력은 frozen wire schema v1 (`schema_version` 항상 포함, 예: `ingest_report.v1`, `search_hit.v1`, `answer.v1`, `doctor.v1`).
+모든 명령에 `--json` 플래그. 출력은 frozen wire schema v1 (`schema_version` 항상 포함, 예: `ingest_report.v1`, `ingest_progress.v1`, `search_hit.v1`, `answer.v1`, `doctor.v1`, `reset_report.v1`).
 
 ## 논리 아키텍처
 

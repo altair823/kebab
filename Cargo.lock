@@ -3517,6 +3517,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "indicatif",
  "kebab-app",
  "kebab-config",
  "kebab-core",
@@ -3524,6 +3525,7 @@ dependencies = [
  "kebab-tui",
  "serde_json",
  "tempfile",
+ "time",
 ]
 
 [[package]]
