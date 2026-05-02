@@ -2,32 +2,68 @@
 
 `kebab` 는 개인용 로컬 knowledge base + RAG 도구다. Markdown / PDF / 이미지를 한 곳에 색인하고, 의미 검색 + page-단위 citation 포함 LLM 답변을 단일 binary 로 제공한다. 모든 추론은 로컬 (Ollama / fastembed) 에서 돌아간다. 대상 하드웨어: M4 48GB MacBook 1대, 사용자 1명.
 
+## 사전 요구
+
+- **Rust toolchain** ≥ 1.85 (workspace 가 edition 2024 + resolver 3 사용). [rustup](https://rustup.rs) 권장.
+- **Ollama** — `kebab ask` 와 이미지 OCR/caption 가 사용. `https://ollama.com/download` 에서 설치 후 `ollama serve` 실행. 모델은 `ollama pull qwen2.5:7b-instruct` (텍스트) / `ollama pull gemma4:e4b` (vision) 등. config 의 `[models.llm].endpoint` 에 host:port 명시.
+- **빌드 디스크** — 첫 빌드 시 `target/` 가 6–10 GB (Lance + DataFusion + fastembed). 여유 확인.
+- **fastembed 모델** — 첫 `kebab ingest` 시 `multilingual-e5-small` (~470 MB) 자동 다운로드.
+
+## 설치
+
+표준 경로는 `cargo install` — `~/.cargo/bin/kebab` 가 PATH 에 있는지만 확인하면 끝.
+
+```bash
+# 1) repo clone
+git clone https://gitea.altair823.xyz/altair823-org/kebab.git
+cd kebab
+
+# 2) binary 빌드 + 설치 (~/.cargo/bin/kebab)
+cargo install --path crates/kebab-cli --locked
+
+# 3) PATH 확인 (아직 추가 안 했으면 ~/.bashrc / ~/.zshrc 에 추가)
+which kebab          # → /Users/<you>/.cargo/bin/kebab 같은 경로
+kebab --version      # → kebab 0.1.0
+```
+
+git URL 직접 install 도 가능 (clone 없이):
+
+```bash
+cargo install --git https://gitea.altair823.xyz/altair823-org/kebab.git --bin kebab --locked
+```
+
+업데이트는 `git pull && cargo install --path crates/kebab-cli --locked --force` 또는 git URL 형식의 경우 `cargo install --git ... --force`.
+
+제거는 `cargo uninstall kebab-cli`. 이 명령은 binary 만 지우고 워크스페이스 데이터 (`~/.local/share/kebab/`, `~/.config/kebab/`) 는 그대로 남는다 — 데이터까지 정리하려면 `rm -rf ~/.local/share/kebab ~/.config/kebab ~/.cache/kebab ~/.local/state/kebab`.
+
 ## Quick start
 
 ```bash
-# build
-cargo build --release
-
-# 첫 실행 — XDG 경로에 config.toml 생성
-./target/release/kebab init
+# 첫 실행 — XDG 경로에 데이터 디렉토리 + config.toml 생성
+kebab init
 
 # config 손보고 — `[workspace] include` 에 *.md / *.png / *.pdf 등 추가, 모델 endpoint 등
 ${EDITOR:-vi} ~/.config/kebab/config.toml
 
 # 색인 (Markdown / 이미지 / PDF 모두 한 번에)
-./target/release/kebab ingest
+kebab ingest
 
 # 검색 (citation 의 source_span 이 매체별로 line / region / page)
-./target/release/kebab search "Markdown chunking 규칙" --mode hybrid
+kebab search "Markdown chunking 규칙" --mode hybrid
 
 # 질문 (Ollama 필요, PDF 인용 시 page 번호 surface)
-./target/release/kebab ask "내 KB 설계에서 저장소 전략은?"
+kebab ask "내 KB 설계에서 저장소 전략은?"
 
 # Ratatui 셸 (Library 패널 — j/k 이동, f 필터, q 종료)
-./target/release/kebab tui
+kebab tui
+
+# 헬스 체크 (config 경로 / 데이터 디렉토리 쓰기 가능 여부)
+kebab doctor
 ```
 
 격리된 임시 워크스페이스로 돌려보는 절차는 [docs/SMOKE.md](docs/SMOKE.md) — `--config <path>` 로 분리. 이미지 / PDF fixture 가 필요하면 두 example 바이너리 (`cargo run --release --example gen_smoke_pdf -p kebab-parse-pdf` / `gen_smoke_png -p kebab-parse-image`) 로 시스템 dep 없이 in-tree 생성 가능.
+
+설치 없이 dev 흐름으로 돌려볼 때는 `cargo run --release -p kebab-cli -- <subcommand>` 또는 `cargo build --release && ./target/release/kebab <subcommand>`.
 
 ## 명령
 
