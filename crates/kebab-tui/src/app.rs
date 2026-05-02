@@ -122,8 +122,49 @@ pub struct AskState {
 }
 
 
-/// Forward-declared opaque sub-state. p9-4 fills the body.
-pub struct InspectState;
+/// What the Inspect pane is currently showing — owned by p9-4.
+#[derive(Clone, Debug)]
+pub enum InspectTarget {
+    Doc(kebab_core::DocumentId),
+    Chunk(kebab_core::ChunkId),
+}
+
+/// Inspect pane state — owned by p9-4.
+///
+/// Read-only view; data fetched on each target change via the
+/// `kebab-app::inspect_*_with_config` facade (run-loop hook).
+pub struct InspectState {
+    pub target: Option<InspectTarget>,
+    pub doc: Option<kebab_core::CanonicalDocument>,
+    pub chunk: Option<kebab_core::Chunk>,
+    /// Section names currently collapsed (e.g. "metadata", "provenance",
+    /// "blocks", "embeddings"). Toggled by `c`.
+    pub collapsed: std::collections::HashSet<&'static str>,
+    pub scroll: u16,
+    /// Pane the user came from — Library or Search. `Esc` returns
+    /// here.
+    pub return_to: Pane,
+    /// True when `target` differs from the last fetched result; the
+    /// run loop's idle tick services it.
+    pub needs_fetch: bool,
+    /// True while the inspect call is in flight (synchronous in v1).
+    pub loading: bool,
+}
+
+impl Default for InspectState {
+    fn default() -> Self {
+        Self {
+            target: None,
+            doc: None,
+            chunk: None,
+            collapsed: std::collections::HashSet::new(),
+            scroll: 0,
+            return_to: Pane::Library,
+            needs_fetch: false,
+            loading: false,
+        }
+    }
+}
 
 /// TUI application. The shell that p9-1 stands up; later p9-* tasks
 /// add panes by populating their `Option<*State>` slot.

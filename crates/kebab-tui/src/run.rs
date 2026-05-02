@@ -10,9 +10,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use std::time::Duration;
 
-use crate::app::{App, AskState, KeyOutcome, Pane, SearchState};
+use crate::app::{App, AskState, InspectState, KeyOutcome, Pane, SearchState};
 use crate::ask::{drain_stream, handle_key_ask, poll_worker, render_ask};
 use crate::error_popup::{ErrorOverlay, render_error_overlay};
+use crate::inspect::{handle_key_inspect, refresh_inspect, render_inspect};
 use crate::library::{handle_key_library, refresh_docs, render_library};
 use crate::search::{
     debounce_due, fire_search, handle_key_search, refresh_preview, render_search,
@@ -69,6 +70,18 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                     drain_stream(app);
                     poll_worker(app);
                 }
+                Pane::Inspect => {
+                    let due = app
+                        .inspect
+                        .as_ref()
+                        .map(|s| s.needs_fetch)
+                        .unwrap_or(false);
+                    if due {
+                        if let Err(e) = refresh_inspect(app) {
+                            app.error_overlay = Some(ErrorOverlay::from_anyhow(&e));
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -82,12 +95,10 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                         Pane::Library => handle_key_library(app, key),
                         Pane::Search => handle_key_search(app, key),
                         Pane::Ask => handle_key_ask(app, key),
-                        // p9-4/5 plug their handlers here as their
-                        // crates land. Until then, those panes accept
-                        // only `q` / `Esc` to return.
-                        Pane::Inspect | Pane::Jobs => {
-                            handle_key_unimplemented_pane(app, key)
-                        }
+                        Pane::Inspect => handle_key_inspect(app, key),
+                        // p9-5 (Jobs) plugs its handler here when it
+                        // lands. Until then, accepts only `q` / `Esc`.
+                        Pane::Jobs => handle_key_unimplemented_pane(app, key),
                     };
                     match outcome {
                         KeyOutcome::Quit => app.should_quit = true,
@@ -99,6 +110,9 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                             }
                             if p == Pane::Ask && app.ask.is_none() {
                                 app.ask = Some(AskState::default());
+                            }
+                            if p == Pane::Inspect && app.inspect.is_none() {
+                                app.inspect = Some(InspectState::default());
                             }
                         }
                         KeyOutcome::Refresh => {
@@ -148,10 +162,9 @@ fn render_root(f: &mut Frame, app: &App) {
         Pane::Library => render_library(f, outer[1], app),
         Pane::Search => render_search(f, outer[1], app),
         Pane::Ask => render_ask(f, outer[1], app),
-        // p9-4/5 panes (Inspect / Jobs) not yet rendered; placeholder
-        // is the Library frame — focus state header still reads
-        // "Inspect" / "Jobs" so the user is not misled.
-        _ => render_library(f, outer[1], app),
+        Pane::Inspect => render_inspect(f, outer[1], app),
+        // p9-5 Jobs not yet rendered; Library placeholder.
+        Pane::Jobs => render_library(f, outer[1], app),
     }
     render_footer(f, outer[2], app);
     if let Some(err) = &app.error_overlay {
@@ -189,7 +202,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
         }
         Pane::Search => "type=query  Tab=mode  Enter=search  j/k=move  g=open in $EDITOR  Esc=back",
         Pane::Ask => "type=question  Enter=submit  e=explain (when input empty)  j/k=scroll (when input empty)  Esc=back",
-        Pane::Inspect => "Inspect pane not yet implemented (lands with p9-4) — q to return",
+        Pane::Inspect => "j/k=scroll  PgUp/PgDn=page scroll  c=collapse/expand sections  Esc/q=back",
         Pane::Jobs => "Jobs pane not yet implemented — q to return",
     };
     let line = Line::from(Span::styled(

@@ -3811,6 +3811,7 @@ dependencies = [
  "kebab-config",
  "kebab-core",
  "ratatui",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "time",
