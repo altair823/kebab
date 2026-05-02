@@ -105,7 +105,7 @@ pub(crate) fn emit(
         if tx.send(event).is_err() {
             tracing::trace!(
                 target: "kebab-app::ingest_progress",
-                "progress receiver dropped; suppressing further sends would require caller cooperation"
+                "progress receiver dropped; event discarded (best-effort send per ingest_progress contract)"
             );
         }
     }
