@@ -615,6 +615,7 @@ fn ingest_one_asset(
     // (per-document tx semantics per design §5.8); composing them is
     // the kb-app job. A failure mid-way leaves the DB in a state the
     // next ingest run can re-converge (UPSERT + DELETE-then-INSERT).
+    purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     app.sqlite
         .put_asset_with_bytes(asset, &bytes)
         .context("DocumentStore::put_asset_with_bytes")?;
@@ -841,6 +842,7 @@ fn ingest_one_image_asset(
         .context("kb-chunk::MdHeadingV1Chunker::chunk (image)")?;
 
     // 5. Persist + embed — identical sequence to markdown.
+    purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     app.sqlite
         .put_asset_with_bytes(asset, &bytes)
         .context("DocumentStore::put_asset_with_bytes (image)")?;
@@ -949,6 +951,46 @@ fn record_image_analysis_failure(
     warning_notes.push(note);
 }
 
+/// HOTFIXES 2026-05-02 P7-3 follow-up: when a tracked file's bytes
+/// change, `purge_orphan_at_workspace_path` (in `kebab-store-sqlite`)
+/// sweeps the SQLite chain (documents → blocks / chunks / embedding_records)
+/// but the LanceDB rows keyed on the now-deleted `chunk_id`s live in a
+/// separate store. This helper fetches the stale `chunk_id`s from
+/// SQLite **before** they get cascade-deleted, then deletes the
+/// matching vectors from every Lance table.
+///
+/// Called by every per-medium ingest helper at the same point —
+/// immediately before `put_asset_with_bytes` runs, so the SELECT
+/// still sees the old chunk_ids and the DELETE happens before the
+/// new rows land. Empty workspace_path / no embedder → no-op.
+fn purge_vector_orphans_for_workspace_path(
+    app: &App,
+    asset: &RawAsset,
+    vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
+) -> anyhow::Result<()> {
+    let Some(vec_store) = vector_store else {
+        return Ok(());
+    };
+    let stale = app
+        .sqlite
+        .stale_chunk_ids_at(&asset.workspace_path.0, &asset.asset_id.0)
+        .context("SqliteStore::stale_chunk_ids_at")?;
+    if stale.is_empty() {
+        return Ok(());
+    }
+    use kebab_core::VectorStore as _;
+    vec_store
+        .delete_by_chunk_ids(&stale)
+        .context("VectorStore::delete_by_chunk_ids (orphan vector cleanup)")?;
+    tracing::debug!(
+        target: "kebab-app",
+        path = %asset.workspace_path.0,
+        count = stale.len(),
+        "purged orphan vectors for edited asset"
+    );
+    Ok(())
+}
+
 /// P7-3: process one `MediaType::Pdf` asset end-to-end.
 ///
 /// - Reads bytes from disk.
@@ -1024,6 +1066,7 @@ fn ingest_one_pdf_asset(
         .chunk(&canonical, chunk_policy)
         .context("kb-chunk::PdfPageV1Chunker::chunk")?;
 
+    purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     app.sqlite
         .put_asset_with_bytes(asset, &bytes)
         .context("DocumentStore::put_asset_with_bytes (pdf)")?;

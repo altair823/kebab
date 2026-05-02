@@ -308,6 +308,50 @@ fn temp_path_for(dest: &Path) -> PathBuf {
     parent.join(format!("{file_name}.tmp.{pid}.{n}"))
 }
 
+impl SqliteStore {
+    /// SELECT every `chunks.chunk_id` whose owning document points at a
+    /// stale `asset_id` for `workspace_path` (i.e. the file's bytes have
+    /// changed since the last ingest, producing a brand-new
+    /// `asset_id`).
+    ///
+    /// Called by `kebab-app::ingest_one_*_asset` BEFORE
+    /// `put_asset_with_bytes` so the caller can hand the IDs to
+    /// `VectorStore::delete_by_chunk_ids`. After the SQLite cleanup
+    /// runs (CASCADE on `documents` → `chunks`) the same chunk_ids
+    /// would be unreadable. Returns an empty Vec when no stale row
+    /// exists at `workspace_path`.
+    ///
+    /// Read-only — does not mutate. The actual sweep happens inside
+    /// `purge_orphan_at_workspace_path` further down the pipeline.
+    pub fn stale_chunk_ids_at(
+        &self,
+        workspace_path: &str,
+        new_asset_id: &str,
+    ) -> Result<Vec<kebab_core::ChunkId>> {
+        let conn = self.lock_conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT c.chunk_id
+                 FROM chunks c
+                 INNER JOIN documents d ON c.doc_id = d.doc_id
+                 INNER JOIN assets a ON d.asset_id = a.asset_id
+                 WHERE a.workspace_path = ?1 AND a.asset_id != ?2",
+            )
+            .map_err(StoreError::from)?;
+        let rows = stmt
+            .query_map(params![workspace_path, new_asset_id], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(StoreError::from)?;
+        let mut out: Vec<kebab_core::ChunkId> = Vec::new();
+        for row in rows {
+            let id = row.map_err(StoreError::from)?;
+            out.push(kebab_core::ChunkId(id));
+        }
+        Ok(out)
+    }
+}
+
 /// Sweep stale `assets` + `documents` + downstream rows when the file
 /// at `workspace_path` is being re-ingested with bytes that produce a
 /// **different** `asset_id` (i.e. the file was edited).
@@ -330,13 +374,12 @@ fn temp_path_for(dest: &Path) -> PathBuf {
 ///    delete the on-disk byte file at `storage_path` so the data dir
 ///    doesn't accumulate orphans across edits.
 ///
-/// **Caveat — vector store orphans.** `embedding_records.chunk_id`
-/// CASCADE clears the SQLite side, but the LanceDB rows keyed on
-/// `chunk_id` live in a separate store and are not touched here.
-/// Stale vectors do not affect retrieval (search joins through
-/// SQLite, so an orphan vector is never surfaced) but they consume
-/// disk in `data_dir/lancedb/`. A future task should reconcile by
-/// `chunk_id` set diff. Tracked alongside this entry in HOTFIXES.
+/// **Vector store cleanup**: `embedding_records.chunk_id` CASCADE
+/// clears the SQLite side, but the LanceDB rows live in a separate
+/// store. The caller (`kebab-app::ingest_one_*_asset`) is responsible
+/// for fetching `stale_chunk_ids_at` BEFORE this purge runs and
+/// calling `VectorStore::delete_by_chunk_ids` on those IDs. The
+/// follow-up PR for HOTFIXES 2026-05-02 P7-3 wires this in.
 pub(crate) fn purge_orphan_at_workspace_path(
     conn: &Connection,
     workspace_path: &str,
