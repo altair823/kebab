@@ -4,9 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Single-user local-first knowledge base + RAG. Rust 2024 workspace, 18 crates, single binary (`kebab`). All inference is local (Ollama + fastembed + whisper.cpp).
+Single-user local-first knowledge base + RAG. Rust 2024 workspace, ~20 crates, single binary (`kebab`). All inference is local (Ollama + fastembed + whisper.cpp).
 
-The high-level overview, dependency graph, phase roadmap, and directory tree all live in [README.md](README.md). Don't restate them — link to that and add only what isn't already there.
+The repo's documentation is split by audience — don't duplicate across them:
+
+- **[README.md](README.md)** — first stop for an end user. Quick start, command table, one Mermaid logical-architecture diagram, configuration pointers, license. Stays narrow.
+- **[HANDOFF.md](HANDOFF.md)** — phase-level progress dashboard for someone picking the project up. Phase status table, component count, "next task candidates", short summary of post-merge deviations. The README never duplicates this.
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — internal structure: crate dependency graph, directory tree, locked-in technical decisions. The README links here from the Mermaid diagram.
+- **[docs/superpowers/specs/2026-04-27-kebab-final-form-design.md](docs/superpowers/specs/2026-04-27-kebab-final-form-design.md)** — frozen design contract.
+- **[tasks/INDEX.md](tasks/INDEX.md)** — per-component task tree.
+- **[tasks/HOTFIXES.md](tasks/HOTFIXES.md)** — dated post-merge deviation log; live source of truth where behavior and the frozen spec disagree.
 
 ## Build / test / lint
 
@@ -73,6 +80,32 @@ The migration from the old `kb` name lives in commits `911fb49 / f1a448d / f9714
 ## Smoke + integration
 
 `docs/SMOKE.md` walks through running the full pipeline against an isolated TempDir KB via `--config /tmp/kebab-smoke/config.toml`. Use this instead of touching `~/.local/share/kebab/` when verifying a fresh clone or a CLI flag change. Most CLI regressions surface here, not in unit tests (see HOTFIXES.md).
+
+## User-facing docs (README + HANDOFF + ARCHITECTURE)
+
+Three sibling docs split the audience. Every implementation PR (`feat/*`) keeps them in sync; spec PRs (`spec/*`) don't touch any of the three.
+
+**[README.md](README.md) — end user.** Stays narrow. The three surfaces a user touches:
+
+- **CLI** — new `kebab <subcommand>`, flag, `--json` field, or exit-code change. Update the **명령** table and the **Quick start** block if the new flow needs a different invocation.
+- **TUI** — new pane, key binding, or run-time behavior visible to a `kebab tui` user. Update the row in the **명령** table and the Mermaid diagram if a new external surface lands.
+- **Configuration** — new `config.toml` field, `KEBAB_*` env, default change, or XDG path. Update the **Configuration** section AND the config example block in `docs/SMOKE.md`.
+
+The Mermaid logical-architecture diagram stays the only diagram in the README. If a new media type / external service / store crosses the diagram boundary, update it; otherwise leave it alone.
+
+The README does NOT carry: phase status, component count, post-merge deviations, crate dependency graph, directory tree, locked-in technical decisions. Those live in HANDOFF or ARCHITECTURE.
+
+**[HANDOFF.md](HANDOFF.md) — handing off.** Phase-level progress + next-task candidates. Flip the relevant phase row from ⏳ to ✅ when a phase epic completes. Add a one-line entry under "머지 후 발견된 버그 / 결정 (요약)" when a HOTFIXES entry lands that's load-bearing for someone picking up the project. Per-component progress lives in `tasks/INDEX.md`, not here.
+
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — implementation detail.** Crate dependency graph, directory tree, locked-in technical decisions. Update when:
+
+- A new crate is added — extend the graph + directory tree.
+- A locked-in decision flips (e.g. OCR engine default changes per a HOTFIXES entry) — update the table and link the HOTFIXES entry.
+- A directory moves — update the tree.
+
+Out of scope for all three: HOTFIXES detail (`tasks/HOTFIXES.md`), version cascade mechanics (CLAUDE.md §Versioning cascade), per-task spec rationale (`tasks/p<N>/`).
+
+If a feature ships behind a flag that's off-by-default, mention the flag explicitly in the README so a user reading only the README knows the surface exists but is gated.
 
 ## Remote
 
