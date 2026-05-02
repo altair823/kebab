@@ -72,6 +72,9 @@ fn default_opts() -> AskOpts {
         temperature: Some(0.0),
         seed: Some(0),
         stream_sink: None,
+        history: Vec::new(),
+        conversation_id: None,
+        turn_index: None,
     }
 }
 

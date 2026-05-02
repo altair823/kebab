@@ -141,6 +141,7 @@ fn render_status(f: &mut Frame, area: Rect, s: &AskState) {
                 Some(RefusalReason::LlmSelfJudge) => "  refusal=llm_self_judge",
                 Some(RefusalReason::NoIndex) => "  refusal=no_index",
                 Some(RefusalReason::NoChunks) => "  refusal=no_chunks",
+                Some(RefusalReason::LlmStreamAborted) => "  refusal=llm_stream_aborted",
                 None => "",
             };
             vec![
@@ -300,6 +301,11 @@ fn spawn_ask_worker(state: &mut App) {
         temperature: None,
         seed: None,
         stream_sink: Some(tx),
+        // p9-fb-15: TUI ask is single-shot in this task; multi-turn
+        // conversation UI lands in p9-fb-16.
+        history: Vec::new(),
+        conversation_id: None,
+        turn_index: None,
     };
     let handle =
         thread::spawn(move || kebab_app::ask_with_config(cfg, &query, opts));

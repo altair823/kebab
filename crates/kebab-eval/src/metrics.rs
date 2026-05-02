@@ -496,6 +496,8 @@ mod tests {
             },
             usage: TokenUsage { prompt_tokens: 1, completion_tokens: 1, latency_ms: 1 },
             created_at: OffsetDateTime::UNIX_EPOCH,
+            conversation_id: None,
+            turn_index: None,
         }
     }
 
