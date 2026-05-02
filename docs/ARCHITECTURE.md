@@ -17,7 +17,7 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 | vector | LanceDB (embedded, model 별 분리 table) |
 | Markdown parser | `pulldown-cmark` |
 | embedding | `fastembed-rs` (`multilingual-e5-small`, 384d) |
-| LLM | Ollama HTTP (default `qwen2.5:7b-instruct` ─ 사용자 환경에 맞춰 `gemma4:26b` 등으로 교체 가능) |
+| LLM | Ollama HTTP (default `gemma4:e4b` ─ OCR / caption 와 family 통일. 사용자가 더 큰 variant `gemma4:26b` 등으로 override 가능) |
 | 음성 ASR | `whisper.cpp` (via `whisper-rs`) — P8 보류, 시스템 dep brainstorm 후 |
 | OCR | Ollama vision LM (default `gemma4:e4b`) — `OcrEngine` trait 으로 Tesseract / Apple Vision 등 future swap (HOTFIXES P6-2) |
 | Image caption | Ollama vision LM, runtime gate `image.caption.enabled` (default OFF) |

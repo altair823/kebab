@@ -224,7 +224,11 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
         };
         if has_hits {
             let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
-            let workspace_root = std::path::PathBuf::from(&state.config.workspace.root);
+            // `~/...` / `${XDG_…}` expansion via `kebab-config::expand_path`
+            // — same helper used by the markdown / image / PDF ingest
+            // paths (HOTFIXES 2026-05-02 P9-4 follow-up).
+            let workspace_root =
+                kebab_config::expand_path(&state.config.workspace.root, "");
             if let Err(e) = jump_to_citation(&citation.unwrap(), &editor, &workspace_root) {
                 state.error_overlay = Some(ErrorOverlay::from_anyhow(&e));
             }

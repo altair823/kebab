@@ -5,7 +5,7 @@
 ## 사전 요구
 
 - **Rust toolchain** ≥ 1.85 (workspace 가 edition 2024 + resolver 3 사용). [rustup](https://rustup.rs) 권장.
-- **Ollama** — `kebab ask` 와 이미지 OCR/caption 가 사용. `https://ollama.com/download` 에서 설치 후 `ollama serve` 실행. 모델은 `ollama pull qwen2.5:7b-instruct` (텍스트) / `ollama pull gemma4:e4b` (vision) 등. config 의 `[models.llm].endpoint` 에 host:port 명시.
+- **Ollama** — `kebab ask` 와 이미지 OCR/caption 가 사용. `https://ollama.com/download` 에서 설치 후 `ollama serve` 실행. 기본 LLM 은 gemma4 계열 (`ollama pull gemma4:e4b`) — OCR / caption 도 같은 family 라 모델 하나만 pull 하면 됨. 더 큰 variant 원하면 `gemma4:26b` 등으로 config override. config 의 `[models.llm].endpoint` 에 host:port 명시.
 - **빌드 디스크** — 첫 빌드 시 `target/` 가 6–10 GB (Lance + DataFusion + fastembed). 여유 확인.
 - **fastembed 모델** — 첫 `kebab ingest` 시 `multilingual-e5-small` (~470 MB) 자동 다운로드.
 

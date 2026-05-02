@@ -20,7 +20,7 @@ cargo build --release -p kebab-cli   # debug 도 무방. 디버그가 더 빠르
 ```bash
 # Mac 등 별도 호스트에서
 OLLAMA_HOST=0.0.0.0:11434 ollama serve
-ollama pull gemma4:26b           # 또는 qwen2.5:32b 등 — 자세한 비교는 README
+ollama pull gemma4:e4b           # 기본 default. 더 큰 variant 원하면 gemma4:26b
 ```
 
 본 머신에서 reachability 검증:
@@ -110,7 +110,7 @@ explain_default = false
 max_context_tokens = 6000
 ```
 
-`KEBAB_*` 환경변수로 override 가능 (`KEBAB_MODELS_LLM_MODEL=qwen2.5:32b kebab …` 등). 자세한 키 목록은 `crates/kebab-config/src/lib.rs` 의 `apply_env` 매치 암.
+`KEBAB_*` 환경변수로 override 가능 (`KEBAB_MODELS_LLM_MODEL=gemma4:26b kebab …` 등). 자세한 키 목록은 `crates/kebab-config/src/lib.rs` 의 `apply_env` 매치 암.
 
 ## 명령 시퀀스
 
