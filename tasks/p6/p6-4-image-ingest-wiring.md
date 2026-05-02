@@ -22,18 +22,27 @@ P6-1 / P6-2 / P6-3 each shipped a focused library and a passing test suite, but 
 
 ## Allowed dependencies
 
+`kebab-app` 의 현재 Cargo.toml 그대로의 surface — 본 task 는 그 위에 `kebab-parse-image` 한 줄을 추가합니다.
+
 - `kebab-core`
 - `kebab-config`
 - `kebab-source-fs`
-- `kebab-parse-image` (consumes its public surface)
-- `kebab-llm-local` (constructs `OllamaLanguageModel` for caption)
-- `kebab-chunk` (image-document branch in `md-heading-v1`)
-- `kebab-store-sqlite`, `kebab-store-vector`, `kebab-embed-local`
+- `kebab-parse-md`, `kebab-parse-types`
+- `kebab-normalize`
+- `kebab-chunk` (image-document branch in `md-heading-v1` — this task extends it)
+- `kebab-store-sqlite`, `kebab-store-vector`
+- `kebab-search`
+- `kebab-embed`, `kebab-embed-local`
+- `kebab-llm`, `kebab-llm-local` (constructs `OllamaLanguageModel` for caption)
+- `kebab-rag`
+- **`kebab-parse-image` (NEW — added by this task)**
 - `anyhow`, `serde_json`, `tracing`
 
 ## Forbidden dependencies
 
-- New crates outside the existing `kebab-app` dep set. Any image-specific logic that doesn't fit `kebab-app` belongs in `kebab-parse-image` (already shipped) or `kebab-chunk` (this task may extend it).
+- `kebab-tui`, `kebab-desktop` (P9 미시작 — UI crate 가 ingest 를 호출하면 layering 위반)
+- `kebab-eval` (cycle 위험 — eval 이 ingest 를 호출하므로 그 반대는 금지)
+- 본 task 가 신설하는 자체 image extractor / OCR / caption 비즈니스 로직 — 모두 `kebab-parse-image` 에 이미 존재. `kebab-app` 안에 image-specific 로직 추가 금지 (얇은 dispatch + glue 만 허용).
 
 ## Inputs
 
@@ -66,6 +75,13 @@ fn chunk(&self, doc: &CanonicalDocument, policy: &ChunkPolicy) -> Result<Vec<Chu
     // ... existing markdown heading logic untouched ...
 }
 
+/// Returns true iff `doc` is an image-only document (single `ImageRef`
+/// block). P6-1's `ImageExtractor` already guarantees this shape today
+/// — the predicate exists as a defensive guard against (a) a future
+/// task that introduces multi-block image documents, and (b) accidental
+/// route-through of a `[Block::Heading, Block::ImageRef, ...]` shape
+/// that would look image-ish but should still flow through the
+/// markdown chunker.
 fn is_image_only_document(doc: &CanonicalDocument) -> bool {
     doc.blocks.len() == 1
         && matches!(doc.blocks.first(), Some(Block::ImageRef(_)))
@@ -130,16 +146,25 @@ fn compose_image_chunk_text(block: &ImageRefBlock) -> String {
      - Failure → same lenient policy as OCR: warn, log, continue. `block.caption` stays `None`.
   7. Pass the (possibly partially-populated) `CanonicalDocument` to the existing chunker → embedder → store path, identical to markdown.
 
+### Parallelism
+
+- The image branch shares the existing markdown worker pool — one asset dispatch unit (markdown OR image) per worker — so `config.indexing.max_parallel_extractors` keeps its current meaning. The current `kebab-app` ingest is sequential per-asset (single worker irrespective of the knob value); image branch adds zero new concurrency. A future P+ task may parallelise both branches, at which point the OCR / caption HTTP calls naturally become the throughput ceiling (one in-flight request per worker — `reqwest::blocking::Client` is shared but each call blocks its worker thread until response).
+- Implication for sizing: a 5000-asset ingest with OCR enabled runs as roughly `5000 × (per-asset OCR latency)` end-to-end. With `gemma4:e4b` at ~3-5s per call this is the 4-7 hour range the brainstorming flagged. Books-as-PDF route bypasses this entirely.
+
 ### Lang hint
 
 - `lang_hint: Option<&Lang>` passed to `apply_ocr` / `apply_caption` reads from `doc.lang` (set to `Lang("und")` by P6-1).
 - `kebab-parse-image` already special-cases `"und"` so the prompt does not embed a misleading hint.
 
-### LM construction
+### LM / OCR engine construction
 
-- The caption path constructs `OllamaLanguageModel::new(&cfg)` **once per ingest invocation**, before the asset loop, when `config.image.caption.enabled = true`. Stored as a stack-allocated `Box<dyn LanguageModel>` (or trait object behind `&`) and passed to `apply_caption`.
-- Construction failure (e.g. invalid endpoint string) → ingest aborts with the constructor's error before scanning. Never silently disables caption.
-- `reqwest::blocking::Client` inside `OllamaLanguageModel` is internally `Arc`-shared, so reusing one instance across hundreds of asset iterations is correct and cheap.
+Both the caption LM and the OCR adapter wrap `reqwest::blocking::Client`, whose internal `Arc` makes a single instance cheap to share across all assets. Both are constructed **once per ingest invocation**, before the asset loop, gated on the matching `enabled` flag.
+
+- **Caption** — when `config.image.caption.enabled = true`, build `OllamaLanguageModel::new(&cfg)` once. Stored as `Box<dyn LanguageModel>` (or trait object behind `&`) and passed to every `apply_caption` call.
+- **OCR** — when `config.image.ocr.enabled = true`, build `OllamaVisionOcr::new(&cfg)` once. Same `Arc`-share property; passed by `&` to every `apply_ocr` call.
+- Endpoints — `OllamaVisionOcr::new` already falls back to `models.llm.endpoint` when `image.ocr.endpoint` is `None`, so a single host typically serves both LLM and OCR. The two adapters can therefore share an Ollama host or run against separate hosts independently.
+- **Construction failure** (e.g. invalid endpoint string, empty model id) → ingest aborts with the constructor's error before any asset is scanned. Never silently disables OCR / caption.
+- Per-asset cost — only the HTTP call to Ollama. Adapter struct is reused.
 
 ### Chunking (kebab-chunk md-heading-v1)
 
@@ -148,8 +173,9 @@ fn compose_image_chunk_text(block: &ImageRefBlock) -> String {
   - `chunk.text` = (β) plain concatenation of `[alt, ocr_joined, caption_text]` joined by `\n\n`, dropping empty parts.
   - `chunk.block_ids = vec![block.common.block_id.clone()]`.
   - `chunk.heading_path = vec![]` (image documents have no heading hierarchy).
-  - `chunk.section_label = None`.
-  - `chunk.source_span = block.common.source_span.clone()` (the `Region { x, y, w, h }` from P6-1).
+  - `chunk.source_spans = vec![block.common.source_span.clone()]` — `Vec<SourceSpan>` per `kebab_core::Chunk` definition; image branch contributes one element holding the `Region { x, y, w, h }` from P6-1.
+  - `chunk.token_estimate` follows the existing `md-heading-v1` token-count convention (whitespace-segmented words clamped to `policy.target_tokens`).
+  - `chunk.policy_hash` is the existing `ChunkPolicy` hex digest the chunker already computes for markdown; image branch reuses the same value to keep policy edits invalidating image chunks alongside markdown chunks.
 - Determinism: the existing `id_for_chunk(doc_id, chunker_version, &[block_id], policy_hash)` recipe applies unchanged.
 - Oversized text: an image whose `ocr.joined` exceeds `policy.target_tokens` produces an oversized chunk. Acceptable in v1 — the user-facing scenario (diagrams / screenshots / camera photos) typically yields ≤ 1 page of OCR. Books are routed through P7 PDF instead (see "Out of scope"). A `tracing::warn!` fires when this happens so a future P+ task can quantify how often the boundary is hit.
 
@@ -197,6 +223,15 @@ The opt-in real-Ollama integration test from P6-2 / P6-3 stays inside `kebab-par
 
 ## Definition of Done
 
+### Spec PR (this PR — `spec/p6-4-image-ingest-wiring`)
+
+- [x] `tasks/p6/p6-4-image-ingest-wiring.md` 작성 + self-review (placeholder / 모순 / 모호성 / scope)
+- [x] `tasks/INDEX.md` "P6 — 4 components" 반영
+- [x] PR 본문에 design §3.4, §6.1, §9.1 링크
+- [x] brainstorming 의 모든 결정 (옵션 A 청킹 / β 청크 텍스트 / Lenient 실패 정책 / LM 1회 빌드 / 책 P7 이관 / P6-5 미시작) 본문 반영
+
+### Implementation PR (follow-up — `feat/p6-4-image-ingest-wiring`)
+
 - [ ] `cargo check --workspace` passes
 - [ ] `cargo test --workspace --no-fail-fast -j 1` passes (all new integration tests green)
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes
@@ -204,8 +239,6 @@ The opt-in real-Ollama integration test from P6-2 / P6-3 stays inside `kebab-par
 - [ ] `kebab search --mode lexical "<OCR text>"` returns the image chunk
 - [ ] `kebab inspect doc <image_doc_id>` shows non-empty `block.ocr` / `block.caption`
 - [ ] `docs/SMOKE.md` includes an image-fixture step
-- [ ] PR links design §3.4, §6.1, §9.1
-- [ ] `tasks/INDEX.md` updated to "P6 — 4 components"
 
 ## Out of scope
 
