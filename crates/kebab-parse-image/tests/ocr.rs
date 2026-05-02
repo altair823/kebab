@@ -20,7 +20,7 @@ use crate::common::red_100x50_png;
 
 fn cfg_for_endpoint(endpoint: &str) -> Config {
     let mut cfg = Config::defaults();
-    cfg.image.ocr.endpoint = endpoint.to_string();
+    cfg.image.ocr.endpoint = Some(endpoint.to_string());
     cfg.image.ocr.model = "gemma4:e4b".to_string();
     cfg.image.ocr.languages = vec!["eng".to_string(), "kor".to_string()];
     cfg.image.ocr.max_pixels = 1024;
@@ -321,13 +321,26 @@ async fn ocr_downscales_large_image_before_sending() {
 
 #[test]
 fn from_parts_clamps_max_pixels_into_legal_range() {
+    // Below MIN_LONG_EDGE — bumped up to the floor.
     let too_small = OllamaVisionOcr::from_parts("http://x", "m", vec![], 10).unwrap();
-    let too_big = OllamaVisionOcr::from_parts("http://x", "m", vec![], 99_999).unwrap();
-    // We can't read the private field directly, but engine_version is
-    // observable; assert the engine constructed at all (clamp didn't
-    // panic) and run a synthetic prompt.
-    assert_eq!(too_small.engine_name(), "ollama-vision");
-    assert_eq!(too_big.engine_name(), "ollama-vision");
+    assert_eq!(
+        too_small.max_pixels(),
+        256,
+        "max_pixels must be raised to MIN_LONG_EDGE"
+    );
+
+    // Above MAX_LONG_EDGE — capped at the ceiling.
+    let too_big =
+        OllamaVisionOcr::from_parts("http://x", "m", vec![], 99_999).unwrap();
+    assert_eq!(
+        too_big.max_pixels(),
+        4096,
+        "max_pixels must be capped at MAX_LONG_EDGE"
+    );
+
+    // Inside the legal range — pass through untouched.
+    let in_range = OllamaVisionOcr::from_parts("http://x", "m", vec![], 1024).unwrap();
+    assert_eq!(in_range.max_pixels(), 1024);
 }
 
 // ── Integration test against real Ollama (opt-in) ────────────────────────
@@ -355,11 +368,18 @@ async fn ocr_integration_real_ollama_transcribes_text() {
     let model =
         std::env::var("KEBAB_IMAGE_OCR_MODEL").unwrap_or_else(|_| "gemma4:e4b".to_string());
 
-    // Generate a fixture with known text.
-    let bytes = common::hello_world_png();
+    // Generate a fixture with known text. If the DejaVu font is
+    // missing from this dev box, skip rather than crash.
+    let bytes = match common::hello_world_png() {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("skipping ocr_integration: {e:#}");
+            return;
+        }
+    };
     let cfg = {
         let mut c = Config::defaults();
-        c.image.ocr.endpoint = endpoint;
+        c.image.ocr.endpoint = Some(endpoint);
         c.image.ocr.model = model;
         c.image.ocr.max_pixels = 1024;
         c

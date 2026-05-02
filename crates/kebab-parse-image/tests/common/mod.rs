@@ -60,18 +60,23 @@ pub fn large_blue_4000x3000_png() -> Vec<u8> {
 /// `ocr_integration_real_ollama_transcribes_text` integration test —
 /// regular hermetic tests never call it.
 ///
-/// Renders with a font shipped by `dejavu` (path under
-/// `/usr/share/fonts/truetype/dejavu/`) — common across most Linux dev
-/// boxes. Falls back to a tiny built-in glyph map if the font is
-/// missing so the helper compiles even without DejaVu installed.
-pub fn hello_world_png() -> Vec<u8> {
+/// Returns `Err` (not panic) if the DejaVu Sans Bold font is missing
+/// from the standard Linux path, so dev boxes without the font can
+/// gracefully skip the integration test rather than crashing the
+/// process.
+pub fn hello_world_png() -> anyhow::Result<Vec<u8>> {
     use ab_glyph::{Font, FontRef, ScaleFont};
+    use anyhow::Context;
 
     let mut img: ImageBuffer<Rgb<u8>, _> =
         ImageBuffer::from_fn(400, 100, |_, _| Rgb([255, 255, 255]));
-    let font_bytes = std::fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
-        .expect("DejaVu Sans Bold required for OCR integration fixture");
-    let font = FontRef::try_from_slice(&font_bytes).expect("font parses");
+    let font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
+    let font_bytes = std::fs::read(font_path).with_context(|| {
+        format!(
+            "{font_path} not found — only the opt-in OCR integration fixture needs this font"
+        )
+    })?;
+    let font = FontRef::try_from_slice(&font_bytes).context("DejaVu font parses")?;
     let scaled = font.as_scaled(40.0);
     let text = "Hello World 2026";
     let mut x = 10.0_f32;
@@ -93,8 +98,8 @@ pub fn hello_world_png() -> Vec<u8> {
     }
     let mut buf = Cursor::new(Vec::new());
     img.write_to(&mut buf, image::ImageFormat::Png)
-        .expect("encoding hello-world PNG must not fail");
-    buf.into_inner()
+        .context("encoding hello-world PNG")?;
+    Ok(buf.into_inner())
 }
 
 /// JPEG with embedded EXIF APP1 segment carrying GPS + Make + Model +

@@ -34,7 +34,6 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use image::{ImageFormat, ImageReader};
 use kebab_core::{ImageRefBlock, Lang, OcrRegion, OcrText, ProvenanceEvent, ProvenanceKind};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use time::OffsetDateTime;
 
 /// Engine name written into `OcrText.engine` for the Ollama-vision adapter.
@@ -135,10 +134,9 @@ impl OllamaVisionOcr {
     /// happens inside [`OcrEngine::recognize`].
     pub fn new(config: &kebab_config::Config) -> Result<Self> {
         let ocr = &config.image.ocr;
-        let endpoint = if ocr.endpoint.is_empty() {
-            config.models.llm.endpoint.clone()
-        } else {
-            ocr.endpoint.clone()
+        let endpoint = match ocr.endpoint.as_deref() {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => config.models.llm.endpoint.clone(),
         };
         if endpoint.is_empty() {
             anyhow::bail!(
@@ -182,6 +180,14 @@ impl OllamaVisionOcr {
             languages,
             max_pixels: max_pixels.clamp(MIN_LONG_EDGE, MAX_LONG_EDGE),
         })
+    }
+
+    /// Effective `max_pixels` after the `[MIN_LONG_EDGE, MAX_LONG_EDGE]`
+    /// clamp. Exposed so tests can verify the clamp result without
+    /// reaching into the private field; production callers don't need
+    /// it.
+    pub fn max_pixels(&self) -> u32 {
+        self.max_pixels
     }
 
     fn build_prompt(&self, lang_hint: Option<&Lang>) -> String {
@@ -228,7 +234,7 @@ impl OcrEngine for OllamaVisionOcr {
         let body = OllamaGenerateRequest {
             model: &self.model,
             prompt: &prompt,
-            images: vec![&b64],
+            images: [b64.as_str()],
             stream: false,
             options: OllamaOptions {
                 temperature: 0.0,
@@ -297,9 +303,11 @@ impl OcrEngine for OllamaVisionOcr {
 /// Decode `bytes`, downscale so the long edge is at most `max_long_edge`,
 /// and re-encode as PNG. Returns `(png_bytes, final_w, final_h)`.
 ///
-/// Bypasses encode work when the source already fits — we simply pass
-/// the bytes through. PNG re-encode is only paid when downscaling is
-/// actually needed.
+/// PNG sources that already fit the cap are passthrough (zero decodes,
+/// just a `Vec` clone). Every other path decodes the image exactly
+/// once: the cheap header sniff peeks at the format / dimensions before
+/// committing to a decode, so non-PNG passthrough and downscale share
+/// the same `decode → optionally resize → re-encode` tail.
 fn downscale_to_long_edge(bytes: &[u8], max_long_edge: u32) -> Result<(Vec<u8>, u32, u32)> {
     let reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
@@ -310,40 +318,39 @@ fn downscale_to_long_edge(bytes: &[u8], max_long_edge: u32) -> Result<(Vec<u8>, 
         .context("reading image dimensions for OCR")?;
 
     let long = w.max(h);
-    if long <= max_long_edge {
-        // Source fits — avoid the round-trip through `image::DynamicImage`.
-        // Re-encode only when the source isn't already PNG, since the
-        // wire format we send Ollama is PNG.
-        return match format {
-            Some(ImageFormat::Png) => Ok((bytes.to_vec(), w, h)),
-            _ => {
-                let img = ImageReader::new(Cursor::new(bytes))
-                    .with_guessed_format()
-                    .context("re-reading image for PNG re-encode")?
-                    .decode()
-                    .context("decoding image for PNG re-encode")?;
-                let mut out = Cursor::new(Vec::new());
-                img.write_to(&mut out, ImageFormat::Png)
-                    .context("re-encoding image as PNG")?;
-                Ok((out.into_inner(), w, h))
-            }
-        };
+
+    // Hot path — PNG within budget already matches the wire format we
+    // send Ollama, so we ship the bytes verbatim without paying for a
+    // decode + re-encode round-trip.
+    if long <= max_long_edge && format == Some(ImageFormat::Png) {
+        return Ok((bytes.to_vec(), w, h));
     }
 
-    let scale = max_long_edge as f32 / long as f32;
-    let new_w = ((w as f32) * scale).round().max(1.0) as u32;
-    let new_h = ((h as f32) * scale).round().max(1.0) as u32;
+    // Every remaining branch needs the pixels — either to re-encode as
+    // PNG (non-PNG within budget) or to resize first (over budget).
+    // One decode covers both.
     let img = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
-        .context("re-reading image for downscale")?
+        .context("re-reading image for OCR decode")?
         .decode()
-        .context("decoding image for downscale")?;
-    let resized = img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle);
+        .context("decoding image for OCR")?;
+
+    let (final_w, final_h, final_img) = if long <= max_long_edge {
+        (w, h, img)
+    } else {
+        let scale = max_long_edge as f32 / long as f32;
+        let new_w = ((w as f32) * scale).round().max(1.0) as u32;
+        let new_h = ((h as f32) * scale).round().max(1.0) as u32;
+        let resized =
+            img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle);
+        (new_w, new_h, resized)
+    };
+
     let mut out = Cursor::new(Vec::new());
-    resized
+    final_img
         .write_to(&mut out, ImageFormat::Png)
-        .context("encoding downscaled image as PNG")?;
-    Ok((out.into_inner(), new_w, new_h))
+        .context("encoding image as PNG for OCR")?;
+    Ok((out.into_inner(), final_w, final_h))
 }
 
 fn truncate(s: &str, n: usize) -> String {
@@ -361,7 +368,11 @@ fn truncate(s: &str, n: usize) -> String {
 struct OllamaGenerateRequest<'a> {
     model: &'a str,
     prompt: &'a str,
-    images: Vec<&'a str>,
+    /// Always exactly one image — the `OcrEngine` trait takes a single
+    /// `&[u8]`, so multi-image batching is out of scope until a future
+    /// trait extension. Fixed-size array avoids the `vec![]`
+    /// allocation per call.
+    images: [&'a str; 1],
     stream: bool,
     options: OllamaOptions,
 }
@@ -378,8 +389,6 @@ struct OllamaGenerateResponse {
     response: Option<String>,
     #[serde(default)]
     error: Option<String>,
-    #[serde(flatten)]
-    _other: std::collections::HashMap<String, Value>,
 }
 
 #[cfg(test)]

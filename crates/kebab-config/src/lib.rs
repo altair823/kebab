@@ -136,10 +136,11 @@ pub struct OcrCfg {
     /// Model id passed to the engine (e.g. `"gemma4:e4b"` for
     /// Ollama-vision).
     pub model: String,
-    /// HTTP endpoint for the OCR engine. Empty string means "fall back
-    /// to `models.llm.endpoint`" — convenient when the same Ollama
-    /// host serves both LLM and vision.
-    pub endpoint: String,
+    /// HTTP endpoint for the OCR engine. `None` (or a missing key in
+    /// TOML) means "fall back to `models.llm.endpoint`" — convenient
+    /// when the same Ollama host serves both LLM and vision.
+    #[serde(default)]
+    pub endpoint: Option<String>,
     /// BCP-47 language hints (e.g. `["eng", "kor"]`). The adapter
     /// renders them into the prompt; the LLM honours them probabilistically.
     pub languages: Vec<String>,
@@ -154,7 +155,7 @@ impl OcrCfg {
             enabled: false,
             engine: "ollama-vision".to_string(),
             model: "gemma4:e4b".to_string(),
-            endpoint: String::new(),
+            endpoint: None,
             languages: vec!["eng".to_string(), "kor".to_string()],
             max_pixels: 1600,
         }
@@ -393,7 +394,15 @@ impl Config {
                 }
                 "KEBAB_IMAGE_OCR_ENGINE" => self.image.ocr.engine = v.clone(),
                 "KEBAB_IMAGE_OCR_MODEL" => self.image.ocr.model = v.clone(),
-                "KEBAB_IMAGE_OCR_ENDPOINT" => self.image.ocr.endpoint = v.clone(),
+                "KEBAB_IMAGE_OCR_ENDPOINT" => {
+                    // Empty env value is treated the same as "fall back
+                    // to models.llm.endpoint" — i.e. set None.
+                    self.image.ocr.endpoint = if v.is_empty() {
+                        None
+                    } else {
+                        Some(v.clone())
+                    };
+                }
                 "KEBAB_IMAGE_OCR_LANGUAGES" => {
                     // Comma-separated list, e.g. "eng,kor".
                     self.image.ocr.languages = v
@@ -578,6 +587,8 @@ mod tests {
             "KEBAB_IMAGE_OCR_ENDPOINT".to_string(),
             "http://192.168.0.47:11434".to_string(),
         );
+        // Empty env value should map to None (= fall back to llm.endpoint).
+        // We exercise that branch in a separate test.
         env.insert(
             "KEBAB_IMAGE_OCR_LANGUAGES".to_string(),
             "eng, kor, jpn".to_string(),
@@ -586,7 +597,10 @@ mod tests {
         let c = Config::defaults().apply_env(&env);
         assert!(c.image.ocr.enabled);
         assert_eq!(c.image.ocr.model, "gemma4:31b");
-        assert_eq!(c.image.ocr.endpoint, "http://192.168.0.47:11434");
+        assert_eq!(
+            c.image.ocr.endpoint.as_deref(),
+            Some("http://192.168.0.47:11434")
+        );
         assert_eq!(c.image.ocr.languages, vec!["eng", "kor", "jpn"]);
         assert_eq!(c.image.ocr.max_pixels, 2048);
     }
@@ -594,6 +608,17 @@ mod tests {
     /// Pre-P6 config files don't have an `[image]` section. The
     /// `#[serde(default)]` attribute on `Config::image` must let those
     /// files load with `ImageCfg::defaults()` instead of erroring.
+    /// `KEBAB_IMAGE_OCR_ENDPOINT=""` (empty value) should map to `None`
+    /// rather than to `Some("")` so the fallback to `models.llm.endpoint`
+    /// kicks in. Covers the env-equivalent of a missing TOML key.
+    #[test]
+    fn image_ocr_endpoint_empty_env_value_is_none() {
+        let mut env = HashMap::new();
+        env.insert("KEBAB_IMAGE_OCR_ENDPOINT".to_string(), String::new());
+        let c = Config::defaults().apply_env(&env);
+        assert_eq!(c.image.ocr.endpoint, None);
+    }
+
     #[test]
     fn pre_p6_config_without_image_section_loads_with_defaults() {
         let toml_text = r#"
