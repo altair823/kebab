@@ -22,11 +22,11 @@
 //! See `docs/superpowers/specs/2026-04-27-kb-final-form-design.md`
 //! §7.2 (Embedder), §6.4 ([models.embedding]), §9 (versioning).
 
-use std::path::PathBuf;
 use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use kb_config::expand_path;
 use kb_embed::{Embedder, EmbeddingInput, EmbeddingKind, EmbeddingModelId, EmbeddingVersion};
 
 /// Subdirectory under `config.storage.model_dir` where the fastembed
@@ -60,9 +60,8 @@ impl FastembedEmbedder {
     /// first `embed`).
     pub fn new(config: &kb_config::Config) -> Result<Self> {
         // 1. Resolve `{data_dir}/models/fastembed/` from the config
-        //    templates. `kb-config` does not expose a public path
-        //    resolver yet, so we hand-roll a tiny one mirroring
-        //    kb-store-sqlite's `expand_data_dir`.
+        //    templates. Goes through the shared `kb_config::expand_path`
+        //    so every crate resolves storage paths identically.
         let data_dir = expand_path(&config.storage.data_dir, "");
         let model_dir = expand_path(&config.storage.model_dir, &data_dir.to_string_lossy());
         let cache_dir = model_dir.join(FASTEMBED_CACHE_SUBDIR);
@@ -222,58 +221,6 @@ pub(crate) fn check_dim(model_dim: usize, cfg_dim: usize) -> Result<()> {
     Ok(())
 }
 
-/// Expand the limited template language `kb-config` uses for storage
-/// paths.
-///
-/// Supported substitutions, applied in order:
-/// 1. `{data_dir}` → `data_dir` (caller-supplied resolved string). This
-///    is a no-op when `data_dir` is empty (used by the recursive call
-///    that resolves `data_dir` itself).
-/// 2. `${XDG_DATA_HOME:-~/.local/share}` (and the bare
-///    `${XDG_DATA_HOME}`) → env var if set, else the default after
-///    `:-`.
-/// 3. Leading `~` → `$HOME`.
-///
-/// Mirrors `kb-store-sqlite::store::expand_data_dir`. Kept private to
-/// this crate; promoting it to a public `kb-config` API is a separate
-/// task (see task p3-2 risks: "don't expand kb-config's public API").
-fn expand_path(raw: &str, data_dir: &str) -> PathBuf {
-    let mut s = raw.to_string();
-
-    if !data_dir.is_empty() {
-        s = s.replace("{data_dir}", data_dir);
-    }
-
-    // ${XDG_DATA_HOME:-~/.local/share}: respect env override, else fall
-    // back to the suffix after `:-`.
-    if let Some(start) = s.find("${XDG_DATA_HOME") {
-        if let Some(rel_end) = s[start..].find('}') {
-            let end = start + rel_end + 1; // include trailing '}'
-            let inner = &s[start + 2..end - 1]; // strip ${ and }
-            let replacement = match std::env::var("XDG_DATA_HOME") {
-                Ok(v) if !v.is_empty() => v,
-                _ => {
-                    if let Some((_, default)) = inner.split_once(":-") {
-                        default.to_string()
-                    } else {
-                        String::new()
-                    }
-                }
-            };
-            s.replace_range(start..end, &replacement);
-        }
-    }
-
-    // Leading `~` → $HOME.
-    if let Some(rest) = s.strip_prefix('~') {
-        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-            return home.join(rest.trim_start_matches('/'));
-        }
-    }
-
-    PathBuf::from(s)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,80 +301,6 @@ mod tests {
         assert!(msg.contains("unsupported embedding model"), "msg={msg}");
     }
 
-    // ── expand_path ──────────────────────────────────────────────────
-
-    #[test]
-    fn expand_path_substitutes_data_dir_template() {
-        let p = expand_path("{data_dir}/models", "/tmp/kbtest");
-        assert_eq!(p, PathBuf::from("/tmp/kbtest/models"));
-    }
-
-    #[test]
-    fn expand_path_no_op_without_template() {
-        let p = expand_path("/abs/path", "/tmp/kbtest");
-        assert_eq!(p, PathBuf::from("/abs/path"));
-    }
-
-    // ── expand_path: XDG_DATA_HOME fallback ──────────────────────────
-    //
-    // These two tests mutate the process-wide `XDG_DATA_HOME` env var,
-    // which is unsafe under edition 2024 and racy under cargo's default
-    // parallel test runner. The shared `ENV_LOCK` serializes them; each
-    // test snapshots the prior value and restores it on exit.
-
-    use std::sync::Mutex as StdMutex;
-    static ENV_LOCK: StdMutex<()> = StdMutex::new(());
-
-    /// RAII guard: snapshots `XDG_DATA_HOME` on construction, restores
-    /// it on drop. Pair with the `ENV_LOCK` guard for serial access.
-    struct XdgGuard {
-        prior: Option<String>,
-    }
-
-    impl XdgGuard {
-        fn capture() -> Self {
-            Self {
-                prior: std::env::var("XDG_DATA_HOME").ok(),
-            }
-        }
-    }
-
-    impl Drop for XdgGuard {
-        fn drop(&mut self) {
-            // SAFETY: edition 2024 marks `set_var`/`remove_var` unsafe
-            // because env mutation is not thread-safe. Callers hold
-            // `ENV_LOCK` for the duration of the test, so no other
-            // thread observes the mutation.
-            unsafe {
-                match &self.prior {
-                    Some(v) => std::env::set_var("XDG_DATA_HOME", v),
-                    None => std::env::remove_var("XDG_DATA_HOME"),
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn expand_path_xdg_data_home_set() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let _guard = XdgGuard::capture();
-        // SAFETY: lock held for the duration of this test.
-        unsafe { std::env::set_var("XDG_DATA_HOME", "/custom/path") };
-
-        let p = expand_path("${XDG_DATA_HOME:-~/.local/share}/kb", "");
-        assert_eq!(p, PathBuf::from("/custom/path/kb"));
-    }
-
-    #[test]
-    fn expand_path_xdg_data_home_unset_falls_back_to_home() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let _guard = XdgGuard::capture();
-        // SAFETY: lock held for the duration of this test.
-        unsafe { std::env::remove_var("XDG_DATA_HOME") };
-
-        let home = std::env::var("HOME").expect("HOME must be set in tests");
-        let expected = PathBuf::from(home).join(".local/share/kb");
-        let p = expand_path("${XDG_DATA_HOME:-~/.local/share}/kb", "");
-        assert_eq!(p, expected);
-    }
+    // expand_path tests live in `kb-config::paths`. The adapter imports
+    // it and trusts the upstream coverage rather than duplicating it.
 }

@@ -1,0 +1,45 @@
+# Golden query suite for `kb eval run` (P5-1 / P5-2).
+#
+# Top-level: list of queries. Required fields: `id`, `query`. All
+# others are optional and default to empty / null.
+#
+# Curators: `expected_doc_ids` and `expected_chunk_ids` MUST refer to
+# real rows in the active workspace's SQLite store at run time. Stale
+# references make the runner bail at start. The shipped template
+# leaves them empty so the file is loadable on any fresh workspace —
+# fill them in after a `kb ingest` to enable hit@k / MRR metrics
+# (P5-2).
+#
+# `must_contain` / `forbidden` drive the rule-based groundedness
+# metric (P5-2).
+
+- id: g001
+  query: "Cargo workspace 멤버 추가하는 법"
+  lang: ko
+  must_contain: ["[workspace]", "members"]
+  difficulty: easy
+
+- id: g002
+  query: "What is Rust ownership?"
+  lang: en
+  must_contain: ["borrow", "lifetime"]
+  difficulty: easy
+
+- id: g003
+  query: "Markdown chunking 규칙은?"
+  lang: ko
+  must_contain: ["heading"]
+  forbidden: ["embedding"]
+  difficulty: medium
+
+- id: g004
+  query: "How does FTS5 tokenization work for Korean text?"
+  lang: en
+  must_contain: ["unicode61", "tokenizer"]
+  difficulty: medium
+
+- id: g005
+  query: "RAG citation 검증은 어떻게 동작?"
+  lang: ko
+  must_contain: ["citation", "marker"]
+  difficulty: hard

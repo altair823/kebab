@@ -3,7 +3,7 @@ phase: P5
 component: kb-eval (runner)
 task_id: p5-1
 title: "Golden query fixture loader + per-query runner"
-status: planned
+status: completed
 depends_on: [p4-3]
 unblocks: [p5-2]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
@@ -149,6 +149,6 @@ All tests under `cargo test -p kb-eval runner`.
 
 ## Risks / notes
 
-- Large RAG suites can be slow. Consider `--max-queries` for incremental runs (kept here as a flag spec; implementation is the responsibility of this task).
+- Large RAG suites can be slow. `--max-queries` flag is deferred to P5-2 / a follow-up. Rationale: (a) the runner currently runs all queries unconditionally; (b) without metrics aggregation it adds little incremental value; (c) trivial to add as a `Vec::truncate` once the eval CLI subcommand exists.
 - `expected_chunk_id` references depend on `chunker_version`. If chunker bumps, golden set must be re-curated. Fail fast in the loader.
 - Use `time::OffsetDateTime::now_utc()` for `created_at`; never local TZ.

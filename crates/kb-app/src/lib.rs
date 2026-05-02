@@ -43,22 +43,18 @@ use kb_chunk::MdHeadingV1Chunker;
 use kb_core::{
     Answer, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
-    EmbeddingKind, IndexVersion, IngestReport, LanguageModel, ParserVersion, RawAsset,
-    Retriever, SearchHit, SearchMode, SearchQuery, SourceConnector, SourceScope,
-    SourceUri, VectorRecord, VectorStore,
+    EmbeddingKind, IngestReport, ParserVersion, RawAsset, SearchHit, SearchQuery,
+    SourceConnector, SourceScope, SourceUri, VectorRecord, VectorStore,
 };
-use kb_llm_local::OllamaLanguageModel;
 use kb_normalize::build_canonical_document;
 use kb_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
-use kb_rag::RagPipeline;
-use kb_search::{HybridRetriever, LexicalRetriever, VectorRetriever};
 use kb_source_fs::FsSourceConnector;
 
 mod app;
 pub mod doctor_signal;
 pub mod logging;
 
-use app::App;
+pub use app::App;
 
 /// Parser-version label persisted in `documents.parser_version` for
 /// every Markdown file ingested through the `kb-parse-md` pipeline.
@@ -168,7 +164,7 @@ pub fn ingest_with_config(
 ) -> anyhow::Result<IngestReport> {
     let started_instant = std::time::Instant::now();
 
-    let app = App::open(config)?;
+    let app = App::open_with_config(config)?;
 
     // Walk the workspace.
     let connector = FsSourceConnector::new(&app.config)
@@ -667,7 +663,7 @@ pub fn list_docs_with_config(
     config: kb_config::Config,
     filter: DocFilter,
 ) -> anyhow::Result<Vec<DocSummary>> {
-    let app = App::open(config)?;
+    let app = App::open_with_config(config)?;
     app.sqlite.list_documents(&filter)
 }
 
@@ -683,7 +679,7 @@ pub fn inspect_doc_with_config(
     config: kb_config::Config,
     id: &DocumentId,
 ) -> anyhow::Result<CanonicalDocument> {
-    let app = App::open(config)?;
+    let app = App::open_with_config(config)?;
     app.sqlite
         .get_document(id)?
         .ok_or_else(|| anyhow!("document not found: {} (try `kb list docs`)", id.0))
@@ -701,7 +697,7 @@ pub fn inspect_chunk_with_config(
     config: kb_config::Config,
     id: &ChunkId,
 ) -> anyhow::Result<Chunk> {
-    let app = App::open(config)?;
+    let app = App::open_with_config(config)?;
     app.sqlite
         .get_chunk(id)?
         .ok_or_else(|| anyhow!("chunk not found: {} (try `kb inspect doc <id>`)", id.0))
@@ -715,101 +711,15 @@ pub fn search(query: SearchQuery) -> anyhow::Result<Vec<SearchHit>> {
 }
 
 /// Test-only seam — kb-cli must call the public free function
-/// ([`search`]), not this.
+/// ([`search`]), not this. Builds a one-shot `App` and delegates to
+/// [`App::search`]; long-lived callers should hold an `App` instance
+/// directly to amortize the embedder / vector-store cold start.
 #[doc(hidden)]
 pub fn search_with_config(
     config: kb_config::Config,
     query: SearchQuery,
 ) -> anyhow::Result<Vec<SearchHit>> {
-    let app = App::open(config)?;
-
-    match query.mode {
-        SearchMode::Lexical => {
-            let lex = LexicalRetriever::with_settings(
-                app.sqlite.clone(),
-                lexical_index_version(&app.config),
-                app.config.search.snippet_chars,
-            );
-            lex.search(&query)
-        }
-        SearchMode::Vector => {
-            let (emb, vec_store) = require_embeddings(&app)?;
-            let vec_iv = vector_index_version(emb.as_ref());
-            let vec_dyn: Arc<dyn VectorStore + Send + Sync> = vec_store;
-            let emb_dyn: Arc<dyn Embedder> = emb;
-            let retr = VectorRetriever::with_settings(
-                vec_dyn,
-                emb_dyn,
-                app.sqlite.clone(),
-                vec_iv,
-                app.config.search.snippet_chars,
-            );
-            retr.search(&query)
-        }
-        SearchMode::Hybrid => {
-            let lex = Arc::new(LexicalRetriever::with_settings(
-                app.sqlite.clone(),
-                lexical_index_version(&app.config),
-                app.config.search.snippet_chars,
-            )) as Arc<dyn Retriever>;
-            let (emb, vec_store) = require_embeddings(&app)?;
-            let vec_iv = vector_index_version(emb.as_ref());
-            let vec_dyn: Arc<dyn VectorStore + Send + Sync> = vec_store;
-            let emb_dyn: Arc<dyn Embedder> = emb;
-            let vec_retr = Arc::new(VectorRetriever::with_settings(
-                vec_dyn,
-                emb_dyn,
-                app.sqlite.clone(),
-                vec_iv,
-                app.config.search.snippet_chars,
-            )) as Arc<dyn Retriever>;
-            let hybrid = HybridRetriever::new(&app.config, lex, vec_retr);
-            hybrid.search(&query)
-        }
-    }
-}
-
-fn require_embeddings(
-    app: &App,
-) -> anyhow::Result<(
-    Arc<dyn Embedder + Send + Sync>,
-    Arc<kb_store_vector::LanceVectorStore>,
-)> {
-    let emb = app.embedder()?.ok_or_else(|| {
-        anyhow!(
-            "embeddings disabled (config.models.embedding.provider == \"none\" \
-             or dimensions == 0); vector / hybrid search require embeddings — \
-             switch to --mode lexical or enable an embedding provider in config.toml"
-        )
-    })?;
-    let vec_store = app.vector()?.ok_or_else(|| {
-        anyhow!(
-            "vector store unavailable while embedder is configured — this should \
-             not happen; check `kb doctor` and the data_dir permissions"
-        )
-    })?;
-    Ok((emb, vec_store))
-}
-
-/// Compose a stable `IndexVersion` for the lexical retriever from
-/// the active config. This token surfaces in `SearchHit.index_version`
-/// and on snapshot tests; including the chunker version pins it to
-/// the chunking policy in effect.
-fn lexical_index_version(config: &kb_config::Config) -> IndexVersion {
-    IndexVersion(format!("lex:{}", config.chunking.chunker_version))
-}
-
-/// Compose a stable `IndexVersion` for the vector retriever. Tracks
-/// `(embedding_model, embedding_version, dimensions)` so a model swap
-/// flags drift via the existing index_version mismatch warning in
-/// `HybridRetriever::new`.
-fn vector_index_version(embedder: &dyn Embedder) -> IndexVersion {
-    IndexVersion(format!(
-        "vec:{}@{}:{}",
-        embedder.model_id().0,
-        embedder.model_version().0,
-        embedder.dimensions(),
-    ))
+    App::open_with_config(config)?.search(query)
 }
 
 // ── ask ──────────────────────────────────────────────────────────────────
@@ -826,64 +736,15 @@ pub fn ask(query: &str, opts: AskOpts) -> anyhow::Result<Answer> {
 }
 
 /// Test-only seam — kb-cli must call the public free function
-/// ([`ask`]), not this. Mirrors the `*_with_config` pattern documented
-/// at the top of this module.
+/// ([`ask`]), not this. Builds a one-shot `App` and delegates to
+/// [`App::ask`].
 #[doc(hidden)]
 pub fn ask_with_config(
     config: kb_config::Config,
     query: &str,
     opts: AskOpts,
 ) -> anyhow::Result<Answer> {
-    let app = App::open(config)?;
-
-    let retriever: Arc<dyn Retriever> = match opts.mode {
-        SearchMode::Lexical => Arc::new(LexicalRetriever::with_settings(
-            app.sqlite.clone(),
-            lexical_index_version(&app.config),
-            app.config.search.snippet_chars,
-        )),
-        SearchMode::Vector => {
-            let (emb, vec_store) = require_embeddings(&app)?;
-            let vec_iv = vector_index_version(emb.as_ref());
-            let vec_dyn: Arc<dyn VectorStore + Send + Sync> = vec_store;
-            let emb_dyn: Arc<dyn Embedder> = emb;
-            Arc::new(VectorRetriever::with_settings(
-                vec_dyn,
-                emb_dyn,
-                app.sqlite.clone(),
-                vec_iv,
-                app.config.search.snippet_chars,
-            ))
-        }
-        SearchMode::Hybrid => {
-            let lex = Arc::new(LexicalRetriever::with_settings(
-                app.sqlite.clone(),
-                lexical_index_version(&app.config),
-                app.config.search.snippet_chars,
-            )) as Arc<dyn Retriever>;
-            let (emb, vec_store) = require_embeddings(&app)?;
-            let vec_iv = vector_index_version(emb.as_ref());
-            let vec_dyn: Arc<dyn VectorStore + Send + Sync> = vec_store;
-            let emb_dyn: Arc<dyn Embedder> = emb;
-            let vec_retr = Arc::new(VectorRetriever::with_settings(
-                vec_dyn,
-                emb_dyn,
-                app.sqlite.clone(),
-                vec_iv,
-                app.config.search.snippet_chars,
-            )) as Arc<dyn Retriever>;
-            Arc::new(HybridRetriever::new(&app.config, lex, vec_retr))
-        }
-    };
-
-    let llm: Arc<dyn LanguageModel> = Arc::new(
-        OllamaLanguageModel::new(&app.config)
-            .context("kb-app::ask: build OllamaLanguageModel")?,
-    );
-
-    let pipeline =
-        RagPipeline::new(app.config.clone(), retriever, llm, app.sqlite.clone());
-    pipeline.ask(query, opts)
+    App::open_with_config(config)?.ask(query, opts)
 }
 
 /// Run the doctor checks against the explicit config path the user

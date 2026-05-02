@@ -1,51 +1,10 @@
 //! Path expansion + table-name sanitization.
 //!
-//! Mirrors `kb-store-sqlite::store::expand_data_dir` and
-//! `kb-embed-local::expand_path` so the three crates resolve
-//! `${XDG_DATA_HOME:-…}` / leading `~` / `{data_dir}` identically. A
-//! shared helper would live in `kb-config`, but the task spec forbids
-//! adding new types to `kb-config`, so we keep a private clone.
-
-use std::path::PathBuf;
-
-/// Expand `{data_dir}` → `data_dir`, `${XDG_DATA_HOME:-…}` → env or
-/// default, leading `~` → `$HOME`. Pass an empty `data_dir` when
-/// resolving `data_dir` itself (the `{data_dir}` substitution is a
-/// no-op in that case).
-pub(crate) fn expand_path(raw: &str, data_dir: &str) -> PathBuf {
-    let mut s = raw.to_string();
-
-    if !data_dir.is_empty() {
-        s = s.replace("{data_dir}", data_dir);
-    }
-
-    // ${XDG_DATA_HOME:-~/.local/share}: env override, else default after `:-`.
-    if let Some(start) = s.find("${XDG_DATA_HOME") {
-        if let Some(rel_end) = s[start..].find('}') {
-            let end = start + rel_end + 1;
-            let inner = &s[start + 2..end - 1];
-            let replacement = match std::env::var("XDG_DATA_HOME") {
-                Ok(v) if !v.is_empty() => v,
-                _ => {
-                    if let Some((_, default)) = inner.split_once(":-") {
-                        default.to_string()
-                    } else {
-                        String::new()
-                    }
-                }
-            };
-            s.replace_range(start..end, &replacement);
-        }
-    }
-
-    if let Some(rest) = s.strip_prefix('~') {
-        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-            return home.join(rest.trim_start_matches('/'));
-        }
-    }
-
-    PathBuf::from(s)
-}
+//! `expand_path` lives in `kb-config` so `kb-store-vector`,
+//! `kb-store-sqlite`, `kb-embed-local`, and `kb-eval` all resolve
+//! `${XDG_DATA_HOME:-…}` / leading `~` / `{data_dir}` identically. This
+//! module re-exports nothing; consumers within the crate `use
+//! kb_config::expand_path` directly.
 
 /// Build the per-model Lance table name. Per design §6.3:
 /// `chunk_embeddings_<model>_<dim>.lance`. Model IDs may contain
@@ -103,17 +62,5 @@ mod tests {
             lance_table_name("BAAI/bge-small-en", 384),
             "chunk_embeddings_BAAI_bge-small-en_384"
         );
-    }
-
-    #[test]
-    fn expand_path_substitutes_data_dir() {
-        let p = expand_path("{data_dir}/lancedb", "/tmp/kbtest");
-        assert_eq!(p, PathBuf::from("/tmp/kbtest/lancedb"));
-    }
-
-    #[test]
-    fn expand_path_passthrough_absolute() {
-        let p = expand_path("/abs/dir", "/ignored");
-        assert_eq!(p, PathBuf::from("/abs/dir"));
     }
 }
