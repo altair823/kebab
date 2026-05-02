@@ -744,7 +744,10 @@ fn ingest_one_image_asset(
     //    nothing the image extractor reads today; we pass a default
     //    instance per the trait shape.
     let extract_config = kebab_core::ExtractConfig::default();
-    let workspace_root = std::path::PathBuf::from(&app.config.workspace.root);
+    // `~` / `${XDG_…}` expansion via the same helper the markdown
+    // path uses, so a `~/KnowledgeBase` workspace.root resolves
+    // identically across all media (HOTFIXES 2026-05-02 P9-4 follow-up).
+    let workspace_root = expand_tilde(&app.config.workspace.root);
     let ctx = ExtractContext {
         asset,
         workspace_root: &workspace_root,
@@ -1047,7 +1050,8 @@ fn ingest_one_pdf_asset(
         .with_context(|| format!("read PDF asset bytes from {}", path.display()))?;
 
     let extract_config = kebab_core::ExtractConfig::default();
-    let workspace_root = std::path::PathBuf::from(&app.config.workspace.root);
+    // `~` / `${XDG_…}` expansion (HOTFIXES 2026-05-02 P9-4 follow-up).
+    let workspace_root = expand_tilde(&app.config.workspace.root);
     let ctx = ExtractContext {
         asset,
         workspace_root: &workspace_root,

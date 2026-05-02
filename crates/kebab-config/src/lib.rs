@@ -239,7 +239,11 @@ impl Config {
                 },
                 llm: LlmCfg {
                     provider: "ollama".to_string(),
-                    model: "qwen2.5:14b-instruct".to_string(),
+                    // gemma4 계열 통일 — OCR (P6-2) + caption (P6-3)
+                    // 어댑터가 같은 family 사용. 사용자가 더 큰
+                    // variant (gemma4:26b 등) 원하면 자기 config.toml
+                    // 에서 override.
+                    model: "gemma4:e4b".to_string(),
                     context_tokens: 32768,
                     endpoint: "http://127.0.0.1:11434".to_string(),
                     temperature: 0.0,
@@ -733,7 +737,7 @@ batch_size = 64
 
 [models.llm]
 provider = "ollama"
-model = "qwen2.5:14b-instruct"
+model = "gemma4:e4b"
 context_tokens = 32768
 endpoint = "http://127.0.0.1:11434"
 temperature = 0.0
