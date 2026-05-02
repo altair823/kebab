@@ -1,0 +1,17 @@
+[package]
+name = "kebab-config"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "Config schema + XDG path resolution"
+
+[dependencies]
+# kb-core::CoreError reserved for P1-* config errors
+kebab-core = { path = "../kebab-core" }
+anyhow       = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+toml         = "0.8"
+dirs         = "5"

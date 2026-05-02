@@ -1,7 +1,7 @@
 ---
 phase: P5
 title: "Golden query / regression eval"
-status: planned
+status: completed
 depends_on: [P4]
 source: kb_local_rust_report.md §17 Phase 5, §18
 ---

@@ -1,31 +1,31 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/kb-core",
-    "crates/kb-parse-types",
-    "crates/kb-config",
-    "crates/kb-source-fs",
-    "crates/kb-parse-md",
-    "crates/kb-normalize",
-    "crates/kb-chunk",
-    "crates/kb-store-sqlite",
-    "crates/kb-store-vector",
-    "crates/kb-search",
-    "crates/kb-embed",
-    "crates/kb-embed-local",
-    "crates/kb-llm",
-    "crates/kb-llm-local",
-    "crates/kb-rag",
-    "crates/kb-app",
-    "crates/kb-cli",
-    "crates/kb-eval",
+    "crates/kebab-core",
+    "crates/kebab-parse-types",
+    "crates/kebab-config",
+    "crates/kebab-source-fs",
+    "crates/kebab-parse-md",
+    "crates/kebab-normalize",
+    "crates/kebab-chunk",
+    "crates/kebab-store-sqlite",
+    "crates/kebab-store-vector",
+    "crates/kebab-search",
+    "crates/kebab-embed",
+    "crates/kebab-embed-local",
+    "crates/kebab-llm",
+    "crates/kebab-llm-local",
+    "crates/kebab-rag",
+    "crates/kebab-app",
+    "crates/kebab-cli",
+    "crates/kebab-eval",
 ]
 
 [workspace.package]
 edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
-repository    = "https://github.com/altair823/kb"
+repository    = "https://github.com/altair823/kebab"
 version       = "0.1.0"
 
 [workspace.dependencies]
