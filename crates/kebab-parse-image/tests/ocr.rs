@@ -346,23 +346,20 @@ fn from_parts_clamps_max_pixels_into_legal_range() {
 // ── Integration test against real Ollama (opt-in) ────────────────────────
 
 /// End-to-end OCR against the workspace's real Ollama daemon. Skipped
-/// unless `KEBAB_OCR_INTEGRATION=1` so the regular `cargo test` run
-/// stays hermetic.
+/// by default via `#[ignore]` (matching the `kebab-llm-local`
+/// convention); a developer who explicitly opts in via `--ignored` is
+/// signalling they want the network call. Endpoint / model can still
+/// be overridden via env to point at a non-default Ollama host.
 ///
 /// Run with:
 ///
 /// ```sh
-/// KEBAB_OCR_INTEGRATION=1 \
 /// KEBAB_IMAGE_OCR_ENDPOINT=http://192.168.0.47:11434 \
-/// cargo test -p kebab-parse-image ocr_integration -- --ignored
+/// cargo test -p kebab-parse-image --test ocr ocr_integration -- --ignored
 /// ```
 #[tokio::test]
-#[ignore = "hits a real Ollama daemon; gated behind KEBAB_OCR_INTEGRATION=1"]
+#[ignore = "hits a real Ollama daemon; opt in via `cargo test -- --ignored`"]
 async fn ocr_integration_real_ollama_transcribes_text() {
-    if std::env::var("KEBAB_OCR_INTEGRATION").ok().as_deref() != Some("1") {
-        eprintln!("skipping ocr_integration: KEBAB_OCR_INTEGRATION != 1");
-        return;
-    }
     let endpoint = std::env::var("KEBAB_IMAGE_OCR_ENDPOINT")
         .unwrap_or_else(|_| "http://192.168.0.47:11434".to_string());
     let model =

@@ -138,16 +138,49 @@ impl OllamaVisionOcr {
             Some(s) if !s.is_empty() => s.to_string(),
             _ => config.models.llm.endpoint.clone(),
         };
+        Self::build(endpoint, ocr.model.clone(), ocr.languages.clone(), ocr.max_pixels)
+    }
+
+    /// Build directly from explicit fields. Useful for tests that need
+    /// to point at a wiremock host without going through `Config`.
+    /// Shares the same input validation as [`Self::new`] so the two
+    /// constructors agree on what counts as a legal `OllamaVisionOcr` —
+    /// callers cannot smuggle an empty endpoint or empty model id past
+    /// `from_parts`.
+    pub fn from_parts(
+        endpoint: impl Into<String>,
+        model: impl Into<String>,
+        languages: Vec<String>,
+        max_pixels: u32,
+    ) -> Result<Self> {
+        Self::build(endpoint.into(), model.into(), languages, max_pixels)
+    }
+
+    /// Shared validation + construction. Centralised so `new` and
+    /// `from_parts` cannot drift on what they accept.
+    fn build(
+        endpoint: String,
+        model: String,
+        languages: Vec<String>,
+        requested_max_pixels: u32,
+    ) -> Result<Self> {
         if endpoint.is_empty() {
             anyhow::bail!(
                 "OllamaVisionOcr: endpoint is empty (set image.ocr.endpoint or models.llm.endpoint)"
             );
         }
-        let model = ocr.model.trim().to_string();
+        let model = model.trim().to_string();
         if model.is_empty() {
-            anyhow::bail!("OllamaVisionOcr: image.ocr.model is empty");
+            anyhow::bail!("OllamaVisionOcr: model is empty");
         }
-        let max_pixels = ocr.max_pixels.clamp(MIN_LONG_EDGE, MAX_LONG_EDGE);
+        let max_pixels = requested_max_pixels.clamp(MIN_LONG_EDGE, MAX_LONG_EDGE);
+        if max_pixels != requested_max_pixels {
+            tracing::warn!(
+                target: "kebab-parse-image",
+                "image.ocr.max_pixels = {requested_max_pixels} clamped to {max_pixels} \
+                 (legal range [{MIN_LONG_EDGE}, {MAX_LONG_EDGE}])"
+            );
+        }
         let client = reqwest::blocking::Client::builder()
             .timeout(REQUEST_TIMEOUT)
             .build()
@@ -156,29 +189,8 @@ impl OllamaVisionOcr {
             client,
             endpoint,
             model,
-            languages: ocr.languages.clone(),
-            max_pixels,
-        })
-    }
-
-    /// Build directly from explicit fields. Useful for tests that need
-    /// to point at a wiremock host without going through `Config`.
-    pub fn from_parts(
-        endpoint: impl Into<String>,
-        model: impl Into<String>,
-        languages: Vec<String>,
-        max_pixels: u32,
-    ) -> Result<Self> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(REQUEST_TIMEOUT)
-            .build()
-            .context("building OCR HTTP client")?;
-        Ok(Self {
-            client,
-            endpoint: endpoint.into(),
-            model: model.into(),
             languages,
-            max_pixels: max_pixels.clamp(MIN_LONG_EDGE, MAX_LONG_EDGE),
+            max_pixels,
         })
     }
 
@@ -339,8 +351,18 @@ fn downscale_to_long_edge(bytes: &[u8], max_long_edge: u32) -> Result<(Vec<u8>, 
         (w, h, img)
     } else {
         let scale = max_long_edge as f32 / long as f32;
-        let new_w = ((w as f32) * scale).round().max(1.0) as u32;
-        let new_h = ((h as f32) * scale).round().max(1.0) as u32;
+        let mut new_w = ((w as f32) * scale).round().max(1.0) as u32;
+        let mut new_h = ((h as f32) * scale).round().max(1.0) as u32;
+        // Independent rounding of the two axes can let `f32`'s nearest
+        // round push the long axis one pixel past `max_long_edge` for
+        // irrational scales (e.g. `max=1601, long=4001`). Pin the long
+        // axis to exactly `max_long_edge` so the doc-comment's
+        // "long edge is at most max_long_edge" stays a strict bound.
+        if w >= h {
+            new_w = new_w.min(max_long_edge);
+        } else {
+            new_h = new_h.min(max_long_edge);
+        }
         let resized =
             img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle);
         (new_w, new_h, resized)
