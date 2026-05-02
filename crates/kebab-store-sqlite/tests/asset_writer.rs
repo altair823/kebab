@@ -100,22 +100,23 @@ fn reference_mode_does_not_write_file_but_records_path() {
 }
 
 #[test]
-fn put_asset_with_bytes_orphan_cleanup_on_upsert_failure() {
-    // Goal: prove that if the row UPSERT fails AFTER the bytes have been
-    // staged on disk, no `<aa>/<asset_id>` file is left behind.
+fn put_asset_with_bytes_sweeps_workspace_path_orphan() {
+    // HOTFIXES 2026-05-02 P7-3: the original behaviour erred on
+    // workspace_path UNIQUE conflict (`ON CONFLICT(asset_id)` only) so
+    // a re-ingest of an edited file was unrecoverable. The fix is
+    // `purge_orphan_at_workspace_path`, which sweeps the stale
+    // documents → assets chain before the new INSERT lands.
     //
-    // Lever: the `assets` table has a UNIQUE INDEX on `workspace_path`
-    // (V001), but the UPSERT is `ON CONFLICT(asset_id)`. So if some other
-    // row already owns this `workspace_path`, the INSERT half of the
-    // UPSERT trips a UNIQUE constraint that the ON CONFLICT clause does
-    // NOT handle — UPSERT errors. The new asset's bytes were already
-    // staged; we assert they are NOT visible at the final destination.
+    // This test exercises the no-documents flavour (raw asset row only)
+    // — the put_asset_with_bytes path. The documents-cascade flavour
+    // is exercised end-to-end in `kebab-app::tests::pdf_pipeline::
+    // re_ingest_edited_pdf_produces_new_doc_id`.
     let env = common::TestEnv::with_threshold(100);
     let store = SqliteStore::open(&env.config()).unwrap();
     store.run_migrations().unwrap();
 
-    // Pre-populate a row that owns `notes/foo.md` (the workspace_path our
-    // fixture asset will also claim) under a *different* asset_id.
+    // Pre-populate a row that owns `notes/foo.md` under a *different*
+    // asset_id, simulating a prior ingest of an earlier byte version.
     env.with_conn(|c| {
         c.execute(
             "INSERT INTO assets (
@@ -140,36 +141,36 @@ fn put_asset_with_bytes_orphan_cleanup_on_upsert_failure() {
     let cs = b3_full_hex(bytes);
     let asset = fixed_asset(bytes, bytes.len() as u64, &cs);
 
-    let err = store
+    store
         .put_asset_with_bytes(&asset, bytes)
-        .expect_err("UPSERT must fail on workspace_path UNIQUE violation");
-    let msg = format!("{err:#}");
-    assert!(
-        msg.to_lowercase().contains("unique") || msg.to_lowercase().contains("constraint"),
-        "expected UNIQUE constraint failure, got: {msg}"
-    );
+        .expect("orphan sweep + INSERT must succeed");
 
-    // Final destination must NOT exist (no orphan).
+    // Stale row gone, new row owns the workspace_path.
+    let stale_count: i64 = env.with_conn(|c| {
+        c.query_row(
+            "SELECT COUNT(*) FROM assets WHERE asset_id = ?",
+            rusqlite::params!["b".repeat(32)],
+            |row| row.get(0),
+        )
+    });
+    assert_eq!(stale_count, 0, "stale asset_id must be purged");
+    let new_count: i64 = env.with_conn(|c| {
+        c.query_row(
+            "SELECT COUNT(*) FROM assets WHERE asset_id = ?",
+            rusqlite::params![asset.asset_id.0],
+            |row| row.get(0),
+        )
+    });
+    assert_eq!(new_count, 1, "new asset_id must own the workspace_path slot");
+
+    // New asset's bytes published at the final destination.
     let aa = &asset.asset_id.0[..2];
     let dest = env.data_dir().join("assets").join(aa).join(&asset.asset_id.0);
     assert!(
-        !dest.exists(),
-        "asset bytes were left orphan at {} after UPSERT failure",
+        dest.exists(),
+        "new asset bytes must be visible at {}",
         dest.display()
     );
-    // No `*.tmp.*` either — temp file must be cleaned up too.
-    let shard_dir = env.data_dir().join("assets").join(aa);
-    if let Ok(entries) = std::fs::read_dir(&shard_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let s = name.to_string_lossy();
-            assert!(
-                !s.contains(".tmp."),
-                "temp file leaked at {}",
-                entry.path().display()
-            );
-        }
-    }
 }
 
 #[test]

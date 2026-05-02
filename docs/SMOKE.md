@@ -162,15 +162,28 @@ prompt_template_version = "caption-v1"
 include = ["**/*.md", "**/*.pdf"]
 ```
 
-PDF 한 권당 페이지 수만큼 (또는 페이지 텍스트가 길면 그 이상의) chunk 가 한 transaction 안에서 commit. 검색 결과의 `chunk.source_spans[0]` 가 `Page { page, char_start, char_end }` 형태라 인용 시 페이지 번호가 그대로 사용 가능.
+PDF 한 권당 페이지 수만큼 (또는 페이지 텍스트가 길면 그 이상의) chunk 가 한 transaction 안에서 commit. 검색 결과의 `chunk.source_spans[0]` 가 `Page { page, char_start, char_end }` 형태라 인용 시 페이지 번호가 그대로 사용 가능. `kebab ask --json` 의 `citations[].citation` 도 `kind: "page"` + `page: <N>` + `path: <pdf_path>` 로 노출.
+
+테스트 fixture 가 필요할 때는 두 example 바이너리를 사용 — `reportlab` / `qpdf` 같은 시스템 dep 없이 in-tree 로 PDF / PNG 생성:
+
+```bash
+cargo run --release --example gen_smoke_pdf -p kebab-parse-pdf -- \
+  /tmp/kebab-smoke/workspace/whitepaper.pdf "page one body" "page two body"
+
+cargo run --release --example gen_smoke_png -p kebab-parse-image -- \
+  /tmp/kebab-smoke/workspace/diagram.png
+```
 
 ```bash
 kebab --config /tmp/kebab-smoke/config.toml ingest
 kebab --config /tmp/kebab-smoke/config.toml search --mode hybrid "<본문 단어>"
 kebab --config /tmp/kebab-smoke/config.toml inspect doc "<pdf_doc_id>"
+kebab --config /tmp/kebab-smoke/config.toml ask "<PDF 본문에 관한 질문>" --json
 ```
 
 암호화 PDF (예: DRM 책) → `errors+=1`, `error` 필드에 `qpdf --decrypt` 안내. 빈/스캔 페이지 (텍스트 추출 실패) → 0 chunk + `Provenance::Warning` ("scanned candidate"). v1 에서는 검색 불가, P+ scanned-PDF OCR fallback 까지 대기.
+
+수정된 PDF 를 같은 path 에 다시 배치하면 `purge_orphan_at_workspace_path` 가 옛 doc / chunks / embeddings 를 sweep 하고 새 byte 가 새 `doc_id` 로 색인됨 — `IngestReport` 에 그 자산만 `new+=1` 로 분류 (다른 자산은 `updated`). HOTFIXES `2026-05-02 P7-3` 참조.
 
 각 명령은 0 종료 코드면 정상. `kebab ask` 는 거절 시 종료 코드 1 (`RefusalSignal`) — 의도된 동작.
 
@@ -204,6 +217,6 @@ rm -rf /tmp/kebab-smoke              # 통째로 정리
 - (P6-4) `image.ocr.enabled = true` + `image.caption.enabled = true` 인 워크스페이스에 PNG 가 N장 있으면 ingest 시간 ≈ markdown_time + N × (OCR + Caption latency). `gemma4:e4b` + 192.168.0.47 로 자산당 ~5-10초. 다수의 책 페이지를 이미지로 넣지 말 것 — 책은 P7 PDF 라인 사용 권장.
 - (P7-3) `config.chunking.chunker_version` 는 markdown 만 represent — PDF 자산은 `pdf-page-v1` 하드코딩. `config.toml` 의 `chunker_version = "md-heading-v1"` 을 봐도 PDF 는 영향 안 받음. HOTFIXES `2026-05-02 P7-3` entry 참조 (P+ chunker registry task 까지 유지).
 - (P7-3) 한 PDF 가 N 페이지면 `kebab ingest` 가 N 개 (또는 그 이상의, 페이지 길면 multi-chunk) 의 chunk 를 한 transaction 안에서 commit. 500 페이지 책 → 500+ chunk 한 번에 → embedding throughput 가 bottleneck. 임베딩 활성 워크스페이스에서 큰 PDF 를 처음 ingest 하면 분-단위 시간 + WAL 크기 증가 가능 — P+ 스케일 hardening task 까지 정상 동작이지만 비용은 측정 가능.
-- (P7-3) 동일 path 에 byte 가 다른 PDF 를 두 번째 ingest 하면 storage UNIQUE 제약 (`assets.workspace_path`) 에 트립 → `errors+=1`. md / image / pdf 모두 동일하지만 P7-3 의 통합 테스트가 처음 노출. 우회: 파일 path 변경 후 ingest. 영구 fix 는 P+ storage 작업.
+- (P7-3) 동일 path 에 byte 가 다른 PDF 를 두 번째 ingest 하면 `purge_orphan_at_workspace_path` 가 옛 doc / chunks / embeddings 를 sweep 하고 새 byte 가 새 `doc_id` 로 색인됨. `IngestReport` 에 그 자산만 `new+=1` (다른 자산은 `updated`). LanceDB 는 별도 store 라 옛 vector 가 잔존하지만 검색에는 영향 없음 (SQLite join 으로 surface 안 됨) — 디스크 cleanup 은 P+.
 
 자세한 history 와 발견된 버그는 [tasks/HOTFIXES.md](../tasks/HOTFIXES.md) 참조.

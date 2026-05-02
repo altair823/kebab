@@ -22,17 +22,25 @@ git history.
 
 **Fix 1**: `ingest_one_pdf_asset` (in `kebab-app::lib.rs`) instantiates `PdfPageV1Chunker` directly. The `Chunk.chunker_version` field on emitted PDF chunks records `pdf-page-v1` truthfully. A future P+ task (chunker registry) either splits `Config::chunking.chunker_version` per medium or replaces the dispatch with a runtime registry. No HOTFIX entry needed once that happens — this entry is the cross-reference.
 
-**Symptom 2 (storage-layer bug, exposed but not fixed by P7-3)**: P7-3's edited-bytes re-ingest test (`re_ingest_edited_pdf_produces_new_doc_id`) tripped on `sqlite error: UNIQUE constraint failed: assets.workspace_path: Error code 2067`. The assets table has a UNIQUE constraint on `workspace_path`, but `upsert_asset_row` (in `kebab-store-sqlite::store.rs:305`) only handles `ON CONFLICT(asset_id)`. When a file's bytes change, the new BLAKE3 produces a new `asset_id` while the `workspace_path` stays the same — INSERT picks the new asset_id branch, then trips the secondary UNIQUE on workspace_path.
+**Symptom 2 (storage-layer bug, fixed in same PR)**: P7-3's edited-bytes re-ingest test (`re_ingest_edited_pdf_produces_new_doc_id`) tripped on `sqlite error: UNIQUE constraint failed: assets.workspace_path: Error code 2067`. The assets table has a UNIQUE constraint on `workspace_path`, but `upsert_asset_row` (in `kebab-store-sqlite::store.rs`) only handles `ON CONFLICT(asset_id)`. When a file's bytes change, the new BLAKE3 produces a new `asset_id` while the `workspace_path` stays the same — INSERT picks the new asset_id branch, then trips the secondary UNIQUE on `workspace_path`.
 
-**Why it didn't surface earlier**: No existing test (markdown / image) exercises edited-bytes re-ingest. The image path's `re_ingest_image_produces_updated_with_same_doc_id` uses identical bytes (same asset_id → ON CONFLICT(asset_id) catches it). Real-world editing of a tracked file would hit the same bug across all media types.
+**Why it didn't surface earlier**: No existing test (markdown / image) exercised edited-bytes re-ingest. The image path's `re_ingest_image_produces_updated_with_same_doc_id` uses identical bytes (same asset_id → `ON CONFLICT(asset_id)` catches it). Real-world editing of a tracked file would hit the same bug across all media types.
 
-**Fix 2 (deferred)**: Storage-layer fix is out of scope for P7-3. The P7-3 implementation PR `#[ignore]`s the `re_ingest_edited_pdf_produces_new_doc_id` test with a doc-comment pointing here. A P+ storage task either:
-- Adds `ON CONFLICT(workspace_path) DO UPDATE` alongside the existing `ON CONFLICT(asset_id)` clause (DELETE-the-old + INSERT-the-new in a single statement, since UPSERT can only target one conflict path).
-- Or drops the UNIQUE constraint on `assets.workspace_path` and relies on application-level uniqueness (workspace_path → asset_id mapping in a separate index table).
+**Fix 2** (P7-3 implementation PR): new `purge_orphan_at_workspace_path` helper in `kebab-store-sqlite::store.rs`. Runs immediately before each `upsert_asset_row` call (both `put_asset_with_bytes` paths AND `DocumentStore::put_asset`). It:
+1. SELECTs the stale row at `workspace_path` whose `asset_id` differs from the incoming one (none → no-op return).
+2. DELETEs from `documents WHERE asset_id = stale` — `documents.asset_id ON DELETE RESTRICT` requires the documents go first; CASCADE on documents → `blocks` / `chunks` / `embedding_records` sweeps the dependent rows in the same statement.
+3. DELETEs the stale `assets` row, freeing the `workspace_path` slot.
+4. If the stale storage was `copied`, best-effort removes the byte file at `storage_path` so `data_dir/assets/` does not accumulate orphans across edits.
+
+**Caveat (still deferred)**: `embedding_records.chunk_id` CASCADE clears the SQLite side, but the LanceDB rows keyed on `chunk_id` live in a separate store and are not touched. Stale vectors do not affect retrieval (search joins through SQLite, so an orphan vector is never surfaced) but they consume disk in `data_dir/lancedb/`. A future task should reconcile by `chunk_id` set diff.
+
+The previously-`#[ignore]`d `re_ingest_edited_pdf_produces_new_doc_id` integration test runs by default after this fix, plus a dedicated unit test `put_asset_with_bytes_sweeps_workspace_path_orphan` in `kebab-store-sqlite::tests::asset_writer` that exercises the no-documents flavour. Verified end-to-end via the SMOKE runbook: `kebab ingest` → edit a tracked PDF → `kebab ingest` reports `new=1` for that asset (rest `updated`) and the prior doc/chunks are gone from `inspect` / `list docs`.
 
 **Amends**:
-- tasks/p7/p7-3-pdf-ingest-wiring.md (chunker_version deviation, edited-bytes test ignored).
-- (Implicitly) every previous task spec that assumed `assets.workspace_path` UNIQUE was safe — the constraint is in fact too strict for the byte-edit re-ingest case.
+- tasks/p7/p7-3-pdf-ingest-wiring.md (chunker_version deviation; edited-bytes test runs).
+- crates/kebab-store-sqlite (new `purge_orphan_at_workspace_path` helper called from both `put_asset_with_bytes` branches and `DocumentStore::put_asset`).
+- crates/kebab-store-sqlite/tests/asset_writer.rs (`put_asset_with_bytes_sweeps_workspace_path_orphan` replaces the prior orphan-cleanup-on-failure test, since the failure path no longer exists).
+- docs/SMOKE.md (note that edited-PDF re-ingest produces `new=1` rather than an error).
 
 ## 2026-05-02 — P7-2 pdf-page-v1: chunk_id collision + BYTES_PER_TOKEN
 

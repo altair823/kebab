@@ -230,18 +230,11 @@ fn re_ingest_identical_pdf_produces_updated_with_same_doc_id() {
 }
 
 /// Edit a PDF (replace bytes) → different blake3 → different asset_id
-/// → different doc_id → `new+=1` for the new doc_id; first-pass row
-/// remains untouched.
-///
-/// **Currently `#[ignore]`** — exposes a storage-layer bug discovered
-/// by this PR: `assets.workspace_path` carries a UNIQUE constraint and
-/// `upsert_asset_row` only handles `ON CONFLICT(asset_id)`, so the
-/// second insert (new `asset_id` for the edited bytes, same
-/// `workspace_path`) trips constraint 2067. Affects markdown / image /
-/// PDF paths equally; no test exercised it before P7-3. Logged in
-/// `tasks/HOTFIXES.md` for a P+ storage-layer fix.
+/// → different doc_id → `new+=1` for the new doc_id; stale doc /
+/// asset / chunk / embedding rows for the prior bytes are swept by
+/// `purge_orphan_at_workspace_path` (HOTFIXES 2026-05-02 P7-3 storage
+/// fix shipped alongside this test).
 #[test]
-#[ignore = "exposes storage-layer assets.workspace_path UNIQUE bug — see HOTFIXES 2026-05-02 P7-3"]
 fn re_ingest_edited_pdf_produces_new_doc_id() {
     let env = TestEnv::lexical_only();
     let path = env.workspace_root.join("evolving.pdf");
