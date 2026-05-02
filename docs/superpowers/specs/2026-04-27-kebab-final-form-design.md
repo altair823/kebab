@@ -249,6 +249,13 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
 
 거절 시 `grounded=false`, `answer` 는 사람 친화 거절 문장, `refusal_reason ∈ {"score_gate","llm_self_judge","no_index","no_chunks"}`. `citations` 는 빈 배열 또는 가까운 후보 (marker null).
 
+**Multi-turn extension** (도그푸딩 후 추가 — 2026-05-02, p9-fb-15/16). 두 optional 필드:
+
+- `conversation_id: String?` — 같은 conversation 의 turn 들이 공유. CLI single-shot (history 없음) / TUI 의 첫 turn 은 null. blake3 해시 또는 사용자 명시 (`kebab ask --session <id>`, p9-fb-18).
+- `turn_index: u32?` — 같은 conversation 안 0-based 순서. 첫 turn = 0. null 이면 single-shot.
+
+호환성: 두 필드 모두 optional 이라 기존 `answer.v1` 소비자 (외부 wrapper) 영향 없음. multi-turn 모르는 wrapper 는 그냥 무시.
+
 ### 2.4 IngestReport
 
 ```json
@@ -698,6 +705,23 @@ pub struct Answer {
     pub retrieval: AnswerRetrievalSummary,
     pub usage: TokenUsage,
     pub created_at: OffsetDateTime,
+    /// p9-fb-15: same conversation 의 turn 들이 공유. CLI single-shot
+    /// (history 없음) / TUI 첫 turn 은 None.
+    pub conversation_id: Option<String>,
+    /// p9-fb-15: 같은 conversation 안 0-based 순서. 첫 turn = 0.
+    /// None 이면 single-shot.
+    pub turn_index: Option<u32>,
+}
+
+/// p9-fb-15: history 가 prompt 에 들어갈 때의 한 turn. RAG facade
+/// 가 `Vec<Turn>` 받아 system + history + retrieval + new question
+/// 으로 prompt 빌드. token budget 안에 fit 안 되면 oldest turn 부터
+/// drop (newest 우선 보존).
+pub struct Turn {
+    pub question: String,
+    pub answer: String,
+    pub citations: Vec<AnswerCitation>,
+    pub created_at: OffsetDateTime,
 }
 
 pub struct AnswerCitation { pub marker: Option<String>, pub citation: Citation }
@@ -727,6 +751,25 @@ pub struct TokenUsage {
 
 pub struct TraceId(pub String);
 ```
+
+**Multi-turn behaviour** (도그푸딩 후 추가 — 2026-05-02, p9-fb-15):
+
+`kebab-rag` facade 가 두 entry 제공:
+- `ask(cfg, question, ...)` — single-shot. 기존 동작. `Answer.conversation_id = None`, `turn_index = None`.
+- `ask_with_history(cfg, history: &[Turn], question, ...)` — multi-turn. caller 가 conversation_id 명시 (TUI/CLI session). `Answer` 의 두 필드 채움.
+
+prompt 빌드 priority (token budget = `cfg.rag.max_context_tokens`):
+
+1. **system + new_question** — 항상 포함. budget 초과 시 facade error (절대 잘리면 안 됨).
+2. **retrieved chunks** — k = `cfg.search.default_k`. budget 초과 시 k 줄여서 fit.
+3. **history** — newest turn 부터 포함. budget 남는 만큼 oldest drop. 최소 0 turn 까지 가능 (history 없는 ask 와 동일).
+
+이유: history 의 가치는 보통 직전 1~2 turn 이 가장 큼. 오래된 turn 이 retrieved chunk 에 비해 marginal 가치라 trade-off 시 history 양보.
+
+**Retrieval query expansion** (선택): facade 가 새 question 단독 검색 X — 직전 answer 의 첫 N 자 (default 200) concat 해 query 확장 (간단). LLM 기반 standalone question rewriting 은 P+.
+
+**Aborted vs Completed semantics** 는 ingest 와 다름 — ask 는 single-shot 이라 cancel 시 partial token 그대로 stream 종료 + `Answer.grounded=false, refusal_reason=Some(LlmStreamAborted)` (refusal_reason variant 추가 필요 — p9-fb-15 가 함께 처리).
+
 
 ---
 
