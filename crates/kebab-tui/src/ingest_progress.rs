@@ -10,12 +10,13 @@
 //! seconds (`TERMINAL_LINE_HOLD_SECS`) and then `tick_clear` returns
 //! true so the run loop can drop the slot.
 //!
-//! Cancel surface (Esc / Ctrl-C) lands in `p9-fb-04`; that task
-//! adds a `(cancel_tx, cancel_rx)` pair to `IngestState` and
-//! threads the receiver through `kebab_app::ingest_with_config_cancellable`.
-//! This task does NOT pre-allocate the channel — see the comment on
-//! `IngestState` for the rationale.
+//! Cancel (p9-fb-04) is wired by sharing an `Arc<AtomicBool>`
+//! between the worker thread (polled at each asset-loop boundary
+//! inside `kebab_app::ingest_with_config_cancellable`) and the TUI
+//! key handler (`Esc` / `Ctrl-C` flips it via `cancel_running_ingest`).
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::thread;
 
@@ -39,9 +40,17 @@ pub fn start_ingest(app: &mut App) -> anyhow::Result<()> {
         exclude: cfg.workspace.exclude.clone(),
     };
     let (tx, rx) = mpsc::channel::<IngestEvent>();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel_for_worker = cancel.clone();
     let cfg_for_thread = cfg;
     let thread = thread::spawn(move || {
-        kebab_app::ingest_with_config_progress(cfg_for_thread, scope, true, Some(tx))
+        kebab_app::ingest_with_config_cancellable(
+            cfg_for_thread,
+            scope,
+            true,
+            Some(tx),
+            Some(cancel_for_worker),
+        )
     });
     app.ingest_state = Some(IngestState {
         rx,
@@ -52,8 +61,24 @@ pub fn start_ingest(app: &mut App) -> anyhow::Result<()> {
         terminal_at: None,
         aborted: false,
         thread: Some(thread),
+        cancel,
     });
     Ok(())
+}
+
+/// Flip the cancel token of an in-flight ingest. Returns `true` if a
+/// run was actually in flight (and thus the signal will reach the
+/// worker), `false` if there was nothing to cancel — the caller
+/// (key handler) can decide whether to swallow the keypress or let
+/// the original pane action run.
+pub fn cancel_running_ingest(app: &App) -> bool {
+    match app.ingest_state.as_ref() {
+        Some(state) if state.terminal_at.is_none() => {
+            state.cancel.store(true, Ordering::Relaxed);
+            true
+        }
+        _ => false,
+    }
 }
 
 /// Drain whatever progress events have arrived since the last tick.
@@ -201,6 +226,7 @@ mod tests {
             terminal_at: None,
             aborted: false,
             thread: None,
+            cancel: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -354,5 +380,34 @@ mod tests {
     fn ready_to_clear_true_in_absence_of_terminal_is_false() {
         let s = fresh_state();
         assert!(!ready_to_clear(&s));
+    }
+
+    #[test]
+    fn cancel_running_ingest_returns_false_when_no_state() {
+        let cfg = kebab_config::Config::defaults();
+        let app = App::new(cfg).unwrap();
+        assert!(!cancel_running_ingest(&app));
+    }
+
+    #[test]
+    fn cancel_running_ingest_flips_token_when_in_flight() {
+        let cfg = kebab_config::Config::defaults();
+        let mut app = App::new(cfg).unwrap();
+        app.ingest_state = Some(fresh_state());
+        let token = app.ingest_state.as_ref().unwrap().cancel.clone();
+        assert!(!token.load(Ordering::Relaxed));
+        assert!(cancel_running_ingest(&app));
+        assert!(token.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn cancel_running_ingest_returns_false_when_terminal_already_seen() {
+        let cfg = kebab_config::Config::defaults();
+        let mut app = App::new(cfg).unwrap();
+        let mut s = fresh_state();
+        s.terminal_at = Some(std::time::Instant::now());
+        app.ingest_state = Some(s);
+        // No worker to cancel — already terminated.
+        assert!(!cancel_running_ingest(&app));
     }
 }

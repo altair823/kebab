@@ -239,6 +239,18 @@ pub fn handle_key_library(state: &mut App, key: KeyEvent) -> KeyOutcome {
         return handle_filter_edit_key(state, key);
     }
 
+    // p9-fb-04: Esc / Ctrl-C while ingest is in flight flips the
+    // worker's cancel token (instead of triggering the quit path).
+    // Done BEFORE the `inner` borrow so we can re-borrow `state`.
+    let is_cancel_chord = match (key.code, key.modifiers) {
+        (KeyCode::Esc, _) => true,
+        (KeyCode::Char('c'), m) => m.contains(KeyModifiers::CONTROL),
+        _ => false,
+    };
+    if is_cancel_chord && crate::ingest_progress::cancel_running_ingest(state) {
+        return KeyOutcome::Continue;
+    }
+
     let inner = &mut state.library.inner;
     let pending_g = std::mem::take(&mut inner.pending_g);
 
