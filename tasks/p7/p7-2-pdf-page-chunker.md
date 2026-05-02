@@ -1,12 +1,12 @@
 ---
 phase: P7
-component: kb-chunk (pdf-page-v1)
+component: kebab-chunk (pdf-page-v1)
 task_id: p7-2
 title: "PDF page-aware chunker (pdf-page-v1)"
 status: planned
 depends_on: [p7-1]
 unblocks: []
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.5 Chunk, §4.2 chunk_id recipe, §0 Q3 citation, §9 versioning]
 ---
 
@@ -22,8 +22,8 @@ Per-medium chunkers must stay tiny and obvious. Page-aware logic is small but it
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
+- `kebab-core`
+- `kebab-config`
 - `serde`, `serde_json`
 - `blake3` (policy_hash)
 - `serde-json-canonicalizer`
@@ -31,30 +31,30 @@ Per-medium chunkers must stay tiny and obvious. Page-aware logic is small but it
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-parse-pdf` (consumes `CanonicalDocument` via `kb-core` only), `kb-normalize`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-parse-pdf` (consumes `CanonicalDocument` via `kebab-core` only), `kebab-normalize`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `CanonicalDocument` (produced by `pdf-text-v1`) | `kb_core::CanonicalDocument` | p7-1 |
-| `ChunkPolicy` | `kb_core::ChunkPolicy` | `kb-app` |
+| `CanonicalDocument` (produced by `pdf-text-v1`) | `kebab_core::CanonicalDocument` | p7-1 |
+| `ChunkPolicy` | `kebab_core::ChunkPolicy` | `kebab-app` |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `Vec<Chunk>` | `kb_core::Chunk` | `kb-store-sqlite`, `kb-embed*` |
+| `Vec<Chunk>` | `kebab_core::Chunk` | `kebab-store-sqlite`, `kebab-embed*` |
 
 ## Public surface (signatures only — no new types)
 
 ```rust
 pub struct PdfPageV1Chunker;
 
-impl kb_core::Chunker for PdfPageV1Chunker {
-    fn chunker_version(&self) -> kb_core::ChunkerVersion { kb_core::ChunkerVersion("pdf-page-v1".into()) }
-    fn policy_hash(&self, policy: &kb_core::ChunkPolicy) -> String;
-    fn chunk(&self, doc: &kb_core::CanonicalDocument, policy: &kb_core::ChunkPolicy) -> anyhow::Result<Vec<kb_core::Chunk>>;
+impl kebab_core::Chunker for PdfPageV1Chunker {
+    fn chunker_version(&self) -> kebab_core::ChunkerVersion { kebab_core::ChunkerVersion("pdf-page-v1".into()) }
+    fn policy_hash(&self, policy: &kebab_core::ChunkPolicy) -> String;
+    fn chunk(&self, doc: &kebab_core::CanonicalDocument, policy: &kebab_core::ChunkPolicy) -> anyhow::Result<Vec<kebab_core::Chunk>>;
 }
 ```
 
@@ -62,7 +62,7 @@ impl kb_core::Chunker for PdfPageV1Chunker {
 
 ## Behavior contract
 
-- Only operates on documents whose blocks all carry `SourceSpan::Page` (i.e., from `kb-parse-pdf`). Other documents → return `anyhow::Error("PdfPageV1Chunker only handles PDF docs")`.
+- Only operates on documents whose blocks all carry `SourceSpan::Page` (i.e., from `kebab-parse-pdf`). Other documents → return `anyhow::Error("PdfPageV1Chunker only handles PDF docs")`.
 - For each page block (1 block per page after p7-1):
   - If `text.len()` (byte estimate) ≤ `policy.target_tokens * 4` (proxy for tokens) → emit one chunk for the entire page.
   - Else → split by paragraphs (split text on `\n\n` or sentence-ending punctuation followed by whitespace) and group adjacent paragraphs until the running byte total approaches `policy.target_tokens * 4`. Apply `policy.overlap_tokens * 4` bytes of trailing overlap into the next chunk's prefix.
@@ -91,12 +91,12 @@ impl kb_core::Chunker for PdfPageV1Chunker {
 | determinism | same input → same chunk_ids twice | inline |
 | snapshot | `Vec<Chunk>` JSON for fixture stable | `fixtures/pdf/three-page-en.pdf` (chunked) |
 
-All tests under `cargo test -p kb-chunk pdf`.
+All tests under `cargo test -p kebab-chunk pdf`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-chunk` passes (existing `md-heading-v1` continues to pass)
-- [ ] `cargo test -p kb-chunk pdf` passes
+- [ ] `cargo check -p kebab-chunk` passes (existing `md-heading-v1` continues to pass)
+- [ ] `cargo test -p kebab-chunk pdf` passes
 - [ ] Snapshot stable across two runs
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §3.5, §0 Q3, §9

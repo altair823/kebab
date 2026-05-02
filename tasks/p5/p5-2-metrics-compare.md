@@ -1,12 +1,12 @@
 ---
 phase: P5
-component: kb-eval (metrics + compare)
+component: kebab-eval (metrics + compare)
 task_id: p5-2
 title: "Metrics computation + compare report"
 status: completed
 depends_on: [p5-1]
 unblocks: []
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§5.7 eval_runs.aggregate_json, phase epic tasks/phase-5-evaluation.md]
 ---
 
@@ -14,7 +14,7 @@ contract_sections: [§5.7 eval_runs.aggregate_json, phase epic tasks/phase-5-eva
 
 ## Goal
 
-Compute hit@k, MRR, recall@k_doc, citation_coverage, groundedness, empty_result_rate, refusal_correctness from stored `eval_query_results`. Write `aggregate_json` back into `eval_runs`. Provide `kb eval compare a b` that diffs two runs.
+Compute hit@k, MRR, recall@k_doc, citation_coverage, groundedness, empty_result_rate, refusal_correctness from stored `eval_query_results`. Write `aggregate_json` back into `eval_runs`. Provide `kebab eval compare a b` that diffs two runs.
 
 ## Why now / why this size
 
@@ -22,16 +22,16 @@ Metric formulas + comparison logic are pure computation. Splitting them from p5-
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-store-sqlite` (read eval rows, write `aggregate_json`)
+- `kebab-core`
+- `kebab-config`
+- `kebab-store-sqlite` (read eval rows, write `aggregate_json`)
 - `serde`, `serde_json`
 - `tracing`
 - `thiserror`
 
 ## Forbidden dependencies
 
-- `kb-app`, `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-store-vector`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+- `kebab-app`, `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize`, `kebab-chunk`, `kebab-store-vector`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
@@ -46,7 +46,7 @@ Metric formulas + comparison logic are pure computation. Splitting them from p5-
 | output | type | downstream |
 |--------|------|------------|
 | `eval_runs.aggregate_json` updated | SQLite | history, CI checks |
-| `CompareReport` | `kb_eval::CompareReport` | `kb-cli` printer |
+| `CompareReport` | `kebab_eval::CompareReport` | `kebab-cli` printer |
 | optional `runs_dir/<run_id>/report.md` | filesystem | human-readable summary |
 
 ## Public surface (signatures only — no new types)
@@ -127,15 +127,15 @@ pub fn render_report_md(report: &CompareReport) -> String;
 | determinism | running `compute_aggregate` twice produces identical `AggregateMetrics` | inline |
 | snapshot | `CompareReport` JSON for a fixed pair of runs stable | `fixtures/eval/compare-1.json` |
 
-All tests under `cargo test -p kb-eval metrics`.
+All tests under `cargo test -p kebab-eval metrics`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-eval` passes
-- [ ] `cargo test -p kb-eval metrics` passes
+- [ ] `cargo check -p kebab-eval` passes
+- [ ] `cargo test -p kebab-eval metrics` passes
 - [ ] No imports outside Allowed dependencies
 - [ ] `eval_runs.aggregate_json` always populated after `store_aggregate`
-- [ ] `kb eval compare` CLI surface integrated via `kb-app` (call `compare_runs` + `render_report_md`)
+- [ ] `kebab eval compare` CLI surface integrated via `kebab-app` (call `compare_runs` + `render_report_md`)
 - [ ] PR links phase epic tasks/phase-5-evaluation.md
 
 ## Out of scope
@@ -172,11 +172,11 @@ same one this spec defines, the names / wiring just differ.
   / `compare_runs(a, b)` so integration tests can drive the pipeline
   against a TempDir-backed `Config`. The no-arg forms wrap them with
   `Config::load(None)`.
-- **CLI surface lives on `kb-cli` directly, not via `kb-app`.** DoD
-  asks for `kb eval compare` to be reached "via kb-app", but `kb-app`
-  already depends on `kb-eval` (the P5-1 runner uses the App facade),
-  so routing the CLI through `kb-app` would form a cycle. `kb-cli` →
-  `kb-eval` is wired directly; `kb-app` is unchanged.
+- **CLI surface lives on `kebab-cli` directly, not via `kebab-app`.** DoD
+  asks for `kebab eval compare` to be reached "via kebab-app", but `kebab-app`
+  already depends on `kebab-eval` (the P5-1 runner uses the App facade),
+  so routing the CLI through `kebab-app` would form a cycle. `kebab-cli` →
+  `kebab-eval` is wired directly; `kebab-app` is unchanged.
 - **`AggregateMetrics` is `Serialize + Deserialize`.** The spec defines
   only the field shape; we add `Deserialize` so the stored
   `aggregate_json` can round-trip back into the type for follow-up
@@ -184,12 +184,12 @@ same one this spec defines, the names / wiring just differ.
 - **`anyhow`** is used in `Result` returns since the rest of the
   workspace already speaks anyhow; not in the spec's Allowed list but
   matches every other crate.
-- **`kb-eval` crate-level `kb-app` dep stays.** The crate already
-  depends on `kb-app` from P5-1 (the runner uses the `App` facade), so
+- **`kebab-eval` crate-level `kebab-app` dep stays.** The crate already
+  depends on `kebab-app` from P5-1 (the runner uses the `App` facade), so
   the Cargo.toml entry remains. The new modules (`metrics.rs`,
-  `compare.rs`) do not import `kb-app` themselves — they're behind the
+  `compare.rs`) do not import `kebab-app` themselves — they're behind the
   same crate boundary as the runner, but the metric/compare *surface*
-  is `kb-app`-clean. Splitting the crate to avoid a transitive Cargo
+  is `kebab-app`-clean. Splitting the crate to avoid a transitive Cargo
   edge would be churn for no behavior gain.
 - **`citation_coverage` is intentionally weaker than the spec literal.**
   Spec calls for "every citation resolves to a real chunk in the DB".

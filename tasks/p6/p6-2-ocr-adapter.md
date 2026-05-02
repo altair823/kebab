@@ -1,12 +1,12 @@
 ---
 phase: P6
-component: kb-parse-image (OCR adapter)
+component: kebab-parse-image (OCR adapter)
 task_id: p6-2
 title: "OcrEngine trait + Tesseract adapter (Apple Vision feature-gated)"
 status: planned
 depends_on: [p6-1]
 unblocks: [p6-3]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.4 ImageRefBlock.ocr, §3.7a OcrText/OcrRegion, §9.1 OCR vs caption provenance]
 ---
 
@@ -22,9 +22,9 @@ Strict separation of OCR (observed text) from caption (model-generated). Confini
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-parse-image` (consumes its types)
+- `kebab-core`
+- `kebab-config`
+- `kebab-parse-image` (consumes its types)
 - `tesseract = "0.13"` (feature `tesseract`, default ON)
 - For feature `apple-vision`: `std::process::Command` only (sidecar binary, not a Rust dep)
 - `serde`, `serde_json`
@@ -34,21 +34,21 @@ Strict separation of OCR (observed text) from caption (model-generated). Confini
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize`, `kebab-chunk`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
 | image bytes | `&[u8]` | from extractor |
-| optional language hint | `kb_core::Lang` | metadata |
-| `kb-config` OCR settings | engine name, languages | runtime |
+| optional language hint | `kebab_core::Lang` | metadata |
+| `kebab-config` OCR settings | engine name, languages | runtime |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `OcrText` | `kb_core::OcrText` | merged into `ImageRefBlock.ocr` |
+| `OcrText` | `kebab_core::OcrText` | merged into `ImageRefBlock.ocr` |
 
 ## Public surface (signatures only — no new types)
 
@@ -56,11 +56,11 @@ Strict separation of OCR (observed text) from caption (model-generated). Confini
 pub trait OcrEngine: Send + Sync {
     fn engine_name(&self) -> &'static str;
     fn engine_version(&self) -> String;
-    fn recognize(&self, image_bytes: &[u8], lang_hint: Option<&kb_core::Lang>) -> anyhow::Result<kb_core::OcrText>;
+    fn recognize(&self, image_bytes: &[u8], lang_hint: Option<&kebab_core::Lang>) -> anyhow::Result<kebab_core::OcrText>;
 }
 
 pub struct TesseractOcr { /* internal: lazy api handle */ }
-impl TesseractOcr { pub fn new(config: &kb_config::Config) -> anyhow::Result<Self>; }
+impl TesseractOcr { pub fn new(config: &kebab_config::Config) -> anyhow::Result<Self>; }
 impl OcrEngine for TesseractOcr { /* per trait */ }
 
 #[cfg(feature = "apple-vision")]
@@ -71,8 +71,8 @@ impl OcrEngine for AppleVisionOcr { /* per trait */ }
 pub fn apply_ocr(
     engine: &dyn OcrEngine,
     image_bytes: &[u8],
-    block: &mut kb_core::ImageRefBlock,
-    lang_hint: Option<&kb_core::Lang>,
+    block: &mut kebab_core::ImageRefBlock,
+    lang_hint: Option<&kebab_core::Lang>,
 ) -> anyhow::Result<()>;
 ```
 
@@ -85,7 +85,7 @@ pub fn apply_ocr(
   - `joined` = `regions.iter().map(|r| r.text).join(" ")` (no smart layout reconstruction in v1).
   - `engine = "tesseract"`, `engine_version = <tesseract version string>`. The `tesseract` crate (0.13+) does NOT expose a stable Rust `version()` accessor. Use one of: (a) call libtesseract's `TessVersion()` via the bundled FFI surface, OR (b) at adapter construction, shell-out `tesseract --version` once and cache the parsed `"5.3.4"`-style string. Both are deterministic for a fixed install. Pin the chosen approach in the implementation PR.
 - Apple Vision sidecar (feature `apple-vision`):
-  - Spawn a small Swift binary `kb-vision-ocr` (path from `config.ocr.apple_vision_binary`) feeding the image via stdin and reading JSON `{ regions: [{x,y,w,h,text,confidence}, ...] }` from stdout.
+  - Spawn a small Swift binary `kebab-vision-ocr` (path from `config.ocr.apple_vision_binary`) feeding the image via stdin and reading JSON `{ regions: [{x,y,w,h,text,confidence}, ...] }` from stdout.
   - Same threshold and `joined` rules as Tesseract. `engine = "apple-vision"`, `engine_version = sidecar's --version`.
   - This subagent task does NOT write the Swift sidecar; it only wires the Rust side. Document the expected sidecar interface in `docs/spec/sidecar-vision.md` (separate doc spec stub, optional).
 - `apply_ocr` calls `engine.recognize`, sets `block.ocr = Some(text)`, and appends a `Provenance::OcrApplied` event in the caller's CanonicalDocument (caller responsibility — this task exposes a helper).
@@ -109,12 +109,12 @@ pub fn apply_ocr(
 | determinism | two runs of recognize on same input → identical OcrText | fixture |
 | `#[cfg(feature = "apple-vision")]` smoke | sidecar invocation captured (mock binary echoes fixed JSON) | inline mock |
 
-All tests under `cargo test -p kb-parse-image ocr`. Tesseract install required on CI host.
+All tests under `cargo test -p kebab-parse-image ocr`. Tesseract install required on CI host.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-parse-image --features tesseract` passes
-- [ ] `cargo test -p kb-parse-image ocr` passes
+- [ ] `cargo check -p kebab-parse-image --features tesseract` passes
+- [ ] `cargo test -p kebab-parse-image ocr` passes
 - [ ] `apple-vision` feature compiles on macOS and gracefully no-ops on Linux
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §3.4, §3.7a, §9.1
@@ -129,5 +129,5 @@ All tests under `cargo test -p kb-parse-image ocr`. Tesseract install required o
 ## Risks / notes
 
 - Tesseract performance varies wildly with image quality; document `min_confidence` and default page-segmentation mode.
-- Apple Vision sidecar requires code signing for distribution; for v1 dev builds, accept unsigned binary from `~/.local/bin/kb-vision-ocr`.
+- Apple Vision sidecar requires code signing for distribution; for v1 dev builds, accept unsigned binary from `~/.local/bin/kebab-vision-ocr`.
 - Large image downscale loses small-text recognition; expose `config.ocr.max_pixels` so power users can tune.

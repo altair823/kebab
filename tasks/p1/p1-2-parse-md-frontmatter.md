@@ -1,29 +1,29 @@
 ---
 phase: P1
-component: kb-parse-md (frontmatter submodule)
+component: kebab-parse-md (frontmatter submodule)
 task_id: p1-2
 title: "Markdown frontmatter parsing → Metadata"
 status: completed
 depends_on: [p0-1]
 unblocks: [p1-4]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
-contract_sections: [design §3.6 Metadata, design §3.7b kb-parse-types (Warning), design §0 Q9 frontmatter, design §10 errors]
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
+contract_sections: [design §3.6 Metadata, design §3.7b kebab-parse-types (Warning), design §0 Q9 frontmatter, design §10 errors]
 ---
 
 # p1-2 — Markdown frontmatter parsing
 
 ## Goal
 
-Parse YAML/TOML frontmatter from Markdown bytes into `kb_core::Metadata`, with auto-derive defaults and unknown-key preservation in `metadata.user`.
+Parse YAML/TOML frontmatter from Markdown bytes into `kebab_core::Metadata`, with auto-derive defaults and unknown-key preservation in `metadata.user`.
 
 ## Why now / why this size
 
-Frontmatter is small but contractually load-bearing (Q9 spec). Isolating it from block parsing keeps both halves of `kb-parse-md` simple and lets us reach 100% test coverage on the rules in design §0 Q9.
+Frontmatter is small but contractually load-bearing (Q9 spec). Isolating it from block parsing keeps both halves of `kebab-parse-md` simple and lets us reach 100% test coverage on the rules in design §0 Q9.
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-parse-types` (provides shared `Warning` + `WarningKind` per design §3.7b)
+- `kebab-core`
+- `kebab-parse-types` (provides shared `Warning` + `WarningKind` per design §3.7b)
 - `serde`
 - `serde_yaml` (or `yaml-rust2`) for YAML
 - `toml` for TOML
@@ -33,7 +33,7 @@ Frontmatter is small but contractually load-bearing (Q9 spec). Isolating it from
 
 ## Forbidden dependencies
 
-- `kb-store-*`, `kb-llm*`, `kb-rag`, `kb-embed*`, `kb-search`, `kb-tui`, `kb-desktop`, `kb-source-fs`, `kb-chunk`, `kb-normalize`, `pulldown-cmark` (block parser is a sibling task)
+- `kebab-store-*`, `kebab-llm*`, `kebab-rag`, `kebab-embed*`, `kebab-search`, `kebab-tui`, `kebab-desktop`, `kebab-source-fs`, `kebab-chunk`, `kebab-normalize`, `pulldown-cmark` (block parser is a sibling task)
 
 ## Inputs
 
@@ -46,7 +46,7 @@ Frontmatter is small but contractually load-bearing (Q9 spec). Isolating it from
 
 | output | type | downstream |
 |--------|------|------------|
-| `(Metadata, Option<FrontmatterSpan>, Vec<kb_parse_types::Warning>)` | tuple | `kb-normalize` → CanonicalDocument |
+| `(Metadata, Option<FrontmatterSpan>, Vec<kebab_parse_types::Warning>)` | tuple | `kebab-normalize` → CanonicalDocument |
 
 ## Public surface (signatures only — no new types)
 
@@ -54,10 +54,10 @@ Frontmatter is small but contractually load-bearing (Q9 spec). Isolating it from
 pub fn parse_frontmatter(
     bytes: &[u8],
     hints: &BodyHints,
-) -> anyhow::Result<(kb_core::Metadata, Option<FrontmatterSpan>, Vec<kb_parse_types::Warning>)>;
+) -> anyhow::Result<(kebab_core::Metadata, Option<FrontmatterSpan>, Vec<kebab_parse_types::Warning>)>;
 ```
 
-`Warning` / `WarningKind` come from `kb-parse-types` (shared with `p1-3` blocks parser and downstream `kb-normalize`). `FrontmatterSpan` is crate-internal; if any new public type is needed, STOP and update the frozen design doc first.
+`Warning` / `WarningKind` come from `kebab-parse-types` (shared with `p1-3` blocks parser and downstream `kebab-normalize`). `FrontmatterSpan` is crate-internal; if any new public type is needed, STOP and update the frozen design doc first.
 
 ## Behavior contract
 
@@ -68,7 +68,7 @@ pub fn parse_frontmatter(
   - `source_type` default `markdown`; `trust_level` default `primary`.
   - `aliases`, `tags` default empty.
 - Unknown keys → `metadata.user` (`serde_json::Map`), preserved verbatim, no warning.
-- Unknown enum value (e.g. `trust_level: weird`) → emit `kb_parse_types::Warning { kind: WarningKind::MalformedFrontmatter, note: "unknown trust_level=weird, defaulted to primary" }` + ingest continues with default.
+- Unknown enum value (e.g. `trust_level: weird`) → emit `kebab_parse_types::Warning { kind: WarningKind::MalformedFrontmatter, note: "unknown trust_level=weird, defaulted to primary" }` + ingest continues with default.
 - Malformed YAML → frontmatter discarded, body still parsed, `Warning { kind: WarningKind::MalformedFrontmatter, note: "<error msg>" }` emitted.
 - No frontmatter at all → defaults applied silently.
 - `id:` field captured into `metadata.user_id_alias` (alias only — does NOT influence `doc_id` per design §4.2).
@@ -91,12 +91,12 @@ pub fn parse_frontmatter(
 | snapshot | `fixtures/markdown/frontmatter-only.md` produces stable JSON | fixture |
 | snapshot | mixed-language body with no `lang:` detects `ko` or `en` | `fixtures/markdown/mixed-lang.md` |
 
-All tests under `cargo test -p kb-parse-md --lib frontmatter`.
+All tests under `cargo test -p kebab-parse-md --lib frontmatter`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-parse-md` passes
-- [ ] `cargo test -p kb-parse-md frontmatter` passes
+- [ ] `cargo check -p kebab-parse-md` passes
+- [ ] `cargo test -p kebab-parse-md frontmatter` passes
 - [ ] No `pulldown-cmark` import in this submodule
 - [ ] Snapshot tests stable across two consecutive runs
 - [ ] PR links design §0 Q9, §3.6

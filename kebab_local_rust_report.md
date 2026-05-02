@@ -17,11 +17,11 @@ urlcolor: blue
 
 최종 방향은 다음 한 문장으로 요약할 수 있다.
 
-> Markdown을 1등급 지식 소스로 삼고, 이미지, PDF, 음성은 각각 extractor adapter를 통해 동일한 `CanonicalDocument -> Chunk -> Embed -> Index -> Search -> RAG` 파이프라인으로 흘려보낸다. CLI, TUI, desktop app은 모두 같은 `kb-app` facade를 함수 호출로 사용한다.
+> Markdown을 1등급 지식 소스로 삼고, 이미지, PDF, 음성은 각각 extractor adapter를 통해 동일한 `CanonicalDocument -> Chunk -> Embed -> Index -> Search -> RAG` 파이프라인으로 흘려보낸다. CLI, TUI, desktop app은 모두 같은 `kebab-app` facade를 함수 호출로 사용한다.
 
 가장 먼저 만들 것은 채팅 UI가 아니다. 먼저 만들어야 할 것은 다음 7가지다.
 
-1. `kb-core`의 도메인 모델과 trait 계약
+1. `kebab-core`의 도메인 모델과 trait 계약
 2. deterministic ID 규칙
 3. Markdown canonicalization
 4. chunking policy
@@ -66,16 +66,16 @@ urlcolor: blue
 Markdown files
    |
    v
-kb-source-fs
+kebab-source-fs
    |
    v
-kb-parse-md
+kebab-parse-md
    |
    v
 CanonicalDocument
    |
    v
-kb-chunk
+kebab-chunk
    |
    v
 Chunks
@@ -88,15 +88,15 @@ SQLite metadata/FTS     LanceDB vectors      Raw asset store
    +--------------------+--------------------+
                         |
                         v
-                    kb-search
+                    kebab-search
                         |
                         v
-                     kb-rag
+                     kebab-rag
                         |
         +---------------+---------------+
         |               |               |
         v               v               v
-      kb-cli          kb-tui       kb-desktop
+      kebab-cli          kebab-tui       kebab-desktop
 ```
 
 추후 확장 후 구조는 다음과 같다.
@@ -133,23 +133,23 @@ Cargo workspace는 여러 package를 함께 관리하는 구조이며, 공통 `C
 [workspace]
 resolver = "3"
 members = [
-  "crates/kb-core",
-  "crates/kb-config",
-  "crates/kb-source-fs",
-  "crates/kb-parse-md",
-  "crates/kb-normalize",
-  "crates/kb-chunk",
-  "crates/kb-store-sqlite",
-  "crates/kb-store-vector",
-  "crates/kb-embed",
-  "crates/kb-embed-local",
-  "crates/kb-search",
-  "crates/kb-llm",
-  "crates/kb-llm-local",
-  "crates/kb-rag",
-  "crates/kb-eval",
-  "crates/kb-app",
-  "crates/kb-cli"
+  "crates/kebab-core",
+  "crates/kebab-config",
+  "crates/kebab-source-fs",
+  "crates/kebab-parse-md",
+  "crates/kebab-normalize",
+  "crates/kebab-chunk",
+  "crates/kebab-store-sqlite",
+  "crates/kebab-store-vector",
+  "crates/kebab-embed",
+  "crates/kebab-embed-local",
+  "crates/kebab-search",
+  "crates/kebab-llm",
+  "crates/kebab-llm-local",
+  "crates/kebab-rag",
+  "crates/kebab-eval",
+  "crates/kebab-app",
+  "crates/kebab-cli"
 ]
 
 [workspace.package]
@@ -173,7 +173,7 @@ tracing = "0.1"
 초기 repo는 이렇게 잡는다.
 
 ```text
-kb/
+kebab/
   Cargo.toml
   README.md
   docs/
@@ -191,70 +191,70 @@ kb/
       nested-headings.md
       code-and-table.md
   crates/
-    kb-core/
-    kb-config/
-    kb-source-fs/
-    kb-parse-md/
-    kb-normalize/
-    kb-chunk/
-    kb-store-sqlite/
-    kb-store-vector/
-    kb-embed/
-    kb-embed-local/
-    kb-search/
-    kb-llm/
-    kb-llm-local/
-    kb-rag/
-    kb-eval/
-    kb-app/
-    kb-cli/
+    kebab-core/
+    kebab-config/
+    kebab-source-fs/
+    kebab-parse-md/
+    kebab-normalize/
+    kebab-chunk/
+    kebab-store-sqlite/
+    kebab-store-vector/
+    kebab-embed/
+    kebab-embed-local/
+    kebab-search/
+    kebab-llm/
+    kebab-llm-local/
+    kebab-rag/
+    kebab-eval/
+    kebab-app/
+    kebab-cli/
 ```
 
 나중에 추가할 crate는 다음과 같다.
 
 ```text
-crates/kb-parse-image/
-crates/kb-parse-pdf/
-crates/kb-parse-audio/
-crates/kb-rerank/
-crates/kb-tui/
-crates/kb-desktop/
+crates/kebab-parse-image/
+crates/kebab-parse-pdf/
+crates/kebab-parse-audio/
+crates/kebab-rerank/
+crates/kebab-tui/
+crates/kebab-desktop/
 ```
 
 중요한 의존성 규칙은 다음과 같다.
 
 ```text
-kb-cli, kb-tui, kb-desktop
-    -> kb-app
-        -> kb-index / kb-search / kb-rag
-            -> kb-core traits
+kebab-cli, kebab-tui, kebab-desktop
+    -> kebab-app
+        -> kebab-index / kebab-search / kebab-rag
+            -> kebab-core traits
             -> concrete adapters
 ```
 
-UI crate는 절대로 parser, DB, LLM adapter를 직접 호출하지 않는다. 모든 user-facing command는 `kb-app` facade를 통해 호출한다.
+UI crate는 절대로 parser, DB, LLM adapter를 직접 호출하지 않는다. 모든 user-facing command는 `kebab-app` facade를 통해 호출한다.
 
 # 5. 컴포넌트 목록과 책임
 
 | 컴포넌트 | 책임 | 초기 구현 |
 |---|---|---|
-| `kb-core` | domain type, trait, error, ID 규칙 | 필수 |
-| `kb-config` | config 파일 로딩, 기본값, 경로 확장 | 필수 |
-| `kb-source-fs` | 로컬 폴더 scan, checksum, 변경 감지 | 필수 |
-| `kb-parse-md` | Markdown -> structured document | 필수 |
-| `kb-normalize` | parser output -> `CanonicalDocument` | 필수 |
-| `kb-chunk` | block-aware chunking | 필수 |
-| `kb-store-sqlite` | metadata, document, chunk, job, FTS | 필수 |
-| `kb-store-vector` | vector upsert/search | P1 |
-| `kb-embed` | embedding trait | P1 |
-| `kb-embed-local` | local embedding adapter | P1 |
-| `kb-search` | lexical, vector, hybrid retrieval | P1 |
-| `kb-llm` | language model trait | P1 |
-| `kb-llm-local` | Ollama 또는 llama.cpp adapter | P1 |
-| `kb-rag` | context packing, answer, citation | P1 |
-| `kb-eval` | golden query, regression test | P1 |
-| `kb-cli` | command line interface | 필수 |
-| `kb-tui` | terminal UI | P2 |
-| `kb-desktop` | desktop app | P3 |
+| `kebab-core` | domain type, trait, error, ID 규칙 | 필수 |
+| `kebab-config` | config 파일 로딩, 기본값, 경로 확장 | 필수 |
+| `kebab-source-fs` | 로컬 폴더 scan, checksum, 변경 감지 | 필수 |
+| `kebab-parse-md` | Markdown -> structured document | 필수 |
+| `kebab-normalize` | parser output -> `CanonicalDocument` | 필수 |
+| `kebab-chunk` | block-aware chunking | 필수 |
+| `kebab-store-sqlite` | metadata, document, chunk, job, FTS | 필수 |
+| `kebab-store-vector` | vector upsert/search | P1 |
+| `kebab-embed` | embedding trait | P1 |
+| `kebab-embed-local` | local embedding adapter | P1 |
+| `kebab-search` | lexical, vector, hybrid retrieval | P1 |
+| `kebab-llm` | language model trait | P1 |
+| `kebab-llm-local` | Ollama 또는 llama.cpp adapter | P1 |
+| `kebab-rag` | context packing, answer, citation | P1 |
+| `kebab-eval` | golden query, regression test | P1 |
+| `kebab-cli` | command line interface | 필수 |
+| `kebab-tui` | terminal UI | P2 |
+| `kebab-desktop` | desktop app | P3 |
 
 # 6. 핵심 도메인 모델
 
@@ -398,10 +398,10 @@ Markdown frontmatter 기본 규약은 다음 정도로 시작한다.
 
 ```yaml
 ---
-id: rust-kb-architecture
+id: rust-kebab-architecture
 title: Rust 로컬 Knowledge Base 설계
 aliases:
-  - local kb
+  - local kebab
   - rust rag
 tags:
   - knowledge-base
@@ -418,7 +418,7 @@ lang: ko
 Markdown citation은 line range를 기본으로 한다.
 
 ```text
-notes/rust/kb.md:L12-L34
+notes/rust/kebab.md:L12-L34
 ```
 
 # 9. 이미지, PDF, 음성 확장 전략
@@ -534,13 +534,13 @@ Ollama 문서는 macOS Sonoma 이상에서 Apple M series CPU/GPU support를 언
 초기 adapter는 다음처럼 둔다.
 
 ```text
-kb-llm-local
+kebab-llm-local
   - OllamaLanguageModel
   - later: LlamaCppLanguageModel
   - later: CandleLanguageModel
 ```
 
-Ollama가 내부적으로 local server를 쓰더라도, 프로젝트 아키텍처 관점에서는 HTTP MSA가 아니다. `kb-llm-local` 안에 캡슐화된 model adapter일 뿐이다.
+Ollama가 내부적으로 local server를 쓰더라도, 프로젝트 아키텍처 관점에서는 HTTP MSA가 아니다. `kebab-llm-local` 안에 캡슐화된 model adapter일 뿐이다.
 
 ## 11.3 Local embedding
 
@@ -583,10 +583,10 @@ M4 48GB MacBook은 개인용 local KB에 충분한 타겟이지만, indexing과 
 root = "~/KnowledgeBase"
 
 [storage]
-sqlite_path = "~/.local/share/kb/kb.sqlite"
-vector_path = "~/.local/share/kb/lancedb"
-raw_asset_path = "~/.local/share/kb/assets"
-artifact_path = "~/.local/share/kb/artifacts"
+sqlite_path = "~/.local/share/kebab/kebab.sqlite"
+vector_path = "~/.local/share/kebab/lancedb"
+raw_asset_path = "~/.local/share/kebab/assets"
+artifact_path = "~/.local/share/kebab/artifacts"
 
 [indexing]
 max_parallel_extractors = 2
@@ -609,7 +609,7 @@ context_tokens = 32768
 
 # 13. Trait 계약
 
-컴포넌트는 trait으로 연결한다. 아래 계약을 `kb-core`에 둔다.
+컴포넌트는 trait으로 연결한다. 아래 계약을 `kebab-core`에 둔다.
 
 ```rust
 pub trait SourceConnector {
@@ -741,14 +741,14 @@ pub struct Answer {
 CLI는 가장 먼저 만든다.
 
 ```text
-kb init
-kb ingest <path>
-kb index
-kb search <query>
-kb ask <query>
-kb inspect doc <doc_id>
-kb inspect chunk <chunk_id>
-kb doctor
+kebab init
+kebab ingest <path>
+kebab index
+kebab search <query>
+kebab ask <query>
+kebab inspect doc <doc_id>
+kebab inspect chunk <chunk_id>
+kebab doctor
 ```
 
 CLI는 개발과 테스트의 기준점이다. TUI와 desktop app은 CLI 기능이 안정된 뒤 붙인다.
@@ -791,10 +791,10 @@ Desktop app은 가장 나중에 만든다. 이유는 UI보다 먼저 domain mode
 산출물:
 
 ```text
-kb-core
-kb-config
-kb-app
-kb-cli
+kebab-core
+kebab-config
+kebab-app
+kebab-cli
 docs/spec/*
 fixtures/markdown/*
 ```
@@ -804,7 +804,7 @@ fixtures/markdown/*
 ```text
 cargo check --workspace
 cargo test --workspace
-kb --help
+kebab --help
 ```
 
 ## Phase 1 - Markdown ingestion
@@ -814,19 +814,19 @@ kb --help
 구현 crate:
 
 ```text
-kb-source-fs
-kb-parse-md
-kb-normalize
-kb-chunk
-kb-store-sqlite
+kebab-source-fs
+kebab-parse-md
+kebab-normalize
+kebab-chunk
+kebab-store-sqlite
 ```
 
 완료 조건:
 
 ```text
-kb ingest ~/KnowledgeBase
-kb list docs
-kb inspect doc <doc_id>
+kebab ingest ~/KnowledgeBase
+kebab list docs
+kebab inspect doc <doc_id>
 ```
 
 ## Phase 2 - Lexical search
@@ -836,14 +836,14 @@ kb inspect doc <doc_id>
 완료 조건:
 
 ```text
-kb search "Rust workspace 설계"
+kebab search "Rust workspace 설계"
 ```
 
 결과는 citation을 포함해야 한다.
 
 ```text
 1. Rust workspace는 여러 package를 하나로 관리한다...
-   source: notes/rust/kb.md:L12-L34
+   source: notes/rust/kebab.md:L12-L34
 ```
 
 ## Phase 3 - Vector search와 embedding
@@ -853,18 +853,18 @@ kb search "Rust workspace 설계"
 구현 crate:
 
 ```text
-kb-embed
-kb-embed-local
-kb-store-vector
-kb-search
+kebab-embed
+kebab-embed-local
+kebab-store-vector
+kebab-search
 ```
 
 완료 조건:
 
 ```text
-kb index --embeddings
-kb search --mode vector "비슷한 설계 원칙"
-kb search --mode hybrid "Markdown chunking 규칙"
+kebab index --embeddings
+kebab search --mode vector "비슷한 설계 원칙"
+kebab search --mode hybrid "Markdown chunking 규칙"
 ```
 
 ## Phase 4 - Local LLM RAG
@@ -874,15 +874,15 @@ kb search --mode hybrid "Markdown chunking 규칙"
 구현 crate:
 
 ```text
-kb-llm
-kb-llm-local
-kb-rag
+kebab-llm
+kebab-llm-local
+kebab-rag
 ```
 
 완료 조건:
 
 ```text
-kb ask "내 KB 설계에서 저장소 전략은?"
+kebab ask "내 KB 설계에서 저장소 전략은?"
 ```
 
 답변은 citation을 포함해야 하며, 근거가 없으면 거절해야 한다.
@@ -895,7 +895,7 @@ kb ask "내 KB 설계에서 저장소 전략은?"
 
 ```text
 fixtures/golden_queries.yaml
-kb-eval
+kebab-eval
 ```
 
 측정값:
@@ -915,8 +915,8 @@ answer groundedness
 완료 조건:
 
 ```text
-kb ingest ./assets/diagram.png
-kb search "이미지 안의 OCR 텍스트"
+kebab ingest ./assets/diagram.png
+kebab search "이미지 안의 OCR 텍스트"
 ```
 
 ## Phase 7 - PDF support
@@ -926,8 +926,8 @@ kb search "이미지 안의 OCR 텍스트"
 완료 조건:
 
 ```text
-kb ingest ./paper.pdf
-kb search "PDF 안의 특정 개념"
+kebab ingest ./paper.pdf
+kebab search "PDF 안의 특정 개념"
 ```
 
 ## Phase 8 - 음성 support
@@ -937,8 +937,8 @@ kb search "PDF 안의 특정 개념"
 완료 조건:
 
 ```text
-kb ingest ./meeting.m4a
-kb search "회의에서 언급한 결정사항"
+kebab ingest ./meeting.m4a
+kebab search "회의에서 언급한 결정사항"
 ```
 
 ## Phase 9 - TUI와 desktop app
@@ -948,7 +948,7 @@ kb search "회의에서 언급한 결정사항"
 순서:
 
 ```text
-kb-tui -> kb-desktop
+kebab-tui -> kebab-desktop
 ```
 
 # 18. 테스트 전략
@@ -986,7 +986,7 @@ AI에게 “전체 repo를 만들어줘”라고 시키지 말고, component spe
 템플릿은 다음과 같다.
 
 ```text
-Component: kb-parse-md
+Component: kebab-parse-md
 
 Responsibility:
 - Markdown bytes를 CanonicalDocument로 변환한다.
@@ -994,17 +994,17 @@ Responsibility:
 - line range 또는 byte range를 최대한 보존한다.
 
 Allowed dependencies:
-- kb-core
+- kebab-core
 - pulldown-cmark 또는 comrak
 - serde
 - thiserror
 
 Forbidden dependencies:
-- kb-store
-- kb-llm
-- kb-rag
-- kb-tui
-- kb-desktop
+- kebab-store
+- kebab-llm
+- kebab-rag
+- kebab-tui
+- kebab-desktop
 
 Inputs:
 - RawAsset
@@ -1052,7 +1052,7 @@ Non-goals:
 ## 1-2일차
 
 - workspace 생성
-- `kb-core` 도메인 타입 초안
+- `kebab-core` 도메인 타입 초안
 - ID 규칙 문서화
 - CLI skeleton
 
@@ -1073,7 +1073,7 @@ Non-goals:
 
 - SQLite FTS5 검색
 - citation 출력
-- `kb inspect` 구현
+- `kebab inspect` 구현
 
 ## 12-14일차
 
@@ -1100,7 +1100,7 @@ MVP 완료 조건은 다음과 같다.
 - [ ] parser/chunker version을 바꾸면 재처리 대상이 식별된다.
 - [ ] local embedding을 붙일 수 있는 trait이 있다.
 - [ ] local LLM을 붙일 수 있는 trait이 있다.
-- [ ] `kb-app` facade를 통해 CLI가 동작한다.
+- [ ] `kebab-app` facade를 통해 CLI가 동작한다.
 
 P1 완료 조건은 다음과 같다.
 

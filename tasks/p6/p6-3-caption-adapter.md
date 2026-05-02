@@ -1,12 +1,12 @@
 ---
 phase: P6
-component: kb-parse-image (caption adapter)
+component: kebab-parse-image (caption adapter)
 task_id: p6-3
 title: "ModelCaption adapter (LanguageModel-driven, feature-gated)"
 status: planned
 depends_on: [p6-1, p4-2]
 unblocks: []
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.4 ImageRefBlock.caption, §3.7a ModelCaption, §9.1 caption (model-generated, low trust)]
 ---
 
@@ -22,10 +22,10 @@ Captioning closes the multimodal loop. Strict separation from OCR keeps trust le
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-parse-image`
-- `kb-llm` (LanguageModel trait)
+- `kebab-core`
+- `kebab-config`
+- `kebab-parse-image`
+- `kebab-llm` (LanguageModel trait)
 - `base64`
 - `serde`, `serde_json`
 - `image` (resize for prompt cost control)
@@ -34,7 +34,7 @@ Captioning closes the multimodal loop. Strict separation from OCR keeps trust le
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-rag`, `kb-llm-local` (only via trait), `kb-tui`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize`, `kebab-chunk`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-rag`, `kebab-llm-local` (only via trait), `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
@@ -42,28 +42,28 @@ Captioning closes the multimodal loop. Strict separation from OCR keeps trust le
 |-------|------|--------|
 | image bytes | `&[u8]` | extractor |
 | `dyn LanguageModel` (vision-capable) | runtime | injected |
-| `kb-config.image.caption` | `{ enabled, max_pixels, prompt_template_version }` | runtime |
+| `kebab-config.image.caption` | `{ enabled, max_pixels, prompt_template_version }` | runtime |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `ModelCaption` | `kb_core::ModelCaption` | merged into `ImageRefBlock.caption` |
+| `ModelCaption` | `kebab_core::ModelCaption` | merged into `ImageRefBlock.caption` |
 
 ## Public surface (signatures only — no new types)
 
 ```rust
 pub fn caption_image(
-    llm: &dyn kb_core::LanguageModel,
+    llm: &dyn kebab_core::LanguageModel,
     image_bytes: &[u8],
-    cfg: &kb_config::Config,
-) -> anyhow::Result<kb_core::ModelCaption>;
+    cfg: &kebab_config::Config,
+) -> anyhow::Result<kebab_core::ModelCaption>;
 
 pub fn apply_caption(
-    llm: &dyn kb_core::LanguageModel,
+    llm: &dyn kebab_core::LanguageModel,
     image_bytes: &[u8],
-    block: &mut kb_core::ImageRefBlock,
-    cfg: &kb_config::Config,
+    block: &mut kebab_core::ImageRefBlock,
+    cfg: &kebab_config::Config,
 ) -> anyhow::Result<()>;
 ```
 
@@ -86,7 +86,7 @@ pub fn apply_caption(
 
 ## Storage / wire effects
 
-- None directly. Caller persists via `kb-store-sqlite`.
+- None directly. Caller persists via `kebab-store-sqlite`.
 
 ## Test plan
 
@@ -99,12 +99,12 @@ pub fn apply_caption(
 | unit | downscale honors `max_pixels` (resulting bytes < some threshold) | fixture large image |
 | determinism | identical input + temperature=0 + seed=0 → identical caption (mock) | inline |
 
-All tests under `cargo test -p kb-parse-image caption` with mock LM only.
+All tests under `cargo test -p kebab-parse-image caption` with mock LM only.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-parse-image --features caption` passes
-- [ ] `cargo test -p kb-parse-image caption` passes
+- [ ] `cargo check -p kebab-parse-image --features caption` passes
+- [ ] `cargo test -p kebab-parse-image caption` passes
 - [ ] No imports outside Allowed dependencies
 - [ ] Feature default OFF; only on when user opts in via config
 - [ ] PR links design §3.4 ImageRefBlock.caption, §9.1

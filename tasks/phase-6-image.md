@@ -3,7 +3,7 @@ phase: P6
 title: "이미지 ingestion (OCR + caption)"
 status: planned
 depends_on: [P5]
-source: kb_local_rust_report.md §9.1, §17 Phase 6
+source: kebab_local_rust_report.md §9.1, §17 Phase 6
 ---
 
 # P6 — 이미지 ingestion
@@ -14,8 +14,8 @@ source: kb_local_rust_report.md §9.1, §17 Phase 6
 
 ## 산출 crate
 
-- `kb-parse-image` — `Extractor` 구현. 이미지 → CanonicalDocument.
-- (선택) `kb-ocr` / `kb-vlm` 어댑터 (외부 모델 분리 시).
+- `kebab-parse-image` — `Extractor` 구현. 이미지 → CanonicalDocument.
+- (선택) `kebab-ocr` / `kebab-vlm` 어댑터 (외부 모델 분리 시).
 
 ## 추출 정보 3종 (§9.1)
 
@@ -83,10 +83,10 @@ photos/diagram-2026.png#caption                 # caption chunk
 ## CLI
 
 ```text
-kb ingest ./assets/diagram.png
-kb ingest ./assets/   # 폴더 안 이미지 자동 인식
-kb search "이미지 안의 OCR 텍스트"
-kb inspect doc <image_doc_id>   # OCR/caption/EXIF 모두 표시
+kebab ingest ./assets/diagram.png
+kebab ingest ./assets/   # 폴더 안 이미지 자동 인식
+kebab search "이미지 안의 OCR 텍스트"
+kebab inspect doc <image_doc_id>   # OCR/caption/EXIF 모두 표시
 ```
 
 ## 테스트
@@ -99,13 +99,13 @@ kb inspect doc <image_doc_id>   # OCR/caption/EXIF 모두 표시
 
 ## 의존성 경계
 
-- `kb-parse-image` 는 `kb-core` + 이미지 디코딩 (`image` crate) + OCR adapter 만.
+- `kebab-parse-image` 는 `kebab-core` + 이미지 디코딩 (`image` crate) + OCR adapter 만.
 - LLM/embedding 호출 금지 (caption 은 별도 adapter 통해).
 - VLM caption 은 background job. ingest blocking 금지.
 
 ## 완료 조건
 
-- [ ] `kb ingest <image>` 동작
+- [ ] `kebab ingest <image>` 동작
 - [ ] OCR text 검색 가능
 - [ ] OCR region citation 출력
 - [ ] caption 과 observed text provenance 분리

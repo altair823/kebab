@@ -1,12 +1,12 @@
 ---
 phase: P4
-component: kb-llm-local (Ollama adapter)
+component: kebab-llm-local (Ollama adapter)
 task_id: p4-2
 title: "OllamaLanguageModel — streaming /api/generate"
 status: completed
 depends_on: [p4-1]
 unblocks: [p4-3]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [design §7.2 LanguageModel, report §11.2 Ollama, design §6.4 [models.llm], design §0 Q5 streaming, design §10 errors]
 ---
 
@@ -18,13 +18,13 @@ Implement `OllamaLanguageModel` against Ollama's local HTTP API (`POST /api/gene
 
 ## Why now / why this size
 
-First real LM. Required for `kb ask` to function. Isolated from RAG pipeline so swapping providers stays config-only.
+First real LM. Required for `kebab ask` to function. Isolated from RAG pipeline so swapping providers stays config-only.
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-llm`
+- `kebab-core`
+- `kebab-config`
+- `kebab-llm`
 - `reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }`
 - `serde`, `serde_json`
 - `tracing`
@@ -32,21 +32,21 @@ First real LM. Required for `kb ask` to function. Isolated from RAG pipeline so 
 
 ## Forbidden dependencies
 
-- `tokio`, `async-std`, `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-rag`, `kb-tui`, `kb-desktop`. (Streaming uses `reqwest::blocking::Response::bytes_stream` via line-delimited JSON; no async runtime needed.)
+- `tokio`, `async-std`, `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize`, `kebab-chunk`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-rag`, `kebab-tui`, `kebab-desktop`. (Streaming uses `reqwest::blocking::Response::bytes_stream` via line-delimited JSON; no async runtime needed.)
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `kb-config::Config.models.llm` | endpoint, model, context, temperature, seed | runtime |
-| `GenerateRequest` | `kb_core::GenerateRequest` | RAG pipeline |
+| `kebab-config::Config.models.llm` | endpoint, model, context, temperature, seed | runtime |
+| `GenerateRequest` | `kebab_core::GenerateRequest` | RAG pipeline |
 | Ollama HTTP server (local) | `http://127.0.0.1:11434` | external process |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| streaming `TokenChunk` iterator | per §7.2 | `kb-rag` |
+| streaming `TokenChunk` iterator | per §7.2 | `kebab-rag` |
 | `ModelRef` | `{ id, provider="ollama", dimensions=None }` | `Answer.model` |
 
 ## Public surface (signatures only — no new types)
@@ -55,14 +55,14 @@ First real LM. Required for `kb ask` to function. Isolated from RAG pipeline so 
 pub struct OllamaLanguageModel { /* internal: reqwest::blocking::Client + config */ }
 
 impl OllamaLanguageModel {
-    pub fn new(config: &kb_config::Config) -> anyhow::Result<Self>;
+    pub fn new(config: &kebab_config::Config) -> anyhow::Result<Self>;
 }
 
-impl kb_core::LanguageModel for OllamaLanguageModel {
-    fn model_ref(&self) -> kb_core::ModelRef;
+impl kebab_core::LanguageModel for OllamaLanguageModel {
+    fn model_ref(&self) -> kebab_core::ModelRef;
     fn context_tokens(&self) -> usize;
-    fn generate_stream(&self, req: kb_core::GenerateRequest)
-        -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<kb_core::TokenChunk>> + Send>>;
+    fn generate_stream(&self, req: kebab_core::GenerateRequest)
+        -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<kebab_core::TokenChunk>> + Send>>;
 }
 ```
 
@@ -93,7 +93,7 @@ impl kb_core::LanguageModel for OllamaLanguageModel {
 - UTF-8 boundary: buffer incomplete byte sequences across stream lines before emitting `TokenChunk::Token`.
 - Determinism: with `temperature=0` and fixed `seed`, Ollama's output is reproducible (modulo nondeterminism in the model itself); tests that verify determinism use a fixed seed and may rely on aggregate hash with tolerance, NOT byte equality.
 - `model_ref().provider = "ollama"`, `dimensions = None`.
-- Reachability check: `OllamaLanguageModel::new` does NOT eagerly hit the network; first failure surfaces on `generate_stream`. Use `kb doctor` (separate task) to probe.
+- Reachability check: `OllamaLanguageModel::new` does NOT eagerly hit the network; first failure surfaces on `generate_stream`. Use `kebab doctor` (separate task) to probe.
 
 ## Storage / wire effects
 
@@ -112,12 +112,12 @@ impl kb_core::LanguageModel for OllamaLanguageModel {
 | determinism | identical request + temperature=0 + seed=0 produces identical token stream against mock | mocked HTTP |
 | `#[ignore]` integration | real Ollama on `localhost:11434` with `qwen2.5:14b-instruct` produces non-empty output | requires user opt-in |
 
-All non-ignored tests under `cargo test -p kb-llm-local`. Real-LM integration runs via `cargo test -p kb-llm-local -- --ignored`.
+All non-ignored tests under `cargo test -p kebab-llm-local`. Real-LM integration runs via `cargo test -p kebab-llm-local -- --ignored`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-llm-local` passes
-- [ ] `cargo test -p kb-llm-local` passes (mocked tests; real LM behind `#[ignore]`)
+- [ ] `cargo check -p kebab-llm-local` passes
+- [ ] `cargo test -p kebab-llm-local` passes (mocked tests; real LM behind `#[ignore]`)
 - [ ] No async runtime present (uses `reqwest::blocking`)
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §11.2, §0 Q5, §10
@@ -125,7 +125,7 @@ All non-ignored tests under `cargo test -p kb-llm-local`. Real-LM integration ru
 ## Out of scope
 
 - llama.cpp / candle adapters (P+).
-- Embedding via Ollama's `/api/embed` endpoint (alternate adapter inside `kb-embed-local` if requested later).
+- Embedding via Ollama's `/api/embed` endpoint (alternate adapter inside `kebab-embed-local` if requested later).
 - Cancellation / abort tokens (P+).
 - Connection pooling tuning (default `reqwest::blocking` is sufficient for single-user CLI).
 

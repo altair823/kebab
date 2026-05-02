@@ -1,12 +1,12 @@
 ---
 phase: P9
-component: kb-tui (inspect pane)
+component: kebab-tui (inspect pane)
 task_id: p9-4
 title: "TUI Inspect pane: document & chunk detail render"
 status: planned
 depends_on: [p1-6, p9-1]
 unblocks: []
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§1 inspect output, §3.5 Chunk, §2.5 DocSummary, §2.6 ChunkInspection]
 ---
 
@@ -22,24 +22,24 @@ Inspect is read-only and has no external interactions; smallest possible pane. U
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-app`
-- `kb-tui` (extends p9-1)
+- `kebab-core`
+- `kebab-config`
+- `kebab-app`
+- `kebab-tui` (extends p9-1)
 - `ratatui`, `crossterm`
 - `tracing`
 - `thiserror`
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-*`, `kb-normalize`, `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag` (only via `kb-app`), `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-*`, `kebab-normalize`, `kebab-chunk`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag` (only via `kebab-app`), `kebab-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `kb-app::inspect_doc(id)` | facade | runtime |
-| `kb-app::inspect_chunk(id)` | facade | runtime |
+| `kebab-app::inspect_doc(id)` | facade | runtime |
+| `kebab-app::inspect_chunk(id)` | facade | runtime |
 | keyboard events | `crossterm` | terminal |
 
 ## Outputs
@@ -51,19 +51,19 @@ Inspect is read-only and has no external interactions; smallest possible pane. U
 ## Public surface (signatures only — no new types)
 
 ```rust
-pub enum InspectTarget { Doc(kb_core::DocumentId), Chunk(kb_core::ChunkId) }
+pub enum InspectTarget { Doc(kebab_core::DocumentId), Chunk(kebab_core::ChunkId) }
 
 pub fn render_inspect<B: ratatui::backend::Backend>(f: &mut ratatui::Frame, area: ratatui::layout::Rect, state: &App);
 pub fn handle_key_inspect(state: &mut App, key: crossterm::event::KeyEvent) -> KeyOutcome;
 ```
 
-This task fills the body of `kb_tui::InspectState` (forward-declared in p9-1). `App` is NOT edited.
+This task fills the body of `kebab_tui::InspectState` (forward-declared in p9-1). `App` is NOT edited.
 
 ```rust
 pub struct InspectState {
     pub target: Option<InspectTarget>,
-    pub doc: Option<kb_core::CanonicalDocument>,
-    pub chunk: Option<kb_core::Chunk>,
+    pub doc: Option<kebab_core::CanonicalDocument>,
+    pub chunk: Option<kebab_core::Chunk>,
     pub collapsed: std::collections::HashSet<&'static str>,
     pub scroll: u16,
 }
@@ -89,7 +89,7 @@ pub struct InspectState {
   - `c` → collapse / expand currently focused section (focus is implicit by current scroll position; v1 may simplify by toggling all sections)
   - `Esc` → return to previous pane (Library or Search)
   - `Enter` → no-op (Inspect is terminal — no editor jump here; users use Search pane for jump)
-- Loading: while `kb-app::inspect_doc` or `inspect_chunk` runs, show "loading…". On error, popup with hint.
+- Loading: while `kebab-app::inspect_doc` or `inspect_chunk` runs, show "loading…". On error, popup with hint.
 - Renders must conform to wire schemas `doc_summary.v1` (subset for header) and `chunk_inspection.v1`.
 
 ## Storage / wire effects
@@ -100,18 +100,18 @@ pub struct InspectState {
 
 | kind | description | fixture / data |
 |------|-------------|----------------|
-| unit | switching to InspectTarget::Doc triggers `kb-app::inspect_doc` once | inline mock |
+| unit | switching to InspectTarget::Doc triggers `kebab-app::inspect_doc` once | inline mock |
 | unit | scroll bounded by content height | inline |
 | unit | collapse toggle via `c` flips state | inline |
 | snapshot | doc-view rendered for fixture stable | TestBackend + fixture |
 | snapshot | chunk-view rendered for fixture stable | TestBackend + fixture |
 
-All tests under `cargo test -p kb-tui inspect`.
+All tests under `cargo test -p kebab-tui inspect`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-tui` passes
-- [ ] `cargo test -p kb-tui inspect` passes
+- [ ] `cargo check -p kebab-tui` passes
+- [ ] `cargo test -p kebab-tui inspect` passes
 - [ ] No imports outside Allowed dependencies
 - [ ] Manual smoke: inspect a doc with multiple chunks, scroll, return to library
 - [ ] PR links design §3.5, §2.5, §2.6

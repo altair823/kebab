@@ -1,12 +1,12 @@
 ---
 phase: P9
-component: kb-tui (library view)
+component: kebab-tui (library view)
 task_id: p9-1
 title: "Ratatui library list view + tag filter"
 status: planned
 depends_on: [p1-6]
 unblocks: [p9-2, p9-3, p9-4]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [report §16.2 TUI (also tasks/phase-9-ui.md epic), design §3.7 SearchHit, design §1 UX scenes for shared key bindings]
 ---
 
@@ -14,7 +14,7 @@ contract_sections: [report §16.2 TUI (also tasks/phase-9-ui.md epic), design §
 
 ## Goal
 
-Stand up a Ratatui app skeleton with a "Library" pane: list documents, filter by tag/lang, navigate. Establishes the global app loop, key dispatch, and `kb-app` integration point that the search/ask/inspect panes (p9-2..p9-4) extend.
+Stand up a Ratatui app skeleton with a "Library" pane: list documents, filter by tag/lang, navigate. Establishes the global app loop, key dispatch, and `kebab-app` integration point that the search/ask/inspect panes (p9-2..p9-4) extend.
 
 ## Why now / why this size
 
@@ -22,9 +22,9 @@ Library is the cheapest screen and the natural anchor for the TUI shell. Subsequ
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-app` (facade — the only crate this binary touches besides `kb-core`/`kb-config`)
+- `kebab-core`
+- `kebab-config`
+- `kebab-app` (facade — the only crate this binary touches besides `kebab-core`/`kebab-config`)
 - `ratatui = "0.28"`
 - `crossterm`
 - `tracing`
@@ -32,15 +32,15 @@ Library is the cheapest screen and the natural anchor for the TUI shell. Subsequ
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-*`, `kb-normalize`, `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag` (UI must go through `kb-app` only — this is the design §8 boundary)
+- `kebab-source-fs`, `kebab-parse-*`, `kebab-normalize`, `kebab-chunk`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag` (UI must go through `kebab-app` only — this is the design §8 boundary)
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `kb-app::list_docs(filter)` | facade call | runtime |
+| `kebab-app::list_docs(filter)` | facade call | runtime |
 | keyboard events | `crossterm` | terminal |
-| `kb-config::Config` | runtime | env / file |
+| `kebab-config::Config` | runtime | env / file |
 
 ## Outputs
 
@@ -57,7 +57,7 @@ Library is the cheapest screen and the natural anchor for the TUI shell. Subsequ
 // state in WITHOUT modifying the App struct definition. This avoids merge
 // conflicts when p9-2/3/4 land in parallel; only p9-1 ever changes `App`.
 pub struct App {
-    pub config: kb_config::Config,
+    pub config: kebab_config::Config,
     pub focus: Pane,
     pub library: LibraryState,             // owned by p9-1
     pub search:  Option<SearchState>,      // populated by p9-2 (None until that crate links in)
@@ -73,7 +73,7 @@ pub struct AskState;          // body filled by p9-3
 pub struct InspectState;      // body filled by p9-4
 
 impl App {
-    pub fn new(config: kb_config::Config) -> anyhow::Result<Self>;
+    pub fn new(config: kebab_config::Config) -> anyhow::Result<Self>;
     pub fn run(&mut self) -> anyhow::Result<()>;     // blocking loop until quit
 }
 
@@ -102,12 +102,12 @@ pub enum KeyOutcome { Continue, Quit, SwitchPane(Pane), Refresh }
   - `Enter` → switch to Inspect pane (p9-4) on selected doc
   - `q` or `Esc` → quit
 - All facade calls run on the main thread (no async). For long calls, render a "loading…" state and call from a worker thread; bridge via `mpsc::channel` (this task may keep things synchronous and accept brief UI hangs for v1).
-- Logging: `tracing` initialized to a file under `~/.local/state/kb/logs/`; never to stdout/stderr (so the TUI is not corrupted).
+- Logging: `tracing` initialized to a file under `~/.local/state/kebab/logs/`; never to stdout/stderr (so the TUI is not corrupted).
 - Error rendering: a popup overlay shows `error: {msg}\nhint: {hint}` from `anyhow::Error` chain; press any key to dismiss.
 
 ## Storage / wire effects
 
-- Reads: `kb-app::list_docs` only.
+- Reads: `kebab-app::list_docs` only.
 - Writes: none.
 
 ## Test plan
@@ -118,16 +118,16 @@ pub enum KeyOutcome { Continue, Quit, SwitchPane(Pane), Refresh }
 | unit | filter `f` opens edit overlay; `Enter` triggers refresh | inline |
 | snapshot | rendered library with 3 docs + filter open produces stable frame buffer (use `ratatui::backend::TestBackend`) | inline |
 | unit | error popup renders without panic on injected `anyhow::Error` | inline |
-| integration | mocked `kb-app::list_docs` returning N docs renders all rows | inline |
+| integration | mocked `kebab-app::list_docs` returning N docs renders all rows | inline |
 
-All tests under `cargo test -p kb-tui library`.
+All tests under `cargo test -p kebab-tui library`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-tui` passes
-- [ ] `cargo test -p kb-tui library` passes
-- [ ] No imports outside `kb-core`, `kb-config`, `kb-app`
-- [ ] `kb tui` (or `kb` if TUI is the default) launches and shows Library on a real terminal (manual smoke)
+- [ ] `cargo check -p kebab-tui` passes
+- [ ] `cargo test -p kebab-tui library` passes
+- [ ] No imports outside `kebab-core`, `kebab-config`, `kebab-app`
+- [ ] `kebab tui` (or `kebab` if TUI is the default) launches and shows Library on a real terminal (manual smoke)
 - [ ] PR links design §8 module boundary, report §16.2 (TUI epic)
 
 ## Out of scope

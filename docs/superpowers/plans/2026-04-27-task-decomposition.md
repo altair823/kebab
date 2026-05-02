@@ -8,11 +8,11 @@
 - Phase A — Author the canonical task spec template (`tasks/_template.md`).
 - Phase B — Decompose P1 (Markdown ingestion) into 6 component task specs to validate the template.
 - Phase C — After Phase B passes review, decompose P0 + P2..P9 into the remaining ~24 task specs in one pass.
-- Each task spec cites only the frozen design doc (`docs/superpowers/specs/2026-04-27-kb-final-form-design.md`) for types, traits, schema, layout. No new domain types or traits are introduced inside task specs.
+- Each task spec cites only the frozen design doc (`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`) for types, traits, schema, layout. No new domain types or traits are introduced inside task specs.
 
 **Tech Stack:** Plain Markdown documents under `tasks/`. No code changes in this plan — produces specs that AI sub-agents will later implement against.
 
-**Frozen contract source:** [docs/superpowers/specs/2026-04-27-kb-final-form-design.md](../specs/2026-04-27-kb-final-form-design.md). All task specs reference this. Modifications to the contract require updating that file first, then re-checking dependent task specs.
+**Frozen contract source:** [docs/superpowers/specs/2026-04-27-kebab-final-form-design.md](../specs/2026-04-27-kebab-final-form-design.md). All task specs reference this. Modifications to the contract require updating that file first, then re-checking dependent task specs.
 
 **Phase task index (target file layout):**
 
@@ -83,7 +83,7 @@ Existing per-phase epic files (`tasks/phase-0-skeleton.md` … `phase-9-ui.md`) 
 - [ ] **Step 1: Verify the design doc path resolves**
 
 ```bash
-test -f docs/superpowers/specs/2026-04-27-kb-final-form-design.md && echo OK
+test -f docs/superpowers/specs/2026-04-27-kebab-final-form-design.md && echo OK
 ```
 
 Expected: `OK`
@@ -101,7 +101,7 @@ title: "<Component title>"
 status: planned
 depends_on: []                            # other task_ids
 unblocks: []                              # other task_ids
-contract_source: ../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: []                     # e.g. [§3.5, §5.5, §7.2]
 ---
 
@@ -117,7 +117,7 @@ contract_sections: []                     # e.g. [§3.5, §5.5, §7.2]
 
 ## Allowed dependencies
 
-- `kb-core`
+- `kebab-core`
 - <other crates per design §8>
 - <external crates with versions>
 
@@ -166,7 +166,7 @@ If any item here is needed during implementation, STOP and update the frozen des
 | unit | ...         | ...            |
 | snapshot | ... (JSON freeze) | `fixtures/...` |
 | contract | trait round-trip | mock impls |
-| integration | end-to-end via `kb-app` facade | tmp workspace |
+| integration | end-to-end via `kebab-app` facade | tmp workspace |
 
 All tests must run under `cargo test -p <crate>` and not require external network or Ollama unless explicitly stated.
 
@@ -247,7 +247,7 @@ git add tasks/p1 tasks/INDEX.md
 git commit -m "tasks: prepare P1 component decomposition skeleton"
 ```
 
-### Task B1: `p1-1-source-fs.md` (kb-source-fs)
+### Task B1: `p1-1-source-fs.md` (kebab-source-fs)
 
 **Files:**
 - Create: `tasks/p1/p1-1-source-fs.md`
@@ -259,13 +259,13 @@ Write the following content to `tasks/p1/p1-1-source-fs.md`:
 ````markdown
 ---
 phase: P1
-component: kb-source-fs
+component: kebab-source-fs
 task_id: p1-1
 title: "Local filesystem source connector"
 status: planned
 depends_on: [p0-1]
 unblocks: [p1-2, p1-3, p1-4, p1-5, p1-6]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.3, §6.2, §6.6, §7.1, §7.2 SourceConnector, §8]
 ---
 
@@ -281,8 +281,8 @@ Walk the workspace root, apply gitignore-style filters, compute BLAKE3 checksums
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
+- `kebab-core`
+- `kebab-config`
 - `ignore` (gitignore semantics)
 - `blake3`
 - `walkdir`
@@ -293,21 +293,21 @@ Walk the workspace root, apply gitignore-style filters, compute BLAKE3 checksums
 
 ## Forbidden dependencies
 
-- `kb-parse-*`, `kb-normalize`, `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+- `kebab-parse-*`, `kebab-normalize`, `kebab-chunk`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `SourceScope` | `kb_core::SourceScope` | `kb-app` from config |
+| `SourceScope` | `kebab_core::SourceScope` | `kebab-app` from config |
 | filesystem | `&Path` | OS |
-| `.kbignore` | text file | workspace root, optional |
+| `.kebabignore` | text file | workspace root, optional |
 
 ## Outputs
 
 | output | type | downstream consumer |
 |--------|------|---------------------|
-| `Vec<RawAsset>` | `kb_core::RawAsset` | `kb-parse-md`, asset writer in `kb-store-sqlite` (via `kb-app`) |
+| `Vec<RawAsset>` | `kebab_core::RawAsset` | `kebab-parse-md`, asset writer in `kebab-store-sqlite` (via `kebab-app`) |
 
 ## Public surface (signatures only — no new types)
 
@@ -315,11 +315,11 @@ Walk the workspace root, apply gitignore-style filters, compute BLAKE3 checksums
 pub struct FsSourceConnector { /* internal */ }
 
 impl FsSourceConnector {
-    pub fn new(config: &kb_config::Config) -> anyhow::Result<Self>;
+    pub fn new(config: &kebab_config::Config) -> anyhow::Result<Self>;
 }
 
-impl kb_core::SourceConnector for FsSourceConnector {
-    fn scan(&self, scope: &kb_core::SourceScope) -> anyhow::Result<Vec<kb_core::RawAsset>>;
+impl kebab_core::SourceConnector for FsSourceConnector {
+    fn scan(&self, scope: &kebab_core::SourceScope) -> anyhow::Result<Vec<kebab_core::RawAsset>>;
 }
 ```
 
@@ -329,7 +329,7 @@ impl kb_core::SourceConnector for FsSourceConnector {
 - `asset_id` derived per design §4.2 from `blake3(raw bytes)` full hex.
 - `media_type` selected from extension + libmagic-like sniff fallback (`.md` → Markdown, others fall through to `MediaType::Other`).
 - `discovered_at` = current `OffsetDateTime::now_utc()` at scan time.
-- Combine `config.workspace.exclude` ∪ `.kbignore` for filter (union; ordering does not matter).
+- Combine `config.workspace.exclude` ∪ `.kebabignore` for filter (union; ordering does not matter).
 - Symbolic links: follow once, detect cycles via `canonicalize` + visited set.
 - Files larger than `storage.copy_threshold_mb` MB → emit `AssetStorage::Reference { path, sha }` (do not copy bytes here; copying is done by the asset writer task).
 - Idempotent: same input → same `Vec<RawAsset>` (sort by `workspace_path`).
@@ -337,7 +337,7 @@ impl kb_core::SourceConnector for FsSourceConnector {
 ## Storage / wire effects
 
 - Reads: filesystem under `config.workspace.root`.
-- Writes: nothing. (Asset copy is handled by the asset writer in `kb-store-sqlite`.)
+- Writes: nothing. (Asset copy is handled by the asset writer in `kebab-store-sqlite`.)
 
 ## Test plan
 
@@ -346,25 +346,25 @@ impl kb_core::SourceConnector for FsSourceConnector {
 | unit | POSIX path normalization | inline cases incl. `./a/b.md`, `a//b.md`, `a/b.md` → identical |
 | unit | blake3 of known bytes matches expected hex | inline |
 | unit | gitignore filter (`*.tmp`, `node_modules/**`) excludes correctly | tmp tree built in test |
-| unit | `.kbignore` ∪ config exclude works | tmp tree |
+| unit | `.kebabignore` ∪ config exclude works | tmp tree |
 | unit | symlink cycle does not loop | tmp tree with `a -> b -> a` |
 | snapshot | `Vec<RawAsset>` serialized JSON for fixture tree is stable | `fixtures/source-fs/tree-1` |
 | determinism | re-running scan twice produces byte-identical JSON | `fixtures/source-fs/tree-1` |
 
-All tests run under `cargo test -p kb-source-fs` with no network and no model.
+All tests run under `cargo test -p kebab-source-fs` with no network and no model.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-source-fs` passes
-- [ ] `cargo test -p kb-source-fs` passes
+- [ ] `cargo check -p kebab-source-fs` passes
+- [ ] `cargo test -p kebab-source-fs` passes
 - [ ] Snapshot test `fixtures/source-fs/tree-1` round-trips deterministically
-- [ ] No imports outside Allowed dependencies (verified via `cargo tree -p kb-source-fs`)
+- [ ] No imports outside Allowed dependencies (verified via `cargo tree -p kebab-source-fs`)
 - [ ] PR description links to design §3.3, §6.2, §7.2
 
 ## Out of scope
 
 - File watching (P+).
-- Asset copy/reference storage on disk (`kb-store-sqlite` task p1-6).
+- Asset copy/reference storage on disk (`kebab-store-sqlite` task p1-6).
 - Non-fs source connectors (HTTP, S3 — P+).
 
 ## Risks / notes
@@ -400,13 +400,13 @@ Write to `tasks/p1/p1-2-parse-md-frontmatter.md`:
 ````markdown
 ---
 phase: P1
-component: kb-parse-md (frontmatter submodule)
+component: kebab-parse-md (frontmatter submodule)
 task_id: p1-2
 title: "Markdown frontmatter parsing → Metadata"
 status: planned
 depends_on: [p0-1]
 unblocks: [p1-4]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.6 Metadata, §0 Q9 frontmatter, §10 errors]
 ---
 
@@ -414,15 +414,15 @@ contract_sections: [§3.6 Metadata, §0 Q9 frontmatter, §10 errors]
 
 ## Goal
 
-Parse YAML/TOML frontmatter from Markdown bytes into `kb_core::Metadata`, with auto-derive defaults and unknown-key preservation in `metadata.user`.
+Parse YAML/TOML frontmatter from Markdown bytes into `kebab_core::Metadata`, with auto-derive defaults and unknown-key preservation in `metadata.user`.
 
 ## Why now / why this size
 
-Frontmatter is small but contractually load-bearing (Q9 spec). Isolating it from block parsing keeps both halves of `kb-parse-md` simple and lets us reach 100% test coverage on the rules in design §0 Q9.
+Frontmatter is small but contractually load-bearing (Q9 spec). Isolating it from block parsing keeps both halves of `kebab-parse-md` simple and lets us reach 100% test coverage on the rules in design §0 Q9.
 
 ## Allowed dependencies
 
-- `kb-core`
+- `kebab-core`
 - `serde`
 - `serde_yaml` (or `yaml-rust2`) for YAML
 - `toml` for TOML
@@ -432,7 +432,7 @@ Frontmatter is small but contractually load-bearing (Q9 spec). Isolating it from
 
 ## Forbidden dependencies
 
-- `kb-store-*`, `kb-llm*`, `kb-rag`, `kb-embed*`, `kb-search`, `kb-tui`, `kb-desktop`, `kb-source-fs`, `kb-chunk`, `kb-normalize`, `pulldown-cmark` (block parser is a sibling task)
+- `kebab-store-*`, `kebab-llm*`, `kebab-rag`, `kebab-embed*`, `kebab-search`, `kebab-tui`, `kebab-desktop`, `kebab-source-fs`, `kebab-chunk`, `kebab-normalize`, `pulldown-cmark` (block parser is a sibling task)
 
 ## Inputs
 
@@ -445,7 +445,7 @@ Frontmatter is small but contractually load-bearing (Q9 spec). Isolating it from
 
 | output | type | downstream |
 |--------|------|------------|
-| `(Metadata, Option<FrontmatterSpan>, Vec<Warning>)` | tuple | `kb-normalize` → CanonicalDocument |
+| `(Metadata, Option<FrontmatterSpan>, Vec<Warning>)` | tuple | `kebab-normalize` → CanonicalDocument |
 
 ## Public surface (signatures only — no new types)
 
@@ -453,7 +453,7 @@ Frontmatter is small but contractually load-bearing (Q9 spec). Isolating it from
 pub fn parse_frontmatter(
     bytes: &[u8],
     hints: &BodyHints,
-) -> anyhow::Result<(kb_core::Metadata, Option<FrontmatterSpan>, Vec<Warning>)>;
+) -> anyhow::Result<(kebab_core::Metadata, Option<FrontmatterSpan>, Vec<Warning>)>;
 ```
 
 `FrontmatterSpan` and `Warning` are crate-internal helpers; if any new public type is needed, STOP and update the frozen design doc first.
@@ -490,12 +490,12 @@ pub fn parse_frontmatter(
 | snapshot | `fixtures/markdown/frontmatter-only.md` produces stable JSON | fixture |
 | snapshot | mixed-language body with no `lang:` detects `ko` or `en` | `fixtures/markdown/mixed-lang.md` |
 
-All tests under `cargo test -p kb-parse-md --lib frontmatter`.
+All tests under `cargo test -p kebab-parse-md --lib frontmatter`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-parse-md` passes
-- [ ] `cargo test -p kb-parse-md frontmatter` passes
+- [ ] `cargo check -p kebab-parse-md` passes
+- [ ] `cargo test -p kebab-parse-md frontmatter` passes
 - [ ] No `pulldown-cmark` import in this submodule
 - [ ] Snapshot tests stable across two consecutive runs
 - [ ] PR links design §0 Q9, §3.6
@@ -534,13 +534,13 @@ Write to `tasks/p1/p1-3-parse-md-blocks.md`:
 ````markdown
 ---
 phase: P1
-component: kb-parse-md (blocks submodule)
+component: kebab-parse-md (blocks submodule)
 task_id: p1-3
 title: "Markdown body → Block tree with line spans"
 status: planned
 depends_on: [p0-1]
 unblocks: [p1-4]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.4 Block, §3.4 SourceSpan, §0 Q3 citation]
 ---
 
@@ -548,7 +548,7 @@ contract_sections: [§3.4 Block, §3.4 SourceSpan, §0 Q3 citation]
 
 ## Goal
 
-Parse Markdown body bytes into a flat `Vec<ParsedBlock>` (intermediate, crate-private) with heading paths and line ranges preserved, ready for `kb-normalize` to lift into `CanonicalDocument`.
+Parse Markdown body bytes into a flat `Vec<ParsedBlock>` (intermediate, crate-private) with heading paths and line ranges preserved, ready for `kebab-normalize` to lift into `CanonicalDocument`.
 
 ## Why now / why this size
 
@@ -556,14 +556,14 @@ This is the heaviest part of P1 parser. Separating it from frontmatter and from 
 
 ## Allowed dependencies
 
-- `kb-core`
+- `kebab-core`
 - `pulldown-cmark` (CommonMark with source-map; GFM tables enabled via feature)
 - `serde`
 - `thiserror`
 
 ## Forbidden dependencies
 
-- `kb-store-*`, `kb-llm*`, `kb-rag`, `kb-embed*`, `kb-search`, `kb-source-fs`, `kb-chunk`, `kb-normalize`, `kb-tui`, `kb-desktop`, `comrak` (alternative parser; pick one)
+- `kebab-store-*`, `kebab-llm*`, `kebab-rag`, `kebab-embed*`, `kebab-search`, `kebab-source-fs`, `kebab-chunk`, `kebab-normalize`, `kebab-tui`, `kebab-desktop`, `comrak` (alternative parser; pick one)
 
 ## Inputs
 
@@ -576,7 +576,7 @@ This is the heaviest part of P1 parser. Separating it from frontmatter and from 
 
 | output | type | downstream |
 |--------|------|------------|
-| `Vec<ParsedBlock>` (intermediate type, crate-private) | – | `kb-normalize` |
+| `Vec<ParsedBlock>` (intermediate type, crate-private) | – | `kebab-normalize` |
 | `Vec<Warning>` | – | propagated into Provenance |
 
 ## Public surface (signatures only — no new types)
@@ -585,7 +585,7 @@ This is the heaviest part of P1 parser. Separating it from frontmatter and from 
 pub fn parse_blocks(body: &[u8], body_offset_lines: u32) -> anyhow::Result<(Vec<ParsedBlock>, Vec<Warning>)>;
 ```
 
-`ParsedBlock` is a crate-internal mirror that maps 1:1 to `kb_core::Block` variants once `kb-normalize` assigns `BlockId`s.
+`ParsedBlock` is a crate-internal mirror that maps 1:1 to `kebab_core::Block` variants once `kebab-normalize` assigns `BlockId`s.
 
 ## Behavior contract
 
@@ -593,7 +593,7 @@ pub fn parse_blocks(body: &[u8], body_offset_lines: u32) -> anyhow::Result<(Vec<
 - Heading tree: every block records its ancestor heading texts in order (e.g., `["아키텍처", "Chunking 정책"]`).
 - Code blocks: language tag preserved (` ```rust ` → `Some("rust")`), fenced content not split.
 - Tables: GFM tables produce `TableBlock` with header row + body rows; if a table cell is malformed, fall back to a `Paragraph` block + warning.
-- Image references: `![alt](src)` produces `ImageRefBlock` with `asset_id = None`, `src = "..."`, `alt = "..."`. Resolution to `AssetId` happens later in `kb-normalize`.
+- Image references: `![alt](src)` produces `ImageRefBlock` with `asset_id = None`, `src = "..."`, `alt = "..."`. Resolution to `AssetId` happens later in `kebab-normalize`.
 - Lists: ordered/unordered preserved; nested list items flattened into one `ListBlock` with each top-level item's text.
 - Inline elements: only `Text`, `Code`, `Link`, `Strong`, `Emph` (per design §3.4). Drop other inlines silently.
 - Malformed input never panics. Worst case: empty `Vec<ParsedBlock>` + warning.
@@ -616,12 +616,12 @@ pub fn parse_blocks(body: &[u8], body_offset_lines: u32) -> anyhow::Result<(Vec<
 | snapshot | `fixtures/markdown/nested-headings.md` → ParsedBlock JSON stable | fixture |
 | snapshot | `fixtures/markdown/code-and-table.md` → JSON stable | fixture |
 
-All tests under `cargo test -p kb-parse-md --lib blocks`.
+All tests under `cargo test -p kebab-parse-md --lib blocks`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-parse-md` passes
-- [ ] `cargo test -p kb-parse-md blocks` passes
+- [ ] `cargo check -p kebab-parse-md` passes
+- [ ] `cargo test -p kebab-parse-md blocks` passes
 - [ ] Snapshot tests stable across two runs
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §3.4
@@ -629,7 +629,7 @@ All tests under `cargo test -p kb-parse-md --lib blocks`.
 ## Out of scope
 
 - Frontmatter (p1-2).
-- Lifting `ParsedBlock` → `kb_core::Block` with `BlockId` (p1-4).
+- Lifting `ParsedBlock` → `kebab_core::Block` with `BlockId` (p1-4).
 - Chunking (p1-5).
 
 ## Risks / notes
@@ -658,13 +658,13 @@ Write to `tasks/p1/p1-4-normalize.md`:
 ````markdown
 ---
 phase: P1
-component: kb-normalize
+component: kebab-normalize
 task_id: p1-4
 title: "Lift parser output → CanonicalDocument with deterministic IDs"
 status: planned
 depends_on: [p1-2, p1-3]
 unblocks: [p1-5, p1-6]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.4, §4 ID recipe, §3.6 Provenance]
 ---
 
@@ -676,12 +676,12 @@ Combine `Metadata` (p1-2) + `Vec<ParsedBlock>` (p1-3) + `RawAsset` (p1-1) into a
 
 ## Why now / why this size
 
-Single responsibility: ID generation + struct assembly. Keeps `kb-parse-md` purely a parser and isolates the (security-critical) deterministic ID logic in one crate.
+Single responsibility: ID generation + struct assembly. Keeps `kebab-parse-md` purely a parser and isolates the (security-critical) deterministic ID logic in one crate.
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
+- `kebab-core`
+- `kebab-config`
 - `serde`
 - `serde-json-canonicalizer` (canonical JSON for ID hashing)
 - `blake3`
@@ -691,38 +691,38 @@ Single responsibility: ID generation + struct assembly. Keeps `kb-parse-md` pure
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md` (consumed via plain types only — must not couple back), `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-md` (consumed via plain types only — must not couple back), `kebab-chunk`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`
 
-Note: this crate accepts `ParsedBlock` from `kb-parse-md` either by (a) exposing `ParsedBlock` as a `kb-core` type, or (b) `kb-parse-md` re-exporting via a public DTO. Pick (a): move `ParsedBlock` into `kb-core` so this task does not import `kb-parse-md`.
+Note: this crate accepts `ParsedBlock` from `kebab-parse-md` either by (a) exposing `ParsedBlock` as a `kebab-core` type, or (b) `kebab-parse-md` re-exporting via a public DTO. Pick (a): move `ParsedBlock` into `kebab-core` so this task does not import `kebab-parse-md`.
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `RawAsset` | `kb_core::RawAsset` | p1-1 |
+| `RawAsset` | `kebab_core::RawAsset` | p1-1 |
 | `Metadata` + frontmatter span + warnings | from p1-2 | parser caller |
 | `Vec<ParsedBlock>` + warnings | from p1-3 | parser caller |
-| `parser_version` | `kb_core::ParserVersion` | constant in `kb-parse-md` |
+| `parser_version` | `kebab_core::ParserVersion` | constant in `kebab-parse-md` |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `CanonicalDocument` | `kb_core::CanonicalDocument` | `kb-chunk`, `kb-store-sqlite` |
+| `CanonicalDocument` | `kebab_core::CanonicalDocument` | `kebab-chunk`, `kebab-store-sqlite` |
 
 ## Public surface (signatures only — no new types)
 
 ```rust
 pub fn build_canonical_document(
-    asset: &kb_core::RawAsset,
-    metadata: kb_core::Metadata,
-    blocks: Vec<kb_core::ParsedBlock>,
-    parser_version: &kb_core::ParserVersion,
+    asset: &kebab_core::RawAsset,
+    metadata: kebab_core::Metadata,
+    blocks: Vec<kebab_core::ParsedBlock>,
+    parser_version: &kebab_core::ParserVersion,
     warnings: Vec<Warning>,
-) -> anyhow::Result<kb_core::CanonicalDocument>;
+) -> anyhow::Result<kebab_core::CanonicalDocument>;
 
-pub fn id_for_doc(workspace_path: &kb_core::WorkspacePath, asset: &kb_core::AssetId, parser_version: &kb_core::ParserVersion) -> kb_core::DocumentId;
-pub fn id_for_block(doc: &kb_core::DocumentId, kind: &str, heading_path: &[String], ordinal: u32, span: &kb_core::SourceSpan) -> kb_core::BlockId;
+pub fn id_for_doc(workspace_path: &kebab_core::WorkspacePath, asset: &kebab_core::AssetId, parser_version: &kebab_core::ParserVersion) -> kebab_core::DocumentId;
+pub fn id_for_block(doc: &kebab_core::DocumentId, kind: &str, heading_path: &[String], ordinal: u32, span: &kebab_core::SourceSpan) -> kebab_core::BlockId;
 ```
 
 ## Behavior contract
@@ -750,14 +750,14 @@ pub fn id_for_block(doc: &kb_core::DocumentId, kind: &str, heading_path: &[Strin
 | unit | provenance contains Discovered/Parsed/Normalized in order | inline |
 | snapshot | `fixtures/markdown/code-and-table.md` → CanonicalDocument JSON stable (incl. all IDs) | fixture |
 
-All tests under `cargo test -p kb-normalize`.
+All tests under `cargo test -p kebab-normalize`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-normalize` passes
-- [ ] `cargo test -p kb-normalize` passes
+- [ ] `cargo check -p kebab-normalize` passes
+- [ ] `cargo test -p kebab-normalize` passes
 - [ ] Determinism test runs ≥ 1000 iterations under 1 second
-- [ ] No `kb-parse-md` import (consumed via `kb-core::ParsedBlock`)
+- [ ] No `kebab-parse-md` import (consumed via `kebab-core::ParsedBlock`)
 - [ ] PR links design §4.2, §4.3
 
 ## Out of scope
@@ -791,13 +791,13 @@ Write to `tasks/p1/p1-5-chunk.md`:
 ````markdown
 ---
 phase: P1
-component: kb-chunk
+component: kebab-chunk
 task_id: p1-5
 title: "Markdown heading-aware chunker (md-heading-v1)"
 status: planned
 depends_on: [p1-4]
 unblocks: [p1-6, p2-2, p3-2]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.5 Chunk, §4.2 chunk_id recipe, §7.2 Chunker, §0 Q3 citation]
 ---
 
@@ -813,8 +813,8 @@ The first concrete `Chunker`. Establishes how subsequent chunkers (PDF page chun
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
+- `kebab-core`
+- `kebab-config`
 - `serde`
 - `blake3` (policy_hash)
 - `serde-json-canonicalizer`
@@ -822,30 +822,30 @@ The first concrete `Chunker`. Establishes how subsequent chunkers (PDF page chun
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-normalize` (consumes `CanonicalDocument` only via `kb-core`), `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize` (consumes `CanonicalDocument` only via `kebab-core`), `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `CanonicalDocument` | `kb_core::CanonicalDocument` | p1-4 |
-| `ChunkPolicy` | `kb_core::ChunkPolicy` | `kb-app` from config |
+| `CanonicalDocument` | `kebab_core::CanonicalDocument` | p1-4 |
+| `ChunkPolicy` | `kebab_core::ChunkPolicy` | `kebab-app` from config |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `Vec<Chunk>` | `kb_core::Chunk` | `kb-store-sqlite` (p1-6), `kb-embed*` (P3) |
+| `Vec<Chunk>` | `kebab_core::Chunk` | `kebab-store-sqlite` (p1-6), `kebab-embed*` (P3) |
 
 ## Public surface (signatures only — no new types)
 
 ```rust
 pub struct MdHeadingV1Chunker;
 
-impl kb_core::Chunker for MdHeadingV1Chunker {
-    fn chunker_version(&self) -> kb_core::ChunkerVersion;
-    fn policy_hash(&self, policy: &kb_core::ChunkPolicy) -> String;
-    fn chunk(&self, doc: &kb_core::CanonicalDocument, policy: &kb_core::ChunkPolicy) -> anyhow::Result<Vec<kb_core::Chunk>>;
+impl kebab_core::Chunker for MdHeadingV1Chunker {
+    fn chunker_version(&self) -> kebab_core::ChunkerVersion;
+    fn policy_hash(&self, policy: &kebab_core::ChunkPolicy) -> String;
+    fn chunk(&self, doc: &kebab_core::CanonicalDocument, policy: &kebab_core::ChunkPolicy) -> anyhow::Result<Vec<kebab_core::Chunk>>;
 }
 ```
 
@@ -882,12 +882,12 @@ impl kb_core::Chunker for MdHeadingV1Chunker {
 | determinism | identical input + identical policy → identical chunk_ids | inline |
 | snapshot | `fixtures/markdown/long-section.md` → Vec<Chunk> JSON stable | fixture |
 
-All tests under `cargo test -p kb-chunk`.
+All tests under `cargo test -p kebab-chunk`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-chunk` passes
-- [ ] `cargo test -p kb-chunk` passes
+- [ ] `cargo check -p kebab-chunk` passes
+- [ ] `cargo test -p kebab-chunk` passes
 - [ ] Snapshot stable across two runs
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §3.5, §4.2
@@ -924,13 +924,13 @@ Write to `tasks/p1/p1-6-store-sqlite.md`:
 ````markdown
 ---
 phase: P1
-component: kb-store-sqlite (P1 subset)
+component: kebab-store-sqlite (P1 subset)
 task_id: p1-6
 title: "SQLite store: assets/documents/blocks/chunks + asset writer + migrations"
 status: planned
 depends_on: [p1-1, p1-4, p1-5]
 unblocks: [p2-1, p3-3, p4-3]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§5 DDL (5.1, 5.2, 5.3, 5.4, 5.5 chunks only — FTS handled in p2-1), §5.7 jobs/ingest_runs, §5.8 transactions, §6.3 data_dir layout]
 ---
 
@@ -946,8 +946,8 @@ P1's terminal task. Closes the loop `walk → parse → chunk → store`. The FT
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
+- `kebab-core`
+- `kebab-config`
 - `rusqlite` (with `bundled-sqlcipher` disabled; use `bundled` feature)
 - `refinery` for migrations
 - `serde_json`
@@ -958,7 +958,7 @@ P1's terminal task. Closes the loop `walk → parse → chunk → store`. The FT
 
 ## Forbidden dependencies
 
-- `kb-source-fs` (only types via `kb-core`), `kb-parse-md`, `kb-normalize`, `kb-chunk` (only types via `kb-core`), `kb-store-vector`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+- `kebab-source-fs` (only types via `kebab-core`), `kebab-parse-md`, `kebab-normalize`, `kebab-chunk` (only types via `kebab-core`), `kebab-store-vector`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
@@ -966,17 +966,17 @@ P1's terminal task. Closes the loop `walk → parse → chunk → store`. The FT
 |-------|------|--------|
 | migrations | `migrations/V001__init.sql` | repo |
 | `RawAsset` + bytes | `(RawAsset, Vec<u8>)` | p1-1 + reader |
-| `CanonicalDocument` | `kb_core::CanonicalDocument` | p1-4 |
-| `Vec<Chunk>` | `kb_core::Chunk` | p1-5 |
-| `IngestRun` aggregates | `(scope, counts, duration)` | `kb-app` |
+| `CanonicalDocument` | `kebab_core::CanonicalDocument` | p1-4 |
+| `Vec<Chunk>` | `kebab_core::Chunk` | p1-5 |
+| `IngestRun` aggregates | `(scope, counts, duration)` | `kebab-app` |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `data_dir/kb.sqlite` rows in `assets`, `documents`, `blocks`, `chunks`, `document_tags`, `ingest_runs`, `jobs`, `schema_meta`, `migrations` | – | every later phase |
+| `data_dir/kebab.sqlite` rows in `assets`, `documents`, `blocks`, `chunks`, `document_tags`, `ingest_runs`, `jobs`, `schema_meta`, `migrations` | – | every later phase |
 | `data_dir/assets/<aa>/<asset_id>` bytes (when copied) | – | future re-extraction, integrity verification |
-| `IngestReport` (wire schema v1) | `kb_core::IngestReport` | `kb-cli`, eval |
+| `IngestReport` (wire schema v1) | `kebab_core::IngestReport` | `kebab-cli`, eval |
 
 ## Public surface (signatures only — no new types)
 
@@ -984,23 +984,23 @@ P1's terminal task. Closes the loop `walk → parse → chunk → store`. The FT
 pub struct SqliteStore { /* internal */ }
 
 impl SqliteStore {
-    pub fn open(config: &kb_config::Config) -> anyhow::Result<Self>;
+    pub fn open(config: &kebab_config::Config) -> anyhow::Result<Self>;
     pub fn run_migrations(&self) -> anyhow::Result<()>;
 
-    pub fn put_asset_with_bytes(&self, asset: &kb_core::RawAsset, bytes: &[u8]) -> anyhow::Result<()>;
+    pub fn put_asset_with_bytes(&self, asset: &kebab_core::RawAsset, bytes: &[u8]) -> anyhow::Result<()>;
 }
 
-impl kb_core::DocumentStore for SqliteStore {
-    fn put_asset(&self, a: &kb_core::RawAsset) -> anyhow::Result<()>;
-    fn put_document(&self, d: &kb_core::CanonicalDocument) -> anyhow::Result<()>;
-    fn put_blocks(&self, doc: &kb_core::DocumentId, blocks: &[kb_core::Block]) -> anyhow::Result<()>;
-    fn put_chunks(&self, doc: &kb_core::DocumentId, chunks: &[kb_core::Chunk]) -> anyhow::Result<()>;
-    fn get_document(&self, id: &kb_core::DocumentId) -> anyhow::Result<Option<kb_core::CanonicalDocument>>;
-    fn get_chunk(&self, id: &kb_core::ChunkId) -> anyhow::Result<Option<kb_core::Chunk>>;
-    fn list_documents(&self, filter: &kb_core::DocFilter) -> anyhow::Result<Vec<kb_core::DocSummary>>;
+impl kebab_core::DocumentStore for SqliteStore {
+    fn put_asset(&self, a: &kebab_core::RawAsset) -> anyhow::Result<()>;
+    fn put_document(&self, d: &kebab_core::CanonicalDocument) -> anyhow::Result<()>;
+    fn put_blocks(&self, doc: &kebab_core::DocumentId, blocks: &[kebab_core::Block]) -> anyhow::Result<()>;
+    fn put_chunks(&self, doc: &kebab_core::DocumentId, chunks: &[kebab_core::Chunk]) -> anyhow::Result<()>;
+    fn get_document(&self, id: &kebab_core::DocumentId) -> anyhow::Result<Option<kebab_core::CanonicalDocument>>;
+    fn get_chunk(&self, id: &kebab_core::ChunkId) -> anyhow::Result<Option<kebab_core::Chunk>>;
+    fn list_documents(&self, filter: &kebab_core::DocFilter) -> anyhow::Result<Vec<kebab_core::DocSummary>>;
 }
 
-impl kb_core::JobRepo for SqliteStore { /* per design §7.2 signatures */ }
+impl kebab_core::JobRepo for SqliteStore { /* per design §7.2 signatures */ }
 ```
 
 ## Behavior contract
@@ -1020,7 +1020,7 @@ impl kb_core::JobRepo for SqliteStore { /* per design §7.2 signatures */ }
 
 ## Storage / wire effects
 
-- Writes: `kb.sqlite` (multiple tables), `data_dir/assets/<aa>/<asset_id>` (copied case).
+- Writes: `kebab.sqlite` (multiple tables), `data_dir/assets/<aa>/<asset_id>` (copied case).
 - Reads on subsequent calls: same DB.
 
 ## Test plan
@@ -1036,14 +1036,14 @@ impl kb_core::JobRepo for SqliteStore { /* per design §7.2 signatures */ }
 | contract | DocumentStore trait round-trip for fixture document | `fixtures/markdown/code-and-table.md` |
 | snapshot | IngestReport JSON for fixture run | fixture |
 
-All tests under `cargo test -p kb-store-sqlite` with no network.
+All tests under `cargo test -p kebab-store-sqlite` with no network.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-store-sqlite` passes
-- [ ] `cargo test -p kb-store-sqlite` passes
+- [ ] `cargo check -p kebab-store-sqlite` passes
+- [ ] `cargo test -p kebab-store-sqlite` passes
 - [ ] migration `V001__init.sql` matches design §5 verbatim (diff-checked in CI)
-- [ ] Writes to `~/.local/share/kb/` are gated by `kb-config`'s `data_dir` and never escape it
+- [ ] Writes to `~/.local/share/kebab/` are gated by `kebab-config`'s `data_dir` and never escape it
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §5
 
@@ -1056,7 +1056,7 @@ All tests under `cargo test -p kb-store-sqlite` with no network.
 
 ## Risks / notes
 
-- WAL mode requires careful test cleanup: tests must drop the connection before removing `kb.sqlite-wal` / `-shm`.
+- WAL mode requires careful test cleanup: tests must drop the connection before removing `kebab.sqlite-wal` / `-shm`.
 - Asset directory shard prefix uses `asset_id[..2]`; using `asset_id[..1]` would create at most 16 dirs (insufficient).
 ````
 
@@ -1074,7 +1074,7 @@ git commit -m "tasks: add p1-6 store-sqlite component spec"
 
 ```bash
 ls tasks/p1/ | sort
-for f in tasks/p1/p1-*.md; do grep -q '2026-04-27-kb-final-form-design.md' "$f" || echo "MISSING REF in $f"; done
+for f in tasks/p1/p1-*.md; do grep -q '2026-04-27-kebab-final-form-design.md' "$f" || echo "MISSING REF in $f"; done
 echo done
 ```
 
@@ -1106,9 +1106,9 @@ For each component task below, the steps are: (1) write file, (2) verify, (3) co
 
 **Files:** Create: `tasks/p0/p0-1-skeleton.md`. Also `mkdir -p tasks/p0`.
 
-`contract_sections`: §3 (all subsections), §4, §5 (migrations meta only), §6, §7, §8, §10. `Allowed`: workspace + `kb-core` + `kb-config` + `kb-app` + `kb-cli` only.
+`contract_sections`: §3 (all subsections), §4, §5 (migrations meta only), §6, §7, §8, §10. `Allowed`: workspace + `kebab-core` + `kebab-config` + `kebab-app` + `kebab-cli` only.
 
-Body covers: workspace `Cargo.toml` resolver=3, edition 2024, member list (`kb-core`, `kb-config`, `kb-app`, `kb-cli`), workspace dependencies, `kb-core` types and traits per design §3 / §7, deterministic ID functions per §4 (with full unit tests), `kb-config` loader (TOML + env + CLI override per §6.4), `kb-app` facade signatures (`ingest`, `search`, `ask`, `inspect_doc`, `inspect_chunk`, `doctor`, `init`), `kb-cli` skeleton with clap + `--help`. DoD: `cargo check --workspace`, `cargo test --workspace` (Newtype+ID+canonical-json tests only), `kb --help` works, `docs/spec/*` stubs created (link to frozen design doc), `docs/wire-schema/v1/*.schema.json` stubs (one file per object in §2).
+Body covers: workspace `Cargo.toml` resolver=3, edition 2024, member list (`kebab-core`, `kebab-config`, `kebab-app`, `kebab-cli`), workspace dependencies, `kebab-core` types and traits per design §3 / §7, deterministic ID functions per §4 (with full unit tests), `kebab-config` loader (TOML + env + CLI override per §6.4), `kebab-app` facade signatures (`ingest`, `search`, `ask`, `inspect_doc`, `inspect_chunk`, `doctor`, `init`), `kebab-cli` skeleton with clap + `--help`. DoD: `cargo check --workspace`, `cargo test --workspace` (Newtype+ID+canonical-json tests only), `kebab --help` works, `docs/spec/*` stubs created (link to frozen design doc), `docs/wire-schema/v1/*.schema.json` stubs (one file per object in §2).
 
 - [ ] **Step 1: Create directory and file**
 
@@ -1134,11 +1134,11 @@ git -c user.name=kb -c user.email=kb@local commit -m "tasks: add p0-1 skeleton c
 
 #### `p2-1-fts-schema.md`
 
-`contract_sections`: §5.5 FTS5 + triggers, §9 versioning. `Allowed`: `kb-core`, `kb-config`, `kb-store-sqlite` (extends migrations). `depends_on: [p1-6]`. Migration `V002__fts.sql` adds `chunks_fts` virtual table and three triggers verbatim from §5.5. Tests: backfill from existing chunks via `INSERT INTO chunks_fts SELECT ... FROM chunks`, then assert FTS row count == chunks row count; insert/update/delete in `chunks` reflects in `chunks_fts`.
+`contract_sections`: §5.5 FTS5 + triggers, §9 versioning. `Allowed`: `kebab-core`, `kebab-config`, `kebab-store-sqlite` (extends migrations). `depends_on: [p1-6]`. Migration `V002__fts.sql` adds `chunks_fts` virtual table and three triggers verbatim from §5.5. Tests: backfill from existing chunks via `INSERT INTO chunks_fts SELECT ... FROM chunks`, then assert FTS row count == chunks row count; insert/update/delete in `chunks` reflects in `chunks_fts`.
 
 #### `p2-2-lexical-retriever.md`
 
-`contract_sections`: §3.7 SearchQuery/Hit, §0 Q3 citation (URI fragment), §1.5 search output (for snippet length defaults), §2.2 wire schema. `Allowed`: `kb-core`, `kb-config`, `kb-store-sqlite`. `depends_on: [p2-1]`. Implements `Retriever` trait with `bm25(chunks_fts)` ranking, snippet via SQLite `snippet()` (≤ `snippet_chars` chars), citation built per §0 Q3 from `source_spans`. Tests: top-k correctness on fixture corpus, citation line range round-trip against original Markdown, deterministic across two runs.
+`contract_sections`: §3.7 SearchQuery/Hit, §0 Q3 citation (URI fragment), §1.5 search output (for snippet length defaults), §2.2 wire schema. `Allowed`: `kebab-core`, `kebab-config`, `kebab-store-sqlite`. `depends_on: [p2-1]`. Implements `Retriever` trait with `bm25(chunks_fts)` ranking, snippet via SQLite `snippet()` (≤ `snippet_chars` chars), citation built per §0 Q3 from `source_spans`. Tests: top-k correctness on fixture corpus, citation line range round-trip against original Markdown, deterministic across two runs.
 
 - [ ] **Step 1: Create directory and both spec files** (template per Phase B; bodies as described above).
 - [ ] **Step 2: Verify with `for f in tasks/p2/p2-*.md; do test -s "$f" || echo MISSING $f; done; echo done` (expect only `done`).**
@@ -1152,10 +1152,10 @@ git add tasks/p2 && git -c user.name=kb -c user.email=kb@local commit -m "tasks:
 
 **Files:** `mkdir -p tasks/p3` and create `p3-1-embedder-trait.md`, `p3-2-fastembed-adapter.md`, `p3-3-lancedb-store.md`, `p3-4-hybrid-fusion.md`.
 
-- `p3-1-embedder-trait.md`: §3.7, §7.2 Embedder, §11. Allowed: `kb-core`, `kb-config`. No external embedding dep. Public surface: `Embedder` trait + `EmbeddingInput`/`EmbeddingKind` already in core (validate they exist; if not, this task is also a `kb-core` patch). `depends_on: [p0-1]`. Tests: trait dyn dispatch, mock embedder.
-- `p3-2-fastembed-adapter.md`: §11.3, §6.4 `[models.embedding]`. Allowed: `kb-core`, `kb-config`, `fastembed`, `tokenizers`, `ort`. `depends_on: [p3-1]`. Provides `FastembedEmbedder` implementing `Embedder` for `multilingual-e5-small` (default), with required Document/Query prefix per §11.3. Tests: dimension check, deterministic vector for fixed input (hash compare on first 8 floats with epsilon), batch size respected.
-- `p3-3-lancedb-store.md`: §3.5, §5.6 embedding_records, §6.3 lancedb table naming. Allowed: `kb-core`, `kb-config`, `lancedb`, `arrow`, `kb-store-sqlite` (write `embedding_records` row only — no other table). `depends_on: [p3-2, p1-6]`. Implements `VectorStore` trait. Table naming `chunk_embeddings_<model>_<dim>.lance`. `ensure_table` creates if missing. `upsert` inserts vectors and writes a matching `embedding_records` row in same logical operation (best-effort 2PC: lance commit, then SQLite insert; on SQLite failure, log warning + leave lance row — re-upsert is idempotent because of the `UNIQUE(chunk_id, model_id, model_version, dimensions)` constraint and lance upsert semantics). `search` filters via SearchFilters and returns top-k. Tests: smoke (insert+search), dimension mismatch error, model isolation (two models stay in two tables).
-- `p3-4-hybrid-fusion.md`: §3.7 RetrievalDetail, §0 Q3, §1.6 search --explain, §6.4 `[search]` rrf settings. Allowed: `kb-core`, `kb-config`, `kb-store-sqlite` (lexical Retriever from p2-2), `kb-store-vector` (vector Retriever wrapper around `VectorStore::search`). `depends_on: [p2-2, p3-3]`. Implements `HybridRetriever` that dispatches by `SearchMode`, fuses with RRF (k from config, default 60), populates `lexical_score`, `vector_score`, `lexical_rank`, `vector_rank`, `fusion_score`. Tests: pure lexical mode == p2-2 output; pure vector mode == p3-3 output; hybrid produces strictly larger or equal coverage of expected hits than either single mode on a small fixture; deterministic.
+- `p3-1-embedder-trait.md`: §3.7, §7.2 Embedder, §11. Allowed: `kebab-core`, `kebab-config`. No external embedding dep. Public surface: `Embedder` trait + `EmbeddingInput`/`EmbeddingKind` already in core (validate they exist; if not, this task is also a `kebab-core` patch). `depends_on: [p0-1]`. Tests: trait dyn dispatch, mock embedder.
+- `p3-2-fastembed-adapter.md`: §11.3, §6.4 `[models.embedding]`. Allowed: `kebab-core`, `kebab-config`, `fastembed`, `tokenizers`, `ort`. `depends_on: [p3-1]`. Provides `FastembedEmbedder` implementing `Embedder` for `multilingual-e5-small` (default), with required Document/Query prefix per §11.3. Tests: dimension check, deterministic vector for fixed input (hash compare on first 8 floats with epsilon), batch size respected.
+- `p3-3-lancedb-store.md`: §3.5, §5.6 embedding_records, §6.3 lancedb table naming. Allowed: `kebab-core`, `kebab-config`, `lancedb`, `arrow`, `kebab-store-sqlite` (write `embedding_records` row only — no other table). `depends_on: [p3-2, p1-6]`. Implements `VectorStore` trait. Table naming `chunk_embeddings_<model>_<dim>.lance`. `ensure_table` creates if missing. `upsert` inserts vectors and writes a matching `embedding_records` row in same logical operation (best-effort 2PC: lance commit, then SQLite insert; on SQLite failure, log warning + leave lance row — re-upsert is idempotent because of the `UNIQUE(chunk_id, model_id, model_version, dimensions)` constraint and lance upsert semantics). `search` filters via SearchFilters and returns top-k. Tests: smoke (insert+search), dimension mismatch error, model isolation (two models stay in two tables).
+- `p3-4-hybrid-fusion.md`: §3.7 RetrievalDetail, §0 Q3, §1.6 search --explain, §6.4 `[search]` rrf settings. Allowed: `kebab-core`, `kebab-config`, `kebab-store-sqlite` (lexical Retriever from p2-2), `kebab-store-vector` (vector Retriever wrapper around `VectorStore::search`). `depends_on: [p2-2, p3-3]`. Implements `HybridRetriever` that dispatches by `SearchMode`, fuses with RRF (k from config, default 60), populates `lexical_score`, `vector_score`, `lexical_rank`, `vector_rank`, `fusion_score`. Tests: pure lexical mode == p2-2 output; pure vector mode == p3-3 output; hybrid produces strictly larger or equal coverage of expected hits than either single mode on a small fixture; deterministic.
 
 - [ ] **Step 1: Create directory and 4 files** (template per Phase B).
 - [ ] **Step 2: Verify**
@@ -1176,9 +1176,9 @@ git add tasks/p3 && git -c user.name=kb -c user.email=kb@local commit -m "tasks:
 
 **Files:** `mkdir -p tasks/p4` and create `p4-1-llm-trait.md`, `p4-2-ollama-adapter.md`, `p4-3-rag-pipeline.md`.
 
-- `p4-1-llm-trait.md`: §7.2 LanguageModel + TokenChunk, §0 Q5 streaming, §3.8 Answer types referenced. Allowed: `kb-core`, `kb-config`. `depends_on: [p0-1]`. Defines (or validates) `LanguageModel` trait, `GenerateRequest`, `TokenChunk`, `FinishReason`, `TokenUsage` per design. Tests: trait dyn dispatch, mock LM streams 3 tokens.
-- `p4-2-ollama-adapter.md`: §11.2 Ollama, §6.4 `[models.llm]`, §0 Q5 streaming. Allowed: `kb-core`, `kb-config`, `reqwest` (blocking + json + stream feature) or `ureq` + manual SSE; `serde_json`, `tokio`/runtime if needed. `depends_on: [p4-1]`. Implements `OllamaLanguageModel` with streaming `/api/generate`. `temperature=0.0` default, `seed` honored for determinism. Reachability/missing-model errors map to `LlmError` per design §10. Tests: against a mock HTTP server (`wiremock` or hand-rolled `tiny_http`); deterministic stream collect equals buffered concatenation; missing model returns `LlmError::ModelNotPulled` with proper hint.
-- `p4-3-rag-pipeline.md`: §0 Q4 refusal (two-layer), §0 Q7 footer, §1.1–1.4 ask scenes, §2.3 Answer wire, §3.8 internal Answer, §6.4 `[rag]`. Allowed: `kb-core`, `kb-config`, `kb-search` (Retriever), `kb-llm` (LanguageModel). `depends_on: [p3-4, p4-2]`. Pipeline: retrieve top-k → score gate (`refusal_reason: ScoreGate` if top1 < gate) → context packer (token budget + heading_path header `[#n doc=… heading=… span=…]`) → render `rag-v1` prompt → stream → collect → citation extraction (regex `\[(\d+)\]`) → citation validation (each `[n]` must map to a packed chunk; otherwise `grounded=false`, `refusal_reason: LlmSelfJudge`) → write `answers` row. Tests: happy path produces grounded Answer with citations; query with all chunks below gate produces ScoreGate refusal; query whose LLM emits a citation pointing to non-existent `[7]` becomes LlmSelfJudge refusal; identical query under temperature=0 produces byte-identical Answer (snapshot).
+- `p4-1-llm-trait.md`: §7.2 LanguageModel + TokenChunk, §0 Q5 streaming, §3.8 Answer types referenced. Allowed: `kebab-core`, `kebab-config`. `depends_on: [p0-1]`. Defines (or validates) `LanguageModel` trait, `GenerateRequest`, `TokenChunk`, `FinishReason`, `TokenUsage` per design. Tests: trait dyn dispatch, mock LM streams 3 tokens.
+- `p4-2-ollama-adapter.md`: §11.2 Ollama, §6.4 `[models.llm]`, §0 Q5 streaming. Allowed: `kebab-core`, `kebab-config`, `reqwest` (blocking + json + stream feature) or `ureq` + manual SSE; `serde_json`, `tokio`/runtime if needed. `depends_on: [p4-1]`. Implements `OllamaLanguageModel` with streaming `/api/generate`. `temperature=0.0` default, `seed` honored for determinism. Reachability/missing-model errors map to `LlmError` per design §10. Tests: against a mock HTTP server (`wiremock` or hand-rolled `tiny_http`); deterministic stream collect equals buffered concatenation; missing model returns `LlmError::ModelNotPulled` with proper hint.
+- `p4-3-rag-pipeline.md`: §0 Q4 refusal (two-layer), §0 Q7 footer, §1.1–1.4 ask scenes, §2.3 Answer wire, §3.8 internal Answer, §6.4 `[rag]`. Allowed: `kebab-core`, `kebab-config`, `kebab-search` (Retriever), `kebab-llm` (LanguageModel). `depends_on: [p3-4, p4-2]`. Pipeline: retrieve top-k → score gate (`refusal_reason: ScoreGate` if top1 < gate) → context packer (token budget + heading_path header `[#n doc=… heading=… span=…]`) → render `rag-v1` prompt → stream → collect → citation extraction (regex `\[(\d+)\]`) → citation validation (each `[n]` must map to a packed chunk; otherwise `grounded=false`, `refusal_reason: LlmSelfJudge`) → write `answers` row. Tests: happy path produces grounded Answer with citations; query with all chunks below gate produces ScoreGate refusal; query whose LLM emits a citation pointing to non-existent `[7]` becomes LlmSelfJudge refusal; identical query under temperature=0 produces byte-identical Answer (snapshot).
 
 - [ ] **Step 1, 2, 3** as in C3.
 
@@ -1193,8 +1193,8 @@ git add tasks/p4 && git -c user.name=kb -c user.email=kb@local commit -m "tasks:
 
 **Files:** `mkdir -p tasks/p5` and create `p5-1-golden-fixture-runner.md`, `p5-2-metrics-compare.md`.
 
-- `p5-1-golden-fixture-runner.md`: phase epic + §5.7 eval_runs/eval_query_results, §6.3 runs_dir. Allowed: `kb-core`, `kb-config`, `kb-app` (calls facade for search/ask), `serde_yaml`. `depends_on: [p4-3]`. Loads `fixtures/golden_queries.yaml`, runs each query in selected mode (lexical/vector/hybrid/rag), captures per-query results to `eval_query_results` and to `runs_dir/<run_id>/per_query.jsonl`. Tests: fixture with 3 queries runs end-to-end on a tiny corpus, all rows recorded.
-- `p5-2-metrics-compare.md`: phase epic, §0 Q6 wire schema. Allowed: `kb-core`, `kb-config`, `kb-store-sqlite` (read eval rows). `depends_on: [p5-1]`. Computes hit@k, MRR, recall@k_doc, citation_coverage, groundedness (rule-based via `must_contain`), empty_result_rate, refusal_correctness. `kb eval compare a b` produces wins/losses/draws + delta. Tests: fixed input rows produce expected metric values; compare produces stable sorted output.
+- `p5-1-golden-fixture-runner.md`: phase epic + §5.7 eval_runs/eval_query_results, §6.3 runs_dir. Allowed: `kebab-core`, `kebab-config`, `kebab-app` (calls facade for search/ask), `serde_yaml`. `depends_on: [p4-3]`. Loads `fixtures/golden_queries.yaml`, runs each query in selected mode (lexical/vector/hybrid/rag), captures per-query results to `eval_query_results` and to `runs_dir/<run_id>/per_query.jsonl`. Tests: fixture with 3 queries runs end-to-end on a tiny corpus, all rows recorded.
+- `p5-2-metrics-compare.md`: phase epic, §0 Q6 wire schema. Allowed: `kebab-core`, `kebab-config`, `kebab-store-sqlite` (read eval rows). `depends_on: [p5-1]`. Computes hit@k, MRR, recall@k_doc, citation_coverage, groundedness (rule-based via `must_contain`), empty_result_rate, refusal_correctness. `kebab eval compare a b` produces wins/losses/draws + delta. Tests: fixed input rows produce expected metric values; compare produces stable sorted output.
 
 - [ ] **Step 1, 2, 3** as in C3.
 
@@ -1209,9 +1209,9 @@ git add tasks/p5 && git -c user.name=kb -c user.email=kb@local commit -m "tasks:
 
 `mkdir -p tasks/p6` and create:
 
-- `p6-1-image-extractor-exif.md`: phase epic §9.1, §3.4 ImageRefBlock, §3.7a ImageType. Allowed: `kb-core`, `kb-config`, `image`, `kamadak-exif`. Implements `Extractor` for `MediaType::Image(_)` producing a `CanonicalDocument` whose body is exactly one `ImageRefBlock`. EXIF goes to `metadata.user`. `depends_on: [p0-1, p1-6]`. Tests: PNG/JPEG decode metadata; EXIF extraction; deterministic doc_id.
-- `p6-2-ocr-adapter.md`: phase epic §9.1. Allowed: `kb-core`, `kb-config`, `image`, OS-specific OCR (feature `apple-vision` for macOS via sidecar binary; feature `tesseract` for cross-platform; default tesseract). Defines `OcrEngine` trait + adapter. Populates `ImageRefBlock.ocr` `OcrText` (`joined`, regions, engine, engine_version). `depends_on: [p6-1]`. Tests: deterministic text on a fixed fixture image with high-confidence text.
-- `p6-3-caption-adapter.md`: phase epic §9.1 caption section, §3.7a ModelCaption. Allowed: `kb-core`, `kb-config`, `kb-llm` (reuse LanguageModel for VLM). Optional/feature-gated. `depends_on: [p6-1, p4-2]`. Populates `ImageRefBlock.caption`. Tests: with mock LM, caption recorded with model id; absence of feature flag leaves caption=None.
+- `p6-1-image-extractor-exif.md`: phase epic §9.1, §3.4 ImageRefBlock, §3.7a ImageType. Allowed: `kebab-core`, `kebab-config`, `image`, `kamadak-exif`. Implements `Extractor` for `MediaType::Image(_)` producing a `CanonicalDocument` whose body is exactly one `ImageRefBlock`. EXIF goes to `metadata.user`. `depends_on: [p0-1, p1-6]`. Tests: PNG/JPEG decode metadata; EXIF extraction; deterministic doc_id.
+- `p6-2-ocr-adapter.md`: phase epic §9.1. Allowed: `kebab-core`, `kebab-config`, `image`, OS-specific OCR (feature `apple-vision` for macOS via sidecar binary; feature `tesseract` for cross-platform; default tesseract). Defines `OcrEngine` trait + adapter. Populates `ImageRefBlock.ocr` `OcrText` (`joined`, regions, engine, engine_version). `depends_on: [p6-1]`. Tests: deterministic text on a fixed fixture image with high-confidence text.
+- `p6-3-caption-adapter.md`: phase epic §9.1 caption section, §3.7a ModelCaption. Allowed: `kebab-core`, `kebab-config`, `kebab-llm` (reuse LanguageModel for VLM). Optional/feature-gated. `depends_on: [p6-1, p4-2]`. Populates `ImageRefBlock.caption`. Tests: with mock LM, caption recorded with model id; absence of feature flag leaves caption=None.
 
 - [ ] **Step 1, 2, 3** as in C3.
 
@@ -1226,8 +1226,8 @@ git add tasks/p6 && git -c user.name=kb -c user.email=kb@local commit -m "tasks:
 
 `mkdir -p tasks/p7` and create:
 
-- `p7-1-pdf-text-extractor.md`: phase epic §9.2, §3.4 SourceSpan::Page. Allowed: `kb-core`, `kb-config`, `pdf-extract`, `lopdf` (page metadata). `depends_on: [p0-1, p1-6]`. Extractor for `MediaType::Pdf` produces a `CanonicalDocument` with one `Paragraph` per page, `SourceSpan::Page`. Failed-text pages are emitted as paragraphs with empty text and a `Provenance` warning marking them as scanned candidates. Tests: page count, span correctness, failure handling.
-- `p7-2-pdf-page-chunker.md`: phase epic §9.2, §3.5, §0 Q3 citation. Allowed: `kb-core`, `kb-config`. New chunker version `pdf-page-v1` that respects page boundaries. `depends_on: [p7-1]`. Tests: chunk does not cross page boundary; very long page subdivides per `target_tokens`.
+- `p7-1-pdf-text-extractor.md`: phase epic §9.2, §3.4 SourceSpan::Page. Allowed: `kebab-core`, `kebab-config`, `pdf-extract`, `lopdf` (page metadata). `depends_on: [p0-1, p1-6]`. Extractor for `MediaType::Pdf` produces a `CanonicalDocument` with one `Paragraph` per page, `SourceSpan::Page`. Failed-text pages are emitted as paragraphs with empty text and a `Provenance` warning marking them as scanned candidates. Tests: page count, span correctness, failure handling.
+- `p7-2-pdf-page-chunker.md`: phase epic §9.2, §3.5, §0 Q3 citation. Allowed: `kebab-core`, `kebab-config`. New chunker version `pdf-page-v1` that respects page boundaries. `depends_on: [p7-1]`. Tests: chunk does not cross page boundary; very long page subdivides per `target_tokens`.
 
 - [ ] **Step 1, 2, 3** as in C3.
 
@@ -1242,7 +1242,7 @@ git add tasks/p7 && git -c user.name=kb -c user.email=kb@local commit -m "tasks:
 
 `mkdir -p tasks/p8` and create:
 
-- `p8-1-whisper-adapter.md`: phase epic §9.3, §3.4 AudioRefBlock + `Transcript`. Allowed: `kb-core`, `kb-config`, whisper.cpp Rust binding (`whisper-rs`) or sidecar binary. `depends_on: [p0-1, p1-6]`. Implements `Transcriber` trait. Default model `large-v3` via config; tests use a tiny model (e.g., `base.en`) for speed. Tests: monotone segment timestamps, language detection populated, deterministic transcript on fixed audio.
+- `p8-1-whisper-adapter.md`: phase epic §9.3, §3.4 AudioRefBlock + `Transcript`. Allowed: `kebab-core`, `kebab-config`, whisper.cpp Rust binding (`whisper-rs`) or sidecar binary. `depends_on: [p0-1, p1-6]`. Implements `Transcriber` trait. Default model `large-v3` via config; tests use a tiny model (e.g., `base.en`) for speed. Tests: monotone segment timestamps, language detection populated, deterministic transcript on fixed audio.
 - `p8-2-segment-chunker.md`: phase epic §9.3, §3.5. New `audio-segment-v1` chunker that groups segments up to `target_tokens` with priority on speaker turn boundaries (when present). `depends_on: [p8-1]`. Tests: chunk timestamp == first/last segment timestamp; speaker change forces split.
 
 - [ ] **Step 1, 2, 3** as in C3.
@@ -1258,11 +1258,11 @@ git add tasks/p8 && git -c user.name=kb -c user.email=kb@local commit -m "tasks:
 
 `mkdir -p tasks/p9` and create:
 
-- `p9-1-tui-library.md`: phase epic §16.2, §3.7. Allowed: `kb-core`, `kb-app` only (UI law). `ratatui`, `crossterm`. `depends_on: [p1-6]`. Library list view + tag filter. Tests: snapshot of rendered frame against fixture corpus list.
+- `p9-1-tui-library.md`: phase epic §16.2, §3.7. Allowed: `kebab-core`, `kebab-app` only (UI law). `ratatui`, `crossterm`. `depends_on: [p1-6]`. Library list view + tag filter. Tests: snapshot of rendered frame against fixture corpus list.
 - `p9-2-tui-search.md`: phase epic §16.2, §1.5. Allowed: same as p9-1. `depends_on: [p2-2, p3-4]`. Search input + result list + preview pane; `Enter` triggers external editor jump (`$EDITOR +<line> <path>`). Tests: search results render; `g` keybinding constructs the correct editor command.
 - `p9-3-tui-ask.md`: phase epic §16.2, §1.1, §1.2. Allowed: same. `depends_on: [p4-3]`. Ask pane shows streaming tokens; `--explain` toggle. Tests: streaming render, refusal render.
 - `p9-4-tui-inspect.md`: §1.6 inspect, §3.5. Allowed: same. `depends_on: [p1-6, p3-3]`. Renders Document and Chunk inspection per wire schemas 2.5/2.6.
-- `p9-5-desktop-tauri.md`: phase epic §16.3, §1 all scenes. Allowed: `kb-core`, `kb-app`, Tauri backend; frontend stack TBD by user (vanilla TS by default). `depends_on: [p9-1, p9-2, p9-3, p9-4]`. Backend exposes Tauri commands that wrap `kb-app` 1:1. Source viewer per medium (Markdown render, PDF page, image with region overlay, audio with seek). Tests: backend command unit tests (no frontend e2e in this task).
+- `p9-5-desktop-tauri.md`: phase epic §16.3, §1 all scenes. Allowed: `kebab-core`, `kebab-app`, Tauri backend; frontend stack TBD by user (vanilla TS by default). `depends_on: [p9-1, p9-2, p9-3, p9-4]`. Backend exposes Tauri commands that wrap `kebab-app` 1:1. Source viewer per medium (Markdown render, PDF page, image with region overlay, audio with seek). Tests: backend command unit tests (no frontend e2e in this task).
 
 - [ ] **Step 1, 2, 3** as in C3.
 
@@ -1351,5 +1351,5 @@ git -c user.name=kb -c user.email=kb@local commit -m "tasks: update INDEX with f
 - [ ] `tasks/p0/`, `tasks/p1/` … `tasks/p9/` exist with the component spec files listed above.
 - [ ] Every component spec contains: frontmatter (with `contract_sections`), Allowed/Forbidden, Inputs, Outputs, Public surface, Behavior contract, Storage/wire effects, Test plan, Definition of Done, Out of scope, Risks/notes.
 - [ ] `tasks/INDEX.md` lists every component task.
-- [ ] No new domain types introduced inside any component spec — every type referenced is defined in [docs/superpowers/specs/2026-04-27-kb-final-form-design.md](../specs/2026-04-27-kb-final-form-design.md).
+- [ ] No new domain types introduced inside any component spec — every type referenced is defined in [docs/superpowers/specs/2026-04-27-kebab-final-form-design.md](../specs/2026-04-27-kebab-final-form-design.md).
 - [ ] All commits authored sequentially per task; rollback is per-task.

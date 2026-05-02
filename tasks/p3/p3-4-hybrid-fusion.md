@@ -1,12 +1,12 @@
 ---
 phase: P3
-component: kb-search (hybrid)
+component: kebab-search (hybrid)
 task_id: p3-4
 title: "Hybrid Retriever (RRF) over lexical + vector"
 status: completed
 depends_on: [p2-2, p3-3]
 unblocks: [p4-3]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.7 RetrievalDetail, §0 Q3, §1.6 search --explain, §6.4 [search] rrf settings]
 ---
 
@@ -22,17 +22,17 @@ Single mediator. Keeps the lexical and vector retrievers focused; only this task
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-store-sqlite` (for `LexicalRetriever`)
-- `kb-store-vector` (for `LanceVectorStore`)
-- `kb-embed` (trait only — for query embedding via `Embedder`)
+- `kebab-core`
+- `kebab-config`
+- `kebab-store-sqlite` (for `LexicalRetriever`)
+- `kebab-store-vector` (for `LanceVectorStore`)
+- `kebab-embed` (trait only — for query embedding via `Embedder`)
 - `tracing`
 - `thiserror`
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`. (`kb-embed-local` is a runtime-injected `dyn Embedder`; this crate must not depend on the concrete adapter directly.)
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize`, `kebab-chunk`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`. (`kebab-embed-local` is a runtime-injected `dyn Embedder`; this crate must not depend on the concrete adapter directly.)
 
 ## Inputs
 
@@ -41,21 +41,21 @@ Single mediator. Keeps the lexical and vector retrievers focused; only this task
 | `LexicalRetriever` | trait object | constructed elsewhere |
 | `LanceVectorStore` | trait object | constructed elsewhere |
 | `Box<dyn Embedder>` | for query embedding | runtime-injected |
-| `kb-config::Config.search` | `default_k`, `hybrid_fusion`, `rrf_k` | runtime |
-| `SearchQuery` | `kb_core::SearchQuery` | `kb-app::search` |
+| `kebab-config::Config.search` | `default_k`, `hybrid_fusion`, `rrf_k` | runtime |
+| `SearchQuery` | `kebab_core::SearchQuery` | `kebab-app::search` |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `Vec<SearchHit>` (with full `RetrievalDetail`) | `kb_core::SearchHit` | `kb-cli` printer, `kb-rag` packer |
+| `Vec<SearchHit>` (with full `RetrievalDetail`) | `kebab_core::SearchHit` | `kebab-cli` printer, `kebab-rag` packer |
 
 ## Public surface (signatures only — no new types)
 
 ```rust
 pub struct HybridRetriever {
-    lexical: std::sync::Arc<dyn kb_core::Retriever>,
-    vector:  std::sync::Arc<dyn kb_core::Retriever>,   // wrapper over LanceVectorStore + Embedder
+    lexical: std::sync::Arc<dyn kebab_core::Retriever>,
+    vector:  std::sync::Arc<dyn kebab_core::Retriever>,   // wrapper over LanceVectorStore + Embedder
     fusion:  FusionPolicy,
     k:       usize,
 }
@@ -64,27 +64,27 @@ pub enum FusionPolicy { Rrf { k_rrf: u32 } }
 
 impl HybridRetriever {
     pub fn new(
-        config: &kb_config::Config,
-        lexical: std::sync::Arc<dyn kb_core::Retriever>,
-        vector:  std::sync::Arc<dyn kb_core::Retriever>,
+        config: &kebab_config::Config,
+        lexical: std::sync::Arc<dyn kebab_core::Retriever>,
+        vector:  std::sync::Arc<dyn kebab_core::Retriever>,
     ) -> Self;
 }
 
-impl kb_core::Retriever for HybridRetriever {
-    fn search(&self, query: &kb_core::SearchQuery) -> anyhow::Result<Vec<kb_core::SearchHit>>;
-    fn index_version(&self) -> kb_core::IndexVersion;
+impl kebab_core::Retriever for HybridRetriever {
+    fn search(&self, query: &kebab_core::SearchQuery) -> anyhow::Result<Vec<kebab_core::SearchHit>>;
+    fn index_version(&self) -> kebab_core::IndexVersion;
 }
 
 /// Wrapper that turns a VectorStore + Embedder into a Retriever.
 pub struct VectorRetriever {
-    store:   std::sync::Arc<dyn kb_core::VectorStore>,
-    embed:   std::sync::Arc<dyn kb_core::Embedder>,
-    /* heading_path/snippet enrichment hits SQLite via kb-store-sqlite read accessor */
+    store:   std::sync::Arc<dyn kebab_core::VectorStore>,
+    embed:   std::sync::Arc<dyn kebab_core::Embedder>,
+    /* heading_path/snippet enrichment hits SQLite via kebab-store-sqlite read accessor */
 }
 impl VectorRetriever {
-    pub fn new(store: std::sync::Arc<dyn kb_core::VectorStore>, embed: std::sync::Arc<dyn kb_core::Embedder>, sqlite: std::sync::Arc<kb_store_sqlite::SqliteStore>) -> Self;
+    pub fn new(store: std::sync::Arc<dyn kebab_core::VectorStore>, embed: std::sync::Arc<dyn kebab_core::Embedder>, sqlite: std::sync::Arc<kebab_store_sqlite::SqliteStore>) -> Self;
 }
-impl kb_core::Retriever for VectorRetriever { /* per §7.2 */ }
+impl kebab_core::Retriever for VectorRetriever { /* per §7.2 */ }
 ```
 
 ## Behavior contract
@@ -124,12 +124,12 @@ impl kb_core::Retriever for VectorRetriever { /* per §7.2 */ }
 | determinism | identical query twice → byte-identical `Vec<SearchHit>` | tmp DB |
 | snapshot | hybrid output JSON stable | `fixtures/search/hybrid/run-1.json` |
 
-All tests under `cargo test -p kb-search hybrid`.
+All tests under `cargo test -p kebab-search hybrid`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-search` passes
-- [ ] `cargo test -p kb-search hybrid` passes
+- [ ] `cargo check -p kebab-search` passes
+- [ ] `cargo test -p kebab-search hybrid` passes
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §3.7, §6.4 search, §0 Q3
 

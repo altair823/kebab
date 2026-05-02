@@ -1,12 +1,12 @@
 ---
 phase: P2
-component: kb-search (lexical mode)
+component: kebab-search (lexical mode)
 task_id: p2-2
 title: "Lexical Retriever via SQLite FTS5 + bm25 + citation"
 status: completed
 depends_on: [p2-1]
 unblocks: [p3-4, p4-3]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.7 SearchQuery/Hit, §0 Q3 citation (URI fragment), §1.5/1.6 search output, §2.2 wire schema, §6.4 search settings]
 ---
 
@@ -14,38 +14,38 @@ contract_sections: [§3.7 SearchQuery/Hit, §0 Q3 citation (URI fragment), §1.5
 
 ## Goal
 
-Implement `kb_core::Retriever` for `SearchMode::Lexical` using SQLite FTS5. Returns `SearchHit` with `bm25` ranking, `snippet()`-derived preview, and proper W3C-fragment citation.
+Implement `kebab_core::Retriever` for `SearchMode::Lexical` using SQLite FTS5. Returns `SearchHit` with `bm25` ranking, `snippet()`-derived preview, and proper W3C-fragment citation.
 
 ## Why now / why this size
 
-First concrete `Retriever`. Lets `kb search --mode lexical` work without any embedding/LLM infrastructure. Establishes the SearchHit construction contract that hybrid (p3-4) reuses.
+First concrete `Retriever`. Lets `kebab search --mode lexical` work without any embedding/LLM infrastructure. Establishes the SearchHit construction contract that hybrid (p3-4) reuses.
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-store-sqlite` (read access to `chunks_fts` + `chunks` + `documents`)
+- `kebab-core`
+- `kebab-config`
+- `kebab-store-sqlite` (read access to `chunks_fts` + `chunks` + `documents`)
 - `rusqlite`
 - `tracing`
 - `thiserror`
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-store-vector`, `kb-embed*`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize`, `kebab-chunk`, `kebab-store-vector`, `kebab-embed*`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `SearchQuery` (mode=Lexical) | `kb_core::SearchQuery` | `kb-app::search` |
-| `kb-config::search` settings (`default_k`, `snippet_chars`) | `kb_config::Config` | runtime |
-| SQLite connection (read) | `rusqlite::Connection` | `kb-store-sqlite` |
+| `SearchQuery` (mode=Lexical) | `kebab_core::SearchQuery` | `kebab-app::search` |
+| `kebab-config::search` settings (`default_k`, `snippet_chars`) | `kebab_config::Config` | runtime |
+| SQLite connection (read) | `rusqlite::Connection` | `kebab-store-sqlite` |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `Vec<SearchHit>` | `kb_core::SearchHit` | `kb-cli` printer, `kb-rag` packer (P4), hybrid (p3-4) |
+| `Vec<SearchHit>` | `kebab_core::SearchHit` | `kebab-cli` printer, `kebab-rag` packer (P4), hybrid (p3-4) |
 
 ## Public surface (signatures only — no new types)
 
@@ -53,12 +53,12 @@ First concrete `Retriever`. Lets `kb search --mode lexical` work without any emb
 pub struct LexicalRetriever { /* internal: holds an Arc<rusqlite::Connection> + IndexVersion */ }
 
 impl LexicalRetriever {
-    pub fn new(store: std::sync::Arc<kb_store_sqlite::SqliteStore>, index_version: kb_core::IndexVersion) -> Self;
+    pub fn new(store: std::sync::Arc<kebab_store_sqlite::SqliteStore>, index_version: kebab_core::IndexVersion) -> Self;
 }
 
-impl kb_core::Retriever for LexicalRetriever {
-    fn search(&self, query: &kb_core::SearchQuery) -> anyhow::Result<Vec<kb_core::SearchHit>>;
-    fn index_version(&self) -> kb_core::IndexVersion;
+impl kebab_core::Retriever for LexicalRetriever {
+    fn search(&self, query: &kebab_core::SearchQuery) -> anyhow::Result<Vec<kebab_core::SearchHit>>;
+    fn index_version(&self) -> kebab_core::IndexVersion;
 }
 ```
 
@@ -98,8 +98,8 @@ impl kb_core::Retriever for LexicalRetriever {
 
 ## Storage / wire effects
 
-- Reads only. Never mutates `kb.sqlite`.
-- Wire: `Vec<SearchHit>` serialized via wire schema `search_hit.v1` when `kb-cli --json` is used.
+- Reads only. Never mutates `kebab.sqlite`.
+- Wire: `Vec<SearchHit>` serialized via wire schema `search_hit.v1` when `kebab-cli --json` is used.
 
 ## Test plan
 
@@ -114,13 +114,13 @@ impl kb_core::Retriever for LexicalRetriever {
 | determinism | identical query twice produces identical hit order and scores | tmp DB |
 | snapshot | `Vec<SearchHit>` JSON for fixed corpus stable | `fixtures/search/lexical/run-1.json` |
 
-All tests under `cargo test -p kb-search lexical`.
+All tests under `cargo test -p kebab-search lexical`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-search` passes
-- [ ] `cargo test -p kb-search lexical` passes
-- [ ] No imports outside Allowed dependencies (`cargo tree -p kb-search` audit)
+- [ ] `cargo check -p kebab-search` passes
+- [ ] `cargo test -p kebab-search lexical` passes
+- [ ] No imports outside Allowed dependencies (`cargo tree -p kebab-search` audit)
 - [ ] Output JSON conforms to `docs/wire-schema/v1/search_hit.schema.json`
 - [ ] PR links design §3.7, §0 Q3, §2.2
 

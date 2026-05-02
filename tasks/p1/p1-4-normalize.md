@@ -1,30 +1,30 @@
 ---
 phase: P1
-component: kb-normalize
+component: kebab-normalize
 task_id: p1-4
 title: "Lift parser output → CanonicalDocument with deterministic IDs"
 status: completed
 depends_on: [p1-2, p1-3]
 unblocks: [p1-5, p1-6]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
-contract_sections: [§3.4, §3.7b kb-parse-types, §4 ID recipe, §3.6 Provenance, §8 module boundaries]
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
+contract_sections: [§3.4, §3.7b kebab-parse-types, §4 ID recipe, §3.6 Provenance, §8 module boundaries]
 ---
 
 # p1-4 — Lift to CanonicalDocument
 
 ## Goal
 
-Combine `Metadata` (p1-2) + `Vec<kb_parse_types::ParsedBlock>` (p1-3) + `RawAsset` (p1-1) into a `kb_core::CanonicalDocument` with deterministic `doc_id` and `block_id`s per design §4 recipe.
+Combine `Metadata` (p1-2) + `Vec<kebab_parse_types::ParsedBlock>` (p1-3) + `RawAsset` (p1-1) into a `kebab_core::CanonicalDocument` with deterministic `doc_id` and `block_id`s per design §4 recipe.
 
 ## Why now / why this size
 
-Single responsibility: ID generation + struct assembly. Keeps `kb-parse-md` purely a parser and isolates the (security-critical) deterministic ID logic in one crate.
+Single responsibility: ID generation + struct assembly. Keeps `kebab-parse-md` purely a parser and isolates the (security-critical) deterministic ID logic in one crate.
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-parse-types` (input shapes — `ParsedBlock`, `ParsedPayload`, `Warning`)
-- `kb-config`
+- `kebab-core`
+- `kebab-parse-types` (input shapes — `ParsedBlock`, `ParsedPayload`, `Warning`)
+- `kebab-config`
 - `serde`
 - `serde-json-canonicalizer` (canonical JSON for ID hashing)
 - `blake3`
@@ -34,36 +34,36 @@ Single responsibility: ID generation + struct assembly. Keeps `kb-parse-md` pure
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md` (consumed via shared `kb-parse-types` only — `kb-parse-md` must NOT appear in this crate's `cargo tree`), `kb-parse-pdf`, `kb-parse-image`, `kb-parse-audio`, `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-md` (consumed via shared `kebab-parse-types` only — `kebab-parse-md` must NOT appear in this crate's `cargo tree`), `kebab-parse-pdf`, `kebab-parse-image`, `kebab-parse-audio`, `kebab-chunk`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `RawAsset` | `kb_core::RawAsset` | p1-1 |
-| `Metadata` + frontmatter span + warnings | `(kb_core::Metadata, Option<FrontmatterSpan>, Vec<kb_parse_types::Warning>)` | p1-2 |
-| `Vec<ParsedBlock>` + warnings | `(Vec<kb_parse_types::ParsedBlock>, Vec<kb_parse_types::Warning>)` | p1-3 |
-| `parser_version` | `kb_core::ParserVersion` | constant in `kb-parse-md` |
+| `RawAsset` | `kebab_core::RawAsset` | p1-1 |
+| `Metadata` + frontmatter span + warnings | `(kebab_core::Metadata, Option<FrontmatterSpan>, Vec<kebab_parse_types::Warning>)` | p1-2 |
+| `Vec<ParsedBlock>` + warnings | `(Vec<kebab_parse_types::ParsedBlock>, Vec<kebab_parse_types::Warning>)` | p1-3 |
+| `parser_version` | `kebab_core::ParserVersion` | constant in `kebab-parse-md` |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `CanonicalDocument` | `kb_core::CanonicalDocument` | `kb-chunk`, `kb-store-sqlite` |
+| `CanonicalDocument` | `kebab_core::CanonicalDocument` | `kebab-chunk`, `kebab-store-sqlite` |
 
 ## Public surface (signatures only — no new types)
 
 ```rust
 pub fn build_canonical_document(
-    asset: &kb_core::RawAsset,
-    metadata: kb_core::Metadata,
-    blocks: Vec<kb_parse_types::ParsedBlock>,
-    parser_version: &kb_core::ParserVersion,
-    warnings: Vec<kb_parse_types::Warning>,
-) -> anyhow::Result<kb_core::CanonicalDocument>;
+    asset: &kebab_core::RawAsset,
+    metadata: kebab_core::Metadata,
+    blocks: Vec<kebab_parse_types::ParsedBlock>,
+    parser_version: &kebab_core::ParserVersion,
+    warnings: Vec<kebab_parse_types::Warning>,
+) -> anyhow::Result<kebab_core::CanonicalDocument>;
 
-pub fn id_for_doc(workspace_path: &kb_core::WorkspacePath, asset: &kb_core::AssetId, parser_version: &kb_core::ParserVersion) -> kb_core::DocumentId;
-pub fn id_for_block(doc: &kb_core::DocumentId, kind: &str, heading_path: &[String], ordinal: u32, span: &kb_core::SourceSpan) -> kb_core::BlockId;
+pub fn id_for_doc(workspace_path: &kebab_core::WorkspacePath, asset: &kebab_core::AssetId, parser_version: &kebab_core::ParserVersion) -> kebab_core::DocumentId;
+pub fn id_for_block(doc: &kebab_core::DocumentId, kind: &str, heading_path: &[String], ordinal: u32, span: &kebab_core::SourceSpan) -> kebab_core::BlockId;
 ```
 
 ## Behavior contract
@@ -91,14 +91,14 @@ pub fn id_for_block(doc: &kb_core::DocumentId, kind: &str, heading_path: &[Strin
 | unit | provenance contains Discovered/Parsed/Normalized in order | inline |
 | snapshot | `fixtures/markdown/code-and-table.md` → CanonicalDocument JSON stable (incl. all IDs) | fixture |
 
-All tests under `cargo test -p kb-normalize`.
+All tests under `cargo test -p kebab-normalize`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-normalize` passes
-- [ ] `cargo test -p kb-normalize` passes
+- [ ] `cargo check -p kebab-normalize` passes
+- [ ] `cargo test -p kebab-normalize` passes
 - [ ] Determinism test runs ≥ 1000 iterations under 1 second
-- [ ] No `kb-parse-md` (or any other parser crate) appears in `cargo tree -p kb-normalize` — input types come from `kb-parse-types` only
+- [ ] No `kebab-parse-md` (or any other parser crate) appears in `cargo tree -p kebab-normalize` — input types come from `kebab-parse-types` only
 - [ ] PR links design §3.7b, §4.2, §4.3, §8
 
 ## Out of scope

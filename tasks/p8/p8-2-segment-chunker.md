@@ -1,12 +1,12 @@
 ---
 phase: P8
-component: kb-chunk (audio-segment-v1)
+component: kebab-chunk (audio-segment-v1)
 task_id: p8-2
 title: "Audio segment chunker (audio-segment-v1)"
 status: planned
 depends_on: [p8-1]
 unblocks: []
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.5 Chunk, §3.4 SourceSpan::Time, §4.2 chunk_id recipe, §0 Q3 citation, §9 versioning]
 ---
 
@@ -22,8 +22,8 @@ Per-medium chunker. Tiny but versioned — `chunk_id` depends on `chunker_versio
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
+- `kebab-core`
+- `kebab-config`
 - `serde`, `serde_json`
 - `blake3` (policy_hash)
 - `serde-json-canonicalizer`
@@ -31,30 +31,30 @@ Per-medium chunker. Tiny but versioned — `chunk_id` depends on `chunker_versio
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-parse-pdf`, `kb-parse-image`, `kb-parse-audio` (consumes via `kb-core` only), `kb-normalize`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-parse-pdf`, `kebab-parse-image`, `kebab-parse-audio` (consumes via `kebab-core` only), `kebab-normalize`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `CanonicalDocument` containing one `AudioRefBlock` with `Transcript` | `kb_core::CanonicalDocument` | p8-1 |
-| `ChunkPolicy` | `kb_core::ChunkPolicy` | `kb-app` |
+| `CanonicalDocument` containing one `AudioRefBlock` with `Transcript` | `kebab_core::CanonicalDocument` | p8-1 |
+| `ChunkPolicy` | `kebab_core::ChunkPolicy` | `kebab-app` |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `Vec<Chunk>` | `kb_core::Chunk` | `kb-store-sqlite`, embedders |
+| `Vec<Chunk>` | `kebab_core::Chunk` | `kebab-store-sqlite`, embedders |
 
 ## Public surface (signatures only — no new types)
 
 ```rust
 pub struct AudioSegmentV1Chunker;
 
-impl kb_core::Chunker for AudioSegmentV1Chunker {
-    fn chunker_version(&self) -> kb_core::ChunkerVersion { kb_core::ChunkerVersion("audio-segment-v1".into()) }
-    fn policy_hash(&self, policy: &kb_core::ChunkPolicy) -> String;
-    fn chunk(&self, doc: &kb_core::CanonicalDocument, policy: &kb_core::ChunkPolicy) -> anyhow::Result<Vec<kb_core::Chunk>>;
+impl kebab_core::Chunker for AudioSegmentV1Chunker {
+    fn chunker_version(&self) -> kebab_core::ChunkerVersion { kebab_core::ChunkerVersion("audio-segment-v1".into()) }
+    fn policy_hash(&self, policy: &kebab_core::ChunkPolicy) -> String;
+    fn chunk(&self, doc: &kebab_core::CanonicalDocument, policy: &kebab_core::ChunkPolicy) -> anyhow::Result<Vec<kebab_core::Chunk>>;
 }
 ```
 
@@ -92,12 +92,12 @@ impl kb_core::Chunker for AudioSegmentV1Chunker {
 | determinism | same input → same chunk_ids twice | inline |
 | snapshot | `Vec<Chunk>` JSON for fixture transcript stable | `fixtures/audio/transcript-1.json` (constructed) |
 
-All tests under `cargo test -p kb-chunk audio`.
+All tests under `cargo test -p kebab-chunk audio`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-chunk` passes (md-heading-v1 + pdf-page-v1 + audio-segment-v1 all coexist)
-- [ ] `cargo test -p kb-chunk audio` passes
+- [ ] `cargo check -p kebab-chunk` passes (md-heading-v1 + pdf-page-v1 + audio-segment-v1 all coexist)
+- [ ] `cargo test -p kebab-chunk audio` passes
 - [ ] Snapshot stable across two runs
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §3.5, §3.4 SourceSpan::Time, §4.2

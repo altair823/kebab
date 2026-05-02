@@ -1,12 +1,12 @@
 ---
 phase: P5
-component: kb-eval (runner)
+component: kebab-eval (runner)
 task_id: p5-1
 title: "Golden query fixture loader + per-query runner"
 status: completed
 depends_on: [p4-3]
 unblocks: [p5-2]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§5.7 eval_runs/eval_query_results, §6.3 runs_dir, phase epic tasks/phase-5-evaluation.md]
 ---
 
@@ -14,7 +14,7 @@ contract_sections: [§5.7 eval_runs/eval_query_results, §6.3 runs_dir, phase ep
 
 ## Goal
 
-Load `fixtures/golden_queries.yaml`, run each query through `kb-app` (lexical / vector / hybrid / rag), and persist results into `eval_query_results` + `runs_dir/<run_id>/per_query.jsonl`.
+Load `fixtures/golden_queries.yaml`, run each query through `kebab-app` (lexical / vector / hybrid / rag), and persist results into `eval_query_results` + `runs_dir/<run_id>/per_query.jsonl`.
 
 ## Why now / why this size
 
@@ -22,10 +22,10 @@ The runner is the data collector; metrics computation is p5-2's job. Splitting t
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-app` (calls facade for search / ask)
-- `kb-store-sqlite` (writes eval rows)
+- `kebab-core`
+- `kebab-config`
+- `kebab-app` (calls facade for search / ask)
+- `kebab-store-sqlite` (writes eval rows)
 - `serde`, `serde_yaml`, `serde_json`
 - `time`
 - `tracing`
@@ -33,7 +33,7 @@ The runner is the data collector; metrics computation is p5-2's job. Splitting t
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-store-vector`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag` (all reached via `kb-app` facade only), `kb-tui`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize`, `kebab-chunk`, `kebab-store-vector`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag` (all reached via `kebab-app` facade only), `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
@@ -41,7 +41,7 @@ The runner is the data collector; metrics computation is p5-2's job. Splitting t
 |-------|------|--------|
 | `fixtures/golden_queries.yaml` | YAML | repo-shipped |
 | `EvalRunOpts` | suite, mode, with_rag, k, temperature, seed | CLI |
-| `kb-app` facade | search/ask | runtime |
+| `kebab-app` facade | search/ask | runtime |
 
 ## Outputs
 
@@ -50,7 +50,7 @@ The runner is the data collector; metrics computation is p5-2's job. Splitting t
 | `eval_runs` row | SQLite | p5-2, history |
 | `eval_query_results` rows | SQLite | p5-2 |
 | `runs_dir/<run_id>/per_query.jsonl` | filesystem | external tools, audits |
-| `EvalRun` struct | `kb_eval::EvalRun` | caller |
+| `EvalRun` struct | `kebab_eval::EvalRun` | caller |
 
 ## Public surface (signatures only — no new types)
 
@@ -58,9 +58,9 @@ The runner is the data collector; metrics computation is p5-2's job. Splitting t
 pub struct GoldenQuery {
     pub id: String,
     pub query: String,
-    pub lang: kb_core::Lang,
-    pub expected_doc_ids: Vec<kb_core::DocumentId>,
-    pub expected_chunk_ids: Vec<kb_core::ChunkId>,
+    pub lang: kebab_core::Lang,
+    pub expected_doc_ids: Vec<kebab_core::DocumentId>,
+    pub expected_chunk_ids: Vec<kebab_core::ChunkId>,
     pub must_contain: Vec<String>,
     pub forbidden: Vec<String>,
     pub difficulty: Option<String>,
@@ -68,7 +68,7 @@ pub struct GoldenQuery {
 
 pub struct EvalRunOpts {
     pub suite: String,                    // "golden" default
-    pub mode:  kb_core::SearchMode,
+    pub mode:  kebab_core::SearchMode,
     pub with_rag: bool,
     pub k: usize,
     pub temperature: Option<f32>,
@@ -86,9 +86,9 @@ pub struct EvalRun {
 pub struct QueryResult {
     pub query_id: String,
     pub query: String,
-    pub mode: kb_core::SearchMode,
-    pub hits_top_k: Vec<kb_core::SearchHit>,
-    pub answer: Option<kb_core::Answer>,
+    pub mode: kebab_core::SearchMode,
+    pub hits_top_k: Vec<kebab_core::SearchHit>,
+    pub answer: Option<kebab_core::Answer>,
     pub elapsed_ms: u32,
     pub error: Option<String>,
 }
@@ -103,10 +103,10 @@ pub fn run_eval(opts: &EvalRunOpts) -> anyhow::Result<EvalRun>;
   - Parses YAML; required fields: `id`, `query`. Optional: everything else (defaults to empty / `None`).
   - Validates uniqueness of `id` and that `expected_doc_ids` / `expected_chunk_ids` exist in DB; missing → return error listing the offenders.
 - `run_eval`:
-  - Loads `fixtures/golden_queries.yaml` (path overridable via env `KB_EVAL_GOLDEN`).
+  - Loads `fixtures/golden_queries.yaml` (path overridable via env `KEBAB_EVAL_GOLDEN`).
   - Generates `run_id = "run_" + ulid_lower()`.
-  - Captures `config_snapshot_json`: serialized `kb_config::Config` plus `chunker_version`, `embedding_model+version+dims`, `llm.model_id`, `prompt_template_version`, `score_gate`, `rrf_k`, `index_version`.
-  - For each query: call `kb_app::search(SearchQuery { mode: opts.mode, k: opts.k, .. })`. If `opts.with_rag`, also call `kb_app::ask(query, AskOpts { mode: opts.mode, k: opts.k, explain: true, temperature: opts.temperature, seed: opts.seed, .. })`.
+  - Captures `config_snapshot_json`: serialized `kebab_config::Config` plus `chunker_version`, `embedding_model+version+dims`, `llm.model_id`, `prompt_template_version`, `score_gate`, `rrf_k`, `index_version`.
+  - For each query: call `kebab_app::search(SearchQuery { mode: opts.mode, k: opts.k, .. })`. If `opts.with_rag`, also call `kebab_app::ask(query, AskOpts { mode: opts.mode, k: opts.k, explain: true, temperature: opts.temperature, seed: opts.seed, .. })`.
   - Each `QueryResult` measured by elapsed wall-clock (ms).
   - Errors are caught per-query (do not abort the run). Failed queries record `error: Some(msg)` and `hits_top_k = vec![]`.
   - Determinism: with `temperature=0` and fixed `seed`, two consecutive runs produce byte-identical `per_query.jsonl` for non-RAG queries; RAG queries may differ in negligible token budget telemetry.
@@ -130,12 +130,12 @@ pub fn run_eval(opts: &EvalRunOpts) -> anyhow::Result<EvalRun>;
 | determinism | re-running same suite + fixed seed → identical `per_query.jsonl` (lexical only) | tmp DB, fixed corpus |
 | snapshot | `EvalRun` (with mock LM for `with_rag`) JSON stable | `fixtures/eval/run-1.json` |
 
-All tests under `cargo test -p kb-eval runner`.
+All tests under `cargo test -p kebab-eval runner`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-eval` passes
-- [ ] `cargo test -p kb-eval runner` passes
+- [ ] `cargo check -p kebab-eval` passes
+- [ ] `cargo test -p kebab-eval runner` passes
 - [ ] `fixtures/golden_queries.yaml` template shipped (≥ 5 example entries)
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §5.7

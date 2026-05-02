@@ -3,7 +3,7 @@ title: "KB v1 최종 결과물 형태 — Frozen Design"
 date: 2026-04-27
 status: frozen
 purpose: 작은 단위 분해 작업 시 spec 변경을 막기 위한 단단한 contract 동결
-source_report: ../../../kb_local_rust_report.md
+source_report: ../../../kebab_local_rust_report.md
 related_tasks: ../../../tasks/INDEX.md
 ---
 
@@ -11,7 +11,7 @@ related_tasks: ../../../tasks/INDEX.md
 
 이 문서는 사용자가 만족할 **최종 결과물의 매우 구체적 형태**를 동결한다. 각 phase 의 task 분해는 이 contract 위에서 수행되며, 이 문서가 바뀌지 않는 한 task 들의 인터페이스는 변하지 않는다.
 
-전제 보고서는 [`kb_local_rust_report.md`](../../../kb_local_rust_report.md). 그 보고서가 *방향*과 *근거*를 제공하며, 이 문서가 *형태*를 못박는다.
+전제 보고서는 [`kebab_local_rust_report.md`](../../../kebab_local_rust_report.md). 그 보고서가 *방향*과 *근거*를 제공하며, 이 문서가 *형태*를 못박는다.
 
 ---
 
@@ -20,7 +20,7 @@ related_tasks: ../../../tasks/INDEX.md
 | # | 결정 | 값 | 근거 |
 |---|------|-----|------|
 | Q1 | scope 우선순위 | UX → Data 역도출 | 사용자 만족이 spec 안정성 lever |
-| Q2 | headline UX | `kb ask` 답변 화면 | 검색/citation/RAG/refusal/모델메타 모두 노출 |
+| Q2 | headline UX | `kebab ask` 답변 화면 | 검색/citation/RAG/refusal/모델메타 모두 노출 |
 | – | ask 기본 형식 | inline numeric refs `[1]…[n]` + footer | 일상 가독성 |
 | – | ask `--explain` | per-claim 분해 + verbose footer + retrieval trace | 디버그 단일 플래그 |
 | Q3 | citation 문자열 | URI fragment (`path#k=v…`, W3C Media Fragments) | 표준 정합 + Windows path 안전 + 브라우저 자동 스크롤 |
@@ -34,7 +34,7 @@ related_tasks: ../../../tasks/INDEX.md
 | Q10 | workspace | single root + XDG layout | personal v1 적정 |
 | – | asset 보존 | content-addressable copy, `copy_threshold_mb=100` 초과 시 reference + checksum | reproducibility + 디스크 절감 |
 | – | wire 버전 | additive within `vN`, breaking → `vN+1` | 외부 깨짐 방지 |
-| – | ignore | gitignore 문법 + `.kbignore` | 익숙함 |
+| – | ignore | gitignore 문법 + `.kebabignore` | 익숙함 |
 | – | 에러 | thiserror per crate, anyhow at boundary | 추적성 + UX |
 | – | sync | watch=false default | v1 명시 ingest |
 
@@ -42,43 +42,43 @@ related_tasks: ../../../tasks/INDEX.md
 
 ## 1. Headline UX scenes
 
-### 1.1 `kb ask` (default)
+### 1.1 `kebab ask` (default)
 
 ```text
-$ kb ask "Markdown chunking 규칙은?"
+$ kebab ask "Markdown chunking 규칙은?"
 
 heading boundary 우선 [1]. code block 중간 분할 금지 [2]. table 가능한 한
 단일 chunk 유지 [2]. 긴 section 은 paragraph 단위로 분할 [1]. chunk 마다
 heading_path 와 source_span 보존 [1].
 
 ─────────────────────────────────────────────────────────
-[1] notes/rust/kb-architecture.md#L661-L672
+[1] notes/rust/kebab-architecture.md#L661-L672
     §14 Chunking 정책
-[2] notes/rust/kb-architecture.md#L665-L668
+[2] notes/rust/kebab-architecture.md#L665-L668
     §14 Chunking 정책
 
 grounded ✓  qwen2.5:14b-instruct  rag-v1  3 chunks
 ```
 
-### 1.2 `kb ask --explain`
+### 1.2 `kebab ask --explain`
 
 ```text
-$ kb ask --explain "Markdown chunking 규칙은?"
+$ kebab ask --explain "Markdown chunking 규칙은?"
 
 ▎ heading boundary 우선
-  └ notes/rust/kb-architecture.md#L662
+  └ notes/rust/kebab-architecture.md#L662
     「heading boundary를 우선한다」
 
 ▎ code block 중간 분할 금지
-  └ notes/rust/kb-architecture.md#L663
+  └ notes/rust/kebab-architecture.md#L663
     「code block은 중간에서 자르지 않는다」
 
 ▎ table 단일 chunk 유지
-  └ notes/rust/kb-architecture.md#L664
+  └ notes/rust/kebab-architecture.md#L664
     「table은 가능한 한 하나의 chunk로」
 
 ▎ heading_path / source_span 보존
-  └ notes/rust/kb-architecture.md#L668-L670
+  └ notes/rust/kebab-architecture.md#L668-L670
 
 retrieval trace
   query           "Markdown chunking 규칙은?"
@@ -87,8 +87,8 @@ retrieval trace
   threshold (gate) 0.30  → top-1 0.82  pass
   fusion          rrf (k=60)
   chunks (used)   3 / 8 returned
-    #1 0.82  notes/rust/kb-architecture.md#L661-L672  bm25=12.4 vec=0.78
-    #2 0.78  notes/rust/kb-architecture.md#L692-L713  bm25=10.1 vec=0.74
+    #1 0.82  notes/rust/kebab-architecture.md#L661-L672  bm25=12.4 vec=0.78
+    #2 0.78  notes/rust/kebab-architecture.md#L692-L713  bm25=10.1 vec=0.74
     #3 0.55  guides/markdown-style.md#L4-L18           bm25=8.2  vec=0.61
 
 grounded ✓  qwen2.5:14b-instruct  rag-v1  3 chunks
@@ -96,10 +96,10 @@ prompt   1184 tokens  completion 312 tokens  latency 1842 ms
 embedding multilingual-e5-small  index v1.0
 ```
 
-### 1.3 `kb ask` (refusal — score gate)
+### 1.3 `kebab ask` (refusal — score gate)
 
 ```text
-$ kb ask "당신의 회사 매출은?"
+$ kebab ask "당신의 회사 매출은?"
 
 근거 부족. KB 에 해당 내용 없음.
 가까운 후보 (모두 임계 0.30 미만):
@@ -108,10 +108,10 @@ $ kb ask "당신의 회사 매출은?"
 grounded ✗  qwen2.5:14b-instruct  rag-v1  0 chunks used
 ```
 
-### 1.4 `kb ask` (refusal — LLM self-judge)
+### 1.4 `kebab ask` (refusal — LLM self-judge)
 
 ```text
-$ kb ask "이 책의 23쪽 결론은?"
+$ kebab ask "이 책의 23쪽 결론은?"
 
 근거 부족. 제공된 chunk 중 결론 내용 없음.
 검색은 됨, LLM 이 결론 부재 판단:
@@ -121,17 +121,17 @@ $ kb ask "이 책의 23쪽 결론은?"
 grounded ✗  qwen2.5:14b-instruct  rag-v1  3 chunks searched, 0 grounded
 ```
 
-### 1.5 `kb search` (dense)
+### 1.5 `kebab search` (dense)
 
 ```text
-$ kb search "Markdown chunking 규칙"
+$ kebab search "Markdown chunking 규칙"
 
-1. 0.82  notes/rust/kb-architecture.md#L661-L672
+1. 0.82  notes/rust/kebab-architecture.md#L661-L672
    §14 Chunking 정책
    heading boundary 우선. code block 중간 분할 금지.
    table 가능한 한 단일 chunk…
 
-2. 0.71  notes/rust/kb-architecture.md#L692-L713
+2. 0.71  notes/rust/kebab-architecture.md#L692-L713
    §15 검색과 RAG 정책
    검색은 처음부터 hybrid 로 설계하되 구현은 단계적…
 
@@ -142,7 +142,7 @@ $ kb search "Markdown chunking 규칙"
 3 hits  hybrid  index v1.0  bm25+e5-small/RRF
 ```
 
-### 1.6 `kb search --explain`
+### 1.6 `kebab search --explain`
 
 각 hit 아래 추가:
 
@@ -174,8 +174,8 @@ $ kb search "Markdown chunking 규칙"
 {
   "schema_version": "citation.v1",
   "kind": "line|page|region|caption|time",
-  "path": "notes/rust/kb.md",
-  "uri":  "notes/rust/kb.md#L12-L34",
+  "path": "notes/rust/kebab.md",
+  "uri":  "notes/rust/kebab.md#L12-L34",
 
   "line":    { "start": 12, "end": 34, "section": "§14 Chunking 정책" },
   "page":    { "page": 13, "section": "Experiment Setup" },
@@ -196,7 +196,7 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
   "score": 0.82,
   "chunk_id": "9b4a8c1e7d3f2a05",
   "doc_id":   "3f9a2c10ee4d6b78",
-  "doc_path": "notes/rust/kb-architecture.md",
+  "doc_path": "notes/rust/kebab-architecture.md",
   "heading_path": ["아키텍처", "Chunking 정책"],
   "section_label": "§14 Chunking 정책",
   "snippet": "heading boundary 우선. code block 중간 분할 금지…",
@@ -261,7 +261,7 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
     {
       "kind": "new|updated|skipped|error",
       "doc_id": "3f9a2c10ee4d6b78",
-      "doc_path": "notes/rust/kb-architecture.md",
+      "doc_path": "notes/rust/kebab-architecture.md",
       "asset_id": "8c1e7d3f2a05",
       "byte_len": 41822,
       "block_count": 184,
@@ -277,13 +277,13 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
 
 `--summary-only` 시 `items: null`.
 
-### 2.5 DocSummary (`kb list docs`)
+### 2.5 DocSummary (`kebab list docs`)
 
 ```json
 {
   "schema_version": "doc_summary.v1",
   "doc_id": "3f9a2c10ee4d6b78",
-  "doc_path": "notes/rust/kb-architecture.md",
+  "doc_path": "notes/rust/kebab-architecture.md",
   "title": "Rust 로컬 Knowledge Base 설계",
   "lang": "ko",
   "tags": ["knowledge-base", "rust", "rag"],
@@ -305,7 +305,7 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
   "schema_version": "chunk_inspection.v1",
   "chunk_id": "9b4a8c1e7d3f2a05",
   "doc_id": "3f9a2c10ee4d6b78",
-  "doc_path": "notes/rust/kb-architecture.md",
+  "doc_path": "notes/rust/kebab-architecture.md",
   "heading_path": ["아키텍처", "Chunking 정책"],
   "text": "heading boundary 우선…",
   "source_spans": [{ "kind": "line", "start": 661, "end": 672 }],
@@ -325,9 +325,9 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
   "schema_version": "doctor.v1",
   "ok": true,
   "checks": [
-    { "name": "config_loaded", "ok": true,  "detail": "~/.config/kb/config.toml" },
-    { "name": "data_dir_writable", "ok": true, "detail": "~/.local/share/kb" },
-    { "name": "sqlite_open", "ok": true, "detail": "kb.sqlite (schema v1)" },
+    { "name": "config_loaded", "ok": true,  "detail": "~/.config/kebab/config.toml" },
+    { "name": "data_dir_writable", "ok": true, "detail": "~/.local/share/kebab" },
+    { "name": "sqlite_open", "ok": true, "detail": "kebab.sqlite (schema v1)" },
     { "name": "lancedb_open", "ok": true, "detail": "lancedb/" },
     { "name": "embedding_model", "ok": true, "detail": "multilingual-e5-small (384d)" },
     { "name": "ollama_reachable", "ok": true, "detail": "http://127.0.0.1:11434" },
@@ -346,7 +346,7 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
 
 ---
 
-## 3. 도메인 모델 (kb-core)
+## 3. 도메인 모델 (kebab-core)
 
 ### 3.1 Newtype IDs
 
@@ -581,7 +581,7 @@ pub struct RetrievalDetail {
 
 ### 3.7a Forward-declared types
 
-`Block::ImageRef` / `AudioRef` variant 은 v1 부터 존재하나, 그 안의 `ocr` / `caption` / `transcript` 필드는 P1 에선 항상 `None`. 다음 타입은 `kb-core` 에 stub 으로 둠 (최종 도메인 모델 슬롯):
+`Block::ImageRef` / `AudioRef` variant 은 v1 부터 존재하나, 그 안의 `ocr` / `caption` / `transcript` 필드는 P1 에선 항상 `None`. 다음 타입은 `kebab-core` 에 stub 으로 둠 (최종 도메인 모델 슬롯):
 
 ```rust
 pub struct OcrText      { pub joined: String, pub regions: Vec<OcrRegion>, pub engine: String, pub engine_version: String }
@@ -596,41 +596,41 @@ pub enum   ImageType { Png, Jpeg, Webp, Gif, Tiff, Other(String) }
 pub enum   AudioType { M4a, Mp3, Wav, Flac, Ogg, Other(String) }
 ```
 
-`ExtractConfig`, `DocFilter`, `JobKind`, `JobStatus`, `JobFilter`, `JobRow`, `JobId`, `VectorRecord`, `VectorHit`, `RefusalSignal`, `NoHitSignal`, `DoctorUnhealthy` 도 `kb-core` 에 정의 (자세한 필드는 사용 시 결정, 이 spec 에서 forward-ref 만 보장).
+`ExtractConfig`, `DocFilter`, `JobKind`, `JobStatus`, `JobFilter`, `JobRow`, `JobId`, `VectorRecord`, `VectorHit`, `RefusalSignal`, `NoHitSignal`, `DoctorUnhealthy` 도 `kebab-core` 에 정의 (자세한 필드는 사용 시 결정, 이 spec 에서 forward-ref 만 보장).
 
 `OffsetDateTime` 는 `time::OffsetDateTime`, `Result` 는 crate-local alias.
 
-### 3.7b Parser intermediate types — `kb-parse-types`
+### 3.7b Parser intermediate types — `kebab-parse-types`
 
-Parser 의 *중간* 표현 (`ParsedBlock` 류) 은 `kb-core` 가 아니라 별도의 thin crate **`kb-parse-types`** 에 둔다. 이유: `kb-normalize` 는 medium-agnostic 한 ID/Provenance lift 를 책임지고 어떤 parser 도 직접 import 하면 안 된다. 그러나 normalize 에 들어오는 입력 타입이 어딘가에 정의되어야 하는데, 그것을 `kb-core` 에 박으면 (a) parser-별 ParsedBlock 변종 (`ParsedImageRegion`, `ParsedPdfPage`, `ParsedAudioSegment`) 이 향후 합류할 때 core 의 namespace 가 폭발하고, (b) parser 의 의미 변경이 core 변경이 되어 모든 의존자가 영향을 받는다.
+Parser 의 *중간* 표현 (`ParsedBlock` 류) 은 `kebab-core` 가 아니라 별도의 thin crate **`kebab-parse-types`** 에 둔다. 이유: `kebab-normalize` 는 medium-agnostic 한 ID/Provenance lift 를 책임지고 어떤 parser 도 직접 import 하면 안 된다. 그러나 normalize 에 들어오는 입력 타입이 어딘가에 정의되어야 하는데, 그것을 `kebab-core` 에 박으면 (a) parser-별 ParsedBlock 변종 (`ParsedImageRegion`, `ParsedPdfPage`, `ParsedAudioSegment`) 이 향후 합류할 때 core 의 namespace 가 폭발하고, (b) parser 의 의미 변경이 core 변경이 되어 모든 의존자가 영향을 받는다.
 
-`kb-parse-types` 는 이 둘 사이의 **유일한 layer** 다. 의존 그래프:
+`kebab-parse-types` 는 이 둘 사이의 **유일한 layer** 다. 의존 그래프:
 
 ```text
-kb-core (도메인 모델 — Block, Chunk, SourceSpan, IDs, …)
+kebab-core (도메인 모델 — Block, Chunk, SourceSpan, IDs, …)
    ▲
    │
-kb-parse-types (parser 중간 표현 — ParsedBlock, ParsedImageRegion[P+], ParsedPdfPage[P+], ParsedAudioSegment[P+], Inline)
+kebab-parse-types (parser 중간 표현 — ParsedBlock, ParsedImageRegion[P+], ParsedPdfPage[P+], ParsedAudioSegment[P+], Inline)
    ▲                            ▲
    │                            │
-kb-parse-md, kb-parse-pdf,      kb-normalize
-kb-parse-image, kb-parse-audio
+kebab-parse-md, kebab-parse-pdf,      kebab-normalize
+kebab-parse-image, kebab-parse-audio
 ```
 
-`kb-parse-types` 는:
-- `kb-core` 에만 의존 (`Block`, `SourceSpan`, `Lang` 등 도메인 타입 사용).
-- 다른 어떤 `kb-*` 에도 의존하지 않는다.
+`kebab-parse-types` 는:
+- `kebab-core` 에만 의존 (`Block`, `SourceSpan`, `Lang` 등 도메인 타입 사용).
+- 다른 어떤 `kebab-*` 에도 의존하지 않는다.
 - 어떤 parser 의 구체 라이브러리 (`pulldown-cmark`, `pdf-extract`, `image`, `whisper-rs`) 에도 의존하지 않는다.
 - serde + thiserror 정도의 외부 의존만 가진다.
 
 P1 에서 정의되는 타입:
 
 ```rust
-// kb-parse-types — depends on kb-core only.
+// kebab-parse-types — depends on kebab-core only.
 pub struct ParsedBlock {
     pub kind: ParsedBlockKind,
     pub heading_path: Vec<String>,
-    pub source_span: kb_core::SourceSpan,
+    pub source_span: kebab_core::SourceSpan,
     pub payload: ParsedPayload,
 }
 
@@ -638,11 +638,11 @@ pub enum ParsedBlockKind { Heading, Paragraph, List, Code, Table, Quote, ImageRe
 
 pub enum ParsedPayload {
     Heading   { level: u8, text: String },
-    Paragraph { text: String, inlines: Vec<kb_core::Inline> },
-    List      { ordered: bool, items: Vec<Vec<kb_core::Inline>> },
+    Paragraph { text: String, inlines: Vec<kebab_core::Inline> },
+    List      { ordered: bool, items: Vec<Vec<kebab_core::Inline>> },
     Code      { lang: Option<String>, code: String },
     Table     { headers: Vec<String>, rows: Vec<Vec<String>> },
-    Quote     { text: String, inlines: Vec<kb_core::Inline> },
+    Quote     { text: String, inlines: Vec<kebab_core::Inline> },
     ImageRef  { src: String, alt: String },
     AudioRef  { src: String },                        // duration_ms filled by extractor before chunking
 }
@@ -651,7 +651,7 @@ pub struct Warning { pub kind: WarningKind, pub note: String }
 pub enum WarningKind { MalformedFrontmatter, MalformedTable, EncodingFallback, ExtractFailed }
 ```
 
-`Inline` 은 `kb-core` (§3.4) 에 있는 도메인 타입. `kb-parse-types` 는 그것을 *참조* 만 한다 — 같은 의미를 두 crate 에 중복 정의하지 않는다 (그러면 normalize 가 identity-conversion 을 해야 해서 무의미).
+`Inline` 은 `kebab-core` (§3.4) 에 있는 도메인 타입. `kebab-parse-types` 는 그것을 *참조* 만 한다 — 같은 의미를 두 crate 에 중복 정의하지 않는다 (그러면 normalize 가 identity-conversion 을 해야 해서 무의미).
 
 P6/P7/P8 에서 추가될 타입 (forward-ref):
 
@@ -661,7 +661,7 @@ pub struct ParsedPdfPage     { pub page: u32, pub text: String }
 pub struct ParsedAudioSegment { pub start_ms: u64, pub end_ms: u64, pub text: String }
 ```
 
-→ 새 medium 추가 시 `kb-core::Block` 변종은 변하지 않고, `kb-parse-types` 만 확장된다.
+→ 새 medium 추가 시 `kebab-core::Block` 변종은 변하지 않고, `kebab-parse-types` 만 확장된다.
 
 ### 3.8 Answer / RAG types
 
@@ -995,28 +995,28 @@ CREATE TABLE eval_query_results (
 | 종류 | 기본 위치 |
 |------|-----------|
 | 워크스페이스 | `~/KnowledgeBase/` |
-| config | `~/.config/kb/config.toml` |
-| data | `~/.local/share/kb/` |
-| cache | `~/.cache/kb/` |
-| state (logs) | `~/.local/state/kb/` |
+| config | `~/.config/kebab/config.toml` |
+| data | `~/.local/share/kebab/` |
+| cache | `~/.cache/kebab/` |
+| state (logs) | `~/.local/state/kebab/` |
 
-`~`, `$HOME`, `${KB_*}` expand. 절대 path 정규화 후 사용.
+`~`, `$HOME`, `${KEBAB_*}` expand. 절대 path 정규화 후 사용.
 
 ### 6.2 Workspace 구조
 
 ```
 ~/KnowledgeBase/
 ├── inbox/   notes/   papers/   photos/   recordings/
-└── .kbignore
+└── .kebabignore
 ```
 
-`.kbignore` 와 `config.workspace.exclude` 합집합.
+`.kebabignore` 와 `config.workspace.exclude` 합집합.
 
 ### 6.3 Data dir 구조
 
 ```
-~/.local/share/kb/
-├── kb.sqlite (+ -wal, -shm)
+~/.local/share/kebab/
+├── kebab.sqlite (+ -wal, -shm)
 ├── lancedb/
 │   └── chunk_embeddings_<model>_<dim>.lance/
 ├── assets/<aa>/<asset_id>     # shard
@@ -1025,7 +1025,7 @@ CREATE TABLE eval_query_results (
 └── runs/<run_id>/             # eval per_query.jsonl + report.md
 ```
 
-### 6.4 Config (`~/.config/kb/config.toml`) — frozen schema
+### 6.4 Config (`~/.config/kebab/config.toml`) — frozen schema
 
 ```toml
 schema_version = 1
@@ -1036,8 +1036,8 @@ include = ["**/*.md"]
 exclude = [".git/**", "node_modules/**", ".obsidian/**"]
 
 [storage]
-data_dir          = "${XDG_DATA_HOME:-~/.local/share}/kb"
-sqlite            = "{data_dir}/kb.sqlite"
+data_dir          = "${XDG_DATA_HOME:-~/.local/share}/kebab"
+sqlite            = "{data_dir}/kebab.sqlite"
 vector_dir        = "{data_dir}/lancedb"
 asset_dir         = "{data_dir}/assets"
 artifact_dir      = "{data_dir}/artifacts"
@@ -1086,15 +1086,15 @@ max_context_tokens      = 8000
 
 config 우선순위: default → file → env (`KB_<SECTION>_<KEY>`) → CLI flag.
 
-### 6.5 `kb init` 출력
+### 6.5 `kebab init` 출력
 
 ```text
-$ kb init
-created  ~/.config/kb/config.toml
-created  ~/.local/share/kb/
+$ kebab init
+created  ~/.config/kebab/config.toml
+created  ~/.local/share/kebab/
 created  ~/KnowledgeBase/
-opened   ~/.local/share/kb/kb.sqlite (schema v1)
-hint     edit ~/.config/kb/config.toml then `kb ingest ~/KnowledgeBase`
+opened   ~/.local/share/kebab/kebab.sqlite (schema v1)
+hint     edit ~/.config/kebab/config.toml then `kebab ingest ~/KnowledgeBase`
 ```
 
 기존 파일 보존, `--force` 명시 필요.
@@ -1107,7 +1107,7 @@ hint     edit ~/.config/kb/config.toml then `kb ingest ~/KnowledgeBase`
 
 ---
 
-## 7. Trait contracts (kb-core)
+## 7. Trait contracts (kebab-core)
 
 ### 7.1 입출력 보조
 
@@ -1210,34 +1210,34 @@ pub trait JobRepo {
 ## 8. 모듈 경계 (Allowed / Forbidden)
 
 ```text
-kb-cli, kb-tui, kb-desktop
-   └─> kb-app
-         ├─> kb-source-fs
-         ├─> kb-parse-md / kb-parse-pdf / kb-parse-image / kb-parse-audio
-         │     └─> kb-parse-types (parser intermediate)
-         ├─> kb-normalize
-         │     └─> kb-parse-types
-         ├─> kb-chunk
-         ├─> kb-store-sqlite (DocumentStore, JobRepo, Retriever[lexical])
-         ├─> kb-store-vector (VectorStore)
-         ├─> kb-embed-local
-         ├─> kb-search (Retriever[hybrid])
-         ├─> kb-llm-local
-         ├─> kb-rag
-         ├─> kb-eval
-         └─> kb-config
-              └─> kb-core (모두 의존)
+kebab-cli, kebab-tui, kebab-desktop
+   └─> kebab-app
+         ├─> kebab-source-fs
+         ├─> kebab-parse-md / kebab-parse-pdf / kebab-parse-image / kebab-parse-audio
+         │     └─> kebab-parse-types (parser intermediate)
+         ├─> kebab-normalize
+         │     └─> kebab-parse-types
+         ├─> kebab-chunk
+         ├─> kebab-store-sqlite (DocumentStore, JobRepo, Retriever[lexical])
+         ├─> kebab-store-vector (VectorStore)
+         ├─> kebab-embed-local
+         ├─> kebab-search (Retriever[hybrid])
+         ├─> kebab-llm-local
+         ├─> kebab-rag
+         ├─> kebab-eval
+         └─> kebab-config
+              └─> kebab-core (모두 의존)
 ```
 
-`kb-parse-types` 는 `kb-core` 와 parsers/normalize 사이의 thin layer (§3.7b 참조). parser-별 중간 표현 (`ParsedBlock`, `ParsedImageRegion`, `ParsedPdfPage`, `ParsedAudioSegment`, `Inline`) 을 한 곳에 모아 (a) `kb-core` 의 namespace 폭발을 막고 (b) `kb-normalize` 가 parser 를 직접 import 하지 않게 한다.
+`kebab-parse-types` 는 `kebab-core` 와 parsers/normalize 사이의 thin layer (§3.7b 참조). parser-별 중간 표현 (`ParsedBlock`, `ParsedImageRegion`, `ParsedPdfPage`, `ParsedAudioSegment`, `Inline`) 을 한 곳에 모아 (a) `kebab-core` 의 namespace 폭발을 막고 (b) `kebab-normalize` 가 parser 를 직접 import 하지 않게 한다.
 
 핵심 금지:
 - UI → store/llm/parse 직접 의존 ✗
 - parse-* → store/llm/embed ✗
-- parse-* → kb-normalize ✗ (단방향: parsers → kb-parse-types ← normalize)
+- parse-* → kebab-normalize ✗ (단방향: parsers → kebab-parse-types ← normalize)
 - chunk → llm/embed ✗
 - normalize → store / parse-* ✗
-- kb-parse-types → 어떤 parser/normalize/store/llm/embed/search/rag/ui ✗ (`kb-core` 만 의존)
+- kebab-parse-types → 어떤 parser/normalize/store/llm/embed/search/rag/ui ✗ (`kebab-core` 만 의존)
 - 다른 store 와 cross-write ✗
 
 `cargo deny` + workspace deny.toml + CI 체크로 강제.
@@ -1270,7 +1270,7 @@ CI:
 ## 10. 에러 모델 + exit codes
 
 ```rust
-// kb-core
+// kebab-core
 pub enum CoreError { InvalidId, InvalidCitation, InvalidSpan, Malformed }
 // crate-local examples
 pub enum ParseMdError { Yaml(String), Encoding, Pulldown(String), Span }
@@ -1278,7 +1278,7 @@ pub enum StoreError { Sqlx(rusqlite::Error), Migration(String), Conflict(String)
 pub enum LlmError { Unreachable, ModelNotPulled(String), Timeout, Stream(String) }
 ```
 
-Boundary (`kb-app`, `kb-cli`) 에서 `anyhow::Error` 합침. exit code 매핑:
+Boundary (`kebab-app`, `kebab-cli`) 에서 `anyhow::Error` 합침. exit code 매핑:
 
 ```rust
 fn exit_code(err: &anyhow::Error) -> i32 {
@@ -1295,17 +1295,17 @@ fn exit_code(err: &anyhow::Error) -> i32 {
 | `--verbose` | + anyhow chain |
 | `--debug` 또는 `RUST_LOG=debug` | + tracing target/level/span |
 
-Refusal 은 에러 아님. `kb ask` 거절은 정상 stdout (Answer with grounded=false) + exit 1.
+Refusal 은 에러 아님. `kebab ask` 거절은 정상 stdout (Answer with grounded=false) + exit 1.
 
-Logging: `tracing` + `tracing-subscriber` + `tracing-appender` daily roll, `~/.local/state/kb/logs/`. structured (`trace_id`, `doc_id`, `chunk_id`).
+Logging: `tracing` + `tracing-subscriber` + `tracing-appender` daily roll, `~/.local/state/kebab/logs/`. structured (`trace_id`, `doc_id`, `chunk_id`).
 
-`kb doctor` 출력 (사람):
+`kebab doctor` 출력 (사람):
 
 ```text
-$ kb doctor
-✓ config_loaded         ~/.config/kb/config.toml
-✓ data_dir_writable     ~/.local/share/kb
-✓ sqlite_open           kb.sqlite (schema v1)
+$ kebab doctor
+✓ config_loaded         ~/.config/kebab/config.toml
+✓ data_dir_writable     ~/.local/share/kebab
+✓ sqlite_open           kebab.sqlite (schema v1)
 ✓ lancedb_open          lancedb/
 ✓ embedding_model       multilingual-e5-small (384d)
 ✓ ollama_reachable      http://127.0.0.1:11434
@@ -1322,7 +1322,7 @@ $ kb doctor
 이 문서가 동결 ↔ 다음 컴포넌트 분해 작업이 안전:
 
 - 모든 wire schema (`docs/wire-schema/v1/*.schema.json`)
-- 모든 trait 시그니처 (kb-core)
+- 모든 trait 시그니처 (kebab-core)
 - 모든 ID recipe (4.2)
 - SQLite DDL (5장)
 - Filesystem + config schema (6장)
@@ -1334,7 +1334,7 @@ $ kb doctor
 **의도적으로 빠진 것 (out of scope, P+)**:
 - multi-workspace
 - watch mode
-- desktop app `kb://` protocol handler
+- desktop app `kebab://` protocol handler
 - LLM-as-judge eval
 - visual embedding (CLIP)
 - real-time collab

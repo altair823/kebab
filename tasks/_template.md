@@ -6,7 +6,7 @@ title: "<Component title>"
 status: planned
 depends_on: []                            # other task_ids
 unblocks: []                              # other task_ids
-contract_source: ../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: []                     # e.g. [§3.5, §5.5, §7.2]
 ---
 
@@ -22,7 +22,7 @@ contract_sections: []                     # e.g. [§3.5, §5.5, §7.2]
 
 ## Allowed dependencies
 
-- `kb-core`
+- `kebab-core`
 - <other crates per design §8>
 - <external crates with versions>
 
@@ -71,7 +71,7 @@ If any item here is needed during implementation, STOP and update the frozen des
 | unit | ...         | ...            |
 | snapshot | ... (JSON freeze) | `fixtures/...` |
 | contract | trait round-trip | mock impls |
-| integration | end-to-end via `kb-app` facade | tmp workspace |
+| integration | end-to-end via `kebab-app` facade | tmp workspace |
 
 All tests must run under `cargo test -p <crate>` and not require external network or Ollama unless explicitly stated.
 

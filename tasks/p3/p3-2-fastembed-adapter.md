@@ -1,12 +1,12 @@
 ---
 phase: P3
-component: kb-embed-local (fastembed adapter)
+component: kebab-embed-local (fastembed adapter)
 task_id: p3-2
 title: "fastembed-rs Embedder for multilingual-e5-small"
 status: completed
 depends_on: [p3-1]
 unblocks: [p3-3, p3-4]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [design §7.2 Embedder, report §11.3 local embedding, design §6.4 [models.embedding], design §9 versioning]
 ---
 
@@ -22,9 +22,9 @@ First real `Embedder`. Drives `EmbeddingId` recipe (model_id + model_version + d
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-embed`
+- `kebab-core`
+- `kebab-config`
+- `kebab-embed`
 - `fastembed = "4"` (or current stable)
 - `tokenizers`
 - `ort` (transitive via fastembed)
@@ -33,21 +33,21 @@ First real `Embedder`. Drives `EmbeddingId` recipe (model_id + model_version + d
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-store-*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`, network HTTP libs (model download is fastembed's responsibility)
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize`, `kebab-chunk`, `kebab-store-*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`, network HTTP libs (model download is fastembed's responsibility)
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `kb-config::Config.models.embedding` | settings | runtime |
-| `EmbeddingInput[..]` | `kb_core::EmbeddingInput<'_>[]` | callers |
+| `kebab-config::Config.models.embedding` | settings | runtime |
+| `EmbeddingInput[..]` | `kebab_core::EmbeddingInput<'_>[]` | callers |
 | model cache | `data_dir/models/fastembed/` | filesystem |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `Vec<Vec<f32>>` | row-aligned, `dimensions = 384` | `kb-store-vector`, query vectors for hybrid search |
+| `Vec<Vec<f32>>` | row-aligned, `dimensions = 384` | `kebab-store-vector`, query vectors for hybrid search |
 | model identity | `(EmbeddingModelId, EmbeddingVersion, usize)` | record fields, `embedding_id` recipe |
 
 ## Public surface (signatures only — no new types)
@@ -56,14 +56,14 @@ First real `Embedder`. Drives `EmbeddingId` recipe (model_id + model_version + d
 pub struct FastembedEmbedder { /* internal: TextEmbedding instance + model meta */ }
 
 impl FastembedEmbedder {
-    pub fn new(config: &kb_config::Config) -> anyhow::Result<Self>;
+    pub fn new(config: &kebab_config::Config) -> anyhow::Result<Self>;
 }
 
-impl kb_core::Embedder for FastembedEmbedder {
-    fn model_id(&self) -> kb_core::EmbeddingModelId;
-    fn model_version(&self) -> kb_core::EmbeddingVersion;
+impl kebab_core::Embedder for FastembedEmbedder {
+    fn model_id(&self) -> kebab_core::EmbeddingModelId;
+    fn model_version(&self) -> kebab_core::EmbeddingVersion;
     fn dimensions(&self) -> usize;
-    fn embed(&self, inputs: &[kb_core::EmbeddingInput<'_>]) -> anyhow::Result<Vec<Vec<f32>>>;
+    fn embed(&self, inputs: &[kebab_core::EmbeddingInput<'_>]) -> anyhow::Result<Vec<Vec<f32>>>;
 }
 ```
 
@@ -96,12 +96,12 @@ impl kb_core::Embedder for FastembedEmbedder {
 | performance | batch of 64 short inputs completes in < 5s on CI host | tmp config (skip on slow CI via `#[ignore]`) |
 | snapshot | aggregate hash of vectors for 5 known sentences stable across runs | `fixtures/embed/known-sentences.json` |
 
-All tests under `cargo test -p kb-embed-local`. Mark slow tests `#[ignore]` and run via `cargo test -- --ignored` in dedicated CI lane.
+All tests under `cargo test -p kebab-embed-local`. Mark slow tests `#[ignore]` and run via `cargo test -- --ignored` in dedicated CI lane.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-embed-local` passes
-- [ ] `cargo test -p kb-embed-local` passes (excluding `#[ignore]`)
+- [ ] `cargo check -p kebab-embed-local` passes
+- [ ] `cargo test -p kebab-embed-local` passes (excluding `#[ignore]`)
 - [ ] First-run model download works under `data_dir/models/fastembed/`
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §11.3, §6.4, §9

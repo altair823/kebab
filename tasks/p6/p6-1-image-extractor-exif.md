@@ -1,12 +1,12 @@
 ---
 phase: P6
-component: kb-parse-image (image extractor + EXIF)
+component: kebab-parse-image (image extractor + EXIF)
 task_id: p6-1
 title: "Image Extractor producing single-block CanonicalDocument + EXIF metadata"
 status: planned
 depends_on: [p0-1, p1-6]
 unblocks: [p6-2, p6-3]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.4 Block::ImageRef + ImageRefBlock, §3.7a OcrText/ModelCaption stubs, §9.1 image extraction policy, §9 versioning]
 ---
 
@@ -22,8 +22,8 @@ Establishes the image-as-document contract and decouples extraction (asset → I
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
+- `kebab-core`
+- `kebab-config`
 - `image = "0.25"` (decoding for size + format detect)
 - `kamadak-exif` for EXIF
 - `serde`, `serde_json`
@@ -33,31 +33,31 @@ Establishes the image-as-document contract and decouples extraction (asset → I
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`, OCR libs, LLM libs
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize`, `kebab-chunk`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`, OCR libs, LLM libs
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `RawAsset` | `kb_core::RawAsset` | from `kb-source-fs` |
+| `RawAsset` | `kebab_core::RawAsset` | from `kebab-source-fs` |
 | image bytes | `&[u8]` | filesystem |
-| `parser_version` | `kb_core::ParserVersion` | constant in this crate (`"image-meta-v1"`) |
+| `parser_version` | `kebab_core::ParserVersion` | constant in this crate (`"image-meta-v1"`) |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `CanonicalDocument` | `kb_core::CanonicalDocument` | `kb-chunk` (image-region chunker) → `kb-store-sqlite` |
+| `CanonicalDocument` | `kebab_core::CanonicalDocument` | `kebab-chunk` (image-region chunker) → `kebab-store-sqlite` |
 
 ## Public surface (signatures only — no new types)
 
 ```rust
 pub struct ImageExtractor;
 
-impl kb_core::Extractor for ImageExtractor {
-    fn supports(&self, m: &kb_core::MediaType) -> bool { matches!(m, kb_core::MediaType::Image(_)) }
-    fn parser_version(&self) -> kb_core::ParserVersion { kb_core::ParserVersion("image-meta-v1".into()) }
-    fn extract(&self, ctx: &kb_core::ExtractContext, bytes: &[u8]) -> anyhow::Result<kb_core::CanonicalDocument>;
+impl kebab_core::Extractor for ImageExtractor {
+    fn supports(&self, m: &kebab_core::MediaType) -> bool { matches!(m, kebab_core::MediaType::Image(_)) }
+    fn parser_version(&self) -> kebab_core::ParserVersion { kebab_core::ParserVersion("image-meta-v1".into()) }
+    fn extract(&self, ctx: &kebab_core::ExtractContext, bytes: &[u8]) -> anyhow::Result<kebab_core::CanonicalDocument>;
 }
 ```
 
@@ -69,7 +69,7 @@ impl kb_core::Extractor for ImageExtractor {
 - `metadata.source_type = SourceType::Reference` (per design enum); `trust_level = TrustLevel::Primary`; `tags`/`aliases` empty.
 - `metadata.user["exif"]` = JSON object with whitelisted EXIF tags (DateTimeOriginal, GPS lat/lon, Make, Model, Orientation, Software). Missing tags omitted.
 - `metadata.user["dimensions"] = { "w": <u32>, "h": <u32>, "format": "<png|jpeg|...>" }`.
-- `provenance` includes `Discovered`, `Parsed` events (no Normalized — ID assignment happens here directly per §3.4 stub from p1-4 logic, OR pipe through `kb-normalize` if available; this task's choice: emit a fully formed CanonicalDocument with deterministic IDs by calling `kb_core::id_for_doc` and `kb_core::id_for_block` directly).
+- `provenance` includes `Discovered`, `Parsed` events (no Normalized — ID assignment happens here directly per §3.4 stub from p1-4 logic, OR pipe through `kebab-normalize` if available; this task's choice: emit a fully formed CanonicalDocument with deterministic IDs by calling `kebab_core::id_for_doc` and `kebab_core::id_for_block` directly).
 - Failure modes:
   - Truncated/corrupt image → still emits a CanonicalDocument with `dimensions = null`, EXIF empty, `Provenance` warning event with the decoder error message.
   - Unsupported format → `anyhow::Error` (caller skips).
@@ -77,7 +77,7 @@ impl kb_core::Extractor for ImageExtractor {
 
 ## Storage / wire effects
 
-- None directly (the caller persists via `kb-store-sqlite`).
+- None directly (the caller persists via `kebab-store-sqlite`).
 
 ## Test plan
 
@@ -90,12 +90,12 @@ impl kb_core::Extractor for ImageExtractor {
 | determinism | identical bytes → identical `doc_id`, `block_id` across two runs | inline |
 | snapshot | `CanonicalDocument` JSON stable for fixture | `fixtures/image/red-100x50.png` |
 
-All tests under `cargo test -p kb-parse-image`.
+All tests under `cargo test -p kebab-parse-image`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-parse-image` passes
-- [ ] `cargo test -p kb-parse-image` passes
+- [ ] `cargo check -p kebab-parse-image` passes
+- [ ] `cargo test -p kebab-parse-image` passes
 - [ ] No OCR/caption/embedding code present
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §3.4, §9.1

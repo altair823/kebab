@@ -3,7 +3,7 @@ phase: P5
 title: "Golden query / regression eval"
 status: completed
 depends_on: [P4]
-source: kb_local_rust_report.md §17 Phase 5, §18
+source: kebab_local_rust_report.md §17 Phase 5, §18
 ---
 
 # P5 — Golden query / regression eval
@@ -14,7 +14,7 @@ source: kb_local_rust_report.md §17 Phase 5, §18
 
 ## 산출 crate
 
-- `kb-eval` — golden query 실행기, 지표 계산, report 생성.
+- `kebab-eval` — golden query 실행기, 지표 계산, report 생성.
 
 ## Golden set fixture
 
@@ -25,9 +25,9 @@ source: kb_local_rust_report.md §17 Phase 5, §18
   query: "Markdown chunking 규칙"
   lang: ko
   expected_doc_ids:
-    - doc:notes/rust/kb-architecture.md
+    - doc:notes/rust/kebab-architecture.md
   expected_chunk_ids:
-    - chunk:notes/rust/kb-architecture.md#chunking-policy
+    - chunk:notes/rust/kebab-architecture.md#chunking-policy
   must_contain:
     - "heading"
     - "code block"
@@ -57,9 +57,9 @@ source: kb_local_rust_report.md §17 Phase 5, §18
 ## 실행 모드
 
 ```text
-kb eval run --suite golden [--mode {lexical,vector,hybrid}] [--with-rag]
-kb eval compare <run_id_a> <run_id_b>
-kb eval report <run_id> --format {json,md,html}
+kebab eval run --suite golden [--mode {lexical,vector,hybrid}] [--with-rag]
+kebab eval compare <run_id_a> <run_id_b>
+kebab eval report <run_id> --format {json,md,html}
 ```
 
 run record:
@@ -90,7 +90,7 @@ DB 저장 (`eval_runs`, `eval_query_results` table) 또는 JSON 파일. 재현�
 - 자동 hyperparameter 탐색 — 안 함.
 - LLM judge ("LLM as a judge") — P5 범위 밖. groundedness 는 rule-based (`must_contain`) 만.
 
-## kb-app facade 확장
+## kebab-app facade 확장
 
 ```rust
 pub fn eval_run(opts: EvalRunOpts) -> anyhow::Result<EvalRun>;
@@ -105,13 +105,13 @@ pub fn eval_compare(a: &str, b: &str) -> anyhow::Result<CompareReport>;
 
 ## 의존성 경계
 
-- `kb-eval` 은 `kb-app` 만 호출 (검색/ask 는 facade 통해서). 내부 store/LLM 직접 호출 금지.
+- `kebab-eval` 은 `kebab-app` 만 호출 (검색/ask 는 facade 통해서). 내부 store/LLM 직접 호출 금지.
 
 ## 완료 조건
 
 - [ ] `fixtures/golden_queries.yaml` 30+ 개
-- [ ] `kb eval run` 으로 hit@k, MRR, citation_coverage 산출
-- [ ] `kb eval compare` 로 두 run 비교 가능
+- [ ] `kebab eval run` 으로 hit@k, MRR, citation_coverage 산출
+- [ ] `kebab eval compare` 로 두 run 비교 가능
 - [ ] config snapshot 이 run 에 저장됨 (chunker, embedding, llm, prompt 버전)
 - [ ] CI 로 회귀 감지 가능 (예: hit@5 가 baseline 대비 -3% 이상 떨어지면 실패)
 
