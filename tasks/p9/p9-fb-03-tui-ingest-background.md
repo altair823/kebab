@@ -3,7 +3,7 @@ phase: P9
 component: kebab-tui
 task_id: p9-fb-03
 title: "TUI ingest as background worker + status bar"
-status: planned
+status: in_progress
 depends_on: [p9-fb-01]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

@@ -29,6 +29,31 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
     let mut terminal = TuiTerminal::enter()?;
 
     while !app.should_quit {
+        // p9-fb-03: ingest progress is pane-independent. Drain
+        // freshly-arrived events every tick + clear the slot a few
+        // seconds after the run terminated so the user has time to
+        // read the final line.
+        crate::ingest_progress::drain_progress(app);
+        let clear_now = app
+            .ingest_state
+            .as_ref()
+            .map(crate::ingest_progress::ready_to_clear)
+            .unwrap_or(false);
+        if clear_now {
+            if let Some(mut state) = app.ingest_state.take() {
+                // Reap the worker thread now that the user has seen
+                // the final status line; ignore the join result —
+                // `IngestReport` was already mirrored into the status
+                // bar via `Completed { counts }`.
+                if let Some(handle) = state.thread.take() {
+                    let _ = handle.join();
+                }
+            }
+            // Library may show stale doc list; queue a refresh so the
+            // next idle tick picks up the just-ingested rows.
+            app.library.inner.needs_refresh = true;
+        }
+
         // Per-pane idle work BEFORE rendering so the frame reflects
         // freshly-loaded state.
         if app.error_overlay.is_none() {
@@ -149,13 +174,26 @@ fn handle_key_unimplemented_pane(
 }
 
 fn render_root(f: &mut Frame, app: &App) {
-    let outer = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
+    // p9-fb-03: insert a 1-line status bar above the footer when an
+    // ingest is in flight (or its terminal line is still on hold).
+    let has_ingest = app.ingest_state.is_some();
+    let constraints: Vec<Constraint> = if has_ingest {
+        vec![
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1), // ingest status bar
+            Constraint::Length(1), // existing footer hints
+        ]
+    } else {
+        vec![
             Constraint::Length(1),
             Constraint::Min(1),
             Constraint::Length(1),
-        ])
+        ]
+    };
+    let outer = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
         .split(f.area());
     render_header(f, outer[0], app);
     match app.focus {
@@ -166,10 +204,31 @@ fn render_root(f: &mut Frame, app: &App) {
         // p9-5 Jobs not yet rendered; Library placeholder.
         Pane::Jobs => render_library(f, outer[1], app),
     }
-    render_footer(f, outer[2], app);
+    if has_ingest {
+        render_ingest_status(f, outer[2], app);
+        render_footer(f, outer[3], app);
+    } else {
+        render_footer(f, outer[2], app);
+    }
     if let Some(err) = &app.error_overlay {
         render_error_overlay(f, f.area(), err);
     }
+}
+
+fn render_ingest_status(f: &mut Frame, area: Rect, app: &App) {
+    let Some(state) = app.ingest_state.as_ref() else {
+        return;
+    };
+    let line = crate::ingest_progress::status_line(state);
+    let style = if state.aborted {
+        Style::default().add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(line, style))),
+        area,
+    );
 }
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
@@ -197,7 +256,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
             if app.library.inner.filter_edit.is_some() {
                 "Tab=field  Enter=apply  Esc=cancel"
             } else {
-                "j/k=move  gg=top  G=bottom  f=filter  /=search  ?=ask  Enter=inspect  q=quit"
+                "j/k=move  gg=top  G=bottom  f=filter  /=search  ?=ask  Enter=inspect  r=ingest  q=quit"
             }
         }
         Pane::Search => "type=query  Tab=mode  Enter=search  j/k=move  g=open in $EDITOR  Esc=back",

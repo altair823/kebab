@@ -76,7 +76,7 @@ kebab doctor
 | `kebab inspect doc <id>` / `kebab inspect chunk <id>` | raw record 보기 |
 | `kebab ask "<query>"` | RAG 답변 + 근거 인용. 근거 부족 시 거절. Ollama 필요 |
 | `kebab doctor` | 설정/모델/DB 헬스 체크 |
-| `kebab tui` | Ratatui 셸 (Library + Search + Ask + Inspect 패널, desktop 진행 중) |
+| `kebab tui` | Ratatui 셸 (Library + Search + Ask + Inspect 패널, desktop 진행 중). Library 에서 `r` 키로 background ingest 시작 — 화면 하단 status bar 가 진행 표시, 완료/abort 시 final 라인 잠시 유지 후 자동 hide |
 | `kebab reset [--all / --data-only / --vector-only / --config-only] [--yes]` | XDG 데이터 wipe. **Irreversible.** TTY 면 confirm prompt, 아니면 `--yes` 필수. `--vector-only` 는 SQLite `embedding_records` 도 함께 truncate (orphan 방지) |
 | `kebab eval run / compare` | golden query 회귀 측정 |
 
