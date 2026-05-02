@@ -99,6 +99,35 @@ enum Cmd {
         seed: Option<u64>,
     },
 
+    /// Wipe XDG data dirs (and optionally the Lance vector store) so the
+    /// workspace can be re-initialised. **Irreversible.** Without
+    /// `--yes`, prompts on TTY; aborts in non-interactive contexts.
+    Reset {
+        /// Wipe config + data + cache + state. Implies losing
+        /// `config.toml` — re-run `kebab init` afterwards.
+        #[arg(long, group = "reset_scope")]
+        all: bool,
+
+        /// Default. Wipe data + cache + state. Config is preserved.
+        #[arg(long, group = "reset_scope")]
+        data_only: bool,
+
+        /// Wipe only the Lance vector store + truncate
+        /// `embedding_records`. SQLite documents / chunks survive so the
+        /// next `kebab ingest` re-embeds without re-parsing.
+        #[arg(long, group = "reset_scope")]
+        vector_only: bool,
+
+        /// Wipe only the config dir.
+        #[arg(long, group = "reset_scope")]
+        config_only: bool,
+
+        /// Skip the interactive confirm. Required in non-interactive
+        /// contexts (CI, pipes).
+        #[arg(long)]
+        yes: bool,
+    },
+
     /// Health check.
     Doctor,
 
@@ -380,6 +409,64 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             Ok(())
         }
 
+        Cmd::Reset {
+            all,
+            data_only: _,
+            vector_only,
+            config_only,
+            yes,
+        } => {
+            use kebab_app::ResetScope;
+            // `--data-only` explicit OR no scope flag at all → DataOnly.
+            // The `data_only: _` binding above is intentional — clap's
+            // `group = "reset_scope"` already enforces mutual exclusion,
+            // so the flag's presence does not change the resolved scope.
+            let scope = if *all {
+                ResetScope::All
+            } else if *vector_only {
+                ResetScope::VectorOnly
+            } else if *config_only {
+                ResetScope::ConfigOnly
+            } else {
+                ResetScope::DataOnly
+            };
+
+            let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+            let paths = kebab_app::reset::enumerate_paths(scope, &cfg);
+            let bytes = kebab_app::reset::estimate_size_bytes(&paths);
+
+            if !*yes {
+                use std::io::IsTerminal;
+                if !std::io::stdin().is_terminal() {
+                    anyhow::bail!(
+                        "reset is destructive and stdin is non-interactive — pass --yes to proceed"
+                    );
+                }
+                if !confirm_destructive(scope, &paths, bytes)? {
+                    eprintln!("aborted.");
+                    return Ok(());
+                }
+            }
+
+            let report = kebab_app::reset::execute(scope, &cfg)?;
+            if cli.json {
+                println!("{}", serde_json::to_string(&wire::wire_reset(&report))?);
+            } else {
+                println!(
+                    "removed {} path(s); embedding_rows_truncated={}",
+                    report.removed_paths.len(),
+                    report.embedding_rows_truncated
+                );
+                for p in &report.removed_paths {
+                    println!("  - {}", p.display());
+                }
+                if matches!(scope, ResetScope::All | ResetScope::ConfigOnly) {
+                    println!("hint: run `kebab init` to recreate config.toml");
+                }
+            }
+            Ok(())
+        }
+
         Cmd::Doctor => {
             let report = kebab_app::doctor_with_config_path(cli.config.as_deref())?;
             if cli.json {
@@ -494,5 +581,31 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             }
         },
     }
+}
+
+/// Minimal stdin/stdout confirm prompt for destructive ops. No new dep —
+/// uses stdlib `IsTerminal` (the caller is expected to have already
+/// short-circuited the non-TTY case). Returns `Ok(true)` only when the
+/// user types `y` / `Y` / `yes`. Empty input or anything else → `false`
+/// (safe default).
+fn confirm_destructive(
+    scope: kebab_app::ResetScope,
+    paths: &[std::path::PathBuf],
+    bytes: u64,
+) -> anyhow::Result<bool> {
+    use std::io::Write;
+    let mut out = std::io::stderr().lock();
+    writeln!(out, "kebab reset ({:?}): about to remove", scope)?;
+    for p in paths {
+        writeln!(out, "  - {}", p.display())?;
+    }
+    writeln!(out, "estimated total: {} bytes", bytes)?;
+    write!(out, "Proceed? [y/N] ")?;
+    out.flush()?;
+
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    let s = line.trim().to_ascii_lowercase();
+    Ok(matches!(s.as_str(), "y" | "yes"))
 }
 
