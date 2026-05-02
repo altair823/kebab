@@ -3,7 +3,7 @@ phase: P6
 component: kebab-app (image ingest dispatch + chunking)
 task_id: p6-4
 title: "Wire ImageExtractor + OCR + caption into kebab-app::ingest end-to-end"
-status: planned
+status: completed
 depends_on: [p6-1, p6-2, p6-3, p1-6, p3-5]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

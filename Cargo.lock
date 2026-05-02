@@ -3397,6 +3397,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "dirs 5.0.1",
+ "image",
  "kebab-chunk",
  "kebab-config",
  "kebab-core",
@@ -3405,6 +3406,7 @@ dependencies = [
  "kebab-llm",
  "kebab-llm-local",
  "kebab-normalize",
+ "kebab-parse-image",
  "kebab-parse-md",
  "kebab-parse-types",
  "kebab-rag",
@@ -3417,10 +3419,12 @@ dependencies = [
  "serde_json",
  "tempfile",
  "time",
+ "tokio",
  "toml",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "wiremock",
 ]
 
 [[package]]

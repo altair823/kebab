@@ -381,17 +381,41 @@ fn render_block_text(b: &Block) -> String {
             }
             s
         }
-        // ImageRef text portion = alt (per task spec). Fall back to
-        // model caption text if alt is empty.
+        // ImageRef text portion follows the P6-4 (β) plain-concat
+        // contract — `[alt, ocr.joined, caption.text]` joined by
+        // `\n\n`, dropping empty parts. Filename fallback for empty
+        // alt keeps lexical search hits on filenames working even when
+        // P6-1's filename auto-fill is bypassed.
         Block::ImageRef(i) => {
-            if !i.alt.is_empty() {
+            let alt = if !i.alt.is_empty() {
                 i.alt.clone()
             } else {
-                i.caption
-                    .as_ref()
-                    .map(|c| c.text.clone())
-                    .unwrap_or_default()
-            }
+                // P6-1 falls back to filename so this branch is
+                // defensive — keep it lest a future test fixture or
+                // synthetic block path skip the auto-fill.
+                i.src
+                    .rsplit('/')
+                    .next()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("[image]")
+                    .to_string()
+            };
+            let ocr = i
+                .ocr
+                .as_ref()
+                .map(|o| o.joined.as_str())
+                .unwrap_or("");
+            let cap = i
+                .caption
+                .as_ref()
+                .map(|c| c.text.as_str())
+                .unwrap_or("");
+            [alt.as_str(), ocr, cap]
+                .iter()
+                .filter(|s| !s.is_empty())
+                .copied()
+                .collect::<Vec<_>>()
+                .join("\n\n")
         }
         // AudioRef has no caption preview yet (transcript joins land
         // in P8). Empty string per task spec.
@@ -698,6 +722,63 @@ mod tests {
                 w[1].block_ids
             );
         }
+    }
+
+    /// P6-4 (β) plain concatenation — alt + ocr.joined + caption.text
+    /// joined by `\n\n`, dropping empty parts. Verifies all four
+    /// (alt-only, alt+ocr, alt+caption, alt+ocr+caption) shapes.
+    #[test]
+    fn image_ref_p6_4_plain_concat_drops_empty_parts() {
+        use kebab_core::{ModelCaption, OcrText};
+
+        let mk = |alt: &str, ocr: Option<&str>, cap: Option<&str>| {
+            Block::ImageRef(ImageRefBlock {
+                common: common_for("imageref", &[], 0, span(1, 1)),
+                asset_id: None,
+                src: "img.png".into(),
+                alt: alt.into(),
+                ocr: ocr.map(|t| OcrText {
+                    joined: t.into(),
+                    regions: vec![],
+                    engine: "test".into(),
+                    engine_version: "v1".into(),
+                }),
+                caption: cap.map(|t| ModelCaption {
+                    text: t.into(),
+                    model: "m".into(),
+                    model_version: "v".into(),
+                }),
+            })
+        };
+
+        // alt-only — no separators between empty parts.
+        assert_eq!(render_block_text(&mk("photo.png", None, None)), "photo.png");
+
+        // alt + ocr — joined by exactly one `\n\n`.
+        assert_eq!(
+            render_block_text(&mk("photo.png", Some("Hello"), None)),
+            "photo.png\n\nHello"
+        );
+
+        // alt + caption.
+        assert_eq!(
+            render_block_text(&mk("photo.png", None, Some("a red square"))),
+            "photo.png\n\na red square"
+        );
+
+        // alt + ocr + caption — three parts joined by `\n\n` each.
+        assert_eq!(
+            render_block_text(&mk("photo.png", Some("Hello"), Some("a red square"))),
+            "photo.png\n\nHello\n\na red square"
+        );
+
+        // empty alt — falls back to filename derived from `src`.
+        let blk = mk("", Some("text from image"), None);
+        assert_eq!(
+            render_block_text(&blk),
+            "img.png\n\ntext from image",
+            "empty alt must fall back to the basename of `src`"
+        );
     }
 
     /// ImageRef → own chunk, token_estimate=0.
