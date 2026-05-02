@@ -244,8 +244,9 @@ async fn ocr_failure_indexes_asset_with_warning_no_error_counter() {
         .expect("Provenance Warning attributed to kb-app");
     let note = warning.note.as_deref().unwrap_or("");
     assert!(
-        note.contains("ocr_failed"),
-        "warning note must describe OCR failure: {note}"
+        note.contains("OcrFailed"),
+        "warning note must describe OCR failure with OcrFailed prefix \
+         (markdown-style WarningKind format): {note}"
     );
 }
 

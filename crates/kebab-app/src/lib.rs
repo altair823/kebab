@@ -467,10 +467,6 @@ fn mint_ingest_run_id(scope_json: &str, at: time::OffsetDateTime) -> String {
 /// `<… as JobRepo>` to be explicit.
 type SqliteStoreAlias = kebab_store_sqlite::SqliteStore;
 
-/// Process a single asset: read bytes, parse, normalize, chunk,
-/// persist, embed. Per-asset failures bubble up to the caller for
-/// labelling as `IngestItemKind::Error` — they do NOT abort the
-/// whole run.
 /// P6-4: borrowed bundle of the three image-pipeline components built
 /// once per ingest invocation. Threaded through `ingest_one_asset` so
 /// the dispatch does not need ten separate parameters.
@@ -480,6 +476,10 @@ struct ImagePipeline<'a> {
     caption_llm: Option<&'a dyn LanguageModel>,
 }
 
+/// Process a single asset: read bytes, parse, normalize, chunk,
+/// persist, embed. Per-asset failures bubble up to the caller for
+/// labelling as `IngestItemKind::Error` — they do NOT abort the
+/// whole run.
 #[allow(clippy::too_many_arguments)]
 fn ingest_one_asset(
     app: &App,
@@ -742,61 +742,77 @@ fn ingest_one_image_asset(
     //        `block.ocr` / `block.caption` stay `None`. P6-4 spec
     //        explicitly: such partial failures do NOT increment the
     //        `errors` counter.
+    //
+    //        Determinism stress (per spec Risks): the per-document
+    //        Provenance timestamps for any analysis-stage Warning
+    //        events share a single `now_utc()` reading taken once
+    //        here, mirroring `kb-normalize::build_canonical_document`.
     let lang_hint = lang_hint_from_doc(&canonical);
+    let now = time::OffsetDateTime::now_utc();
     let mut warning_notes: Vec<String> = Vec::new();
-    if !canonical.blocks.is_empty() {
-        // P6-1 contract: image documents always have exactly one
-        // `Block::ImageRef`. Defensive match keeps us forward-compatible.
-        if let Some(Block::ImageRef(block)) = canonical.blocks.first_mut() {
-            if let Some(engine) = ocr_engine {
-                if let Err(e) = apply_ocr(
+    match canonical.blocks.first_mut() {
+        Some(Block::ImageRef(block)) => {
+            if let Some(engine) = ocr_engine
+                && let Err(e) = apply_ocr(
                     engine,
                     &bytes,
                     block,
                     lang_hint.as_ref(),
                     &mut canonical.provenance.events,
-                ) {
-                    let note = format!("ocr_failed: {e:#}");
-                    tracing::warn!(
-                        target: "kebab-app",
-                        path = %asset.workspace_path.0,
-                        "{}",
-                        note
-                    );
-                    canonical.provenance.events.push(kebab_core::ProvenanceEvent {
-                        at: time::OffsetDateTime::now_utc(),
-                        agent: "kb-app".to_string(),
-                        kind: kebab_core::ProvenanceKind::Warning,
-                        note: Some(note.clone()),
-                    });
-                    warning_notes.push(note);
-                }
+                )
+            {
+                record_image_analysis_failure(
+                    asset,
+                    &mut canonical.provenance.events,
+                    &mut warning_notes,
+                    "OcrFailed",
+                    e,
+                    now,
+                );
             }
-            if let Some(llm) = caption_llm {
-                if let Err(e) = apply_caption(
+            if let Some(llm) = caption_llm
+                && let Err(e) = apply_caption(
                     llm,
                     &bytes,
                     block,
                     lang_hint.as_ref(),
                     &app.config,
                     &mut canonical.provenance.events,
-                ) {
-                    let note = format!("caption_failed: {e:#}");
-                    tracing::warn!(
-                        target: "kebab-app",
-                        path = %asset.workspace_path.0,
-                        "{}",
-                        note
-                    );
-                    canonical.provenance.events.push(kebab_core::ProvenanceEvent {
-                        at: time::OffsetDateTime::now_utc(),
-                        agent: "kb-app".to_string(),
-                        kind: kebab_core::ProvenanceKind::Warning,
-                        note: Some(note.clone()),
-                    });
-                    warning_notes.push(note);
-                }
+                )
+            {
+                record_image_analysis_failure(
+                    asset,
+                    &mut canonical.provenance.events,
+                    &mut warning_notes,
+                    "CaptionFailed",
+                    e,
+                    now,
+                );
             }
+        }
+        // P6-1 contract: image documents always have exactly one
+        // `Block::ImageRef`. If a future task introduces multi-block
+        // image documents the silent-skip would mask a real bug, so
+        // this arm surfaces the divergence loudly.
+        other => {
+            tracing::warn!(
+                target: "kebab-app",
+                path = %asset.workspace_path.0,
+                blocks = canonical.blocks.len(),
+                "image document missing leading ImageRef block — OCR/caption skipped (first block: {:?})",
+                other.map(|b| std::mem::discriminant(b))
+            );
+            canonical.provenance.events.push(kebab_core::ProvenanceEvent {
+                at: now,
+                agent: "kb-app".to_string(),
+                kind: kebab_core::ProvenanceKind::Warning,
+                note: Some(
+                    "image document missing leading ImageRef block — OCR/caption skipped"
+                        .to_string(),
+                ),
+            });
+            warning_notes
+                .push("ImageDispatchAnomaly: missing ImageRef block".to_string());
         }
     }
 
@@ -882,6 +898,39 @@ fn ingest_one_image_asset(
         warnings: warning_notes,
         error: None,
     })
+}
+
+/// Centralised handling for image-analysis (OCR / caption) failures.
+/// Emits a `tracing::warn!`, appends a `ProvenanceKind::Warning`
+/// event sharing the caller's per-document `now`, and pushes a
+/// `<WarningKind>: <err>` note onto the `IngestItem.warnings` slot
+/// using the same shape the markdown path uses (so downstream wire
+/// readers don't have to learn two formats — see kb-normalize's
+/// `warning_agent`).
+fn record_image_analysis_failure(
+    asset: &RawAsset,
+    events: &mut Vec<kebab_core::ProvenanceEvent>,
+    warning_notes: &mut Vec<String>,
+    kind_label: &str,
+    err: anyhow::Error,
+    now: time::OffsetDateTime,
+) {
+    let detail = format!("{err:#}");
+    let note = format!("{kind_label}: {detail}");
+    tracing::warn!(
+        target: "kebab-app",
+        path = %asset.workspace_path.0,
+        "image analysis stage {} failed: {}",
+        kind_label,
+        detail
+    );
+    events.push(kebab_core::ProvenanceEvent {
+        at: now,
+        agent: "kb-app".to_string(),
+        kind: kebab_core::ProvenanceKind::Warning,
+        note: Some(note.clone()),
+    });
+    warning_notes.push(note);
 }
 
 /// Pull the BCP-47 language hint from the canonical document. P6-1
