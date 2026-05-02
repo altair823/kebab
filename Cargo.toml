@@ -33,7 +33,7 @@ anyhow       = "1"
 thiserror    = "2"
 serde        = { version = "1", features = ["derive"] }
 serde_json   = "1"
-# Golden-fixture loader (P5-1, kb-eval) parses YAML; pinned in the
+# Golden-fixture loader (P5-1, kebab-eval) parses YAML; pinned in the
 # workspace so future eval-adjacent crates share the same major.
 serde_yaml   = "0.9"
 time         = { version = "0.3", features = ["serde", "macros", "formatting", "parsing"] }
@@ -41,7 +41,7 @@ uuid         = { version = "1", features = ["v7", "serde"] }
 blake3       = "1"
 tracing      = "0.1"
 # `bundled` ships SQLite source so the workspace doesn't depend on a
-# system libsqlite3 (matches the kb-store-sqlite feature set).
+# system libsqlite3 (matches the kebab-store-sqlite feature set).
 rusqlite     = { version = "0.32", features = ["bundled"] }
 globset      = "0.4"
 tempfile     = "3"
@@ -52,7 +52,7 @@ proptest     = "1"
 # remains untested for this workspace).
 fastembed    = "4.9"
 # LanceDB embedded vector store (P3-3). 0.23.x pulls arrow / arrow-array /
-# arrow-schema 56.x transitively (via lance 1.0); the kb-store-vector
+# arrow-schema 56.x transitively (via lance 1.0); the kebab-store-vector
 # crate matches that major to share the same Arrow types without a
 # re-export adapter.
 lancedb      = { version = "0.23", default-features = false }
@@ -61,11 +61,25 @@ arrow-array  = "56"
 arrow-schema = "56"
 tokio        = { version = "1", features = ["rt", "macros"] }
 futures      = "0.3"
-# Strict citation-marker extraction in kb-rag (P4-3) needs a single regex
+# Strict citation-marker extraction in kebab-rag (P4-3) needs a single regex
 # pass; pulled into the workspace deps so future crates can share the
 # same major.
 regex        = "1"
-# Dev-only HTTP mock server for kb-llm-local Ollama adapter tests. Requires
+# Dev-only HTTP mock server for kebab-llm-local Ollama adapter tests. Requires
 # a tokio runtime to host its mock server (the runtime adapter crate stays
 # sync via reqwest::blocking — wiremock is dev-only there).
 wiremock     = "0.6"
+
+# Disk-footprint trim for dev / test builds. Codegen, opt-level, and
+# behavior are unchanged — only DWARF debug info is reduced (line
+# numbers kept, column numbers dropped) and split into separate
+# `.dwo` files. backtrace stays useful (function + line). release
+# profile is untouched, so CI / `--release` runs are byte-identical
+# to upstream defaults.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
+
+[profile.test]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
