@@ -1,0 +1,30 @@
+[package]
+name = "kebab-parse-image"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "Image extractor — produces a single-block CanonicalDocument with EXIF metadata (P6-1)"
+
+[dependencies]
+kebab-core   = { path = "../kebab-core" }
+anyhow       = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+time         = { workspace = true }
+tracing      = { workspace = true }
+thiserror    = { workspace = true }
+# `image` ships a wide format menagerie under default features (BMP, DDS,
+# Farbfeld, …). We only need PNG / JPEG / WebP / GIF / TIFF for v1 (per
+# task spec out-of-scope HEIC/RAW). Trim defaults to keep the dep
+# closure small.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "tiff"] }
+# kamadak-exif: pure-Rust EXIF reader. Used for the whitelisted tag
+# extraction (DateTimeOriginal, GPS, Make, Model, Orientation, Software).
+kamadak-exif = "0.6"
+
+[dev-dependencies]
+tempfile     = { workspace = true }
+blake3       = { workspace = true }
+serde_json   = { workspace = true }

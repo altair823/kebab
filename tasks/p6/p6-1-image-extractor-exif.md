@@ -3,7 +3,7 @@ phase: P6
 component: kebab-parse-image (image extractor + EXIF)
 task_id: p6-1
 title: "Image Extractor producing single-block CanonicalDocument + EXIF metadata"
-status: planned
+status: completed
 depends_on: [p0-1, p1-6]
 unblocks: [p6-2, p6-3]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
