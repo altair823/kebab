@@ -70,9 +70,10 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
   - [p6-2 ocr-adapter](p6/p6-2-ocr-adapter.md)
   - [p6-3 caption-adapter](p6/p6-3-caption-adapter.md)
   - [p6-4 image-ingest-wiring](p6/p6-4-image-ingest-wiring.md)
-- P7 — [p7/](p7/) — 2 components
+- P7 — [p7/](p7/) — 3 components
   - [p7-1 pdf-text-extractor](p7/p7-1-pdf-text-extractor.md)
   - [p7-2 pdf-page-chunker](p7/p7-2-pdf-page-chunker.md)
+  - [p7-3 pdf-ingest-wiring](p7/p7-3-pdf-ingest-wiring.md)
 - P8 — [p8/](p8/) — 2 components
   - [p8-1 whisper-adapter](p8/p8-1-whisper-adapter.md)
   - [p8-2 segment-chunker](p8/p8-2-segment-chunker.md)
