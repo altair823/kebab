@@ -3,7 +3,7 @@ phase: P9
 component: kebab-rag + kebab-app
 task_id: p9-fb-15
 title: "RAG multi-turn — history-aware prompt + token budget"
-status: in_progress
+status: completed
 depends_on: []
 unblocks: [p9-fb-16, p9-fb-17, p9-fb-18]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
