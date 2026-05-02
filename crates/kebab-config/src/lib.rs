@@ -105,18 +105,20 @@ pub struct RagCfg {
 }
 
 /// Settings for the image ingest pipeline (P6). `ocr` controls OCR
-/// behaviour; future fields (e.g. `caption`) will join here as P6-3
-/// lands.
+/// behaviour (P6-2); `caption` controls vision-LM captioning (P6-3).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ImageCfg {
     #[serde(default = "OcrCfg::defaults")]
     pub ocr: OcrCfg,
+    #[serde(default = "CaptionCfg::defaults")]
+    pub caption: CaptionCfg,
 }
 
 impl ImageCfg {
     pub fn defaults() -> Self {
         Self {
             ocr: OcrCfg::defaults(),
+            caption: CaptionCfg::defaults(),
         }
     }
 }
@@ -158,6 +160,36 @@ impl OcrCfg {
             endpoint: None,
             languages: vec!["eng".to_string(), "kor".to_string()],
             max_pixels: 1600,
+        }
+    }
+}
+
+/// Caption settings (P6-3). Caption uses the same Ollama-vision /
+/// `LanguageModel` pipeline as the rest of the workspace; the trait
+/// abstraction is the part the spec demands. `enabled` defaults to
+/// `false` because captioning costs one model call per asset and the
+/// output is model-generated (low trust).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CaptionCfg {
+    /// Run captioning on every image during ingest. Default `false`.
+    pub enabled: bool,
+    /// Cap the long edge of the image (in pixels) before sending. The
+    /// spec recommends an aggressive 768×768 cap because larger
+    /// vision-LM inputs translate directly into prompt cost. Default
+    /// `768`.
+    pub max_pixels: u32,
+    /// Caption prompt template version pinned into wire output via
+    /// `ModelCaption.model_version`. Bump when the prompt changes so
+    /// downstream eval can detect regressions.
+    pub prompt_template_version: String,
+}
+
+impl CaptionCfg {
+    pub fn defaults() -> Self {
+        Self {
+            enabled: false,
+            max_pixels: 768,
+            prompt_template_version: "caption-v1".to_string(),
         }
     }
 }
@@ -417,6 +449,19 @@ impl Config {
                     }
                 }
 
+                // image.caption (P6-3)
+                "KEBAB_IMAGE_CAPTION_ENABLED" => {
+                    self.image.caption.enabled = parse_bool(v);
+                }
+                "KEBAB_IMAGE_CAPTION_MAX_PIXELS" => {
+                    if let Ok(n) = v.parse::<u32>() {
+                        self.image.caption.max_pixels = n;
+                    }
+                }
+                "KEBAB_IMAGE_CAPTION_PROMPT_TEMPLATE_VERSION" => {
+                    self.image.caption.prompt_template_version = v.clone();
+                }
+
                 // Unknown KEBAB_* keys are silently ignored — see
                 // `env_unknown_key_is_ignored` test.
                 _ => {}
@@ -608,6 +653,35 @@ mod tests {
     /// Pre-P6 config files don't have an `[image]` section. The
     /// `#[serde(default)]` attribute on `Config::image` must let those
     /// files load with `ImageCfg::defaults()` instead of erroring.
+    #[test]
+    fn image_caption_defaults_disabled() {
+        let c = Config::defaults();
+        assert!(!c.image.caption.enabled);
+        assert_eq!(c.image.caption.max_pixels, 768);
+        assert_eq!(c.image.caption.prompt_template_version, "caption-v1");
+    }
+
+    #[test]
+    fn image_caption_env_overrides() {
+        let mut env = HashMap::new();
+        env.insert(
+            "KEBAB_IMAGE_CAPTION_ENABLED".to_string(),
+            "true".to_string(),
+        );
+        env.insert(
+            "KEBAB_IMAGE_CAPTION_MAX_PIXELS".to_string(),
+            "1024".to_string(),
+        );
+        env.insert(
+            "KEBAB_IMAGE_CAPTION_PROMPT_TEMPLATE_VERSION".to_string(),
+            "caption-v2".to_string(),
+        );
+        let c = Config::defaults().apply_env(&env);
+        assert!(c.image.caption.enabled);
+        assert_eq!(c.image.caption.max_pixels, 1024);
+        assert_eq!(c.image.caption.prompt_template_version, "caption-v2");
+    }
+
     /// `KEBAB_IMAGE_OCR_ENDPOINT=""` (empty value) should map to `None`
     /// rather than to `Some("")` so the fallback to `models.llm.endpoint`
     /// kicks in. Covers the env-equivalent of a missing TOML key.

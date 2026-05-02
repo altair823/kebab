@@ -26,6 +26,7 @@ fn req_with_stop(stop: Vec<&str>) -> GenerateRequest {
         max_tokens: 64,
         temperature: 0.0,
         seed: None,
+        images: Vec::new(),
     }
 }
 

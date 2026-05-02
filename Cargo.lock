@@ -3576,6 +3576,8 @@ dependencies = [
  "kamadak-exif",
  "kebab-config",
  "kebab-core",
+ "kebab-llm",
+ "kebab-llm-local",
  "reqwest",
  "serde",
  "serde_json",

@@ -195,6 +195,9 @@ impl RagPipeline {
             max_tokens: max_completion,
             temperature,
             seed,
+            // RAG is text-only — vision inputs only flow when a
+            // future multimodal pipeline injects images here.
+            images: Vec::new(),
         };
 
         let mut acc = String::new();
