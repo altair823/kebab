@@ -248,6 +248,46 @@ fn empty_state_renders_without_panic() {
 }
 
 #[test]
+fn shift_j_stays_in_input_does_not_move_selection() {
+    // R1 fix: SHIFT-J / SHIFT-K must reach the typing branch so
+    // queries like \"JSON\" / \"PostgreSQL\" don't get \"J\" eaten as
+    // a selection move.
+    let mut app = fresh_app();
+    {
+        let s = app.search.as_mut().unwrap();
+        s.hits = vec![
+            make_hit(1, "a.md", "snip\nl2", line_citation("a.md", 1)),
+            make_hit(2, "b.md", "snip\nl2", line_citation("b.md", 1)),
+        ];
+        s.selected_hit = 0;
+    }
+    handle_key_search(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('J'), KeyModifiers::SHIFT),
+    );
+    let s = app.search.as_ref().unwrap();
+    assert_eq!(s.selected_hit, 0, "selection must NOT move on SHIFT-J");
+    assert_eq!(s.input, "J", "SHIFT-J must reach the input buffer");
+}
+
+#[test]
+fn shift_g_does_not_trigger_editor_jump() {
+    // R1 fix: capital G must not invoke jump_to_citation. Keep it
+    // as plain typing so \"Go\" / \"Greetings\" search queries work.
+    let mut app = fresh_app();
+    {
+        let s = app.search.as_mut().unwrap();
+        s.hits = vec![make_hit(1, "a.md", "snip\nl2", line_citation("a.md", 1))];
+    }
+    let outcome = handle_key_search(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
+    );
+    assert_eq!(outcome, KeyOutcome::Continue);
+    assert_eq!(app.search.as_ref().unwrap().input, "G");
+}
+
+#[test]
 fn no_search_state_returns_to_library() {
     let mut config = Config::defaults();
     config.storage.data_dir = "/tmp/kebab-tui-search-tests-noop".into();

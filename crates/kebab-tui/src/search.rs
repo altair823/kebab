@@ -98,11 +98,10 @@ fn render_result_list(f: &mut Frame, area: Rect, s: &SearchState) {
         return;
     }
 
-    let title_w = (area.width as usize).saturating_sub(20).max(20);
     let items: Vec<ListItem> = s
         .hits
         .iter()
-        .map(|h| ListItem::new(format_hit_lines(h, title_w)))
+        .map(|h| ListItem::new(format_hit_lines(h)))
         .collect();
     let list = List::new(items)
         .block(block)
@@ -118,7 +117,7 @@ fn render_result_list(f: &mut Frame, area: Rect, s: &SearchState) {
 /// 2. `<heading_path joined by " / "> | section_label?`
 /// 3. snippet line 1
 /// 4. snippet line 2 (or trailing blank for layout symmetry)
-fn format_hit_lines(h: &SearchHit, _width: usize) -> Vec<Line<'static>> {
+fn format_hit_lines(h: &SearchHit) -> Vec<Line<'static>> {
     let header = format!(
         "{}. {:.4}  {}",
         h.rank,
@@ -182,9 +181,12 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
     // workspace_root after dropping the `&mut state.search` borrow.
     // Handle it as a pre-pass so the rest of the function can use
     // `state.search.as_mut()` without scope juggling.
+    // `g` only fires the editor jump on plain (no-modifier) press —
+    // SHIFT-G in vim land is "go to bottom" (not implemented here),
+    // and CTRL/ALT chords stay reserved.
     if matches!(
         (key.code, key.modifiers),
-        (KeyCode::Char('g'), m) if !is_typing_mod(m)
+        (KeyCode::Char('g'), KeyModifiers::NONE)
     ) {
         let (citation, has_hits) = {
             let s = state.search.as_ref().unwrap();
@@ -226,13 +228,27 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
                 KeyOutcome::Refresh
             }
         }
-        (KeyCode::Char('j'), m) | (KeyCode::Down, m) if !is_typing_mod(m) => {
+        // `j` / `k` only fire as selection movers when *no* modifier is
+        // held. SHIFT-bearing keypresses (`J`, `K`) are typed input —
+        // letting them through here would corrupt every \"JSON\" /
+        // \"PostgreSQL\" search query. Down / Up arrows still accept
+        // any modifier (no typing collision).
+        (KeyCode::Char('j'), KeyModifiers::NONE) => {
             move_selection(s, 1);
-            // Preview will refresh on next idle tick.
             s.preview = None;
             KeyOutcome::Continue
         }
-        (KeyCode::Char('k'), m) | (KeyCode::Up, m) if !is_typing_mod(m) => {
+        (KeyCode::Down, m) if !is_typing_mod(m) => {
+            move_selection(s, 1);
+            s.preview = None;
+            KeyOutcome::Continue
+        }
+        (KeyCode::Char('k'), KeyModifiers::NONE) => {
+            move_selection(s, -1);
+            s.preview = None;
+            KeyOutcome::Continue
+        }
+        (KeyCode::Up, m) if !is_typing_mod(m) => {
             move_selection(s, -1);
             s.preview = None;
             KeyOutcome::Continue
@@ -315,13 +331,21 @@ pub fn build_jump_command(
             }
         }
         Citation::Page { page, .. } => {
-            // No standard editor jump for PDFs. Emit a `+1` hint so
-            // the user lands at the top, plus the page number in a
-            // following arg most editors will treat as a no-op
-            // search target. Best-effort.
-            args.push("+1".to_string());
+            // No standard editor jump for PDFs across vim / VS Code /
+            // emacs. Earlier versions of this branch tried to push a
+            // `# page N` string as a final arg, but every common
+            // editor treats it as a *second file to open* — opening
+            // a stray buffer or splitting the window. Path-only is
+            // the honest best-effort: the user's PDF reader (or the
+            // editor's PDF plugin) handles in-document navigation.
+            // A `KEBAB_EDITOR_JUMP_FORMAT="pdf=evince -p {page} {path}"`
+            // env hook stays a P+ enhancement (per spec § Risks).
+            tracing::debug!(
+                target: "kebab-tui",
+                page,
+                "PDF citation — opening file only; editor page-jump unsupported"
+            );
             args.push(path_str);
-            args.push(format!("# page {page}"));
         }
         _ => {
             args.push(path_str);
