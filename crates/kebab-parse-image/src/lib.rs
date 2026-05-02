@@ -1,17 +1,27 @@
-//! `kebab-parse-image` — image extractor (P6-1).
+//! `kebab-parse-image` — image extractor (P6-1) + OCR adapter (P6-2).
 //!
-//! Implements [`kebab_core::Extractor`] for `MediaType::Image(_)`. One asset
-//! produces one [`CanonicalDocument`] with a single
-//! [`Block::ImageRef`](kebab_core::Block::ImageRef). EXIF is captured into
-//! `metadata.user["exif"]`, dimensions into `metadata.user["dimensions"]`.
-//! OCR / caption fields stay `None`; later tasks (P6-2 / P6-3) populate
-//! them.
+//! P6-1 implements [`kebab_core::Extractor`] for `MediaType::Image(_)`,
+//! producing a single-block [`CanonicalDocument`] (`ImageRefBlock` with
+//! EXIF + dimensions in `metadata.user`). OCR / caption fields stay
+//! `None` until populated by the OCR / caption adapters.
+//!
+//! P6-2 adds the [`ocr`] module: an [`OcrEngine`] trait and an
+//! [`OllamaVisionOcr`] default adapter that talks to a vision-capable
+//! Ollama model. [`apply_ocr`] is the helper that mutates an
+//! [`ImageRefBlock`] in place. Trust note — the LLM-driven default
+//! can hallucinate; `OcrText.engine` carries the source identity so
+//! consumers can branch trust by engine (Tesseract / Apple Vision
+//! adapters, when added, will write a different `engine` string).
 //!
 //! Per design §3.4 (Block::ImageRef + ImageRefBlock), §3.7a (OcrText /
-//! ModelCaption stubs), §9.1 (image extraction policy), §9 (versioning).
+//! ModelCaption stubs), §9.1 (image extraction policy / OCR vs caption
+//! provenance), §9 (versioning).
 
 mod dims;
 mod exif_extract;
+pub mod ocr;
+
+pub use ocr::{OcrEngine, OllamaVisionOcr, apply_ocr};
 
 use anyhow::{Context, Result};
 use kebab_core::{

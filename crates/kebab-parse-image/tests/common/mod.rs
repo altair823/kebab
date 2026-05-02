@@ -43,6 +43,65 @@ pub fn no_exif_png() -> Vec<u8> {
     buf.into_inner()
 }
 
+/// 4000×3000 solid-blue PNG (long edge 4000) used to exercise the OCR
+/// adapter's downscale path. Solid-colour PNGs compress aggressively, so
+/// the on-disk size stays well under 1 MB despite the large dimensions.
+pub fn large_blue_4000x3000_png() -> Vec<u8> {
+    let img: ImageBuffer<Rgb<u8>, _> =
+        ImageBuffer::from_fn(4000, 3000, |_, _| Rgb([0, 0, 255]));
+    let mut buf = Cursor::new(Vec::new());
+    img.write_to(&mut buf, image::ImageFormat::Png)
+        .expect("encoding 4000x3000 PNG must not fail");
+    buf.into_inner()
+}
+
+/// PNG with the literal text `"Hello World 2026"` rendered in black
+/// against a white background. Used by the opt-in
+/// `ocr_integration_real_ollama_transcribes_text` integration test —
+/// regular hermetic tests never call it.
+///
+/// Returns `Err` (not panic) if the DejaVu Sans Bold font is missing
+/// from the standard Linux path, so dev boxes without the font can
+/// gracefully skip the integration test rather than crashing the
+/// process.
+pub fn hello_world_png() -> anyhow::Result<Vec<u8>> {
+    use ab_glyph::{Font, FontRef, ScaleFont};
+    use anyhow::Context;
+
+    let mut img: ImageBuffer<Rgb<u8>, _> =
+        ImageBuffer::from_fn(400, 100, |_, _| Rgb([255, 255, 255]));
+    let font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
+    let font_bytes = std::fs::read(font_path).with_context(|| {
+        format!(
+            "{font_path} not found — only the opt-in OCR integration fixture needs this font"
+        )
+    })?;
+    let font = FontRef::try_from_slice(&font_bytes).context("DejaVu font parses")?;
+    let scaled = font.as_scaled(40.0);
+    let text = "Hello World 2026";
+    let mut x = 10.0_f32;
+    let y = 60.0_f32;
+    for ch in text.chars() {
+        let glyph = scaled.scaled_glyph(ch);
+        if let Some(outlined) = scaled.outline_glyph(glyph.clone()) {
+            let bb = outlined.px_bounds();
+            outlined.draw(|gx, gy, c| {
+                let px = (x + bb.min.x + gx as f32) as i32;
+                let py = (y + bb.min.y + gy as f32) as i32;
+                if px >= 0 && py >= 0 && (px as u32) < 400 && (py as u32) < 100 {
+                    let v = ((1.0 - c) * 255.0) as u8;
+                    img.put_pixel(px as u32, py as u32, Rgb([v, v, v]));
+                }
+            });
+        }
+        x += scaled.h_advance(scaled.glyph_id(ch));
+    }
+    let mut buf = Cursor::new(Vec::new());
+    img.write_to(&mut buf, image::ImageFormat::Png)
+        .context("encoding hello-world PNG")?;
+    Ok(buf.into_inner())
+}
+
 /// JPEG with embedded EXIF APP1 segment carrying GPS + Make + Model +
 /// DateTimeOriginal + Orientation + Software. The base image is a 4×4
 /// solid white square — pixel content is irrelevant; the test cares about

@@ -21,6 +21,12 @@ pub struct Config {
     pub models: ModelsCfg,
     pub search: SearchCfg,
     pub rag: RagCfg,
+    /// Image-pipeline settings (P6: OCR, captioning). Tagged
+    /// `#[serde(default)]` so pre-P6 config files that predate the
+    /// `[image]` section still load — defaults disable OCR / caption
+    /// (they cost a model call per asset).
+    #[serde(default = "ImageCfg::defaults")]
+    pub image: ImageCfg,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -98,6 +104,64 @@ pub struct RagCfg {
     pub max_context_tokens: usize,
 }
 
+/// Settings for the image ingest pipeline (P6). `ocr` controls OCR
+/// behaviour; future fields (e.g. `caption`) will join here as P6-3
+/// lands.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ImageCfg {
+    #[serde(default = "OcrCfg::defaults")]
+    pub ocr: OcrCfg,
+}
+
+impl ImageCfg {
+    pub fn defaults() -> Self {
+        Self {
+            ocr: OcrCfg::defaults(),
+        }
+    }
+}
+
+/// OCR settings (P6-2). v1 ships a single Ollama-vision adapter; the
+/// `OcrEngine` trait in `kebab-parse-image` keeps the door open for
+/// Tesseract / Apple Vision / PaddleOCR engines as feature-gated
+/// alternatives in P+. See `tasks/HOTFIXES.md` (2026-05-02) for the
+/// rationale on dropping the original Tesseract default.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct OcrCfg {
+    /// Run OCR on every image during ingest. Default `false` because
+    /// OCR adds one model call per asset.
+    pub enabled: bool,
+    /// Engine identifier. v1 only ships `"ollama-vision"`.
+    pub engine: String,
+    /// Model id passed to the engine (e.g. `"gemma4:e4b"` for
+    /// Ollama-vision).
+    pub model: String,
+    /// HTTP endpoint for the OCR engine. `None` (or a missing key in
+    /// TOML) means "fall back to `models.llm.endpoint`" — convenient
+    /// when the same Ollama host serves both LLM and vision.
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    /// BCP-47 language hints (e.g. `["eng", "kor"]`). The adapter
+    /// renders them into the prompt; the LLM honours them probabilistically.
+    pub languages: Vec<String>,
+    /// Cap the long edge of the image (in pixels) before sending. Larger
+    /// images bloat prompt cost. Default `1600`.
+    pub max_pixels: u32,
+}
+
+impl OcrCfg {
+    pub fn defaults() -> Self {
+        Self {
+            enabled: false,
+            engine: "ollama-vision".to_string(),
+            model: "gemma4:e4b".to_string(),
+            endpoint: None,
+            languages: vec!["eng".to_string(), "kor".to_string()],
+            max_pixels: 1600,
+        }
+    }
+}
+
 impl Config {
     /// Defaults per design §6.4.
     pub fn defaults() -> Self {
@@ -162,6 +226,7 @@ impl Config {
                 explain_default: false,
                 max_context_tokens: 8000,
             },
+            image: ImageCfg::defaults(),
         }
     }
 
@@ -323,6 +388,35 @@ impl Config {
                     }
                 }
 
+                // image.ocr
+                "KEBAB_IMAGE_OCR_ENABLED" => {
+                    self.image.ocr.enabled = parse_bool(v);
+                }
+                "KEBAB_IMAGE_OCR_ENGINE" => self.image.ocr.engine = v.clone(),
+                "KEBAB_IMAGE_OCR_MODEL" => self.image.ocr.model = v.clone(),
+                "KEBAB_IMAGE_OCR_ENDPOINT" => {
+                    // Empty env value is treated the same as "fall back
+                    // to models.llm.endpoint" — i.e. set None.
+                    self.image.ocr.endpoint = if v.is_empty() {
+                        None
+                    } else {
+                        Some(v.clone())
+                    };
+                }
+                "KEBAB_IMAGE_OCR_LANGUAGES" => {
+                    // Comma-separated list, e.g. "eng,kor".
+                    self.image.ocr.languages = v
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+                "KEBAB_IMAGE_OCR_MAX_PIXELS" => {
+                    if let Ok(n) = v.parse::<u32>() {
+                        self.image.ocr.max_pixels = n;
+                    }
+                }
+
                 // Unknown KEBAB_* keys are silently ignored — see
                 // `env_unknown_key_is_ignored` test.
                 _ => {}
@@ -469,6 +563,122 @@ mod tests {
         );
         let c = Config::defaults().apply_env(&env);
         assert!(c.indexing.watch_filesystem);
+    }
+
+    #[test]
+    fn image_ocr_defaults_disabled_with_ollama_vision() {
+        let c = Config::defaults();
+        assert!(!c.image.ocr.enabled);
+        assert_eq!(c.image.ocr.engine, "ollama-vision");
+        assert_eq!(c.image.ocr.model, "gemma4:e4b");
+        assert_eq!(c.image.ocr.languages, vec!["eng", "kor"]);
+        assert_eq!(c.image.ocr.max_pixels, 1600);
+    }
+
+    #[test]
+    fn image_ocr_env_overrides() {
+        let mut env = HashMap::new();
+        env.insert("KEBAB_IMAGE_OCR_ENABLED".to_string(), "true".to_string());
+        env.insert(
+            "KEBAB_IMAGE_OCR_MODEL".to_string(),
+            "gemma4:31b".to_string(),
+        );
+        env.insert(
+            "KEBAB_IMAGE_OCR_ENDPOINT".to_string(),
+            "http://192.168.0.47:11434".to_string(),
+        );
+        // Empty env value should map to None (= fall back to llm.endpoint).
+        // We exercise that branch in a separate test.
+        env.insert(
+            "KEBAB_IMAGE_OCR_LANGUAGES".to_string(),
+            "eng, kor, jpn".to_string(),
+        );
+        env.insert("KEBAB_IMAGE_OCR_MAX_PIXELS".to_string(), "2048".to_string());
+        let c = Config::defaults().apply_env(&env);
+        assert!(c.image.ocr.enabled);
+        assert_eq!(c.image.ocr.model, "gemma4:31b");
+        assert_eq!(
+            c.image.ocr.endpoint.as_deref(),
+            Some("http://192.168.0.47:11434")
+        );
+        assert_eq!(c.image.ocr.languages, vec!["eng", "kor", "jpn"]);
+        assert_eq!(c.image.ocr.max_pixels, 2048);
+    }
+
+    /// Pre-P6 config files don't have an `[image]` section. The
+    /// `#[serde(default)]` attribute on `Config::image` must let those
+    /// files load with `ImageCfg::defaults()` instead of erroring.
+    /// `KEBAB_IMAGE_OCR_ENDPOINT=""` (empty value) should map to `None`
+    /// rather than to `Some("")` so the fallback to `models.llm.endpoint`
+    /// kicks in. Covers the env-equivalent of a missing TOML key.
+    #[test]
+    fn image_ocr_endpoint_empty_env_value_is_none() {
+        let mut env = HashMap::new();
+        env.insert("KEBAB_IMAGE_OCR_ENDPOINT".to_string(), String::new());
+        let c = Config::defaults().apply_env(&env);
+        assert_eq!(c.image.ocr.endpoint, None);
+    }
+
+    #[test]
+    fn pre_p6_config_without_image_section_loads_with_defaults() {
+        let toml_text = r#"
+schema_version = 1
+
+[workspace]
+root = "/tmp/x"
+include = ["**/*.md"]
+exclude = []
+
+[storage]
+data_dir = "/tmp/d"
+sqlite = "{data_dir}/x.sqlite"
+vector_dir = "{data_dir}/v"
+asset_dir = "{data_dir}/a"
+artifact_dir = "{data_dir}/r"
+model_dir = "{data_dir}/m"
+runs_dir = "{data_dir}/u"
+copy_threshold_mb = 100
+
+[indexing]
+max_parallel_extractors = 2
+max_parallel_embeddings = 1
+watch_filesystem = false
+
+[chunking]
+target_tokens = 500
+overlap_tokens = 80
+respect_markdown_headings = true
+chunker_version = "md-heading-v1"
+
+[models.embedding]
+provider = "fastembed"
+model = "multilingual-e5-small"
+version = "v1"
+dimensions = 384
+batch_size = 64
+
+[models.llm]
+provider = "ollama"
+model = "qwen2.5:14b-instruct"
+context_tokens = 32768
+endpoint = "http://127.0.0.1:11434"
+temperature = 0.0
+seed = 0
+
+[search]
+default_k = 10
+hybrid_fusion = "rrf"
+rrf_k = 60
+snippet_chars = 220
+
+[rag]
+prompt_template_version = "rag-v1"
+score_gate = 0.30
+explain_default = false
+max_context_tokens = 8000
+"#;
+        let c: Config = toml::from_str(toml_text).expect("pre-P6 TOML must still parse");
+        assert_eq!(c.image, ImageCfg::defaults());
     }
 
     #[test]
