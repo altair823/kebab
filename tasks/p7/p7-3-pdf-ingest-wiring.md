@@ -3,7 +3,7 @@ phase: P7
 component: kebab-app (PDF ingest dispatch + chunker selection)
 task_id: p7-3
 title: "Wire PdfTextExtractor + PdfPageV1Chunker into kebab-app::ingest end-to-end"
-status: planned
+status: completed
 depends_on: [p7-1, p7-2, p1-6, p3-5, p6-4]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

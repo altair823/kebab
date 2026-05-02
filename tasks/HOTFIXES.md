@@ -14,6 +14,26 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-02 — P7-3 PDF ingest wiring: chunker_version deviation + storage UNIQUE bug
+
+**Discovered**: P7-3 implementation start.
+
+**Symptom 1 (deviation, intentional)**: `tasks/p7/p7-3-pdf-ingest-wiring.md` § Chunker selection notes that `config.chunking.chunker_version` is single-valued and serves the markdown path only. PDF ingest hard-codes `pdf-page-v1` regardless of the config value. A user who reads `config.toml` and sees `chunker_version = "md-heading-v1"` reasonably assumes PDFs use the same — they don't.
+
+**Fix 1**: `ingest_one_pdf_asset` (in `kebab-app::lib.rs`) instantiates `PdfPageV1Chunker` directly. The `Chunk.chunker_version` field on emitted PDF chunks records `pdf-page-v1` truthfully. A future P+ task (chunker registry) either splits `Config::chunking.chunker_version` per medium or replaces the dispatch with a runtime registry. No HOTFIX entry needed once that happens — this entry is the cross-reference.
+
+**Symptom 2 (storage-layer bug, exposed but not fixed by P7-3)**: P7-3's edited-bytes re-ingest test (`re_ingest_edited_pdf_produces_new_doc_id`) tripped on `sqlite error: UNIQUE constraint failed: assets.workspace_path: Error code 2067`. The assets table has a UNIQUE constraint on `workspace_path`, but `upsert_asset_row` (in `kebab-store-sqlite::store.rs:305`) only handles `ON CONFLICT(asset_id)`. When a file's bytes change, the new BLAKE3 produces a new `asset_id` while the `workspace_path` stays the same — INSERT picks the new asset_id branch, then trips the secondary UNIQUE on workspace_path.
+
+**Why it didn't surface earlier**: No existing test (markdown / image) exercises edited-bytes re-ingest. The image path's `re_ingest_image_produces_updated_with_same_doc_id` uses identical bytes (same asset_id → ON CONFLICT(asset_id) catches it). Real-world editing of a tracked file would hit the same bug across all media types.
+
+**Fix 2 (deferred)**: Storage-layer fix is out of scope for P7-3. The P7-3 implementation PR `#[ignore]`s the `re_ingest_edited_pdf_produces_new_doc_id` test with a doc-comment pointing here. A P+ storage task either:
+- Adds `ON CONFLICT(workspace_path) DO UPDATE` alongside the existing `ON CONFLICT(asset_id)` clause (DELETE-the-old + INSERT-the-new in a single statement, since UPSERT can only target one conflict path).
+- Or drops the UNIQUE constraint on `assets.workspace_path` and relies on application-level uniqueness (workspace_path → asset_id mapping in a separate index table).
+
+**Amends**:
+- tasks/p7/p7-3-pdf-ingest-wiring.md (chunker_version deviation, edited-bytes test ignored).
+- (Implicitly) every previous task spec that assumed `assets.workspace_path` UNIQUE was safe — the constraint is in fact too strict for the byte-edit re-ingest case.
+
 ## 2026-05-02 — P7-2 pdf-page-v1: chunk_id collision + BYTES_PER_TOKEN
 
 **Discovered**: P7-2 implementation start.
