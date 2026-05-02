@@ -114,6 +114,25 @@ pub fn wire_reset(r: &kebab_app::ResetReport) -> Value {
     tag_object(v, "reset_report.v1")
 }
 
+/// Wrap an [`kebab_app::IngestEvent`] as `ingest_progress.v1`. Adds
+/// the `schema_version` discriminator on top of serde's existing
+/// `kind` discriminator, plus an `ts` field with the current
+/// wall-clock — the emit site is the only place that knows the moment
+/// of emission, so the timestamp is stamped here rather than carried
+/// on the event itself.
+pub fn wire_ingest_progress(
+    event: &kebab_app::IngestEvent,
+) -> anyhow::Result<Value> {
+    let mut v = serde_json::to_value(event)?;
+    if let Value::Object(ref mut map) = v {
+        map.insert(
+            "ts".to_string(),
+            Value::String(crate::progress::now_rfc3339()?),
+        );
+    }
+    Ok(tag_object(v, "ingest_progress.v1"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

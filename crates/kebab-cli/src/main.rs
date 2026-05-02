@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 
 use kebab_app::doctor_signal::{DoctorUnhealthy, NoHitSignal, RefusalSignal};
 
+mod progress;
 mod wire;
 
 #[derive(Parser, Debug)]
@@ -283,7 +284,34 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 include: cfg.workspace.include.clone(),
                 exclude: cfg.workspace.exclude.clone(),
             };
-            let report = kebab_app::ingest_with_config(cfg, scope, *summary_only)?;
+
+            // p9-fb-02: spawn the progress display on a background
+            // thread; the ingest call below holds the `Sender` end of
+            // the channel and emits per-step events into it. When the
+            // call returns, the `Sender` drops and the display thread
+            // sees `recv()` return Err — exits cleanly.
+            let mode = progress::ProgressMode::from_flags(cli.json);
+            let (tx, rx) = std::sync::mpsc::channel::<kebab_app::IngestEvent>();
+            let display_handle = std::thread::spawn(move || {
+                progress::ProgressDisplay::new(mode).run(rx)
+            });
+
+            let ingest_result = kebab_app::ingest_with_config_progress(
+                cfg,
+                scope,
+                *summary_only,
+                Some(tx),
+            );
+
+            // Join the display thread *before* surfacing the ingest
+            // outcome so the spinner / final newline is flushed
+            // regardless of whether ingest returned Ok or Err.
+            // join() returns Result<Result<(), anyhow::Error>, Box<dyn Any>>;
+            // we discard both — display thread errors / panics are
+            // best-effort and must not change ingest's exit code.
+            let _ = display_handle.join();
+
+            let report = ingest_result?;
             if cli.json {
                 println!("{}", serde_json::to_string(&wire::wire_ingest(&report))?);
             } else {
