@@ -41,11 +41,12 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                     let outcome = match app.focus {
                         Pane::Library => handle_key_library(app, key),
                         // p9-2/3/4 plug their handlers here as their
-                        // crates land. Until then, any non-Library
-                        // pane behaves like Library (we never switch
-                        // to them at present).
+                        // crates land. Until then, the non-Library
+                        // panes accept only `q` / `Esc` to return —
+                        // anything else is a no-op. The footer hint
+                        // tells the user the pane is unimplemented.
                         Pane::Search | Pane::Ask | Pane::Inspect | Pane::Jobs => {
-                            handle_key_library(app, key)
+                            handle_key_unimplemented_pane(app, key)
                         }
                     };
                     match outcome {
@@ -65,6 +66,26 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Stub key handler for panes whose authoring task has not landed
+/// yet. `q` / `Esc` returns to Library; everything else is a no-op.
+/// Does NOT delegate to `handle_key_library` because that would let
+/// `j` / `k` / `f` mutate Library state while focus says otherwise —
+/// confusing UX.
+fn handle_key_unimplemented_pane(
+    app: &mut App,
+    key: crossterm::event::KeyEvent,
+) -> KeyOutcome {
+    use crossterm::event::KeyCode;
+    if app.error_overlay.is_some() {
+        app.error_overlay = None;
+        return KeyOutcome::Continue;
+    }
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => KeyOutcome::SwitchPane(Pane::Library),
+        _ => KeyOutcome::Continue,
+    }
 }
 
 fn render_root(f: &mut Frame, app: &App) {
@@ -110,6 +131,9 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_footer(f: &mut Frame, area: Rect, app: &App) {
+    // p9-2/3/4 가 머지되기 전에는 SwitchPane(Search/Ask/Inspect) 가
+    // focus 만 바꾸고 본문은 Library 가 그려지는 절뚝거림이 사용자에게
+    // 보임. footer 에서 \"미구현\" 을 명시해 거짓말 안 함.
     let hints = match app.focus {
         Pane::Library => {
             if app.library.inner.filter_edit.is_some() {
@@ -118,7 +142,10 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
                 "j/k=move  gg=top  G=bottom  f=filter  /=search  ?=ask  Enter=inspect  q=quit"
             }
         }
-        _ => "q=quit",
+        Pane::Search => "Search pane not yet implemented (lands with p9-2) — q to return",
+        Pane::Ask => "Ask pane not yet implemented (lands with p9-3) — q to return",
+        Pane::Inspect => "Inspect pane not yet implemented (lands with p9-4) — q to return",
+        Pane::Jobs => "Jobs pane not yet implemented — q to return",
     };
     let line = Line::from(Span::styled(
         hints,

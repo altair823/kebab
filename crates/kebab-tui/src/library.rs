@@ -194,6 +194,10 @@ pub(crate) fn format_doc_row(d: &DocSummary, title_w: usize) -> String {
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_else(|_| "?".to_string());
     let updated_short = updated.split('T').next().unwrap_or("?");
+    // `<width$>` is std::fmt's named-arg width form (`title_w` is the
+    // named arg below; `$` says "use it as the padding width"). See
+    // https://doc.rust-lang.org/std/fmt/#width §"Width via named
+    // parameters".
     format!(
         "{title:<title_w$}  {tags:<12}  {updated_short:<10}  {chunk_count}",
         title = title,
