@@ -335,7 +335,7 @@ fn normalize_ws(s: &str) -> String {
 /// - no `END;` after the virtual-table line
 fn extract_design_5_5_fts_block() -> String {
     let doc = include_str!(
-        "../../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md"
+        "../../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md"
     );
     let heading_idx = doc
         .find("### 5.5 Chunks + FTS5")
@@ -437,7 +437,7 @@ fn fts_v002_matches_design_section_5_5_verbatim() {
 // ── 6. WAL cleanup: drop store before tempdir reaps WAL/SHM ──────────
 
 /// Mirror the P1-6 pattern: opening + migrating + dropping the store
-/// must not strand `kb.sqlite-wal`/`-shm` files such that the tempdir
+/// must not strand `kebab.sqlite-wal`/`-shm` files such that the tempdir
 /// can't be cleaned up. After dropping the store + side-channel conn,
 /// the WAL/SHM siblings must either not exist or be removable — if a
 /// stray handle were holding them open, on Windows the remove would

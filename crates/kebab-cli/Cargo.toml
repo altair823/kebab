@@ -8,7 +8,7 @@ repository    = { workspace = true }
 description   = "kb command-line interface"
 
 [[bin]]
-name = "kb"
+name = "kebab"
 path = "src/main.rs"
 
 [dependencies]

@@ -4,7 +4,7 @@
 //! `kb-*` crate, so every other crate in the workspace can depend on it
 //! freely.
 //!
-//! See `docs/superpowers/specs/2026-04-27-kb-final-form-design.md` for
+//! See `docs/superpowers/specs/2026-04-27-kebab-final-form-design.md` for
 //! the canonical type bodies — this crate is the byte-for-byte mirror.
 
 pub mod ids;

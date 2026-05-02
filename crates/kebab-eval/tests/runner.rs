@@ -7,7 +7,7 @@
 //!   workspace's source-of-truth,
 //! - lexical-only retrieval (`SearchMode::Lexical`) so no embedder is
 //!   required (`models.embedding.provider = "none"`),
-//! - golden YAML pointed at via `KB_EVAL_GOLDEN`.
+//! - golden YAML pointed at via `KEBAB_EVAL_GOLDEN`.
 //!
 //! Determinism: lexical-only with a fixed seed corpus produces
 //! byte-identical `per_query.jsonl` content (modulo `run_id` /
@@ -24,7 +24,7 @@ use kebab_store_sqlite::SqliteStore;
 use rusqlite::params;
 use tempfile::TempDir;
 
-/// `KB_EVAL_GOLDEN` is process-global state. Tests touching it must
+/// `KEBAB_EVAL_GOLDEN` is process-global state. Tests touching it must
 /// serialize so they don't trample each other when `cargo test`
 /// runs them in parallel.
 static GOLDEN_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -143,19 +143,19 @@ fn lexical_opts() -> EvalRunOpts {
     }
 }
 
-/// Run the eval after pointing `KB_EVAL_GOLDEN` at `yaml`. The env
+/// Run the eval after pointing `KEBAB_EVAL_GOLDEN` at `yaml`. The env
 /// guard must outlive the call so concurrent tests don't reset the
 /// var mid-run.
 fn run_with_golden<F: FnOnce() -> R, R>(yaml: &Path, f: F) -> R {
     let _g = GOLDEN_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    // SAFETY: `KB_EVAL_GOLDEN` is a benign env var; the GOLDEN_ENV_LOCK
+    // SAFETY: `KEBAB_EVAL_GOLDEN` is a benign env var; the GOLDEN_ENV_LOCK
     // serializes mutations so concurrent tests don't race.
     unsafe {
-        std::env::set_var("KB_EVAL_GOLDEN", yaml);
+        std::env::set_var("KEBAB_EVAL_GOLDEN", yaml);
     }
     let out = f();
     unsafe {
-        std::env::remove_var("KB_EVAL_GOLDEN");
+        std::env::remove_var("KEBAB_EVAL_GOLDEN");
     }
     out
 }

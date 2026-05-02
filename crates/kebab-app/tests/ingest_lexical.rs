@@ -87,8 +87,8 @@ fn ingest_records_ingest_runs_row_with_aggregate_counts() {
     assert_eq!(report.scanned, 3);
 
     let db_path = std::path::PathBuf::from(&env.config.storage.data_dir)
-        .join("kb.sqlite");
-    let conn = rusqlite::Connection::open(&db_path).expect("open kb.sqlite");
+        .join("kebab.sqlite");
+    let conn = rusqlite::Connection::open(&db_path).expect("open kebab.sqlite");
     let (scanned, new_c, updated, skipped, errors, items_json): (
         i64,
         i64,

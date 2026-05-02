@@ -19,8 +19,8 @@ use kebab_llm_local::{LanguageModel, OllamaLanguageModel};
 #[ignore = "requires a local Ollama daemon + pulled model"]
 fn real_ollama_streams_non_empty_response() {
     // Use whatever model the workspace defaults select. Override via the
-    // KB_MODELS_LLM_MODEL env var if you want a different one for this run
-    // (e.g. `KB_MODELS_LLM_MODEL=qwen2.5:7b-instruct cargo test ... -- --ignored`).
+    // KEBAB_MODELS_LLM_MODEL env var if you want a different one for this run
+    // (e.g. `KEBAB_MODELS_LLM_MODEL=qwen2.5:7b-instruct cargo test ... -- --ignored`).
     let cfg = Config::load(None).expect("config should load");
     let llm = OllamaLanguageModel::new(&cfg).unwrap();
 

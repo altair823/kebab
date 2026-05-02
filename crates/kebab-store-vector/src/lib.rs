@@ -20,7 +20,7 @@
 //! serializes vector ops, and current-thread saves the two worker
 //! threads a multi-thread runtime spawns by default.
 //!
-//! See `docs/superpowers/specs/2026-04-27-kb-final-form-design.md`
+//! See `docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`
 //! §5.6 (embedding_records DDL), §6.3 (lancedb table naming),
 //! §7.2 (VectorStore), §9 (versioning).
 

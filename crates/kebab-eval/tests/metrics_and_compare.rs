@@ -34,7 +34,7 @@ fn cfg_with_data_dir(tmp: &TempDir, golden_yaml: &str) -> Config {
     // SAFELY scoped — `set_var` is process-global so callers serialise
     // tests via the `serial_test`-style guard below.
     unsafe {
-        std::env::set_var("KB_EVAL_GOLDEN", &golden_path);
+        std::env::set_var("KEBAB_EVAL_GOLDEN", &golden_path);
     }
     cfg
 }
@@ -127,9 +127,9 @@ fn write_run(
     store.record_eval_run_with_results(&row, &results).unwrap();
 }
 
-/// Each test mutates a process-global env var (`KB_EVAL_GOLDEN`) and
+/// Each test mutates a process-global env var (`KEBAB_EVAL_GOLDEN`) and
 /// expects to see its own write. Take this mutex around the body of
-/// every test that touches `KB_EVAL_GOLDEN` so two concurrent test
+/// every test that touches `KEBAB_EVAL_GOLDEN` so two concurrent test
 /// threads don't trip over each other's golden YAML.
 fn env_guard() -> std::sync::MutexGuard<'static, ()> {
     use std::sync::{Mutex, OnceLock};

@@ -186,7 +186,7 @@ impl Chunker for MdHeadingV1Chunker {
         flush(&mut acc, doc, &chunker_version, &policy_hash, &mut out);
 
         tracing::debug!(
-            target: "kb-chunk",
+            target: "kebab-chunk",
             doc_id = %doc.doc_id,
             chunks = out.len(),
             "md-heading-v1 chunked",

@@ -96,7 +96,7 @@ pub fn build_canonical_document(
         .collect();
 
     tracing::debug!(
-        target: "kb-normalize",
+        target: "kebab-normalize",
         "built canonical document doc_id={} blocks={}",
         doc_id.0,
         lifted_blocks.len()

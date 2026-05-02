@@ -61,7 +61,7 @@ pub use app::App;
 /// Kept in lock-step with the literal used in the `kb-store-sqlite`
 /// idempotency / round-trip tests so the version label written by the
 /// app and the one used in cross-crate fixtures match.
-const KB_PARSE_MD_VERSION: &str = "pulldown-cmark-0.x";
+const KEBAB_PARSE_MD_VERSION: &str = "pulldown-cmark-0.x";
 
 /// Caller-supplied knobs for one [`ask`] invocation.
 ///
@@ -187,7 +187,7 @@ pub fn ingest_with_config(
             .context("kb-app::ingest: ensure Lance table")?;
     }
 
-    let parser_version = ParserVersion(KB_PARSE_MD_VERSION.to_string());
+    let parser_version = ParserVersion(KEBAB_PARSE_MD_VERSION.to_string());
     let chunk_policy = chunk_policy_from_config(&app.config);
 
     // Pre-load every existing doc_id so we can label `IngestItem.kind`
@@ -236,7 +236,7 @@ pub fn ingest_with_config(
             Ok(i) => i,
             Err(e) => {
                 tracing::error!(
-                    target: "kb-app",
+                    target: "kebab-app",
                     path = %asset.workspace_path.0,
                     error = %e,
                     "kb-app::ingest: per-file fatal"
@@ -318,7 +318,7 @@ pub fn ingest_with_config(
                 progress,
             ) {
                 tracing::warn!(
-                    target: "kb-app",
+                    target: "kebab-app",
                     error = %e,
                     "kb-app::ingest: JobRepo::update_progress failed"
                 );
@@ -330,7 +330,7 @@ pub fn ingest_with_config(
                 None,
             ) {
                 tracing::warn!(
-                    target: "kb-app",
+                    target: "kebab-app",
                     error = %e,
                     "kb-app::ingest: JobRepo::finish failed"
                 );
@@ -338,7 +338,7 @@ pub fn ingest_with_config(
         }
         Err(e) => {
             tracing::warn!(
-                target: "kb-app",
+                target: "kebab-app",
                 error = %e,
                 "kb-app::ingest: JobRepo::create failed; run not recorded in `jobs`"
             );
@@ -361,7 +361,7 @@ pub fn ingest_with_config(
             Ok(s) => Some(s),
             Err(e) => {
                 tracing::warn!(
-                    target: "kb-app",
+                    target: "kebab-app",
                     error = %e,
                     "kb-app::ingest: failed to serialize items_json; storing NULL"
                 );
@@ -385,14 +385,14 @@ pub fn ingest_with_config(
     };
     if let Err(e) = app.sqlite.record_ingest_run(&row) {
         tracing::warn!(
-            target: "kb-app",
+            target: "kebab-app",
             error = %e,
             "kb-app::ingest: record_ingest_run failed"
         );
     }
 
     tracing::info!(
-        target: "kb-app",
+        target: "kebab-app",
         scanned = scanned_count,
         new = new_count,
         updated = updated_count,
@@ -448,7 +448,7 @@ fn ingest_one_asset(
     existing_doc_ids: &std::collections::HashSet<String>,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     tracing::debug!(
-        target: "kb-app::ingest",
+        target: "kebab-app::ingest",
         path = %asset.workspace_path.0,
         "processing asset"
     );
@@ -795,7 +795,7 @@ pub fn doctor_with_config_path(config_path: Option<&std::path::Path>) -> anyhow:
 
     // data_dir_writable — probe the resolved storage.data_dir from the
     // loaded config when present, else the XDG default. Apply env
-    // overrides so KB_STORAGE_DATA_DIR is respected too.
+    // overrides so KEBAB_STORAGE_DATA_DIR is respected too.
     let data_dir = match loaded_cfg.as_ref() {
         Some(c) => {
             // Re-apply env overrides on top so the same precedence as

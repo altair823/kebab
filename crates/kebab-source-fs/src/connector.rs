@@ -74,13 +74,13 @@ impl SourceConnector for FsSourceConnector {
             scope.root.clone()
         };
 
-        // Union: config.workspace.exclude ∪ scope.exclude ∪ .kbignore.
-        // Per §6.2 the union of `.kbignore` and `config.workspace.exclude`
+        // Union: config.workspace.exclude ∪ scope.exclude ∪ .kebabignore.
+        // Per §6.2 the union of `.kebabignore` and `config.workspace.exclude`
         // is the filter set. `scope.exclude` is added on top so a caller
         // can layer a per-call narrowing.
         let mut excludes = self.default_exclude.clone();
         excludes.extend(scope.exclude.iter().cloned());
-        // .kbignore is re-read on every scan() so users can edit it without
+        // .kebabignore is re-read on every scan() so users can edit it without
         // restarting any long-running process.
         let kbignore = read_kbignore(&root)?;
 
@@ -243,7 +243,7 @@ mod tests {
     fn scan_filters_by_kbignore() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::write(root.join(".kbignore"), "*.tmp\n").unwrap();
+        std::fs::write(root.join(".kebabignore"), "*.tmp\n").unwrap();
         std::fs::write(root.join("a.md"), b"x").unwrap();
         std::fs::write(root.join("b.tmp"), b"x").unwrap();
 
@@ -252,14 +252,14 @@ mod tests {
                 .unwrap();
         let v = conn.scan(&SourceScope::default()).unwrap();
         let names: Vec<_> = v.iter().map(|a| a.workspace_path.0.clone()).collect();
-        // Decision: `.kbignore` itself IS emitted as a RawAsset (MediaType::Other("")).
+        // Decision: `.kebabignore` itself IS emitted as a RawAsset (MediaType::Other("")).
         // Rationale: a config file that affects ingest is itself part of the
         // workspace contents; the markdown extractor (P1-2) will reject Other("")
-        // on its own. If we ever decide to omit `.kbignore` from the asset list,
+        // on its own. If we ever decide to omit `.kebabignore` from the asset list,
         // this test will catch it.
         assert!(
-            names.contains(&".kbignore".to_string()),
-            ".kbignore must be emitted as an asset; got: {names:?}"
+            names.contains(&".kebabignore".to_string()),
+            ".kebabignore must be emitted as an asset; got: {names:?}"
         );
         assert!(names.contains(&"a.md".to_string()));
         assert!(!names.contains(&"b.tmp".to_string()));
@@ -285,7 +285,7 @@ mod tests {
     fn scan_unions_config_exclude_and_kbignore() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::write(root.join(".kbignore"), "*.tmp\n").unwrap();
+        std::fs::write(root.join(".kebabignore"), "*.tmp\n").unwrap();
         std::fs::write(root.join("a.md"), b"x").unwrap();
         std::fs::write(root.join("b.tmp"), b"x").unwrap();
         std::fs::write(root.join("c.log"), b"x").unwrap();

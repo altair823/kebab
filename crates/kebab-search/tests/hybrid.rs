@@ -157,17 +157,17 @@ fn hybrid_snapshot_run_1() {
         .join("hybrid")
         .join("run-1.json");
 
-    if std::env::var_os("KB_UPDATE_SNAPSHOTS").is_some() {
+    if std::env::var_os("KEBAB_UPDATE_SNAPSHOTS").is_some() {
         std::fs::create_dir_all(fixture.parent().unwrap()).unwrap();
         std::fs::write(&fixture, serde_json::to_string_pretty(&actual).unwrap()).unwrap();
         eprintln!("[snapshot] regenerated {}", fixture.display());
-        // Fail loudly so that accidentally setting KB_UPDATE_SNAPSHOTS
+        // Fail loudly so that accidentally setting KEBAB_UPDATE_SNAPSHOTS
         // in CI surfaces as a test failure rather than a silent
         // overwrite + green run. Same fail-loud-instead-of-silent-pass
         // philosophy as P3-2's `SNAPSHOT_HASH_BASELINE = 0` and P3-3's
         // placeholder fixture guards.
         panic!(
-            "[snapshot] regenerated {}, re-run without KB_UPDATE_SNAPSHOTS to verify pin",
+            "[snapshot] regenerated {}, re-run without KEBAB_UPDATE_SNAPSHOTS to verify pin",
             fixture.display()
         );
     }
@@ -176,7 +176,7 @@ fn hybrid_snapshot_run_1() {
         serde_json::from_str(&std::fs::read_to_string(&fixture).unwrap_or_else(|_| {
             panic!(
                 "missing snapshot fixture at {}; run with \
-                 KB_UPDATE_SNAPSHOTS=1 to create",
+                 KEBAB_UPDATE_SNAPSHOTS=1 to create",
                 fixture.display()
             )
         }))
@@ -189,14 +189,14 @@ fn hybrid_snapshot_run_1() {
         panic!(
             "snapshot fixture is a placeholder — regenerate on AVX hardware then commit. \
              Path: {}. To regenerate: \
-             `KB_UPDATE_SNAPSHOTS=1 cargo test -p kb-search -- --ignored hybrid_snapshot`.",
+             `KEBAB_UPDATE_SNAPSHOTS=1 cargo test -p kb-search -- --ignored hybrid_snapshot`.",
             fixture.display()
         );
     }
 
     assert_eq!(
         actual, expected,
-        "hybrid snapshot drift; rerun with KB_UPDATE_SNAPSHOTS=1 to regenerate"
+        "hybrid snapshot drift; rerun with KEBAB_UPDATE_SNAPSHOTS=1 to regenerate"
     );
 
     // Independent guard: fusion scores must be non-increasing across

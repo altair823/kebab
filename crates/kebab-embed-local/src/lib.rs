@@ -19,7 +19,7 @@
 //! rules `kb-store-sqlite` applies to `data_dir` (`${XDG_DATA_HOME:-…}`,
 //! leading `~`, `{data_dir}` substitution).
 //!
-//! See `docs/superpowers/specs/2026-04-27-kb-final-form-design.md`
+//! See `docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`
 //! §7.2 (Embedder), §6.4 ([models.embedding]), §9 (versioning).
 
 use std::sync::Mutex;
@@ -82,7 +82,7 @@ impl FastembedEmbedder {
         check_dim(model_info.dim, config.models.embedding.dimensions)?;
 
         tracing::info!(
-            target: "kb-embed-local",
+            target: "kebab-embed-local",
             cache_dir = %cache_dir.display(),
             model = %config.models.embedding.model,
             dims = model_info.dim,
@@ -97,7 +97,7 @@ impl FastembedEmbedder {
             .with_cache_dir(cache_dir.clone())
             .with_show_download_progress(false);
         tracing::info!(
-            target: "kb-embed-local",
+            target: "kebab-embed-local",
             model = %config.models.embedding.model,
             cache_dir = %cache_dir.display(),
             "loading embedding model (first run will download ~470MB)"
@@ -106,7 +106,7 @@ impl FastembedEmbedder {
             .context("fastembed: TextEmbedding::try_new")?;
         let dimensions = model_info.dim;
         tracing::info!(
-            target: "kb-embed-local",
+            target: "kebab-embed-local",
             model = %config.models.embedding.model,
             dimensions,
             "embedding model loaded"

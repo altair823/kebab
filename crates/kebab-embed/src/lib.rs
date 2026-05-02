@@ -11,7 +11,7 @@
 //! deterministic test double. Real adapters (fastembed, candle, ollama-embed)
 //! live in p3-2 and MUST NOT be implemented here.
 //!
-//! See `docs/superpowers/specs/2026-04-27-kb-final-form-design.md` §7.1, §7.2,
+//! See `docs/superpowers/specs/2026-04-27-kebab-final-form-design.md` §7.1, §7.2,
 //! §11 for the contract.
 
 // ── Trait re-exports ──────────────────────────────────────────────────────

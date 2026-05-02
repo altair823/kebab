@@ -73,7 +73,7 @@ fn vector_hits_snapshot_run_1() {
         .join("vector")
         .join("run-1.json");
 
-    if std::env::var_os("KB_UPDATE_SNAPSHOTS").is_some() {
+    if std::env::var_os("KEBAB_UPDATE_SNAPSHOTS").is_some() {
         std::fs::create_dir_all(fixture.parent().unwrap()).unwrap();
         std::fs::write(&fixture, serde_json::to_string_pretty(&actual).unwrap())
             .unwrap();
@@ -83,7 +83,7 @@ fn vector_hits_snapshot_run_1() {
     let expected: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&fixture).unwrap_or_else(
             |_| panic!(
-                "missing snapshot fixture at {}; run with KB_UPDATE_SNAPSHOTS=1 to create",
+                "missing snapshot fixture at {}; run with KEBAB_UPDATE_SNAPSHOTS=1 to create",
                 fixture.display()
             ),
         ))
@@ -97,14 +97,14 @@ fn vector_hits_snapshot_run_1() {
         panic!(
             "snapshot fixture is a placeholder — regenerate on AVX hardware then commit. \
              Path: {}. To regenerate: \
-             `KB_UPDATE_SNAPSHOTS=1 cargo test -p kb-store-vector -- --ignored snapshot`.",
+             `KEBAB_UPDATE_SNAPSHOTS=1 cargo test -p kb-store-vector -- --ignored snapshot`.",
             fixture.display()
         );
     }
 
     assert_eq!(
         actual, expected,
-        "snapshot drift; rerun with KB_UPDATE_SNAPSHOTS=1 to regenerate"
+        "snapshot drift; rerun with KEBAB_UPDATE_SNAPSHOTS=1 to regenerate"
     );
 
     // Independent guard: scores must be non-increasing.

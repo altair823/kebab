@@ -1,6 +1,6 @@
 //! Tracing initialization helper for `kb-cli`.
 //!
-//! Daily-rolling file appender at `~/.local/state/kb/logs/` per task spec.
+//! Daily-rolling file appender at `~/.local/state/kebab/logs/` per task spec.
 //! Returns a `WorkerGuard` that the caller must keep alive until program
 //! exit (so buffered log lines flush).
 

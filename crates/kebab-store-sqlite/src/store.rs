@@ -28,7 +28,7 @@ const ASSET_ID_HEX_LEN: usize = 32;
 /// Default file name under `config.storage.data_dir`. Kept private — the
 /// path layout is a §6.3 design decision, not part of the store's public
 /// surface.
-const SQLITE_FILE: &str = "kb.sqlite";
+const SQLITE_FILE: &str = "kebab.sqlite";
 
 /// Subdirectory under `data_dir` holding shard-prefixed asset bytes
 /// (`<aa>/<asset_id>`). Mirrors design §6.3.
@@ -74,7 +74,7 @@ impl SqliteStore {
         apply_pragmas(&conn)?;
 
         tracing::debug!(
-            target: "kb-store-sqlite",
+            target: "kebab-store-sqlite",
             data_dir = %data_dir.display(),
             db = %db_path.display(),
             "opened sqlite store"
@@ -94,7 +94,7 @@ impl SqliteStore {
         schema::runner()
             .run(&mut *conn)
             .map_err(|e| StoreError::Migration(e.to_string()))?;
-        tracing::debug!(target: "kb-store-sqlite", "migrations applied");
+        tracing::debug!(target: "kebab-store-sqlite", "migrations applied");
         Ok(())
     }
 

@@ -135,7 +135,7 @@ impl RagPipeline {
         let top_score = hits.first().map(|h| h.retrieval.fusion_score).unwrap_or(0.0);
 
         tracing::debug!(
-            target: "kb-rag",
+            target: "kebab-rag",
             chunks_returned,
             top_score,
             mode = ?opts.mode,
@@ -161,7 +161,7 @@ impl RagPipeline {
         // collapse to the more accurate `NoChunks` refusal here.
         if packed_entries.is_empty() {
             tracing::warn!(
-                target: "kb-rag",
+                target: "kebab-rag",
                 chunks_returned = hits.len(),
                 "kb-rag: all retrieved chunks were unfetchable from the store; \
                  falling back to NoChunks refusal"
@@ -324,7 +324,7 @@ impl RagPipeline {
         // Drop the moved `finish_reason` early into a tracing breadcrumb; the
         // wire schema does not surface it (per design §3.8).
         tracing::debug!(
-            target: "kb-rag",
+            target: "kebab-rag",
             grounded = answer.grounded,
             refusal = ?answer.refusal_reason,
             refusal_phrase_detected = matched_refusal_phrase,
@@ -354,7 +354,7 @@ impl RagPipeline {
             self.docs.put_answer(&answer, query, packed_chunks_json.as_deref())
         {
             tracing::warn!(
-                target: "kb-rag",
+                target: "kebab-rag",
                 error = %e,
                 "kb-rag: put_answer failed; in-memory Answer still returned"
             );
@@ -386,7 +386,7 @@ impl RagPipeline {
                 Some(c) => c.text,
                 None => {
                     tracing::warn!(
-                        target: "kb-rag",
+                        target: "kebab-rag",
                         chunk_id = %hit.chunk_id.0,
                         "kb-rag: chunk not found in store; skipping"
                     );
@@ -454,7 +454,7 @@ impl RagPipeline {
             created_at: OffsetDateTime::now_utc(),
         };
         if let Err(e) = self.docs.put_answer(&answer, query, None) {
-            tracing::warn!(target: "kb-rag", error = %e, "kb-rag: put_answer (NoChunks) failed");
+            tracing::warn!(target: "kebab-rag", error = %e, "kb-rag: put_answer (NoChunks) failed");
         }
         Ok(answer)
     }
@@ -529,7 +529,7 @@ impl RagPipeline {
             created_at: OffsetDateTime::now_utc(),
         };
         if let Err(e) = self.docs.put_answer(&answer, query, None) {
-            tracing::warn!(target: "kb-rag", error = %e, "kb-rag: put_answer (ScoreGate) failed");
+            tracing::warn!(target: "kebab-rag", error = %e, "kb-rag: put_answer (ScoreGate) failed");
         }
         Ok(answer)
     }

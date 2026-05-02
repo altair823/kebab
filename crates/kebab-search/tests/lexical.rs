@@ -29,7 +29,7 @@ impl Env {
         config.storage.data_dir = temp.path().to_string_lossy().into_owned();
         let store = SqliteStore::open(&config).expect("open store");
         store.run_migrations().expect("run migrations");
-        let db_path = temp.path().join("kb.sqlite");
+        let db_path = temp.path().join("kebab.sqlite");
         Self {
             _temp: temp,
             store: Arc::new(store),
@@ -618,7 +618,7 @@ fn lexical_snapshot_run_1() {
     // `Vec<SearchHit>` for a fixed query is checked verbatim against
     // `tests/fixtures/search/lexical/run-1.json`. Update both sides in
     // the same commit when intentional changes ship.
-    // Stable because rusqlite ships bundled SQLite — a tokenizer/bm25 algorithm change in a future SQLite bump will require regenerating run-1.json via `KB_UPDATE_SNAPSHOTS=1`.
+    // Stable because rusqlite ships bundled SQLite — a tokenizer/bm25 algorithm change in a future SQLite bump will require regenerating run-1.json via `KEBAB_UPDATE_SNAPSHOTS=1`.
     let env = Env::new();
     let conn = env.raw_conn();
     insert_document(&conn, &id32("d"), "notes/snap.md", "Snap", "en", "primary", &[]);
@@ -656,11 +656,11 @@ fn lexical_snapshot_run_1() {
 
     let baseline_path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/search/lexical/run-1.json");
-    if std::env::var_os("KB_UPDATE_SNAPSHOTS").is_some() {
+    if std::env::var_os("KEBAB_UPDATE_SNAPSHOTS").is_some() {
         std::fs::write(&baseline_path, serde_json::to_string_pretty(&actual).unwrap()).unwrap();
     }
     let baseline_text = std::fs::read_to_string(&baseline_path)
-        .expect("baseline snapshot must exist; run with KB_UPDATE_SNAPSHOTS=1 to seed");
+        .expect("baseline snapshot must exist; run with KEBAB_UPDATE_SNAPSHOTS=1 to seed");
     let expected: serde_json::Value = serde_json::from_str(&baseline_text).unwrap();
     assert_eq!(actual, expected, "lexical run-1 snapshot drift");
 }

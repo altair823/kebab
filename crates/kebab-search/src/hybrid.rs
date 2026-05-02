@@ -93,7 +93,7 @@ impl HybridRetriever {
         let vec_iv = vector.index_version();
         if lex_iv.0 != vec_iv.0 {
             tracing::warn!(
-                target: "kb-search",
+                target: "kebab-search",
                 lexical_index = %lex_iv.0,
                 vector_index = %vec_iv.0,
                 "kb-search hybrid: lexical and vector index_version differ; consider re-indexing"
@@ -323,7 +323,7 @@ fn parse_fusion(name: &str, k_rrf: u32) -> FusionPolicy {
         "rrf" => FusionPolicy::Rrf { k_rrf: k },
         other => {
             tracing::warn!(
-                target: "kb-search",
+                target: "kebab-search",
                 policy = other,
                 "kb-search hybrid: unknown fusion policy; falling back to RRF"
             );

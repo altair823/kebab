@@ -12,7 +12,7 @@
 //! from `generate_stream` itself (e.g., connection refused) before any chunk
 //! is yielded; the mock never does.
 //!
-//! See `docs/superpowers/specs/2026-04-27-kb-final-form-design.md` §7.1, §7.2,
+//! See `docs/superpowers/specs/2026-04-27-kebab-final-form-design.md` §7.1, §7.2,
 //! §0 Q5 (streaming), §3.8 (`ModelRef`) for the contract.
 
 // ── Trait re-exports ──────────────────────────────────────────────────────

@@ -111,7 +111,7 @@ impl LanceVectorStore {
             })?;
 
         tracing::debug!(
-            target: "kb-store-vector",
+            target: "kebab-store-vector",
             vector_dir = %vector_dir.display(),
             "opened LanceVectorStore"
         );
@@ -141,7 +141,7 @@ impl LanceVectorStore {
                     .await
                     .context("create_empty_table")?;
                 tracing::info!(
-                    target: "kb-store-vector",
+                    target: "kebab-store-vector",
                     table = table_name,
                     dim,
                     "created Lance table"
@@ -275,7 +275,7 @@ impl VectorStore for LanceVectorStore {
             .context("phase 3: mark embedding_records committed")?;
 
         tracing::info!(
-            target: "kb-store-vector",
+            target: "kebab-store-vector",
             table = %table_name,
             rows = recs.len(),
             "upsert committed"
@@ -306,7 +306,7 @@ impl VectorStore for LanceVectorStore {
             Some(name) => name,
             None => {
                 tracing::debug!(
-                    target: "kb-store-vector",
+                    target: "kebab-store-vector",
                     dim,
                     "search: no Lance table matches query dim — returning empty"
                 );
@@ -477,7 +477,7 @@ fn decode_lance_hits(batches: &[RecordBatch]) -> Result<Vec<LanceCandidate>> {
 fn score_from_distance(distance: f32) -> f32 {
     if distance.is_nan() {
         tracing::warn!(
-            target: "kb-store-vector",
+            target: "kebab-store-vector",
             "NaN cosine distance from Lance — coercing to score 0"
         );
         return 0.0;
@@ -515,7 +515,7 @@ async fn find_matching_table(
             }
             Err(e) => {
                 tracing::warn!(
-                    target: "kb-store-vector",
+                    target: "kebab-store-vector",
                     table = %name,
                     error = %e,
                     "search: skipped unopenable table"

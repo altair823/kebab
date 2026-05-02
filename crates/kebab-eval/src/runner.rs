@@ -13,7 +13,7 @@ use kebab_store_sqlite::{EvalRunRow, SqliteStore};
 use time::OffsetDateTime;
 
 use crate::loader::{load_golden_set, validate_against_db};
-use crate::metrics::{DEFAULT_GOLDEN_PATH, KB_EVAL_GOLDEN};
+use crate::metrics::{DEFAULT_GOLDEN_PATH, KEBAB_EVAL_GOLDEN};
 use crate::types::{EvalRun, EvalRunOpts, GoldenQuery, QueryResult};
 
 /// Convert a wall-clock duration since `start` into milliseconds clamped
@@ -46,7 +46,7 @@ pub fn run_eval_with_config(cfg: &kebab_config::Config, opts: &EvalRunOpts) -> R
     let golden_path = resolve_golden_path();
     let queries = load_golden_set(&golden_path).with_context(|| {
         format!(
-            "load golden set from {} (override via KB_EVAL_GOLDEN)",
+            "load golden set from {} (override via KEBAB_EVAL_GOLDEN)",
             golden_path.display()
         )
     })?;
@@ -55,7 +55,7 @@ pub fn run_eval_with_config(cfg: &kebab_config::Config, opts: &EvalRunOpts) -> R
     // ── 2. Mint identifiers + open store ──────────────────────────────────
     let run_id = mint_run_id();
     let created_at = OffsetDateTime::now_utc();
-    let commit_hash = std::env::var("KB_COMMIT_HASH")
+    let commit_hash = std::env::var("KEBAB_COMMIT_HASH")
         .ok()
         .filter(|s| !s.is_empty());
 
@@ -110,7 +110,7 @@ pub fn run_eval_with_config(cfg: &kebab_config::Config, opts: &EvalRunOpts) -> R
 
     let duration_ms = elapsed_ms_u32(started);
     tracing::info!(
-        target: "kb-eval",
+        target: "kebab-eval",
         run_id = %run_id,
         suite = %opts.suite,
         queries = per_query.len(),
@@ -136,11 +136,11 @@ fn mint_run_id() -> String {
     format!("run_{id}")
 }
 
-/// Resolve the golden YAML path. Honors the `KB_EVAL_GOLDEN` env
+/// Resolve the golden YAML path. Honors the `KEBAB_EVAL_GOLDEN` env
 /// override; otherwise relative to CWD. The path is NOT expanded for
 /// `~` / `${...}` placeholders — direct file paths only.
 fn resolve_golden_path() -> PathBuf {
-    match std::env::var(KB_EVAL_GOLDEN) {
+    match std::env::var(KEBAB_EVAL_GOLDEN) {
         Ok(s) if !s.is_empty() => PathBuf::from(s),
         _ => PathBuf::from(DEFAULT_GOLDEN_PATH),
     }

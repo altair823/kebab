@@ -1,7 +1,7 @@
 //! Shared path expansion helper.
 //!
 //! `Config::storage.*` fields are stored as raw template strings (e.g.
-//! `${XDG_DATA_HOME:-~/.local/share}/kb`, `{data_dir}/runs`). Every
+//! `${XDG_DATA_HOME:-~/.local/share}/kebab`, `{data_dir}/runs`). Every
 //! crate that turns one of those strings into a real filesystem path
 //! needs to apply the same set of substitutions; this module is the
 //! single source of truth so the behavior cannot drift.
@@ -133,8 +133,8 @@ mod tests {
         // SAFETY: lock held for the duration of this test.
         unsafe { std::env::set_var("XDG_DATA_HOME", "/custom/path") };
 
-        let p = expand_path("${XDG_DATA_HOME:-~/.local/share}/kb", "");
-        assert_eq!(p, PathBuf::from("/custom/path/kb"));
+        let p = expand_path("${XDG_DATA_HOME:-~/.local/share}/kebab", "");
+        assert_eq!(p, PathBuf::from("/custom/path/kebab"));
     }
 
     #[test]
@@ -145,8 +145,8 @@ mod tests {
         unsafe { std::env::remove_var("XDG_DATA_HOME") };
 
         let home = std::env::var("HOME").expect("HOME must be set in tests");
-        let expected = PathBuf::from(home).join(".local/share/kb");
-        let p = expand_path("${XDG_DATA_HOME:-~/.local/share}/kb", "");
+        let expected = PathBuf::from(home).join(".local/share/kebab");
+        let p = expand_path("${XDG_DATA_HOME:-~/.local/share}/kebab", "");
         assert_eq!(p, expected);
     }
 
@@ -180,7 +180,7 @@ mod tests {
         // SAFETY: lock held for the duration of this test.
         unsafe { std::env::set_var("XDG_DATA_HOME", "/xdg/data") };
 
-        let p = expand_path("{data_dir}/runs", "/xdg/data/kb");
-        assert_eq!(p, PathBuf::from("/xdg/data/kb/runs"));
+        let p = expand_path("{data_dir}/runs", "/xdg/data/kebab");
+        assert_eq!(p, PathBuf::from("/xdg/data/kebab/runs"));
     }
 }

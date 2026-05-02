@@ -26,7 +26,7 @@ use kebab_embed::{Embedder, EmbeddingInput, EmbeddingKind};
 use kebab_embed_local::FastembedEmbedder;
 
 /// Build a `Config` whose `data_dir` lives in a per-process temp dir so
-/// the test never writes into the developer's real `~/.local/share/kb`.
+/// the test never writes into the developer's real `~/.local/share/kebab`.
 /// Returns the `Config` and the `TempDir` guard (caller keeps the guard
 /// alive for the test duration).
 fn test_config() -> (kebab_config::Config, tempfile::TempDir) {

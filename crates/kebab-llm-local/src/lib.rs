@@ -29,7 +29,7 @@
 //! - **Lazy connect.** [`OllamaLanguageModel::new`] does not hit the network;
 //!   the first error surfaces on [`LanguageModel::generate_stream`].
 //!
-//! See `docs/superpowers/specs/2026-04-27-kb-final-form-design.md` §7.2,
+//! See `docs/superpowers/specs/2026-04-27-kebab-final-form-design.md` §7.2,
 //! §6.4 (`[models.llm]`), §0 Q5 (streaming), §10 (errors), and report §11.2
 //! (Ollama protocol notes).
 

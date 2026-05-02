@@ -37,7 +37,7 @@ impl TestEnv {
     }
 
     pub fn db_path(&self) -> PathBuf {
-        self.temp.path().join("kb.sqlite")
+        self.temp.path().join("kebab.sqlite")
     }
 
     /// Open a side-channel rusqlite connection for direct SQL inspection.

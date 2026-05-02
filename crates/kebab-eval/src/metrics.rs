@@ -40,10 +40,10 @@ const STORAGE_DECIMALS: u32 = 4;
 /// (P5-1) used — otherwise `expected_*` / `must_contain` won't line up
 /// with the stored `query_id`s. `pub(crate)` so the runner shares the
 /// exact same name + default rather than duplicating constants.
-pub(crate) const KB_EVAL_GOLDEN: &str = "KB_EVAL_GOLDEN";
+pub(crate) const KEBAB_EVAL_GOLDEN: &str = "KEBAB_EVAL_GOLDEN";
 
 /// Default golden YAML path (relative to CWD when set). Same
-/// rationale as [`KB_EVAL_GOLDEN`] — single source of truth.
+/// rationale as [`KEBAB_EVAL_GOLDEN`] — single source of truth.
 pub(crate) const DEFAULT_GOLDEN_PATH: &str = "fixtures/golden_queries.yaml";
 
 /// Aggregate metrics for one stored eval run.
@@ -151,7 +151,7 @@ pub fn store_aggregate_with_config(
 /// the runner uses, same default path. Pulled into its own helper so
 /// `compare_runs` can share it.
 pub(crate) fn resolve_golden_path() -> PathBuf {
-    match std::env::var(KB_EVAL_GOLDEN) {
+    match std::env::var(KEBAB_EVAL_GOLDEN) {
         Ok(s) if !s.is_empty() => PathBuf::from(s),
         _ => PathBuf::from(DEFAULT_GOLDEN_PATH),
     }
@@ -161,7 +161,7 @@ fn load_golden_for_metrics() -> Result<Vec<GoldenQuery>> {
     let path = resolve_golden_path();
     load_golden_set(&path).with_context(|| {
         format!(
-            "load golden set from {} (override via KB_EVAL_GOLDEN)",
+            "load golden set from {} (override via KEBAB_EVAL_GOLDEN)",
             path.display()
         )
     })

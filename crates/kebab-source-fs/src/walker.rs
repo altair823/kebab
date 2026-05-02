@@ -3,7 +3,7 @@
 //!
 //! Filter set (per task spec, design §6.2):
 //!   - `config.workspace.exclude` (passed in by `FsSourceConnector`)
-//!   - `<root>/.kbignore` (optional file at workspace root)
+//!   - `<root>/.kebabignore` (optional file at workspace root)
 //!   - default-excludes for `.DS_Store` and macOS resource forks (`._*`)
 //!
 //! All three are merged via `ignore::overrides::OverrideBuilder`, which
@@ -36,7 +36,7 @@ use walkdir::{DirEntry, WalkDir};
 
 /// Default-excludes baked into the connector. These are NOT configurable;
 /// they cover noise that is never useful to ingest and would otherwise need
-/// to appear in every user's `.kbignore`.
+/// to appear in every user's `.kebabignore`.
 const DEFAULT_EXCLUDES: &[&str] = &[
     // Finder metadata
     ".DS_Store",
@@ -46,7 +46,7 @@ const DEFAULT_EXCLUDES: &[&str] = &[
     "**/._*",
 ];
 
-/// Build the merged `Override` from `config.workspace.exclude` ∪ `.kbignore`
+/// Build the merged `Override` from `config.workspace.exclude` ∪ `.kebabignore`
 /// ∪ baked-in default excludes.
 ///
 /// Each input pattern is registered as an *exclude* (gitignore-style: a
@@ -73,16 +73,16 @@ pub(crate) fn build_overrides(
     for pat in kbignore_patterns {
         builder
             .add(&format!("!{pat}"))
-            .with_context(|| format!("invalid .kbignore pattern: {pat}"))?;
+            .with_context(|| format!("invalid .kebabignore pattern: {pat}"))?;
     }
 
     builder.build().context("failed to compile override set")
 }
 
-/// Read `<root>/.kbignore` if it exists. Each non-blank, non-comment line is
+/// Read `<root>/.kebabignore` if it exists. Each non-blank, non-comment line is
 /// a gitignore pattern. Missing file → empty Vec (not an error).
 pub(crate) fn read_kbignore(root: &Path) -> Result<Vec<String>> {
-    let path = root.join(".kbignore");
+    let path = root.join(".kebabignore");
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -250,7 +250,7 @@ mod tests {
     fn read_kbignore_strips_blanks_and_comments() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
-            dir.path().join(".kbignore"),
+            dir.path().join(".kebabignore"),
             "# comment\n*.tmp\n\nignored/**\n",
         )
         .unwrap();

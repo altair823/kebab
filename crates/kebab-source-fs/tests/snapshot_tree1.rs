@@ -9,8 +9,8 @@
 //! │   ├── alpha.md
 //! │   └── beta.md
 //! ├── ignored/
-//! │   └── skip.tmp           # excluded by .kbignore
-//! ├── .kbignore              # contains: *.tmp
+//! │   └── skip.tmp           # excluded by .kebabignore
+//! ├── .kebabignore              # contains: *.tmp
 //! └── .DS_Store              # implicitly excluded
 //! ```
 //!
@@ -52,7 +52,7 @@ fn cfg_for_fixture(root: &str) -> Config {
     let mut c = Config::defaults();
     c.workspace.root = root.to_string();
     // Clear default excludes (`.git/**`, `node_modules/**`, `.obsidian/**`)
-    // so the snapshot is purely a function of the fixture + .kbignore +
+    // so the snapshot is purely a function of the fixture + .kebabignore +
     // baked-in default-excludes.
     c.workspace.exclude.clear();
     c
@@ -101,18 +101,18 @@ fn scan_and_strip() -> Value {
 fn tree_1_snapshot_matches_baseline() {
     let actual = scan_and_strip();
 
-    // If KB_REGEN_SNAPSHOT is set, (re)write the baseline and exit
+    // If KEBAB_REGEN_SNAPSHOT is set, (re)write the baseline and exit
     // *before* attempting to read it. This is the only path that may
     // create the file from scratch.
-    if std::env::var_os("KB_REGEN_SNAPSHOT").is_some() {
+    if std::env::var_os("KEBAB_REGEN_SNAPSHOT").is_some() {
         let pretty = serde_json::to_string_pretty(&actual).unwrap() + "\n";
         std::fs::write(baseline_path(), pretty).expect("write baseline");
-        panic!("regenerated baseline; rerun without KB_REGEN_SNAPSHOT to verify");
+        panic!("regenerated baseline; rerun without KEBAB_REGEN_SNAPSHOT to verify");
     }
 
     let baseline_text = std::fs::read_to_string(baseline_path()).unwrap_or_else(|_| {
         panic!(
-            "missing baseline at {} — regenerate via `KB_REGEN_SNAPSHOT=1 cargo test \
+            "missing baseline at {} — regenerate via `KEBAB_REGEN_SNAPSHOT=1 cargo test \
              -p kb-source-fs --test snapshot_tree1 -- tree_1_snapshot_matches_baseline`",
             baseline_path().display()
         )

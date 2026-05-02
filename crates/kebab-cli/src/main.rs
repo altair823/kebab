@@ -11,7 +11,7 @@ use kebab_app::doctor_signal::{DoctorUnhealthy, NoHitSignal, RefusalSignal};
 mod wire;
 
 #[derive(Parser, Debug)]
-#[command(name = "kb", version, about = "personal local knowledge base")]
+#[command(name = "kebab", version, about = "personal local knowledge base")]
 struct Cli {
     /// Path to a non-default `config.toml`.
     #[arg(long, global = true)]
