@@ -9,22 +9,18 @@ description   = "Text PDF extractor (per-page text + page citation) for the keba
 
 [dependencies]
 kebab-core   = { path = "../kebab-core" }
-kebab-config = { path = "../kebab-config" }
 anyhow       = { workspace = true }
-serde        = { workspace = true }
 serde_json   = { workspace = true }
 time         = { workspace = true }
 tracing      = { workspace = true }
-thiserror    = { workspace = true }
 # Per-page text extraction. `lopdf::Document::extract_text(&[page])`
 # is the only stable per-page API across the pdf-extract / lopdf
 # pair (pdf-extract 0.7 still exposes only whole-document calls).
+# pdf-extract is intentionally NOT pulled in here — its ~150 transitive
+# crates (pom, postscript, type1-encoding-parser, …) buy us nothing
+# at v1 (we don't call its whole-doc API), and the future scanned-PDF
+# OCR fallback can re-add it when it actually needs it.
 lopdf        = "0.32"
-# Whole-document sanity-check call; covers a few format errors that
-# lopdf swallows silently. Per-page text is sourced from lopdf only.
-pdf-extract  = "0.7"
 
 [dev-dependencies]
-tempfile     = { workspace = true }
 blake3       = { workspace = true }
-serde_json   = { workspace = true }

@@ -178,6 +178,43 @@ fn info_dict_title_utf16be_bom_decoded() {
 }
 
 #[test]
+fn info_dict_title_utf16be_surrogate_pair_decoded() {
+    // 🥙 (U+1F959 STUFFED FLATBREAD) sits in the supplementary plane,
+    // so encoding it as UTF-16BE produces a surrogate pair (D83E DD59).
+    // BMP-only inputs would never exercise the pair-joining path of
+    // `String::from_utf16_lossy` — this asserts that path round-trips.
+    let info = InfoDict {
+        title: Some(utf16be_bom("케밥 🥙 문서")),
+        producer: None,
+        creator: None,
+    };
+    let bytes = build_text_pdf_with_info(&[Some("body")], &info);
+    let fx = fixture_for("docs/emoji-title.pdf", &bytes);
+    let doc = PdfTextExtractor::new()
+        .extract(&fx.ctx(), &bytes)
+        .expect("PDF with surrogate-pair Title must extract");
+    assert_eq!(doc.title, "케밥 🥙 문서");
+}
+
+#[test]
+fn info_dict_title_pdfdocencoding_latin1_high_bytes_decoded() {
+    // BOM-less PDFDocEncoded title with a high-byte char (0xE9 = 'é').
+    // `from_utf8_lossy` would have replaced this with U+FFFD; the
+    // byte-as-char path keeps it intact.
+    let info = InfoDict {
+        title: Some(b"Caf\xE9".to_vec()),
+        producer: None,
+        creator: None,
+    };
+    let bytes = build_text_pdf_with_info(&[Some("body")], &info);
+    let fx = fixture_for("docs/cafe-title.pdf", &bytes);
+    let doc = PdfTextExtractor::new()
+        .extract(&fx.ctx(), &bytes)
+        .expect("PDF with Latin-1 Title must extract");
+    assert_eq!(doc.title, "Café");
+}
+
+#[test]
 fn info_dict_title_falls_back_to_filename_when_missing() {
     let bytes = build_text_pdf(&[Some("body")]);
     let fx = fixture_for("docs/no-info.pdf", &bytes);

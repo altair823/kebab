@@ -2,10 +2,15 @@
 //!
 //! PDFs may carry a `/Info` trailer dictionary with `Title`,
 //! `Producer`, `Creator`, etc. Strings are encoded as either
-//! PDFDocEncoding (Latin-1 superset) OR UTF-16BE prefixed with the
-//! BOM `0xFE 0xFF`. We handle both. Anything else falls back to
-//! UTF-8 lossy. All fields are optional — a missing `/Info` dict is
-//! not an error.
+//! UTF-16BE prefixed with the BOM `0xFE 0xFF` OR PDFDocEncoding
+//! (which agrees with Latin-1 over `0x20–0x7E` + `0xA0–0xFF` and
+//! diverges in the `0x18–0x1F` / `0x80–0x9F` ranges). We decode
+//! BOM'd strings as proper UTF-16BE; non-BOM strings are decoded
+//! as Latin-1 (byte → `char`), which is correct for the common
+//! ASCII case and a best-effort approximation for the divergent
+//! PDFDocEncoding ranges (full PDFDocEncoding tables aren't worth
+//! the maintenance for what is effectively legacy metadata). All
+//! fields are optional — a missing `/Info` dict is not an error.
 
 #[derive(Default)]
 pub(crate) struct InfoDict {
@@ -61,10 +66,11 @@ fn pdf_string(dict: &lopdf::Dictionary, key: &[u8]) -> Option<String> {
         }
     }
 
-    // PDFDocEncoding overlaps Latin-1 for the printable range we care
-    // about, and Latin-1 is byte-identical to UTF-8 only for ASCII;
-    // `from_utf8_lossy` is the conservative call here. ASCII-only
-    // PDFs (the common case) round-trip cleanly.
-    let s = String::from_utf8_lossy(bytes).into_owned();
+    // PDFDocEncoding fallback (no BOM). Direct byte → char cast is
+    // a Latin-1 decoder: ASCII (0x00–0x7F) round-trips, and
+    // 0xA0–0xFF maps to the matching Unicode code point. `from_utf8_lossy`
+    // would have replaced 0x80–0xFF with U+FFFD, mangling legacy
+    // PDFDocEncoded titles like "Café".
+    let s: String = bytes.iter().map(|&b| b as char).collect();
     if s.is_empty() { None } else { Some(s) }
 }

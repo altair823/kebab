@@ -131,8 +131,13 @@ impl Extractor for PdfTextExtractor {
                 char_start: Some(0),
                 char_end: Some(char_count),
             };
-            // ordinal = page - 1; saturating_sub guards the (shouldn't-happen)
-            // case where lopdf hands back a 0-indexed page key.
+            // lopdf's `get_pages()` is 1-based by contract. A 0-key would
+            // collapse two pages onto the same ordinal (silently breaking
+            // ordinal-based sorting downstream), so we assert the
+            // invariant in dev builds. The release fallback still uses
+            // saturating_sub so a future lopdf regression degrades to
+            // garbled order rather than panic.
+            debug_assert!(page_num >= 1, "lopdf get_pages() returned 0-based page key");
             let ordinal = page_num.saturating_sub(1);
             let block_id = id_for_block(&doc_id, "paragraph", &[], ordinal, &span);
             let common = CommonBlock {
