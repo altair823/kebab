@@ -28,6 +28,10 @@ kebab-rag = { path = "../kebab-rag" }
 # image branch). Trait-only consumption — no `kebab-parse-image`
 # internals leak into kb-app code.
 kebab-parse-image = { path = "../kebab-parse-image" }
+# P7-3: PDF text extractor lives here. App threads it into the
+# per-asset dispatch (see `ingest_one_asset` PDF branch) and runs the
+# resulting `CanonicalDocument` through `kebab-chunk::PdfPageV1Chunker`.
+kebab-parse-pdf = { path = "../kebab-parse-pdf" }
 anyhow               = { workspace = true }
 blake3               = { workspace = true }
 serde                = { workspace = true }
@@ -48,3 +52,8 @@ tempfile             = { workspace = true }
 wiremock             = { workspace = true }
 tokio                = { workspace = true, features = ["rt-multi-thread"] }
 image                = { version = "0.25", default-features = false, features = ["png"] }
+# P7-3 PDF integration tests build in-memory PDF fixtures via the same
+# lopdf builder pattern `kebab-parse-pdf::tests::common` uses; pinned
+# to the same major (0.32) so byte output is identical between the two
+# fixture surfaces.
+lopdf                = "0.32"

@@ -39,7 +39,7 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
-use kebab_chunk::MdHeadingV1Chunker;
+use kebab_chunk::{MdHeadingV1Chunker, PdfPageV1Chunker};
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
@@ -50,6 +50,7 @@ use kebab_core::{
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_normalize::build_canonical_document;
 use kebab_parse_image::{ImageExtractor, OllamaVisionOcr, apply_caption, apply_ocr};
+use kebab_parse_pdf::PdfTextExtractor;
 use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
 
@@ -520,6 +521,16 @@ fn ingest_one_asset(
                 image_pipeline,
             );
         }
+        MediaType::Pdf => {
+            return ingest_one_pdf_asset(
+                app,
+                asset,
+                chunk_policy,
+                embedder,
+                vector_store,
+                existing_doc_ids,
+            );
+        }
         _ => {
             return Ok(kebab_core::IngestItem {
                 kind: kebab_core::IngestItemKind::Skipped,
@@ -936,6 +947,169 @@ fn record_image_analysis_failure(
         note: Some(note.clone()),
     });
     warning_notes.push(note);
+}
+
+/// P7-3: process one `MediaType::Pdf` asset end-to-end.
+///
+/// - Reads bytes from disk.
+/// - Calls [`PdfTextExtractor::extract`]. Failure (corrupt header,
+///   encrypted PDF, etc.) → `IngestItemKind::Error` with the formatted
+///   message (so the `qpdf --decrypt` hint surfaces verbatim for the
+///   encrypted-PDF case). Continue to next asset; do not abort.
+/// - Hands the `CanonicalDocument` to [`PdfPageV1Chunker`] (per-medium
+///   chunker selection — keyed on `MediaType::Pdf` at compile time).
+///   Chunker validation failure (would only fire on P7-1 contract
+///   drift OR a future routing bug) is treated as `Error` too.
+/// - Persists doc + blocks + chunks via the same `DocumentStore`
+///   calls the markdown / image branches use.
+/// - Embeds chunks if both an embedder and a vector store are
+///   configured. Embed failure marks the item as `Error` AFTER
+///   doc/block/chunk rows are already written — re-running ingest
+///   re-attempts the embed (consistent with the markdown path; whole-
+///   asset rollback on embed-fail is a P+ task).
+///
+/// `chunker_version` is hard-coded to `pdf-page-v1` (HOTFIXES entry —
+/// `config.chunking.chunker_version` is single-valued today and serves
+/// the markdown path; per-medium config split is a P+ chunker registry
+/// task).
+#[allow(clippy::too_many_arguments)]
+fn ingest_one_pdf_asset(
+    app: &App,
+    asset: &RawAsset,
+    chunk_policy: &ChunkPolicy,
+    embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
+    vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
+    existing_doc_ids: &std::collections::HashSet<String>,
+) -> anyhow::Result<kebab_core::IngestItem> {
+    let path = match &asset.source_uri {
+        SourceUri::File(p) => p.clone(),
+        SourceUri::Kb(_) => {
+            return Ok(kebab_core::IngestItem {
+                kind: kebab_core::IngestItemKind::Skipped,
+                doc_id: None,
+                doc_path: asset.workspace_path.clone(),
+                asset_id: Some(asset.asset_id.clone()),
+                byte_len: Some(asset.byte_len),
+                block_count: None,
+                chunk_count: None,
+                parser_version: None,
+                chunker_version: None,
+                warnings: vec![
+                    "kb:// source URIs are not supported by the fs ingester".into(),
+                ],
+                error: None,
+            });
+        }
+    };
+    let bytes = std::fs::read(&path)
+        .with_context(|| format!("read PDF asset bytes from {}", path.display()))?;
+
+    let extract_config = kebab_core::ExtractConfig::default();
+    let workspace_root = std::path::PathBuf::from(&app.config.workspace.root);
+    let ctx = ExtractContext {
+        asset,
+        workspace_root: &workspace_root,
+        config: &extract_config,
+    };
+    let canonical = PdfTextExtractor::new()
+        .extract(&ctx, &bytes)
+        .context("kb-parse-pdf::PdfTextExtractor::extract")?;
+
+    // Per-medium chunker selection: PDF docs always use pdf-page-v1
+    // regardless of `config.chunking.chunker_version`. The chunker
+    // validates every block carries `SourceSpan::Page`; failure here
+    // means the parser drifted from its contract.
+    let chunker = PdfPageV1Chunker;
+    let chunks = chunker
+        .chunk(&canonical, chunk_policy)
+        .context("kb-chunk::PdfPageV1Chunker::chunk")?;
+
+    app.sqlite
+        .put_asset_with_bytes(asset, &bytes)
+        .context("DocumentStore::put_asset_with_bytes (pdf)")?;
+    app.sqlite
+        .put_document(&canonical)
+        .context("DocumentStore::put_document (pdf)")?;
+    app.sqlite
+        .put_blocks(&canonical.doc_id, &canonical.blocks)
+        .context("DocumentStore::put_blocks (pdf)")?;
+    app.sqlite
+        .put_chunks(&canonical.doc_id, &chunks)
+        .context("DocumentStore::put_chunks (pdf)")?;
+
+    if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
+        && !chunks.is_empty()
+    {
+        let inputs: Vec<EmbeddingInput<'_>> = chunks
+            .iter()
+            .map(|c| EmbeddingInput {
+                text: c.text.as_str(),
+                kind: EmbeddingKind::Document,
+            })
+            .collect();
+        let vectors = emb
+            .embed(&inputs)
+            .context("Embedder::embed (pdf chunks)")?;
+        let model_id = emb.model_id();
+        let model_version = emb.model_version();
+        let dimensions = emb.dimensions();
+        let records: Vec<VectorRecord> = chunks
+            .iter()
+            .zip(vectors)
+            .map(|(c, v)| VectorRecord {
+                embedding_id: kebab_core::id_for_embedding(
+                    &c.chunk_id,
+                    &model_id,
+                    &model_version,
+                    dimensions,
+                ),
+                chunk_id: c.chunk_id.clone(),
+                vector: v,
+                doc_id: canonical.doc_id.clone(),
+                text: c.text.clone(),
+                heading_path: c.heading_path.clone(),
+                model_id: model_id.clone(),
+                model_version: model_version.clone(),
+                dimensions,
+            })
+            .collect();
+        vec_store
+            .upsert(&records)
+            .context("VectorStore::upsert (pdf)")?;
+    }
+
+    let kind = if existing_doc_ids.contains(&canonical.doc_id.0) {
+        kebab_core::IngestItemKind::Updated
+    } else {
+        kebab_core::IngestItemKind::New
+    };
+
+    // Surface every `Provenance::Warning` note onto `IngestItem.warnings`
+    // so the ingest summary shows partial-success signals (e.g. "page 2
+    // empty (scanned candidate)") without forcing the operator into
+    // `kebab inspect doc <id>`. Mirrors how the markdown path threads
+    // frontmatter / block warnings up to the same field.
+    let warnings: Vec<String> = canonical
+        .provenance
+        .events
+        .iter()
+        .filter(|e| e.kind == kebab_core::ProvenanceKind::Warning)
+        .filter_map(|e| e.note.clone())
+        .collect();
+
+    Ok(kebab_core::IngestItem {
+        kind,
+        doc_id: Some(canonical.doc_id.clone()),
+        doc_path: asset.workspace_path.clone(),
+        asset_id: Some(asset.asset_id.clone()),
+        byte_len: Some(asset.byte_len),
+        block_count: u32::try_from(canonical.blocks.len()).ok(),
+        chunk_count: u32::try_from(chunks.len()).ok(),
+        parser_version: Some(canonical.parser_version.clone()),
+        chunker_version: Some(chunker.chunker_version()),
+        warnings,
+        error: None,
+    })
 }
 
 /// Pull the BCP-47 language hint from the canonical document. P6-1

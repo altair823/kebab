@@ -16,7 +16,9 @@ use rusqlite::params;
 use time::OffsetDateTime;
 
 use crate::error::StoreError;
-use crate::store::{SqliteStore, upsert_asset_row, validate_asset_id};
+use crate::store::{
+    SqliteStore, purge_orphan_at_workspace_path, upsert_asset_row, validate_asset_id,
+};
 
 impl kebab_core::DocumentStore for SqliteStore {
     fn put_asset(&self, asset: &kebab_core::RawAsset) -> Result<()> {
@@ -38,6 +40,11 @@ impl kebab_core::DocumentStore for SqliteStore {
             }
         };
         let conn = self.lock_conn();
+        purge_orphan_at_workspace_path(
+            &conn,
+            &asset.workspace_path.0,
+            &asset.asset_id.0,
+        )?;
         upsert_asset_row(&conn, asset, storage_kind, &storage_path)
     }
 

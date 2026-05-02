@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use anyhow::{Context, Result};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::StoreError;
 use crate::schema;
@@ -208,6 +208,11 @@ impl SqliteStore {
                 // in place.
                 {
                     let conn = self.lock_conn();
+                    purge_orphan_at_workspace_path(
+                        &conn,
+                        &asset.workspace_path.0,
+                        &asset.asset_id.0,
+                    )?;
                     upsert_asset_row(
                         &conn,
                         asset,
@@ -243,6 +248,11 @@ impl SqliteStore {
                 kebab_core::SourceUri::Kb(u) => u.clone(),
             };
             let conn = self.lock_conn();
+            purge_orphan_at_workspace_path(
+                &conn,
+                &asset.workspace_path.0,
+                &asset.asset_id.0,
+            )?;
             upsert_asset_row(&conn, asset, "reference", &storage_path)?;
             Ok(())
         }
@@ -296,6 +306,81 @@ fn temp_path_for(dest: &Path) -> PathBuf {
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "asset".to_string());
     parent.join(format!("{file_name}.tmp.{pid}.{n}"))
+}
+
+/// Sweep stale `assets` + `documents` + downstream rows when the file
+/// at `workspace_path` is being re-ingested with bytes that produce a
+/// **different** `asset_id` (i.e. the file was edited).
+///
+/// Why this exists (HOTFIXES 2026-05-02 P7-3): `idx_assets_workspace_path`
+/// is a UNIQUE index. The original `upsert_asset_row` only handles
+/// `ON CONFLICT(asset_id)`, so a brand-new `asset_id` colliding on
+/// `workspace_path` raises `Error code 2067` and the ingest fails. This
+/// helper does the cleanup `ON CONFLICT(workspace_path)` would have done
+/// if SQLite let UPSERT target two indexes at once.
+///
+/// Order matters:
+/// 1. `documents.asset_id` is `ON DELETE RESTRICT`, so we must drop the
+///    old `documents` rows first. CASCADE on documents → blocks /
+///    chunks / embedding_records sweeps the dependent rows in the same
+///    statement.
+/// 2. Then DELETE the stale `assets` row, freeing the
+///    `workspace_path` slot for the new one.
+/// 3. If the stale asset was stored in `copied` mode, best-effort
+///    delete the on-disk byte file at `storage_path` so the data dir
+///    doesn't accumulate orphans across edits.
+///
+/// **Caveat — vector store orphans.** `embedding_records.chunk_id`
+/// CASCADE clears the SQLite side, but the LanceDB rows keyed on
+/// `chunk_id` live in a separate store and are not touched here.
+/// Stale vectors do not affect retrieval (search joins through
+/// SQLite, so an orphan vector is never surfaced) but they consume
+/// disk in `data_dir/lancedb/`. A future task should reconcile by
+/// `chunk_id` set diff. Tracked alongside this entry in HOTFIXES.
+pub(crate) fn purge_orphan_at_workspace_path(
+    conn: &Connection,
+    workspace_path: &str,
+    new_asset_id: &str,
+) -> Result<()> {
+    let stale: Option<(String, String, String)> = conn
+        .query_row(
+            "SELECT asset_id, storage_kind, storage_path
+             FROM assets
+             WHERE workspace_path = ? AND asset_id != ?",
+            params![workspace_path, new_asset_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(StoreError::from)?;
+
+    let Some((stale_asset_id, storage_kind, storage_path)) = stale else {
+        return Ok(());
+    };
+
+    // documents → blocks / chunks / embedding_records via CASCADE.
+    conn.execute(
+        "DELETE FROM documents WHERE asset_id = ?",
+        params![stale_asset_id],
+    )
+    .map_err(StoreError::from)?;
+    conn.execute(
+        "DELETE FROM assets WHERE asset_id = ?",
+        params![stale_asset_id],
+    )
+    .map_err(StoreError::from)?;
+
+    if storage_kind == "copied" {
+        let _ = std::fs::remove_file(&storage_path);
+    }
+
+    tracing::debug!(
+        target: "kebab-store-sqlite",
+        workspace_path = %workspace_path,
+        stale_asset_id = %stale_asset_id,
+        new_asset_id = %new_asset_id,
+        "purged stale asset (file edited; bytes changed)"
+    );
+    Ok(())
 }
 
 /// UPSERT a row into `assets`. Used by both the `put_asset_with_bytes`
