@@ -56,10 +56,12 @@ use kebab_source_fs::FsSourceConnector;
 
 mod app;
 pub mod doctor_signal;
+pub mod ingest_progress;
 pub mod logging;
 pub mod reset;
 
 pub use app::App;
+pub use ingest_progress::{AggregateCounts, IngestEvent};
 pub use reset::{ResetReport, ResetScope};
 
 /// Parser-version label persisted in `documents.parser_version` for
@@ -162,22 +164,57 @@ pub fn ingest(scope: SourceScope, summary_only: bool) -> anyhow::Result<IngestRe
 /// caller (kb-cli with `--config`, integration tests, TUI session)
 /// already has a [`kebab_config::Config`] in hand. The public free
 /// function [`ingest`] wraps this with the XDG-default load.
+///
+/// This is the no-progress entry point retained for callers that
+/// don't care about streaming progress (older tests, future code that
+/// runs ingest as a one-shot). It forwards into
+/// [`ingest_with_config_progress`] with `progress = None`.
 #[doc(hidden)]
 pub fn ingest_with_config(
     config: kebab_config::Config,
     scope: SourceScope,
     summary_only: bool,
 ) -> anyhow::Result<IngestReport> {
+    ingest_with_config_progress(config, scope, summary_only, None)
+}
+
+/// Config + progress variant — same as [`ingest_with_config`] but the
+/// caller may inject an `mpsc::Sender<IngestEvent>` to receive
+/// streaming progress. CLI (`p9-fb-02`) feeds this into the
+/// `ingest_progress.v1` line-delimited dump; TUI (`p9-fb-03`) feeds it
+/// into the status-bar reducer; either may pass `None` to suppress
+/// emission entirely. Send is best-effort — see [`ingest_progress`]
+/// for the contract.
+#[doc(hidden)]
+pub fn ingest_with_config_progress(
+    config: kebab_config::Config,
+    scope: SourceScope,
+    summary_only: bool,
+    progress: Option<std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
+) -> anyhow::Result<IngestReport> {
+    let progress = progress.as_ref();
     let started_instant = std::time::Instant::now();
 
     let app = App::open_with_config(config)?;
 
     // Walk the workspace.
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::ScanStarted {
+            root: scope.root.to_string_lossy().into_owned(),
+        },
+    );
     let connector = FsSourceConnector::new(&app.config)
         .context("kb-app::ingest: build FsSourceConnector")?;
     let assets = connector
         .scan(&scope)
         .context("kb-app::ingest: scan workspace")?;
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::ScanCompleted {
+            total: u32::try_from(assets.len()).unwrap_or(u32::MAX),
+        },
+    );
 
     // Embedder + vector store: build once at the top so the cold-start
     // cost is paid once even when the workspace has 1000 markdown files.
@@ -256,7 +293,17 @@ pub fn ingest_with_config(
 
     let embed_active = embedder.is_some() && vector_store.is_some();
 
-    for asset in assets {
+    for (zero_idx, asset) in assets.into_iter().enumerate() {
+        let idx = u32::try_from(zero_idx + 1).unwrap_or(u32::MAX);
+        crate::ingest_progress::emit(
+            progress,
+            crate::ingest_progress::IngestEvent::AssetStarted {
+                idx,
+                total: scanned_count,
+                path: asset.workspace_path.0.clone(),
+                media: crate::ingest_progress::media_label(&asset.media_type).to_string(),
+            },
+        );
         let item = ingest_one_asset(
             &app,
             &asset,
@@ -323,6 +370,15 @@ pub fn ingest_with_config(
                 error_count = error_count.saturating_add(1)
             }
         }
+        crate::ingest_progress::emit(
+            progress,
+            crate::ingest_progress::IngestEvent::AssetFinished {
+                idx,
+                total: scanned_count,
+                result: item.kind,
+                chunks: item.chunk_count.unwrap_or(0),
+            },
+        );
         items.push(item);
     }
 
@@ -443,6 +499,21 @@ pub fn ingest_with_config(
         embeddings_indexed,
         duration_ms,
         "kb-app::ingest: run complete"
+    );
+
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::Completed {
+            counts: crate::ingest_progress::AggregateCounts {
+                scanned: scanned_count,
+                new: new_count,
+                updated: updated_count,
+                skipped: skipped_count,
+                errors: error_count,
+                chunks_indexed,
+                embeddings_indexed,
+            },
+        },
     );
 
     Ok(IngestReport {
