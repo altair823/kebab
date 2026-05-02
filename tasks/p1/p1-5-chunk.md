@@ -1,12 +1,12 @@
 ---
 phase: P1
-component: kb-chunk
+component: kebab-chunk
 task_id: p1-5
 title: "Markdown heading-aware chunker (md-heading-v1)"
 status: completed
 depends_on: [p1-4]
 unblocks: [p1-6, p2-2, p3-2]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.5 Chunk, §4.2 chunk_id recipe, §7.2 Chunker, §0 Q3 citation]
 ---
 
@@ -22,8 +22,8 @@ The first concrete `Chunker`. Establishes how subsequent chunkers (PDF page chun
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
+- `kebab-core`
+- `kebab-config`
 - `serde`
 - `blake3` (policy_hash)
 - `serde-json-canonicalizer`
@@ -31,30 +31,30 @@ The first concrete `Chunker`. Establishes how subsequent chunkers (PDF page chun
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-normalize` (consumes `CanonicalDocument` only via `kb-core`), `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize` (consumes `CanonicalDocument` only via `kebab-core`), `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `CanonicalDocument` | `kb_core::CanonicalDocument` | p1-4 |
-| `ChunkPolicy` | `kb_core::ChunkPolicy` | `kb-app` from config |
+| `CanonicalDocument` | `kebab_core::CanonicalDocument` | p1-4 |
+| `ChunkPolicy` | `kebab_core::ChunkPolicy` | `kebab-app` from config |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `Vec<Chunk>` | `kb_core::Chunk` | `kb-store-sqlite` (p1-6), `kb-embed*` (P3) |
+| `Vec<Chunk>` | `kebab_core::Chunk` | `kebab-store-sqlite` (p1-6), `kebab-embed*` (P3) |
 
 ## Public surface (signatures only — no new types)
 
 ```rust
 pub struct MdHeadingV1Chunker;
 
-impl kb_core::Chunker for MdHeadingV1Chunker {
-    fn chunker_version(&self) -> kb_core::ChunkerVersion;
-    fn policy_hash(&self, policy: &kb_core::ChunkPolicy) -> String;
-    fn chunk(&self, doc: &kb_core::CanonicalDocument, policy: &kb_core::ChunkPolicy) -> anyhow::Result<Vec<kb_core::Chunk>>;
+impl kebab_core::Chunker for MdHeadingV1Chunker {
+    fn chunker_version(&self) -> kebab_core::ChunkerVersion;
+    fn policy_hash(&self, policy: &kebab_core::ChunkPolicy) -> String;
+    fn chunk(&self, doc: &kebab_core::CanonicalDocument, policy: &kebab_core::ChunkPolicy) -> anyhow::Result<Vec<kebab_core::Chunk>>;
 }
 ```
 
@@ -91,12 +91,12 @@ impl kb_core::Chunker for MdHeadingV1Chunker {
 | determinism | identical input + identical policy → identical chunk_ids | inline |
 | snapshot | `fixtures/markdown/long-section.md` → Vec<Chunk> JSON stable | fixture |
 
-All tests under `cargo test -p kb-chunk`.
+All tests under `cargo test -p kebab-chunk`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-chunk` passes
-- [ ] `cargo test -p kb-chunk` passes
+- [ ] `cargo check -p kebab-chunk` passes
+- [ ] `cargo test -p kebab-chunk` passes
 - [ ] Snapshot stable across two runs
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §3.5, §4.2

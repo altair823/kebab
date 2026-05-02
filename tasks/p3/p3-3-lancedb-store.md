@@ -1,12 +1,12 @@
 ---
 phase: P3
-component: kb-store-vector (LanceDB)
+component: kebab-store-vector (LanceDB)
 task_id: p3-3
 title: "LanceDB VectorStore + embedding_records writer"
 status: completed
 depends_on: [p3-2, p1-6]
 unblocks: [p3-4]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§5.6 embedding_records, §6.3 lancedb table naming, §7.2 VectorStore, §9 versioning]
 ---
 
@@ -18,13 +18,13 @@ Implement `VectorStore` over LanceDB (embedded). Stores per-model tables (`chunk
 
 ## Why now / why this size
 
-Closes the loop chunk → vector. Splits cleanly from `kb-search` so hybrid (p3-4) can compose lexical + vector retrievers without leaking storage details.
+Closes the loop chunk → vector. Splits cleanly from `kebab-search` so hybrid (p3-4) can compose lexical + vector retrievers without leaking storage details.
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-store-sqlite` (only for writing/reading rows in `embedding_records`)
+- `kebab-core`
+- `kebab-config`
+- `kebab-store-sqlite` (only for writing/reading rows in `embedding_records`)
 - `lancedb`
 - `arrow` (and `arrow-array`, `arrow-schema`)
 - `serde`, `serde_json`
@@ -33,16 +33,16 @@ Closes the loop chunk → vector. Splits cleanly from `kb-search` so hybrid (p3-
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-embed*` (consumes `Vec<f32>` via input only — no embedding logic here), `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize`, `kebab-chunk`, `kebab-embed*` (consumes `Vec<f32>` via input only — no embedding logic here), `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `VectorRecord[..]` | `kb_core::VectorRecord` | `kb-app::embed_index` (P3 facade) |
-| query vector | `&[f32]` | `kb-embed-local` (`Embedder::embed` for query) |
-| filters | `kb_core::SearchFilters` | `SearchQuery` |
-| `kb-config::Config.storage.vector_dir` | path | runtime |
+| `VectorRecord[..]` | `kebab_core::VectorRecord` | `kebab-app::embed_index` (P3 facade) |
+| query vector | `&[f32]` | `kebab-embed-local` (`Embedder::embed` for query) |
+| filters | `kebab_core::SearchFilters` | `SearchQuery` |
+| `kebab-config::Config.storage.vector_dir` | path | runtime |
 
 ## Outputs
 
@@ -50,7 +50,7 @@ Closes the loop chunk → vector. Splits cleanly from `kb-search` so hybrid (p3-
 |--------|------|------------|
 | Lance tables under `vector_dir/chunk_embeddings_<model>_<dim>.lance/` | filesystem | future searches |
 | `embedding_records` rows | SQLite | reverse lookup, reindex bookkeeping |
-| `Vec<VectorHit>` | `kb_core::VectorHit` | hybrid retriever (p3-4) |
+| `Vec<VectorHit>` | `kebab_core::VectorHit` | hybrid retriever (p3-4) |
 
 ## Public surface (signatures only — no new types)
 
@@ -58,13 +58,13 @@ Closes the loop chunk → vector. Splits cleanly from `kb-search` so hybrid (p3-
 pub struct LanceVectorStore { /* internal: connection + sqlite handle */ }
 
 impl LanceVectorStore {
-    pub fn new(config: &kb_config::Config, sqlite: std::sync::Arc<kb_store_sqlite::SqliteStore>) -> anyhow::Result<Self>;
+    pub fn new(config: &kebab_config::Config, sqlite: std::sync::Arc<kebab_store_sqlite::SqliteStore>) -> anyhow::Result<Self>;
 }
 
-impl kb_core::VectorStore for LanceVectorStore {
-    fn ensure_table(&self, model: &kb_core::EmbeddingModelId, dim: usize) -> anyhow::Result<kb_core::IndexId>;
-    fn upsert(&self, recs: &[kb_core::VectorRecord]) -> anyhow::Result<()>;
-    fn search(&self, query_vec: &[f32], k: usize, filters: &kb_core::SearchFilters) -> anyhow::Result<Vec<kb_core::VectorHit>>;
+impl kebab_core::VectorStore for LanceVectorStore {
+    fn ensure_table(&self, model: &kebab_core::EmbeddingModelId, dim: usize) -> anyhow::Result<kebab_core::IndexId>;
+    fn upsert(&self, recs: &[kebab_core::VectorRecord]) -> anyhow::Result<()>;
+    fn search(&self, query_vec: &[f32], k: usize, filters: &kebab_core::SearchFilters) -> anyhow::Result<Vec<kebab_core::VectorHit>>;
 }
 ```
 
@@ -116,12 +116,12 @@ impl kb_core::VectorStore for LanceVectorStore {
 | determinism | same query vector + same data → same top-k order | tmp data_dir |
 | snapshot | `Vec<VectorHit>` JSON for fixed corpus stable | `fixtures/vector/run-1.json` |
 
-All tests under `cargo test -p kb-store-vector`.
+All tests under `cargo test -p kebab-store-vector`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-store-vector` passes
-- [ ] `cargo test -p kb-store-vector` passes
+- [ ] `cargo check -p kebab-store-vector` passes
+- [ ] `cargo test -p kebab-store-vector` passes
 - [ ] No imports outside Allowed dependencies
 - [ ] `embedding_records` rows align 1:1 with Lance rows after a successful upsert batch
 - [ ] PR links design §5.6, §6.3, §7.2
@@ -130,7 +130,7 @@ All tests under `cargo test -p kb-store-vector`.
 
 - IVF / PQ index tuning (P+).
 - Image / multimodal vector tables (P6).
-- `kb-app` orchestration of indexing jobs (`embed_index` facade method body).
+- `kebab-app` orchestration of indexing jobs (`embed_index` facade method body).
 
 ## Risks / notes
 

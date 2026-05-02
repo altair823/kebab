@@ -3,22 +3,22 @@ phase: P4
 title: "Local LLM + RAG + grounded answer"
 status: completed
 depends_on: [P3]
-source: kb_local_rust_report.md §11, §15.2, §17 Phase 4
+source: kebab_local_rust_report.md §11, §15.2, §17 Phase 4
 ---
 
 # P4 — Local LLM + RAG + grounded answer
 
 ## 목표
 
-local LLM 으로 citation 포함 답변 생성. 근거 부족 시 거절. `kb ask "..."` 동작.
+local LLM 으로 citation 포함 답변 생성. 근거 부족 시 거절. `kebab ask "..."` 동작.
 
 ## 산출 crate
 
 | crate | 역할 |
 |-------|------|
-| `kb-llm` | `LanguageModel` trait + request/response 타입 |
-| `kb-llm-local` | Ollama adapter 1차. later: llama.cpp, candle |
-| `kb-rag` | retrieval → context packing → prompt → generate → citation 검증 |
+| `kebab-llm` | `LanguageModel` trait + request/response 타입 |
+| `kebab-llm-local` | Ollama adapter 1차. later: llama.cpp, candle |
+| `kebab-rag` | retrieval → context packing → prompt → generate → citation 검증 |
 
 ## LanguageModel
 
@@ -50,9 +50,9 @@ pub struct GenerateResponse {
 - HTTP localhost 호출 (`http://127.0.0.1:11434/api/generate`).
 - 내부에서 async runtime 사용 가능. 외부 API 는 동기 wrapper 유지.
 - model 기본값 config (`qwen2.5:14b-instruct` 등). 실제 선택은 P5 eval 후 결정.
-- 서버 미기동 시 명확한 에러 메시지 + `kb doctor` 진단.
+- 서버 미기동 시 명확한 에러 메시지 + `kebab doctor` 진단.
 
-## kb-rag 파이프라인
+## kebab-rag 파이프라인
 
 ```text
 query
@@ -118,7 +118,7 @@ pub struct Answer {
 
 `answers` table 에 저장 (재현/감사용). 사용한 chunk_id 목록 + retrieval params 도 함께.
 
-## kb-app facade 확장
+## kebab-app facade 확장
 
 ```rust
 pub fn ask(query: &str, opts: AskOpts) -> anyhow::Result<Answer>;
@@ -127,9 +127,9 @@ pub fn ask(query: &str, opts: AskOpts) -> anyhow::Result<Answer>;
 ## CLI
 
 ```text
-kb ask "내 KB 설계에서 저장소 전략은?"
-kb ask --k 8 --temperature 0 "..."
-kb ask --explain "..."   # retrieval trace + packed prompt 출력
+kebab ask "내 KB 설계에서 저장소 전략은?"
+kebab ask --k 8 --temperature 0 "..."
+kebab ask --explain "..."   # retrieval trace + packed prompt 출력
 ```
 
 ## 테스트
@@ -142,13 +142,13 @@ kb ask --explain "..."   # retrieval trace + packed prompt 출력
 
 ## 의존성 경계
 
-- `kb-llm-local` 만 Ollama HTTP 의존.
-- `kb-rag` 는 `kb-search` (Retriever trait) + `kb-llm` (LanguageModel trait) 만 사용. SQLite/LanceDB 직접 호출 금지.
-- CLI 는 `kb-app::ask` 만 호출.
+- `kebab-llm-local` 만 Ollama HTTP 의존.
+- `kebab-rag` 는 `kebab-search` (Retriever trait) + `kebab-llm` (LanguageModel trait) 만 사용. SQLite/LanceDB 직접 호출 금지.
+- CLI 는 `kebab-app::ask` 만 호출.
 
 ## 완료 조건
 
-- [ ] `kb ask "..."` 동작
+- [ ] `kebab ask "..."` 동작
 - [ ] 답변에 citation 포함
 - [ ] 근거 없는 질문 거절
 - [ ] `--explain` 으로 retrieval trace 확인
@@ -158,6 +158,6 @@ kb ask --explain "..."   # retrieval trace + packed prompt 출력
 ## 리스크 / 주의
 
 - 모델 선택은 P5 golden set 으로 평가 후 확정. P4 에선 default 만.
-- Ollama 미기동 / 모델 미다운로드 → `kb doctor` 가 명확히 안내.
+- Ollama 미기동 / 모델 미다운로드 → `kebab doctor` 가 명확히 안내.
 - LLM 답변에 hallucinated citation 자주 나옴. 후처리 검증이 핵심.
 - prompt template 변경은 `prompt_template_version` 반드시 bump.

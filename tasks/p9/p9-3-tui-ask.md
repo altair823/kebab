@@ -1,12 +1,12 @@
 ---
 phase: P9
-component: kb-tui (ask pane)
+component: kebab-tui (ask pane)
 task_id: p9-3
 title: "TUI Ask pane: streaming answer + citation links + --explain toggle"
 status: planned
 depends_on: [p4-3, p9-1]
 unblocks: []
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§1.1–1.4 ask scenes, §2.3 Answer wire, §3.8 Answer]
 ---
 
@@ -14,7 +14,7 @@ contract_sections: [§1.1–1.4 ask scenes, §2.3 Answer wire, §3.8 Answer]
 
 ## Goal
 
-Add an Ask pane that calls `kb-app::ask`, streams tokens into the answer area in real time, renders citation footnotes (default mode A), and toggles to `--explain` (mode B + retrieval trace) with a key.
+Add an Ask pane that calls `kebab-app::ask`, streams tokens into the answer area in real time, renders citation footnotes (default mode A), and toggles to `--explain` (mode B + retrieval trace) with a key.
 
 ## Why now / why this size
 
@@ -22,23 +22,23 @@ Streaming UI is the only TUI piece that meaningfully differs from search/inspect
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-app`
-- `kb-tui` (extends p9-1)
+- `kebab-core`
+- `kebab-config`
+- `kebab-app`
+- `kebab-tui` (extends p9-1)
 - `ratatui`, `crossterm`
 - `tracing`
 - `thiserror`
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-*`, `kb-normalize`, `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag` (only via `kb-app`), `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-*`, `kebab-normalize`, `kebab-chunk`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag` (only via `kebab-app`), `kebab-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `kb-app::ask(query, AskOpts)` | facade | runtime |
+| `kebab-app::ask(query, AskOpts)` | facade | runtime |
 | keyboard events | `crossterm` | terminal |
 
 ## Outputs
@@ -46,7 +46,7 @@ Streaming UI is the only TUI piece that meaningfully differs from search/inspect
 | output | type | downstream |
 |--------|------|------------|
 | Ratatui Ask pane render | terminal | user |
-| `kb-app::ask` invocation with streaming closure | facade | RAG pipeline |
+| `kebab-app::ask` invocation with streaming closure | facade | RAG pipeline |
 
 ## Public surface (signatures only — no new types)
 
@@ -55,7 +55,7 @@ pub fn render_ask<B: ratatui::backend::Backend>(f: &mut ratatui::Frame, area: ra
 pub fn handle_key_ask(state: &mut App, key: crossterm::event::KeyEvent) -> KeyOutcome;
 ```
 
-This task fills the body of `kb_tui::AskState` (forward-declared in p9-1). `App` is NOT edited — only `AskState` gets fields:
+This task fills the body of `kebab_tui::AskState` (forward-declared in p9-1). `App` is NOT edited — only `AskState` gets fields:
 
 ```rust
 pub struct AskState {
@@ -63,8 +63,8 @@ pub struct AskState {
     pub explain: bool,
     pub streaming: bool,
     pub partial: String,
-    pub answer: Option<kb_core::Answer>,
-    pub thread: Option<std::thread::JoinHandle<anyhow::Result<kb_core::Answer>>>,
+    pub answer: Option<kebab_core::Answer>,
+    pub thread: Option<std::thread::JoinHandle<anyhow::Result<kebab_core::Answer>>>,
     pub rx: Option<std::sync::mpsc::Receiver<String>>,
 }
 ```
@@ -74,7 +74,7 @@ pub struct AskState {
 ## Behavior contract
 
 - Layout: top input bar (`?` prompt, query text), middle answer area (rendered Markdown-light: paragraphs + inline `[N]` markers), bottom-right citations panel (numbered list of citations with `path#fragment` and section label), bottom-left status (`grounded ✓/✗  model  prompt_v  k chunks`).
-- Submission: `Enter` triggers a worker thread that calls `kb-app::ask` with `AskOpts.stream_sink: Some(tx)` (`tx: mpsc::Sender<String>`). The thread holds the `tx`, the TUI holds the matching `rx` (set on `AskState.rx`). On each render frame the TUI drains `rx.try_iter()` into `state.partial`, no blocking.
+- Submission: `Enter` triggers a worker thread that calls `kebab-app::ask` with `AskOpts.stream_sink: Some(tx)` (`tx: mpsc::Sender<String>`). The thread holds the `tx`, the TUI holds the matching `rx` (set on `AskState.rx`). On each render frame the TUI drains `rx.try_iter()` into `state.partial`, no blocking.
 - Streaming: while `ask_streaming = true`, the Answer area shows `ask_partial` and a small "▍" cursor. When the worker finishes, `ask_answer` is populated and the citations panel switches to the final list.
 - Refusal rendering:
   - `grounded = false` and `refusal_reason = ScoreGate` → render the answer (which is the human-friendly "근거 부족…" message), citations show "가까운 후보".
@@ -85,12 +85,12 @@ pub struct AskState {
   - `e` → toggle `ask_explain`; resubmit on next `Enter`. While explain ON, citations panel is replaced by the per-claim breakdown (mode B in design §1.2) and a footer shows the retrieval trace summary.
   - `Esc` → switch back to Library pane (cancellation of an in-flight ask is best-effort: the worker thread continues but its final answer is dropped).
   - `j` / `k` → scroll the answer area when oversized.
-- All facade calls stay within `kb-app::ask` — never reach into `kb-rag` directly.
+- All facade calls stay within `kebab-app::ask` — never reach into `kebab-rag` directly.
 - Errors render as a popup overlay; do not crash the pane.
 
 ## Storage / wire effects
 
-- Reads/writes via `kb-app::ask` which itself writes the `answers` row in `kb.sqlite`. The pane has no direct DB access.
+- Reads/writes via `kebab-app::ask` which itself writes the `answers` row in `kebab.sqlite`. The pane has no direct DB access.
 
 ## Test plan
 
@@ -102,14 +102,14 @@ pub struct AskState {
 | unit | refusal answer renders without citations panel index errors | inline |
 | snapshot | rendered Ask pane mid-stream is stable | TestBackend |
 | snapshot | rendered Ask pane after finished grounded answer is stable | TestBackend |
-| integration | mocked `kb-app::ask` returning a canned `Answer` populates final state correctly | inline |
+| integration | mocked `kebab-app::ask` returning a canned `Answer` populates final state correctly | inline |
 
-All tests under `cargo test -p kb-tui ask`.
+All tests under `cargo test -p kebab-tui ask`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-tui` passes
-- [ ] `cargo test -p kb-tui ask` passes
+- [ ] `cargo check -p kebab-tui` passes
+- [ ] `cargo test -p kebab-tui ask` passes
 - [ ] No imports outside Allowed dependencies
 - [ ] Manual smoke: stream tokens visible character-by-character against a real Ollama (or `MockLanguageModel`)
 - [ ] PR links design §1.1–1.4, §2.3

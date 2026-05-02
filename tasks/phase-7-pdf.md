@@ -3,7 +3,7 @@ phase: P7
 title: "PDF text extraction + page citation"
 status: planned
 depends_on: [P5]
-source: kb_local_rust_report.md §9.2, §17 Phase 7
+source: kebab_local_rust_report.md §9.2, §17 Phase 7
 ---
 
 # P7 — PDF ingestion
@@ -14,7 +14,7 @@ text PDF 추출 → page-aware chunking → citation `paper.pdf:p13`. scanned PD
 
 ## 산출 crate
 
-- `kb-parse-pdf` — `Extractor` 구현.
+- `kebab-parse-pdf` — `Extractor` 구현.
 
 ## 단계 분리 (§9.2)
 
@@ -63,10 +63,10 @@ paper.pdf:p13:span=0-1240         # char range within page
 ## CLI
 
 ```text
-kb ingest ./paper.pdf
-kb ingest ./papers/
-kb search "PDF 안의 특정 개념"
-kb inspect doc <pdf_doc_id>
+kebab ingest ./paper.pdf
+kebab ingest ./papers/
+kebab search "PDF 안의 특정 개념"
+kebab inspect doc <pdf_doc_id>
 ```
 
 ## 테스트
@@ -79,12 +79,12 @@ kb inspect doc <pdf_doc_id>
 
 ## 의존성 경계
 
-- `kb-parse-pdf` 는 `kb-core` + `pdf-extract` / `lopdf` 만.
+- `kebab-parse-pdf` 는 `kebab-core` + `pdf-extract` / `lopdf` 만.
 - OCR 호출은 별도 adapter 통해 (P6 OCR 인프라 재사용).
 
 ## 완료 조건
 
-- [ ] `kb ingest <pdf>` 동작
+- [ ] `kebab ingest <pdf>` 동작
 - [ ] page-level chunk + citation
 - [ ] 검색 결과에 `paper.pdf:p<n>` 포함
 - [ ] 추출 실패 페이지에 대한 provenance warning

@@ -5,4 +5,4 @@
 `policy_hash` so chunk IDs include the policy.
 
 Canonical source:
-[docs/superpowers/specs/2026-04-27-kb-final-form-design.md](../superpowers/specs/2026-04-27-kb-final-form-design.md), §3.5 + §7.1 + §7.2.
+[docs/superpowers/specs/2026-04-27-kebab-final-form-design.md](../superpowers/specs/2026-04-27-kebab-final-form-design.md), §3.5 + §7.1 + §7.2.

@@ -3366,27 +3366,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "kb-app"
+name = "kebab-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
  "dirs 5.0.1",
- "kb-chunk",
- "kb-config",
- "kb-core",
- "kb-embed",
- "kb-embed-local",
- "kb-llm",
- "kb-llm-local",
- "kb-normalize",
- "kb-parse-md",
- "kb-parse-types",
- "kb-rag",
- "kb-search",
- "kb-source-fs",
- "kb-store-sqlite",
- "kb-store-vector",
+ "kebab-chunk",
+ "kebab-config",
+ "kebab-core",
+ "kebab-embed",
+ "kebab-embed-local",
+ "kebab-llm",
+ "kebab-llm-local",
+ "kebab-normalize",
+ "kebab-parse-md",
+ "kebab-parse-types",
+ "kebab-rag",
+ "kebab-search",
+ "kebab-source-fs",
+ "kebab-store-sqlite",
+ "kebab-store-vector",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3399,14 +3399,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "kb-chunk"
+name = "kebab-chunk"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
- "kb-core",
- "kb-normalize",
- "kb-parse-md",
+ "kebab-core",
+ "kebab-normalize",
+ "kebab-parse-md",
  "serde_json",
  "serde_json_canonicalizer",
  "time",
@@ -3414,32 +3414,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "kb-cli"
+name = "kebab-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "kb-app",
- "kb-config",
- "kb-core",
- "kb-eval",
+ "kebab-app",
+ "kebab-config",
+ "kebab-core",
+ "kebab-eval",
  "serde_json",
 ]
 
 [[package]]
-name = "kb-config"
+name = "kebab-config"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
- "kb-core",
+ "kebab-core",
  "serde",
  "serde_json",
  "toml",
 ]
 
 [[package]]
-name = "kb-core"
+name = "kebab-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -3453,13 +3453,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "kb-embed"
+name = "kebab-embed"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
- "kb-config",
- "kb-core",
+ "kebab-config",
+ "kebab-core",
  "proptest",
  "serde",
  "thiserror 2.0.18",
@@ -3467,27 +3467,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "kb-embed-local"
+name = "kebab-embed-local"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "fastembed",
- "kb-config",
- "kb-embed",
+ "kebab-config",
+ "kebab-embed",
  "serde_json",
  "tempfile",
  "tracing",
 ]
 
 [[package]]
-name = "kb-eval"
+name = "kebab-eval"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "kb-app",
- "kb-config",
- "kb-core",
- "kb-store-sqlite",
+ "kebab-app",
+ "kebab-config",
+ "kebab-core",
+ "kebab-store-sqlite",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3499,22 +3499,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "kb-llm"
+name = "kebab-llm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "kb-core",
+ "kebab-core",
  "proptest",
 ]
 
 [[package]]
-name = "kb-llm-local"
+name = "kebab-llm-local"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "kb-config",
- "kb-core",
- "kb-llm",
+ "kebab-config",
+ "kebab-core",
+ "kebab-llm",
  "reqwest",
  "serde",
  "serde_json",
@@ -3525,13 +3525,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "kb-normalize"
+name = "kebab-normalize"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "kb-core",
- "kb-parse-md",
- "kb-parse-types",
+ "kebab-core",
+ "kebab-parse-md",
+ "kebab-parse-types",
  "serde",
  "serde_json",
  "time",
@@ -3540,12 +3540,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "kb-parse-md"
+name = "kebab-parse-md"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "kb-core",
- "kb-parse-types",
+ "kebab-core",
+ "kebab-parse-types",
  "lingua",
  "pulldown-cmark",
  "serde",
@@ -3557,24 +3557,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "kb-parse-types"
+name = "kebab-parse-types"
 version = "0.1.0"
 dependencies = [
- "kb-core",
+ "kebab-core",
  "serde",
 ]
 
 [[package]]
-name = "kb-rag"
+name = "kebab-rag"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
- "kb-config",
- "kb-core",
- "kb-llm",
- "kb-search",
- "kb-store-sqlite",
+ "kebab-config",
+ "kebab-core",
+ "kebab-llm",
+ "kebab-search",
+ "kebab-store-sqlite",
  "regex",
  "rusqlite",
  "serde",
@@ -3586,16 +3586,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "kb-search"
+name = "kebab-search"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "globset",
- "kb-config",
- "kb-core",
- "kb-embed",
- "kb-store-sqlite",
- "kb-store-vector",
+ "kebab-config",
+ "kebab-core",
+ "kebab-embed",
+ "kebab-store-sqlite",
+ "kebab-store-vector",
  "rusqlite",
  "serde_json",
  "tempfile",
@@ -3604,14 +3604,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "kb-source-fs"
+name = "kebab-source-fs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
  "ignore",
- "kb-config",
- "kb-core",
+ "kebab-config",
+ "kebab-core",
  "serde",
  "serde_json",
  "tempfile",
@@ -3621,17 +3621,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "kb-store-sqlite"
+name = "kebab-store-sqlite"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
  "globset",
- "kb-chunk",
- "kb-config",
- "kb-core",
- "kb-normalize",
- "kb-parse-md",
+ "kebab-chunk",
+ "kebab-config",
+ "kebab-core",
+ "kebab-normalize",
+ "kebab-parse-md",
  "refinery",
  "rusqlite",
  "serde_json",
@@ -3642,7 +3642,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kb-store-vector"
+name = "kebab-store-vector"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -3651,9 +3651,9 @@ dependencies = [
  "arrow-schema",
  "blake3",
  "futures",
- "kb-config",
- "kb-core",
- "kb-store-sqlite",
+ "kebab-config",
+ "kebab-core",
+ "kebab-store-sqlite",
  "lancedb",
  "rusqlite",
  "serde",

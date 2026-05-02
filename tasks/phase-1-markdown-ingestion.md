@@ -3,47 +3,47 @@ phase: P1
 title: "Markdown ingestion 파이프라인"
 status: completed
 depends_on: [P0]
-source: kb_local_rust_report.md §8, §14, §17 Phase 1
+source: kebab_local_rust_report.md §8, §14, §17 Phase 1
 ---
 
 # P1 — Markdown ingestion 파이프라인
 
 ## 목표
 
-`Markdown 파일 -> RawAsset -> CanonicalDocument -> Chunk -> SQLite` 흐름 완성. LLM/embedding 없이도 `kb ingest` / `kb list docs` / `kb inspect doc <id>` 동작.
+`Markdown 파일 -> RawAsset -> CanonicalDocument -> Chunk -> SQLite` 흐름 완성. LLM/embedding 없이도 `kebab ingest` / `kebab list docs` / `kebab inspect doc <id>` 동작.
 
 ## 산출 crate
 
 | crate | 역할 |
 |-------|------|
-| `kb-source-fs` | local folder scan, checksum, 변경 감지. `SourceConnector` 구현 |
-| `kb-parse-md` | Markdown bytes → structured document. `Extractor` 구현 |
-| `kb-normalize` | parser output → `CanonicalDocument` |
-| `kb-chunk` | block-aware chunking. `Chunker` 구현 (`md-heading-v1`) |
-| `kb-store-sqlite` | metadata, document, chunk, job table. FTS table 은 P2 에서 활성화 |
+| `kebab-source-fs` | local folder scan, checksum, 변경 감지. `SourceConnector` 구현 |
+| `kebab-parse-md` | Markdown bytes → structured document. `Extractor` 구현 |
+| `kebab-normalize` | parser output → `CanonicalDocument` |
+| `kebab-chunk` | block-aware chunking. `Chunker` 구현 (`md-heading-v1`) |
+| `kebab-store-sqlite` | metadata, document, chunk, job table. FTS table 은 P2 에서 활성화 |
 
-## kb-source-fs
+## kebab-source-fs
 
 - 입력: `SourceScope { root: PathBuf, include: Vec<Glob>, exclude: Vec<Glob> }`
 - 동작: 재귀 walk → 각 파일 `blake3` → `RawAsset` 목록.
 - 변경 감지: `(source_uri, checksum)` 기준 신/구 비교. 동일 checksum 은 skip.
 - watch 모드는 P1 범위 밖 (config 만 정의, 구현 후순위).
 
-## kb-parse-md
+## kebab-parse-md
 
 - parser 후보: `pulldown-cmark` 1차. GFM table/task list 필요해지면 `comrak` 검토 (§8).
 - 보존 대상: YAML/TOML frontmatter, heading tree, paragraph, list, code block + lang tag, table, blockquote, link, image ref, **line range**.
-- 출력: 중간 표현 (parser 고유). `kb-normalize` 가 canonical 로 변환.
+- 출력: 중간 표현 (parser 고유). `kebab-normalize` 가 canonical 로 변환.
 - malformed markdown: panic 금지. 가능한 부분만 보존하고 `Provenance` 에 warning 기록.
 
-## kb-normalize
+## kebab-normalize
 
 - 책임: parser 중간 표현 → `CanonicalDocument`.
 - frontmatter → `Metadata` (id, title, aliases, tags, created_at, updated_at, source_type, trust_level, lang).
 - block 트리 평탄화 + `BlockId` 부여 (heading path + 순번 기반 deterministic).
 - `SourceSpan` 은 `LineRange { start, end }` 또는 `ByteRange` 둘 다 허용. Markdown 은 line range 1차.
 
-## kb-chunk (`md-heading-v1`)
+## kebab-chunk (`md-heading-v1`)
 
 우선순위 (§14):
 1. heading boundary 우선
@@ -58,7 +58,7 @@ policy 기본값: `target_tokens = 500`, `overlap_tokens = 80`, `respect_markdow
 
 token 추정: tokenizer 미도입 단계라 byte / 문자 기반 근사 OK. 실제 tokenizer 는 P3 embedding 도입 시 교체.
 
-## kb-store-sqlite
+## kebab-store-sqlite
 
 스키마 (1차):
 
@@ -117,7 +117,7 @@ CREATE TABLE jobs (
 - transaction: ingest 1건 = 1 transaction. 부분 실패 시 rollback.
 - idempotent: 동일 `doc_id` 재수집은 UPSERT, version bump.
 
-## kb-app facade 확장
+## kebab-app facade 확장
 
 ```rust
 pub fn ingest(scope: SourceScope) -> anyhow::Result<IngestReport>;
@@ -131,10 +131,10 @@ pub fn inspect_chunk(id: &ChunkId) -> anyhow::Result<Chunk>;
 ## CLI
 
 ```text
-kb ingest <path> [--include <glob>] [--exclude <glob>]
-kb list docs [--tag <t>]
-kb inspect doc <doc_id>
-kb inspect chunk <chunk_id>
+kebab ingest <path> [--include <glob>] [--exclude <glob>]
+kebab list docs [--tag <t>]
+kebab inspect doc <doc_id>
+kebab inspect chunk <chunk_id>
 ```
 
 ## 테스트
@@ -146,14 +146,14 @@ kb inspect chunk <chunk_id>
 
 ## 의존성 경계
 
-`kb-parse-md` 금지: `kb-store-*`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`, embedding 호출. parser 는 순수 함수.
+`kebab-parse-md` 금지: `kebab-store-*`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`, embedding 호출. parser 는 순수 함수.
 
 ## 완료 조건
 
-- [ ] `kb ingest <path>` 실행 후 SQLite 에 documents/blocks/chunks 채워짐
-- [ ] `kb list docs` 정상 출력
-- [ ] `kb inspect doc <id>` JSON 출력
-- [ ] `kb inspect chunk <id>` JSON 출력 (heading path + source span 포함)
+- [ ] `kebab ingest <path>` 실행 후 SQLite 에 documents/blocks/chunks 채워짐
+- [ ] `kebab list docs` 정상 출력
+- [ ] `kebab inspect doc <id>` JSON 출력
+- [ ] `kebab inspect chunk <id>` JSON 출력 (heading path + source span 포함)
 - [ ] 같은 폴더 재수집 시 중복 row 없음
 - [ ] parser/chunker version 변경 시 재처리 대상 식별 가능
 - [ ] fixture snapshot test 통과

@@ -1,12 +1,12 @@
 ---
 phase: P9
-component: kb-tui (search pane)
+component: kebab-tui (search pane)
 task_id: p9-2
 title: "TUI Search pane: input + result list + preview + editor jump"
 status: planned
 depends_on: [p2-2, p3-4, p9-1]
 unblocks: []
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§1.5/1.6 search output, §3.7 SearchHit, §0 Q3 citation]
 ---
 
@@ -14,7 +14,7 @@ contract_sections: [§1.5/1.6 search output, §3.7 SearchHit, §0 Q3 citation]
 
 ## Goal
 
-Add a Search pane to the TUI that drives `kb-app::search`, renders dense results (rank+score / path#frag / heading / snippet), and supports `g` (editor jump to citation) for the selected hit.
+Add a Search pane to the TUI that drives `kebab-app::search`, renders dense results (rank+score / path#frag / heading / snippet), and supports `g` (editor jump to citation) for the selected hit.
 
 ## Why now / why this size
 
@@ -22,25 +22,25 @@ Search is the most-used surface. Confining it to one pane leverages the App skel
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-app`
-- `kb-tui` (extends p9-1)
+- `kebab-core`
+- `kebab-config`
+- `kebab-app`
+- `kebab-tui` (extends p9-1)
 - `ratatui`, `crossterm`
 - `tracing`
 - `thiserror`
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-*`, `kb-normalize`, `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-*`, `kebab-normalize`, `kebab-chunk`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `kb-app::search(query)` | facade | runtime |
+| `kebab-app::search(query)` | facade | runtime |
 | keyboard events | `crossterm` | terminal |
-| selected hit's citation | `kb_core::Citation` | App state |
+| selected hit's citation | `kebab_core::Citation` | App state |
 
 ## Outputs
 
@@ -54,16 +54,16 @@ Search is the most-used surface. Confining it to one pane leverages the App skel
 ```rust
 pub fn render_search<B: ratatui::backend::Backend>(f: &mut ratatui::Frame, area: ratatui::layout::Rect, state: &App);
 pub fn handle_key_search(state: &mut App, key: crossterm::event::KeyEvent) -> KeyOutcome;
-pub fn jump_to_citation(citation: &kb_core::Citation, editor_env: &str /* $EDITOR */) -> anyhow::Result<()>;
+pub fn jump_to_citation(citation: &kebab_core::Citation, editor_env: &str /* $EDITOR */) -> anyhow::Result<()>;
 ```
 
-This task fills the body of `kb_tui::SearchState` (forward-declared in p9-1). The `App` struct itself is NOT edited — only `SearchState` gets fields:
+This task fills the body of `kebab_tui::SearchState` (forward-declared in p9-1). The `App` struct itself is NOT edited — only `SearchState` gets fields:
 
 ```rust
 pub struct SearchState {
     pub input: String,
-    pub mode: kb_core::SearchMode,
-    pub hits: Vec<kb_core::SearchHit>,
+    pub mode: kebab_core::SearchMode,
+    pub hits: Vec<kebab_core::SearchHit>,
     pub selected_hit: usize,
     pub last_query_at: Option<time::OffsetDateTime>,    // debounce timer
 }
@@ -73,7 +73,7 @@ The Library pane's keypress handler (in p9-1) sets `app.search = Some(SearchStat
 
 ## Behavior contract
 
-- Layout: top input bar (search query + mode badge `[hybrid|lexical|vector]`), middle result list (one hit per 4 lines per design §1.5 dense format), bottom preview pane (full chunk text fetched lazily via `kb-app::inspect_chunk`).
+- Layout: top input bar (search query + mode badge `[hybrid|lexical|vector]`), middle result list (one hit per 4 lines per design §1.5 dense format), bottom preview pane (full chunk text fetched lazily via `kebab-app::inspect_chunk`).
 - Key bindings (Search pane):
   - typing → updates `search_input`; debounced (200 ms) re-search
   - `Tab` → cycles `search_mode` Lexical → Vector → Hybrid → Lexical
@@ -104,14 +104,14 @@ The Library pane's keypress handler (in p9-1) sets `app.search = Some(SearchStat
 | unit | `j` / `k` move selection within bounds | inline |
 | unit | `jump_to_citation` for `Line` builds `+<line> <path>` command (assert via mocked Command runner) | inline |
 | snapshot | rendered Search pane with 3 hits + preview stable | TestBackend |
-| integration | mocked `kb-app::search` returning fixture hits drives render | inline |
+| integration | mocked `kebab-app::search` returning fixture hits drives render | inline |
 
-All tests under `cargo test -p kb-tui search`.
+All tests under `cargo test -p kebab-tui search`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-tui` passes
-- [ ] `cargo test -p kb-tui search` passes
+- [ ] `cargo check -p kebab-tui` passes
+- [ ] `cargo test -p kebab-tui search` passes
 - [ ] `g` keybinding launches `$EDITOR` with correct `+<line>` argument (manual smoke against vim)
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §1.5/1.6, §3.7
@@ -125,5 +125,5 @@ All tests under `cargo test -p kb-tui search`.
 ## Risks / notes
 
 - Suspending and restoring crossterm raw mode around the editor spawn is finicky; code defensively (RAII guard).
-- Different editors take different jump syntaxes. Provide an env override `KB_EDITOR_JUMP_FORMAT="vim"` for users on exotic editors.
+- Different editors take different jump syntaxes. Provide an env override `KEBAB_EDITOR_JUMP_FORMAT="vim"` for users on exotic editors.
 - Long snippet text wrap: clamp to viewport width and ellipsize per design §1.5 (`…` already in dense template).

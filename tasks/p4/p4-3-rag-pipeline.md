@@ -1,12 +1,12 @@
 ---
 phase: P4
-component: kb-rag
+component: kebab-rag
 task_id: p4-3
 title: "RAG pipeline: retrieve → gate → pack → generate → cite-validate"
 status: completed
 depends_on: [p3-4, p4-2]
 unblocks: [p5-1]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§0 Q4 refusal (two-layer), §0 Q7 footer, §1.1–1.4 ask scenes, §2.3 Answer wire, §3.8 internal Answer, §6.4 [rag], §10 errors]
 ---
 
@@ -22,11 +22,11 @@ This is the user-facing payoff. Splitting it further would couple too many inter
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-search` (Retriever trait object)
-- `kb-llm` (LanguageModel trait object)
-- `kb-store-sqlite` (read chunk full text/section + write `answers` row)
+- `kebab-core`
+- `kebab-config`
+- `kebab-search` (Retriever trait object)
+- `kebab-llm` (LanguageModel trait object)
+- `kebab-store-sqlite` (read chunk full text/section + write `answers` row)
 - `serde`, `serde_json`
 - `regex` (for citation marker extraction)
 - `time`
@@ -35,51 +35,51 @@ This is the user-facing payoff. Splitting it further would couple too many inter
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-store-vector` (only via Retriever trait), `kb-embed*` (only via Retriever), `kb-llm-local` (only via LanguageModel trait), `kb-tui`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize`, `kebab-chunk`, `kebab-store-vector` (only via Retriever trait), `kebab-embed*` (only via Retriever), `kebab-llm-local` (only via LanguageModel trait), `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `query: &str` | text | `kb-app::ask` |
+| `query: &str` | text | `kebab-app::ask` |
 | `AskOpts` | k, explain, mode, temperature, seed | CLI |
 | `dyn Retriever` | hybrid retriever from p3-4 | runtime injection |
 | `dyn LanguageModel` | from p4-2 (or mock) | runtime injection |
 | `dyn DocumentStore` | for chunk full-text fetch | from p1-6 |
-| `kb-config::Config.rag` | `prompt_template_version`, `score_gate`, `max_context_tokens` | runtime |
+| `kebab-config::Config.rag` | `prompt_template_version`, `score_gate`, `max_context_tokens` | runtime |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `Answer` | `kb_core::Answer` | `kb-cli` printer, `answers` table |
+| `Answer` | `kebab_core::Answer` | `kebab-cli` printer, `answers` table |
 | `answers` table row | SQLite | history, eval |
 
 ## Public surface (signatures only — no new types)
 
 ```rust
 pub struct RagPipeline {
-    retriever: std::sync::Arc<dyn kb_core::Retriever>,
-    llm:       std::sync::Arc<dyn kb_core::LanguageModel>,
-    docs:      std::sync::Arc<kb_store_sqlite::SqliteStore>,
-    config:    kb_config::Config,
+    retriever: std::sync::Arc<dyn kebab_core::Retriever>,
+    llm:       std::sync::Arc<dyn kebab_core::LanguageModel>,
+    docs:      std::sync::Arc<kebab_store_sqlite::SqliteStore>,
+    config:    kebab_config::Config,
 }
 
 impl RagPipeline {
     pub fn new(
-        config: kb_config::Config,
-        retriever: std::sync::Arc<dyn kb_core::Retriever>,
-        llm: std::sync::Arc<dyn kb_core::LanguageModel>,
-        docs: std::sync::Arc<kb_store_sqlite::SqliteStore>,
+        config: kebab_config::Config,
+        retriever: std::sync::Arc<dyn kebab_core::Retriever>,
+        llm: std::sync::Arc<dyn kebab_core::LanguageModel>,
+        docs: std::sync::Arc<kebab_store_sqlite::SqliteStore>,
     ) -> Self;
 
-    pub fn ask(&self, query: &str, opts: AskOpts) -> anyhow::Result<kb_core::Answer>;
+    pub fn ask(&self, query: &str, opts: AskOpts) -> anyhow::Result<kebab_core::Answer>;
 }
 
 pub struct AskOpts {
     pub k: usize,
     pub explain: bool,
-    pub mode: kb_core::SearchMode,
+    pub mode: kebab_core::SearchMode,
     pub temperature: Option<f32>,
     pub seed: Option<u64>,
     pub stream_sink: Option<std::sync::mpsc::Sender<String>>, // tty/UI token streaming
@@ -158,12 +158,12 @@ pub struct AskOpts {
 | determinism | identical inputs + temperature=0 + seed=0 → identical Answer (snapshot) | mock |
 | snapshot | `Answer` JSON for fixed query stable | `fixtures/rag/run-1.json` |
 
-All tests under `cargo test -p kb-rag` with no real Ollama (mock LM only).
+All tests under `cargo test -p kebab-rag` with no real Ollama (mock LM only).
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-rag` passes
-- [ ] `cargo test -p kb-rag` passes
+- [ ] `cargo check -p kebab-rag` passes
+- [ ] `cargo test -p kebab-rag` passes
 - [ ] No imports outside Allowed dependencies
 - [ ] All paths write an `answers` row
 - [ ] Output JSON conforms to `answer.v1`
@@ -178,9 +178,9 @@ All tests under `cargo test -p kb-rag` with no real Ollama (mock LM only).
 
 ## Risks / notes
 
-- Citation regex is STRICT `\[#(\d{1,3})\]` only. Models that emit `[1]`/`[ #1 ]`/`[foo]` are treated as no-marker → refusal. This is intentional: a noisy citation grammar lets prose `[1]` or `vec![1]` slip through as false positives, which corrupts both `grounded` and `kb eval` `citation_coverage`. The prompt template (`rag-v1`) explicitly instructs `[#번호]`.
-- **Post-merge fix (2026-05)**: kb-cli's `Cmd::Ask` arm originally called bare `kb_app::ask(query, opts)`, ignoring `--config <path>` and silently using XDG defaults (manifested as wrong model id / score_gate / data_dir surfacing in `Answer.retrieval`). Fixed by routing through `kb_app::ask_with_config(cfg, query, opts)`. See [HOTFIXES.md](../HOTFIXES.md).
-- **Post-merge fix (2026-05)**: `config.rag.score_gate` default `0.05` was incompatible with hybrid RRF `fusion_score` (raw range `(0, 2/k_rrf]` ≈ `≤ 0.033` at default k_rrf=60), refusing every hybrid `kb ask`. Closed by normalizing RRF in p3-4 to `[0, 1]`. See p3-4 spec + HOTFIXES.md.
+- Citation regex is STRICT `\[#(\d{1,3})\]` only. Models that emit `[1]`/`[ #1 ]`/`[foo]` are treated as no-marker → refusal. This is intentional: a noisy citation grammar lets prose `[1]` or `vec![1]` slip through as false positives, which corrupts both `grounded` and `kebab eval` `citation_coverage`. The prompt template (`rag-v1`) explicitly instructs `[#번호]`.
+- **Post-merge fix (2026-05)**: kebab-cli's `Cmd::Ask` arm originally called bare `kebab_app::ask(query, opts)`, ignoring `--config <path>` and silently using XDG defaults (manifested as wrong model id / score_gate / data_dir surfacing in `Answer.retrieval`). Fixed by routing through `kebab_app::ask_with_config(cfg, query, opts)`. See [HOTFIXES.md](../HOTFIXES.md).
+- **Post-merge fix (2026-05)**: `config.rag.score_gate` default `0.05` was incompatible with hybrid RRF `fusion_score` (raw range `(0, 2/k_rrf]` ≈ `≤ 0.033` at default k_rrf=60), refusing every hybrid `kebab ask`. Closed by normalizing RRF in p3-4 to `[0, 1]`. See p3-4 spec + HOTFIXES.md.
 - `stream_sink` channel: pipeline `send`s tokens; if the receiver is dropped (caller cancelled), `SendError` is silently swallowed and generation continues to completion (so the `Answer` row still gets persisted). Pipeline does NOT panic on a dead sink.
 - `temperature=0` does not fully eliminate stochasticity in some quantized Ollama models; document this and rely on `must_contain` rule-based metrics in P5 instead of exact match.
 - Prompt-injection defense lives entirely in the system prompt; do NOT mutate `[근거]` text. If chunk text contains `<|system|>` or similar tokens, do not strip them — they are inert when wrapped.

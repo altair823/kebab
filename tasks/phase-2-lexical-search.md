@@ -3,19 +3,19 @@ phase: P2
 title: "SQLite FTS5 lexical 검색 + citation"
 status: completed
 depends_on: [P1]
-source: kb_local_rust_report.md §10, §15, §17 Phase 2
+source: kebab_local_rust_report.md §10, §15, §17 Phase 2
 ---
 
 # P2 — SQLite FTS5 lexical 검색 + citation
 
 ## 목표
 
-embedding/LLM 없이 FTS5 만으로 동작하는 검색 + citation 출력. `kb search "..."` 가 chunk 와 source span 반환.
+embedding/LLM 없이 FTS5 만으로 동작하는 검색 + citation 출력. `kebab search "..."` 가 chunk 와 source span 반환.
 
 ## 산출 crate
 
-- `kb-search` (lexical 모드) — `Retriever` trait 구현 1번째.
-- `kb-store-sqlite` 확장: FTS5 virtual table + trigger.
+- `kebab-search` (lexical 모드) — `Retriever` trait 구현 1번째.
+- `kebab-store-sqlite` 확장: FTS5 virtual table + trigger.
 
 ## FTS5 스키마
 
@@ -69,15 +69,15 @@ pub struct SearchHit {
 }
 ```
 
-`Citation` 형식: `notes/rust/kb.md:L12-L34`.
+`Citation` 형식: `notes/rust/kebab.md:L12-L34`.
 
 ## 인덱스 라이프사이클
 
 - ingest 시 trigger 로 자동 동기화.
-- `kb index --rebuild-fts` command 로 FTS table 재구축 (chunker version bump 후 사용).
+- `kebab index --rebuild-fts` command 로 FTS table 재구축 (chunker version bump 후 사용).
 - `index_version` 은 `(schema_version, fts_config_hash)` 조합.
 
-## kb-app facade 확장
+## kebab-app facade 확장
 
 ```rust
 pub fn search(query: SearchQuery) -> anyhow::Result<Vec<SearchHit>>;
@@ -86,16 +86,16 @@ pub fn search(query: SearchQuery) -> anyhow::Result<Vec<SearchHit>>;
 ## CLI
 
 ```text
-kb search "Rust workspace 설계" [--k 10] [--tag rust] [--mode lexical]
-kb index --rebuild-fts
+kebab search "Rust workspace 설계" [--k 10] [--tag rust] [--mode lexical]
+kebab index --rebuild-fts
 ```
 
 출력 예:
 
 ```text
 1. [0.82] Rust workspace는 여러 package를 하나로 관리한다…
-   doc: notes/rust/kb.md
-   citation: notes/rust/kb.md:L12-L34
+   doc: notes/rust/kebab.md
+   citation: notes/rust/kebab.md:L12-L34
    heading: 아키텍처 > Rust workspace
 ```
 
@@ -108,13 +108,13 @@ kb index --rebuild-fts
 
 ## 의존성 경계
 
-- `kb-search` 는 `kb-store-sqlite` 와 `kb-core` 만 의존.
+- `kebab-search` 는 `kebab-store-sqlite` 와 `kebab-core` 만 의존.
 - LLM/embedding 호출 금지 (P2 단계).
-- CLI 는 `kb-app` 통해서만 호출.
+- CLI 는 `kebab-app` 통해서만 호출.
 
 ## 완료 조건
 
-- [ ] `kb search "..."` top-k chunk 반환
+- [ ] `kebab search "..."` top-k chunk 반환
 - [ ] 모든 결과에 citation 포함
 - [ ] citation line range 가 원본과 일치
 - [ ] 한영 혼합 query 동작 (한국어 토큰화 한계는 노트로)

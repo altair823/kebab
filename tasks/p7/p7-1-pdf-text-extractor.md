@@ -1,12 +1,12 @@
 ---
 phase: P7
-component: kb-parse-pdf (text extractor)
+component: kebab-parse-pdf (text extractor)
 task_id: p7-1
 title: "Text PDF extractor → CanonicalDocument with page-level blocks"
 status: planned
 depends_on: [p0-1, p1-6]
 unblocks: [p7-2]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.4 SourceSpan::Page, §3.4 Block::Paragraph, §9.2 PDF text extraction, §9 versioning]
 ---
 
@@ -22,8 +22,8 @@ Strict scope: page text + page numbers. Layout reconstruction (multi-column merg
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
+- `kebab-core`
+- `kebab-config`
 - `pdf-extract = "0.7"` (or current stable)
 - `lopdf = "0.32"` for page metadata (count, optional title from /Info)
 - `serde`, `serde_json`
@@ -33,30 +33,30 @@ Strict scope: page text + page numbers. Layout reconstruction (multi-column merg
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-store-*`, `kb-embed*`, `kb-search`, `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`, OCR libraries (OCR fallback is a separate task, not this one)
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize`, `kebab-chunk`, `kebab-store-*`, `kebab-embed*`, `kebab-search`, `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`, OCR libraries (OCR fallback is a separate task, not this one)
 
 ## Inputs
 
 | input | type | source |
 |-------|------|--------|
-| `RawAsset` | `kb_core::RawAsset` | `kb-source-fs` |
+| `RawAsset` | `kebab_core::RawAsset` | `kebab-source-fs` |
 | PDF bytes | `&[u8]` | filesystem |
 
 ## Outputs
 
 | output | type | downstream |
 |--------|------|------------|
-| `CanonicalDocument` | `kb_core::CanonicalDocument` | `kb-chunk` (`pdf-page-v1` chunker in p7-2) |
+| `CanonicalDocument` | `kebab_core::CanonicalDocument` | `kebab-chunk` (`pdf-page-v1` chunker in p7-2) |
 
 ## Public surface (signatures only — no new types)
 
 ```rust
 pub struct PdfTextExtractor;
 
-impl kb_core::Extractor for PdfTextExtractor {
-    fn supports(&self, m: &kb_core::MediaType) -> bool { matches!(m, kb_core::MediaType::Pdf) }
-    fn parser_version(&self) -> kb_core::ParserVersion { kb_core::ParserVersion("pdf-text-v1".into()) }
-    fn extract(&self, ctx: &kb_core::ExtractContext, bytes: &[u8]) -> anyhow::Result<kb_core::CanonicalDocument>;
+impl kebab_core::Extractor for PdfTextExtractor {
+    fn supports(&self, m: &kebab_core::MediaType) -> bool { matches!(m, kebab_core::MediaType::Pdf) }
+    fn parser_version(&self) -> kebab_core::ParserVersion { kebab_core::ParserVersion("pdf-text-v1".into()) }
+    fn extract(&self, ctx: &kebab_core::ExtractContext, bytes: &[u8]) -> anyhow::Result<kebab_core::CanonicalDocument>;
 }
 ```
 
@@ -100,12 +100,12 @@ impl kb_core::Extractor for PdfTextExtractor {
 | determinism | identical bytes → identical CanonicalDocument JSON across two runs | inline |
 | snapshot | CanonicalDocument JSON for fixture stable | `fixtures/pdf/three-page-en.pdf` |
 
-All tests under `cargo test -p kb-parse-pdf`.
+All tests under `cargo test -p kebab-parse-pdf`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-parse-pdf` passes
-- [ ] `cargo test -p kb-parse-pdf` passes
+- [ ] `cargo check -p kebab-parse-pdf` passes
+- [ ] `cargo test -p kebab-parse-pdf` passes
 - [ ] No OCR / LLM code present
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §3.4 SourceSpan::Page, §9.2

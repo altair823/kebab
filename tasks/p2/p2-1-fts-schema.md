@@ -1,12 +1,12 @@
 ---
 phase: P2
-component: kb-store-sqlite (FTS5 migration)
+component: kebab-store-sqlite (FTS5 migration)
 task_id: p2-1
 title: "FTS5 virtual table + triggers (V002 migration)"
 status: completed
 depends_on: [p1-6]
 unblocks: [p2-2]
-contract_source: ../../docs/superpowers/specs/2026-04-27-kb-final-form-design.md
+contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§5.5 chunks_fts + triggers, §9 versioning]
 ---
 
@@ -18,19 +18,19 @@ Add `chunks_fts` virtual table and three sync triggers via migration `V002__fts.
 
 ## Why now / why this size
 
-`chunks_fts` is the lexical index for `kb-search`. Splitting it from p1-6 keeps P1 focused on relational data; bringing it as `V002` lets users upgrade an existing P1 DB without re-ingesting.
+`chunks_fts` is the lexical index for `kebab-search`. Splitting it from p1-6 keeps P1 focused on relational data; bringing it as `V002` lets users upgrade an existing P1 DB without re-ingesting.
 
 ## Allowed dependencies
 
-- `kb-core`
-- `kb-config`
-- `kb-store-sqlite` (extends migrations)
+- `kebab-core`
+- `kebab-config`
+- `kebab-store-sqlite` (extends migrations)
 - `rusqlite`
 - `refinery`
 
 ## Forbidden dependencies
 
-- `kb-source-fs`, `kb-parse-md`, `kb-normalize`, `kb-chunk`, `kb-store-vector`, `kb-embed*`, `kb-search` (consumer is p2-2), `kb-llm*`, `kb-rag`, `kb-tui`, `kb-desktop`
+- `kebab-source-fs`, `kebab-parse-md`, `kebab-normalize`, `kebab-chunk`, `kebab-store-vector`, `kebab-embed*`, `kebab-search` (consumer is p2-2), `kebab-llm*`, `kebab-rag`, `kebab-tui`, `kebab-desktop`
 
 ## Inputs
 
@@ -52,7 +52,7 @@ Add `chunks_fts` virtual table and three sync triggers via migration `V002__fts.
 pub fn rebuild_chunks_fts(conn: &rusqlite::Connection) -> anyhow::Result<()>;
 ```
 
-(Used by `kb index --rebuild-fts`. Re-runs `INSERT INTO chunks_fts SELECT ... FROM chunks` after `DELETE FROM chunks_fts;`.)
+(Used by `kebab index --rebuild-fts`. Re-runs `INSERT INTO chunks_fts SELECT ... FROM chunks` after `DELETE FROM chunks_fts;`.)
 
 ## Behavior contract
 
@@ -64,7 +64,7 @@ pub fn rebuild_chunks_fts(conn: &rusqlite::Connection) -> anyhow::Result<()>;
 
 ## Storage / wire effects
 
-- Writes: `chunks_fts` virtual table inside `kb.sqlite`.
+- Writes: `chunks_fts` virtual table inside `kebab.sqlite`.
 - Reads: existing `chunks` rows for backfill.
 
 ## Test plan
@@ -78,12 +78,12 @@ pub fn rebuild_chunks_fts(conn: &rusqlite::Connection) -> anyhow::Result<()>;
 | function | `rebuild_chunks_fts` produces deterministic content equal to fresh backfill | tmp DB |
 | migration | running `V002` twice is a no-op (refinery handles idempotency) | tmp DB |
 
-All tests under `cargo test -p kb-store-sqlite fts`.
+All tests under `cargo test -p kebab-store-sqlite fts`.
 
 ## Definition of Done
 
-- [ ] `cargo check -p kb-store-sqlite` passes
-- [ ] `cargo test -p kb-store-sqlite fts` passes
+- [ ] `cargo check -p kebab-store-sqlite` passes
+- [ ] `cargo test -p kebab-store-sqlite fts` passes
 - [ ] `migrations/V002__fts.sql` matches design §5.5 verbatim (CI diff check)
 - [ ] No imports outside Allowed dependencies
 - [ ] PR links design §5.5
