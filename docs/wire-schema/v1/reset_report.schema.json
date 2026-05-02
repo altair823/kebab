@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/reset_report.schema.json",
+  "title": "ResetReport v1",
+  "description": "Result of `kebab reset` — what scope was requested and what was actually removed off-disk. A path that did not exist before the call is omitted (the wipe is idempotent).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "scope",
+    "removed_paths",
+    "embedding_rows_truncated"
+  ],
+  "properties": {
+    "schema_version":           { "const": "reset_report.v1" },
+    "scope":                    {
+      "type": "string",
+      "enum": ["all", "data_only", "vector_only", "config_only"]
+    },
+    "removed_paths":            {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "embedding_rows_truncated": { "type": "integer", "minimum": 0 }
+  }
+}

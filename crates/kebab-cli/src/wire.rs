@@ -108,6 +108,12 @@ pub fn wire_doctor(d: &DoctorReport) -> Value {
     tag_object(v, "doctor.v1")
 }
 
+/// Wrap a [`kebab_app::ResetReport`] as `reset_report.v1`.
+pub fn wire_reset(r: &kebab_app::ResetReport) -> Value {
+    let v = serde_json::to_value(r).expect("ResetReport serializes");
+    tag_object(v, "reset_report.v1")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +177,24 @@ mod tests {
         let v = Value::Object(serde_json::Map::new());
         let tagged = tag_object(v, "x.v1");
         assert_eq!(schema_of(&tagged), Some("x.v1"));
+    }
+
+    #[test]
+    fn reset_wrapper_tags_schema_version_and_serializes_scope() {
+        let r = kebab_app::ResetReport {
+            scope: kebab_app::ResetScope::DataOnly,
+            removed_paths: vec![std::path::PathBuf::from("/tmp/x")],
+            embedding_rows_truncated: 0,
+        };
+        let v = wire_reset(&r);
+        assert_eq!(schema_of(&v), Some("reset_report.v1"));
+        assert_eq!(v.get("scope").and_then(Value::as_str), Some("data_only"));
+        assert_eq!(
+            v.get("embedding_rows_truncated").and_then(Value::as_u64),
+            Some(0)
+        );
+        let paths = v.get("removed_paths").and_then(Value::as_array).unwrap();
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].as_str(), Some("/tmp/x"));
     }
 }
