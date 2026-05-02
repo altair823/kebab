@@ -107,22 +107,6 @@ impl SqliteStore {
     /// WHERE embedding_id IN (?, ?, …)`) inside one transaction —
     /// avoids the per-row `execute()` round-trip the previous
     /// implementation paid.
-    /// Wipe every row from `embedding_records`, returning the count of
-    /// rows that were removed. Called by `kebab reset --vector-only` so
-    /// SQLite cannot point at a Lance row that the reset just removed
-    /// off-disk.
-    ///
-    /// The function does NOT cascade to `chunks` or `documents` — those
-    /// are kept so the next `kebab ingest` re-embeds the existing chunk
-    /// set without re-parsing.
-    pub fn truncate_embedding_records(&self) -> Result<u64> {
-        let conn = self.lock_conn();
-        let n = conn
-            .execute("DELETE FROM embedding_records", [])
-            .context("DELETE FROM embedding_records")?;
-        Ok(n as u64)
-    }
-
     pub fn mark_embedding_records_committed(
         &self,
         embedding_ids: &[String],
@@ -147,6 +131,22 @@ impl SqliteStore {
         }
         tx.commit().map_err(StoreError::from)?;
         Ok(())
+    }
+
+    /// Wipe every row from `embedding_records`, returning the count of
+    /// rows that were removed. Called by `kebab reset --vector-only` so
+    /// SQLite cannot point at a Lance row that the reset just removed
+    /// off-disk.
+    ///
+    /// The function does NOT cascade to `chunks` or `documents` — those
+    /// are kept so the next `kebab ingest` re-embeds the existing chunk
+    /// set without re-parsing.
+    pub fn truncate_embedding_records(&self) -> Result<u64> {
+        let conn = self.lock_conn();
+        let n = conn
+            .execute("DELETE FROM embedding_records", [])
+            .context("DELETE FROM embedding_records")?;
+        Ok(n as u64)
     }
 }
 

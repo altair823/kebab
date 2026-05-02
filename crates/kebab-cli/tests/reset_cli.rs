@@ -109,7 +109,28 @@ fn reset_data_only_yes_json_emits_reset_report_v1() {
         Some("reset_report.v1")
     );
     assert_eq!(v.get("scope").and_then(|s| s.as_str()), Some("data_only"));
-    assert!(v.get("removed_paths").and_then(|a| a.as_array()).is_some());
+    // The data dir was created beforehand and must show up in the
+    // report. The cache dir was NOT created, so it must be omitted —
+    // proving idempotency ("missing path is treated as already
+    // removed"). The state dir may or may not appear: kebab-app's
+    // logging init creates the state dir as a side-effect, which is
+    // tolerated. We assert the strict invariant (data in, cache out)
+    // and let the state dir be either way.
+    let paths: Vec<String> = v
+        .get("removed_paths")
+        .and_then(|a| a.as_array())
+        .expect("removed_paths must be a JSON array")
+        .iter()
+        .filter_map(|s| s.as_str().map(str::to_owned))
+        .collect();
+    assert!(
+        paths.iter().any(|p| p.contains("/data/kebab")),
+        "data dir must be reported as removed, got: {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|p| p.contains("/cache/kebab")),
+        "cache dir was never created and must be omitted, got: {paths:?}"
+    );
 }
 
 #[test]
