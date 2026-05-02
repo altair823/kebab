@@ -68,17 +68,17 @@ fn jpeg_with_exif_gps_captures_whitelisted_tags() {
         .get("exif")
         .and_then(|v| v.as_object())
         .expect("exif object present");
-    assert_eq!(exif.get("Make"), Some(&Value::String("KebabCam".into())));
-    assert_eq!(exif.get("Model"), Some(&Value::String("X1".into())));
+    assert_eq!(exif.get("make"), Some(&Value::String("KebabCam".into())));
+    assert_eq!(exif.get("model"), Some(&Value::String("X1".into())));
     assert_eq!(
-        exif.get("Software"),
+        exif.get("software"),
         Some(&Value::String("kebab-test".into()))
     );
     assert_eq!(
-        exif.get("DateTimeOriginal"),
+        exif.get("date_time_original"),
         Some(&Value::String("2024-08-15T12:34:56".into()))
     );
-    assert_eq!(exif.get("Orientation"), Some(&Value::Number(1.into())));
+    assert_eq!(exif.get("orientation"), Some(&Value::Number(1.into())));
     let lat = exif.get("gps_lat").and_then(|v| v.as_f64()).expect("gps_lat");
     let lon = exif.get("gps_lon").and_then(|v| v.as_f64()).expect("gps_lon");
     assert!((lat - 37.5).abs() < 1e-6, "lat={lat}");
@@ -86,11 +86,11 @@ fn jpeg_with_exif_gps_captures_whitelisted_tags() {
 
     // Maker notes / thumbnails / unrelated tags must NOT have leaked in.
     let allowed: std::collections::HashSet<&str> = [
-        "Make",
-        "Model",
-        "Software",
-        "DateTimeOriginal",
-        "Orientation",
+        "make",
+        "model",
+        "software",
+        "date_time_original",
+        "orientation",
         "gps_lat",
         "gps_lon",
     ]

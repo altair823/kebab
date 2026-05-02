@@ -80,7 +80,7 @@ impl Extractor for ImageExtractor {
         // versa), so the two probes are independent.
         let exif_map = exif_extract::extract_whitelisted(bytes);
 
-        let (span, dims_value, decode_warning) = match &dim_outcome {
+        let (span, dims_value, dim_warning) = match &dim_outcome {
             dims::DimOutcome::Ok { width, height, format } => {
                 let mut dims = Map::new();
                 dims.insert("w".into(), Value::Number((*width).into()));
@@ -142,7 +142,7 @@ impl Extractor for ImageExtractor {
             kind: ProvenanceKind::Parsed,
             note: Some(format!("parser_version={}", parser_version.0)),
         });
-        if let Some(reason) = decode_warning {
+        if let Some(reason) = dim_warning {
             events.push(ProvenanceEvent {
                 at: now,
                 agent: "kb-parse-image".to_string(),

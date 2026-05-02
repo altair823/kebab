@@ -21,7 +21,7 @@ use kebab_core::{
     AssetStorage, Checksum, ExtractConfig, ExtractContext, ImageType, MediaType, RawAsset,
     SourceUri, WorkspacePath,
 };
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use time::OffsetDateTime;
 
 /// 100×50 solid-red PNG, no EXIF.
@@ -233,9 +233,3 @@ pub fn strip_dynamic_at(json: &mut serde_json::Value) {
     }
 }
 
-/// Stable ASCII path constant — avoids depending on `Path::new` or the
-/// host's path separator in the call sites.
-#[allow(dead_code)]
-pub fn fake_path(p: &str) -> &Path {
-    Path::new(p)
-}

@@ -10,11 +10,9 @@ description   = "Image extractor — produces a single-block CanonicalDocument w
 [dependencies]
 kebab-core   = { path = "../kebab-core" }
 anyhow       = { workspace = true }
-serde        = { workspace = true }
 serde_json   = { workspace = true }
 time         = { workspace = true }
 tracing      = { workspace = true }
-thiserror    = { workspace = true }
 # `image` ships a wide format menagerie under default features (BMP, DDS,
 # Farbfeld, …). We only need PNG / JPEG / WebP / GIF / TIFF for v1 (per
 # task spec out-of-scope HEIC/RAW). Trim defaults to keep the dep
@@ -27,4 +25,3 @@ kamadak-exif = "0.6"
 [dev-dependencies]
 tempfile     = { workspace = true }
 blake3       = { workspace = true }
-serde_json   = { workspace = true }

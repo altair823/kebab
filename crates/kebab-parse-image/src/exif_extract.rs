@@ -5,17 +5,19 @@
 //! camera state) is dropped on the floor so the on-disk wire form keeps a
 //! tight PII surface.
 //!
-//! Whitelisted tags:
+//! Whitelisted tags (output uses snake_case to match the rest of the
+//! workspace's wire-schema convention; the EXIF tag identity is preserved
+//! in the column name where reasonable):
 //!
-//! | tag                | output JSON shape          |
-//! |--------------------|----------------------------|
-//! | DateTimeOriginal   | `"YYYY-MM-DDTHH:MM:SS"`    |
-//! | GPSLatitude / Ref  | merged into `gps_lat: f64` |
-//! | GPSLongitude / Ref | merged into `gps_lon: f64` |
-//! | Make               | `String`                   |
-//! | Model              | `String`                   |
-//! | Orientation        | `u32` (1..=8)              |
-//! | Software           | `String`                   |
+//! | EXIF tag                | output key            | output JSON shape       |
+//! |-------------------------|-----------------------|-------------------------|
+//! | DateTimeOriginal        | `date_time_original`  | `"YYYY-MM-DDTHH:MM:SS"` |
+//! | GPSLatitude / Ref       | `gps_lat`             | `f64` (signed degrees)  |
+//! | GPSLongitude / Ref      | `gps_lon`             | `f64` (signed degrees)  |
+//! | Make                    | `make`                | `String`                |
+//! | Model                   | `model`               | `String`                |
+//! | Orientation             | `orientation`         | `u32` (1..=8)           |
+//! | Software                | `software`            | `String`                |
 //!
 //! Any tag whose source value cannot be parsed into the documented shape
 //! is silently dropped — extractor failure must never fail the whole
@@ -36,41 +38,41 @@ pub(crate) fn extract_whitelisted(bytes: &[u8]) -> Map<String, JsonValue> {
         Err(_) => return out,
     };
 
-    if let Some(s) = ascii_field(&exif, Tag::DateTimeOriginal, In::PRIMARY) {
-        if let Some(iso) = exif_datetime_to_iso(&s) {
-            out.insert("DateTimeOriginal".into(), JsonValue::String(iso));
-        }
+    if let Some(s) = ascii_field(&exif, Tag::DateTimeOriginal)
+        && let Some(iso) = exif_datetime_to_iso(&s)
+    {
+        out.insert("date_time_original".into(), JsonValue::String(iso));
     }
 
-    if let Some(lat) = gps_decimal(&exif, Tag::GPSLatitude, Tag::GPSLatitudeRef) {
-        if let Some(num) = serde_json::Number::from_f64(lat) {
-            out.insert("gps_lat".into(), JsonValue::Number(num));
-        }
+    if let Some(lat) = gps_decimal(&exif, Tag::GPSLatitude, Tag::GPSLatitudeRef)
+        && let Some(num) = serde_json::Number::from_f64(lat)
+    {
+        out.insert("gps_lat".into(), JsonValue::Number(num));
     }
-    if let Some(lon) = gps_decimal(&exif, Tag::GPSLongitude, Tag::GPSLongitudeRef) {
-        if let Some(num) = serde_json::Number::from_f64(lon) {
-            out.insert("gps_lon".into(), JsonValue::Number(num));
-        }
+    if let Some(lon) = gps_decimal(&exif, Tag::GPSLongitude, Tag::GPSLongitudeRef)
+        && let Some(num) = serde_json::Number::from_f64(lon)
+    {
+        out.insert("gps_lon".into(), JsonValue::Number(num));
     }
 
-    if let Some(s) = ascii_field(&exif, Tag::Make, In::PRIMARY) {
-        out.insert("Make".into(), JsonValue::String(s));
+    if let Some(s) = ascii_field(&exif, Tag::Make) {
+        out.insert("make".into(), JsonValue::String(s));
     }
-    if let Some(s) = ascii_field(&exif, Tag::Model, In::PRIMARY) {
-        out.insert("Model".into(), JsonValue::String(s));
+    if let Some(s) = ascii_field(&exif, Tag::Model) {
+        out.insert("model".into(), JsonValue::String(s));
     }
-    if let Some(o) = u32_field(&exif, Tag::Orientation, In::PRIMARY) {
-        out.insert("Orientation".into(), JsonValue::Number(o.into()));
+    if let Some(o) = u32_field(&exif, Tag::Orientation) {
+        out.insert("orientation".into(), JsonValue::Number(o.into()));
     }
-    if let Some(s) = ascii_field(&exif, Tag::Software, In::PRIMARY) {
-        out.insert("Software".into(), JsonValue::String(s));
+    if let Some(s) = ascii_field(&exif, Tag::Software) {
+        out.insert("software".into(), JsonValue::String(s));
     }
 
     out
 }
 
-fn ascii_field(exif: &exif::Exif, tag: Tag, ifd: In) -> Option<String> {
-    let f = exif.get_field(tag, ifd)?;
+fn ascii_field(exif: &exif::Exif, tag: Tag) -> Option<String> {
+    let f = exif.get_field(tag, In::PRIMARY)?;
     match &f.value {
         Value::Ascii(parts) => {
             // The EXIF 2.x ASCII type is one or more null-terminated C
@@ -92,8 +94,8 @@ fn ascii_field(exif: &exif::Exif, tag: Tag, ifd: In) -> Option<String> {
     }
 }
 
-fn u32_field(exif: &exif::Exif, tag: Tag, ifd: In) -> Option<u32> {
-    let f = exif.get_field(tag, ifd)?;
+fn u32_field(exif: &exif::Exif, tag: Tag) -> Option<u32> {
+    let f = exif.get_field(tag, In::PRIMARY)?;
     match &f.value {
         Value::Short(v) => v.first().map(|x| *x as u32),
         Value::Long(v) => v.first().copied(),
@@ -140,7 +142,7 @@ fn gps_decimal(exif: &exif::Exif, value_tag: Tag, ref_tag: Tag) -> Option<f64> {
     let min = rational_to_f64(&dms[1])?;
     let sec = rational_to_f64(&dms[2])?;
     let mut decimal = deg + min / 60.0 + sec / 3600.0;
-    if let Some(reference) = ascii_field(exif, ref_tag, In::PRIMARY) {
+    if let Some(reference) = ascii_field(exif, ref_tag) {
         let r = reference.to_ascii_uppercase();
         if r.starts_with('S') || r.starts_with('W') {
             decimal = -decimal;
