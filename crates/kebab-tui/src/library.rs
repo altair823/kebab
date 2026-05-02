@@ -273,6 +273,18 @@ pub fn handle_key_library(state: &mut App, key: KeyEvent) -> KeyOutcome {
             inner.filter_edit = Some(FilterEdit::from_filter(&inner.filter));
             KeyOutcome::Continue
         }
+        (KeyCode::Char('r'), _) => {
+            // p9-fb-03: trigger background ingest. The `inner` mutable
+            // borrow above is not used in this arm, so NLL releases it
+            // before we re-borrow `state` for `start_ingest`. Errors
+            // (e.g. "ingest already running") surface via the error
+            // overlay.
+            if let Err(e) = crate::ingest_progress::start_ingest(state) {
+                state.error_overlay =
+                    Some(crate::ErrorOverlay::from_anyhow(&e));
+            }
+            KeyOutcome::Continue
+        }
         (KeyCode::Char('/'), _) => KeyOutcome::SwitchPane(Pane::Search),
         (KeyCode::Char('?'), _) => KeyOutcome::SwitchPane(Pane::Ask),
         (KeyCode::Enter, _) => {

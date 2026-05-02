@@ -1,0 +1,364 @@
+//! TUI background-ingest worker + status-bar reducer (p9-fb-03).
+//!
+//! The Library pane's `r` key fires `start_ingest`, which spawns a
+//! worker thread calling
+//! `kebab_app::ingest_with_config_progress(.., Some(tx))`. The run
+//! loop drains the matching `rx` once per frame via
+//! `drain_progress` and re-renders the status bar from the
+//! accumulated counts. When the worker emits a terminal event
+//! (`Completed` / `Aborted`) the status line freezes for a few
+//! seconds (`TERMINAL_LINE_HOLD_SECS`) and then `tick_clear` returns
+//! true so the run loop can drop the slot.
+//!
+//! `cancel_tx` is allocated here but never sent on — the cancel
+//! wiring (`Esc` / `Ctrl-C`) lands in `p9-fb-04`. The slot exists
+//! today so this task does not have to reshape `IngestState` later.
+
+use std::sync::mpsc;
+use std::thread;
+
+use kebab_app::IngestEvent;
+use kebab_core::SourceScope;
+
+use crate::app::{App, IngestState, TERMINAL_LINE_HOLD_SECS};
+
+/// Already-running guard. Returns `Err` if `app.ingest_state` is
+/// already populated — pressing `r` twice in a row should not spawn
+/// two parallel workers (SQLite is mutexed but Lance writes can race
+/// each other).
+pub fn start_ingest(app: &mut App) -> anyhow::Result<()> {
+    if app.ingest_state.is_some() {
+        anyhow::bail!("ingest already running");
+    }
+    let cfg = app.config.clone();
+    let scope = SourceScope {
+        root: std::path::PathBuf::from(&cfg.workspace.root),
+        include: cfg.workspace.include.clone(),
+        exclude: cfg.workspace.exclude.clone(),
+    };
+    let (tx, rx) = mpsc::channel::<IngestEvent>();
+    let (cancel_tx, _cancel_rx) = mpsc::channel::<()>();
+    // _cancel_rx is intentionally dropped here; p9-fb-04 will wire it
+    // through to `ingest_with_config_cancellable` (or equivalent).
+    // Holding both ends today keeps the channel allocated without
+    // doing anything with it.
+    let cfg_for_thread = cfg;
+    let thread = thread::spawn(move || {
+        kebab_app::ingest_with_config_progress(cfg_for_thread, scope, true, Some(tx))
+    });
+    app.ingest_state = Some(IngestState {
+        rx,
+        counts: kebab_app::AggregateCounts::default(),
+        current_path: None,
+        current_idx: 0,
+        started_at: std::time::Instant::now(),
+        terminal_at: None,
+        aborted: false,
+        thread: Some(thread),
+        cancel_tx,
+    });
+    Ok(())
+}
+
+/// Drain whatever progress events have arrived since the last tick.
+/// Non-blocking. Caller (the run loop) calls this once per frame.
+///
+/// On a terminal event (`Completed` / `Aborted`) the function records
+/// `terminal_at = Instant::now()` so subsequent ticks can decide when
+/// to clear the slot.
+pub fn drain_progress(app: &mut App) {
+    let Some(state) = app.ingest_state.as_mut() else {
+        return;
+    };
+    while let Ok(event) = state.rx.try_recv() {
+        apply_event(state, event);
+    }
+}
+
+fn apply_event(state: &mut IngestState, event: IngestEvent) {
+    match event {
+        IngestEvent::ScanStarted { .. } => {
+            // No counter to update; `started_at` already set by
+            // `start_ingest`. The status line shows "scanning…" while
+            // counts.scanned is zero.
+        }
+        IngestEvent::ScanCompleted { total } => {
+            state.counts.scanned = total;
+        }
+        IngestEvent::AssetStarted { idx, path, .. } => {
+            state.current_idx = idx;
+            state.current_path = Some(path);
+        }
+        IngestEvent::AssetFinished {
+            result, chunks, ..
+        } => {
+            // Per-asset counter increments mirror the way
+            // `kebab-app::ingest_with_config_progress` aggregates the
+            // final report — kept in sync so the status bar's running
+            // totals match the eventual `Completed { counts }`.
+            match result {
+                kebab_core::IngestItemKind::New => {
+                    state.counts.new = state.counts.new.saturating_add(1);
+                    state.counts.chunks_indexed =
+                        state.counts.chunks_indexed.saturating_add(chunks);
+                }
+                kebab_core::IngestItemKind::Updated => {
+                    state.counts.updated = state.counts.updated.saturating_add(1);
+                    state.counts.chunks_indexed =
+                        state.counts.chunks_indexed.saturating_add(chunks);
+                }
+                kebab_core::IngestItemKind::Skipped => {
+                    state.counts.skipped = state.counts.skipped.saturating_add(1);
+                }
+                kebab_core::IngestItemKind::Error => {
+                    state.counts.errors = state.counts.errors.saturating_add(1);
+                }
+            }
+        }
+        IngestEvent::Completed { counts } => {
+            // Trust the facade's authoritative aggregate — replaces
+            // any tiny drift between our running totals and the
+            // final report.
+            state.counts = counts;
+            state.current_path = None;
+            state.terminal_at = Some(std::time::Instant::now());
+            state.aborted = false;
+        }
+        IngestEvent::Aborted { counts } => {
+            state.counts = counts;
+            state.current_path = None;
+            state.terminal_at = Some(std::time::Instant::now());
+            state.aborted = true;
+        }
+    }
+}
+
+/// Should the run loop drop `app.ingest_state` now? True when the
+/// terminal event arrived ≥ `TERMINAL_LINE_HOLD_SECS` ago.
+pub fn ready_to_clear(state: &IngestState) -> bool {
+    match state.terminal_at {
+        Some(t) => t.elapsed().as_secs() >= TERMINAL_LINE_HOLD_SECS,
+        None => false,
+    }
+}
+
+/// Render the status-bar text for the current `IngestState`. Pure —
+/// the run loop wraps this in a Paragraph widget. Returns the
+/// human-friendly line per spec §p9-fb-03 ("`ingest: 142/1024 (14%)
+/// parsing notes/foo.md  [0:42]`").
+pub fn status_line(state: &IngestState) -> String {
+    if state.terminal_at.is_some() {
+        let elapsed = state.started_at.elapsed();
+        let secs = elapsed.as_secs();
+        if state.aborted {
+            return format!(
+                "✗ ingest aborted at {}/{} after {}s (new={} updated={} skipped={} errors={})",
+                state.counts.scanned.saturating_sub(state.counts.errors),
+                state.counts.scanned,
+                secs,
+                state.counts.new,
+                state.counts.updated,
+                state.counts.skipped,
+                state.counts.errors,
+            );
+        }
+        return format!(
+            "✓ ingest: {} docs ({} new, {} updated, {} skipped), {} chunks indexed in {}s",
+            state.counts.scanned,
+            state.counts.new,
+            state.counts.updated,
+            state.counts.skipped,
+            state.counts.chunks_indexed,
+            secs,
+        );
+    }
+    if state.counts.scanned == 0 {
+        let secs = state.started_at.elapsed().as_secs();
+        return format!("ingest: scanning… [{}s]", secs);
+    }
+    let pct = (state.current_idx as u64).saturating_mul(100) / state.counts.scanned.max(1) as u64;
+    let elapsed = state.started_at.elapsed();
+    let mm = elapsed.as_secs() / 60;
+    let ss = elapsed.as_secs() % 60;
+    let path = state.current_path.as_deref().unwrap_or("…");
+    format!(
+        "ingest: {}/{} ({}%) {} [{}:{:02}]",
+        state.current_idx, state.counts.scanned, pct, path, mm, ss,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kebab_app::AggregateCounts;
+    use kebab_core::IngestItemKind;
+    use std::sync::mpsc;
+
+    fn fresh_state() -> IngestState {
+        let (_tx, rx) = mpsc::channel::<IngestEvent>();
+        let (cancel_tx, _cancel_rx) = mpsc::channel::<()>();
+        IngestState {
+            rx,
+            counts: AggregateCounts::default(),
+            current_path: None,
+            current_idx: 0,
+            started_at: std::time::Instant::now(),
+            terminal_at: None,
+            aborted: false,
+            thread: None,
+            cancel_tx,
+        }
+    }
+
+    #[test]
+    fn apply_scan_completed_sets_total() {
+        let mut s = fresh_state();
+        apply_event(&mut s, IngestEvent::ScanCompleted { total: 42 });
+        assert_eq!(s.counts.scanned, 42);
+    }
+
+    #[test]
+    fn apply_asset_finished_accumulates_per_kind_counters() {
+        let mut s = fresh_state();
+        apply_event(
+            &mut s,
+            IngestEvent::AssetFinished {
+                idx: 1,
+                total: 3,
+                result: IngestItemKind::New,
+                chunks: 5,
+            },
+        );
+        apply_event(
+            &mut s,
+            IngestEvent::AssetFinished {
+                idx: 2,
+                total: 3,
+                result: IngestItemKind::Updated,
+                chunks: 2,
+            },
+        );
+        apply_event(
+            &mut s,
+            IngestEvent::AssetFinished {
+                idx: 3,
+                total: 3,
+                result: IngestItemKind::Skipped,
+                chunks: 0,
+            },
+        );
+        assert_eq!(s.counts.new, 1);
+        assert_eq!(s.counts.updated, 1);
+        assert_eq!(s.counts.skipped, 1);
+        assert_eq!(s.counts.chunks_indexed, 7);
+    }
+
+    #[test]
+    fn apply_completed_replaces_counts_and_marks_terminal() {
+        let mut s = fresh_state();
+        let final_counts = AggregateCounts {
+            scanned: 10,
+            new: 5,
+            updated: 5,
+            chunks_indexed: 50,
+            ..Default::default()
+        };
+        apply_event(&mut s, IngestEvent::Completed { counts: final_counts });
+        assert_eq!(s.counts, final_counts);
+        assert!(s.terminal_at.is_some());
+        assert!(!s.aborted);
+    }
+
+    #[test]
+    fn apply_aborted_marks_aborted_flag() {
+        let mut s = fresh_state();
+        apply_event(
+            &mut s,
+            IngestEvent::Aborted {
+                counts: AggregateCounts::default(),
+            },
+        );
+        assert!(s.terminal_at.is_some());
+        assert!(s.aborted);
+    }
+
+    #[test]
+    fn status_line_scanning_shows_dots() {
+        let s = fresh_state();
+        let line = status_line(&s);
+        assert!(line.starts_with("ingest: scanning…"), "got: {line}");
+    }
+
+    #[test]
+    fn status_line_in_progress_shows_count_path_pct() {
+        let mut s = fresh_state();
+        apply_event(&mut s, IngestEvent::ScanCompleted { total: 100 });
+        apply_event(
+            &mut s,
+            IngestEvent::AssetStarted {
+                idx: 14,
+                total: 100,
+                path: "notes/foo.md".into(),
+                media: "markdown".into(),
+            },
+        );
+        let line = status_line(&s);
+        assert!(line.contains("14/100"), "got: {line}");
+        assert!(line.contains("(14%)"), "got: {line}");
+        assert!(line.contains("notes/foo.md"), "got: {line}");
+    }
+
+    #[test]
+    fn status_line_terminal_completed_shows_check_mark_and_totals() {
+        let mut s = fresh_state();
+        apply_event(
+            &mut s,
+            IngestEvent::Completed {
+                counts: AggregateCounts {
+                    scanned: 10,
+                    new: 8,
+                    updated: 1,
+                    skipped: 1,
+                    chunks_indexed: 50,
+                    ..Default::default()
+                },
+            },
+        );
+        let line = status_line(&s);
+        assert!(line.starts_with("✓ ingest:"), "got: {line}");
+        assert!(line.contains("10 docs"), "got: {line}");
+        assert!(line.contains("50 chunks"), "got: {line}");
+    }
+
+    #[test]
+    fn status_line_terminal_aborted_shows_cross() {
+        let mut s = fresh_state();
+        s.current_idx = 7;
+        apply_event(
+            &mut s,
+            IngestEvent::Aborted {
+                counts: AggregateCounts {
+                    scanned: 100,
+                    errors: 0,
+                    ..Default::default()
+                },
+            },
+        );
+        let line = status_line(&s);
+        assert!(line.starts_with("✗ ingest aborted"), "got: {line}");
+        assert!(line.contains("100/100"), "got: {line}");
+    }
+
+    #[test]
+    fn ready_to_clear_false_until_hold_elapses() {
+        let mut s = fresh_state();
+        s.terminal_at = Some(std::time::Instant::now());
+        assert!(!ready_to_clear(&s));
+    }
+
+    #[test]
+    fn ready_to_clear_true_in_absence_of_terminal_is_false() {
+        let s = fresh_state();
+        assert!(!ready_to_clear(&s));
+    }
+}

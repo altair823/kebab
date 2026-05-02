@@ -166,6 +166,46 @@ impl Default for InspectState {
     }
 }
 
+/// Background-ingest state — owned by p9-fb-03.
+///
+/// The TUI lets the user fire `kebab ingest` from inside the shell
+/// without blocking the event loop. Pressing `r` on the Library pane
+/// spawns a worker thread that calls
+/// `kebab_app::ingest_with_config_progress(.., Some(tx))`; the run
+/// loop drains `rx` once per frame and updates the visible status
+/// bar. When the worker thread joins (Sender dropped → `recv()` Err),
+/// the final aggregate counts stay on screen for a few seconds and
+/// then the slot clears.
+///
+/// `cancel_tx` is reserved for `p9-fb-04` (Ctrl-C / Esc cancel
+/// wiring); this task allocates the channel but never sends on it.
+pub struct IngestState {
+    pub rx: std::sync::mpsc::Receiver<kebab_app::IngestEvent>,
+    pub counts: kebab_app::AggregateCounts,
+    pub current_path: Option<String>,
+    pub current_idx: u32,
+    pub started_at: std::time::Instant,
+    /// `Some(_)` once a `Completed` or `Aborted` event has arrived;
+    /// the run loop holds the final line on screen for
+    /// `TERMINAL_LINE_HOLD_SECS` seconds and then clears the slot.
+    pub terminal_at: Option<std::time::Instant>,
+    /// True when the terminal event was `Aborted` (vs `Completed`).
+    /// Used to colour the final line.
+    pub aborted: bool,
+    /// Worker thread handle. `take()`n at clear time so the join
+    /// happens after the user has had time to read the final line.
+    pub thread: Option<std::thread::JoinHandle<anyhow::Result<kebab_core::IngestReport>>>,
+    /// Cancel-token slot for `p9-fb-04`. Defined here so that task
+    /// can wire `Esc` / `Ctrl-C` without restructuring `IngestState`.
+    /// This task never sends on it.
+    pub cancel_tx: std::sync::mpsc::Sender<()>,
+}
+
+/// Seconds the final ingest status line stays on screen after a run
+/// completes / aborts. After this elapses the run loop clears
+/// `App.ingest_state` so the footer returns to the standard hints.
+pub const TERMINAL_LINE_HOLD_SECS: u64 = 3;
+
 /// TUI application. The shell that p9-1 stands up; later p9-* tasks
 /// add panes by populating their `Option<*State>` slot.
 pub struct App {
@@ -178,6 +218,10 @@ pub struct App {
     pub ask: Option<AskState>,
     /// Populated by p9-4.
     pub inspect: Option<InspectState>,
+    /// Populated by p9-fb-03 when the user kicks off an in-shell
+    /// ingest (Library `r`). Cleared by the run loop a few seconds
+    /// after the run reaches a terminal event.
+    pub ingest_state: Option<IngestState>,
     /// In-flight error overlay (popup); `Some` when the last facade
     /// call returned `Err` and the user has not dismissed yet.
     pub(crate) error_overlay: Option<ErrorOverlay>,
@@ -199,6 +243,7 @@ impl App {
             search: None,
             ask: None,
             inspect: None,
+            ingest_state: None,
             error_overlay: None,
             should_quit: false,
         })
