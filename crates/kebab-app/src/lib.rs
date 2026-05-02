@@ -274,7 +274,12 @@ pub fn ingest_with_config(
                     error = %e,
                     "kb-app::ingest: per-file fatal"
                 );
-                error_count = error_count.saturating_add(1);
+                // Note: `error_count += 1` happens below in the
+                // `match item.kind { Error => ... }` arm — incrementing
+                // here too would double-count (a regression first
+                // surfaced by P6-4 image dispatch where Err returns
+                // are common; markdown rarely propagated Err so the
+                // bug went unnoticed).
                 kebab_core::IngestItem {
                     kind: kebab_core::IngestItemKind::Error,
                     doc_id: None,

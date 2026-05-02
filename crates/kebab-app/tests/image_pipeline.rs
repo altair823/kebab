@@ -307,7 +307,61 @@ async fn image_indexed_with_filename_when_ocr_and_caption_disabled() {
     );
 }
 
-// ── 5. Determinism: re-ingest produces identical doc_id / chunk_id ───────
+// ── 5. Garbage bytes (not an image) → errors counter exactly 1 ──────────
+
+/// `kebab-source-fs` classifies a `.png` extension as
+/// `MediaType::Image(Png)` regardless of content. When the bytes don't
+/// decode as any image format, `ImageExtractor::extract` returns Err
+/// and the asset must be classified as `IngestItemKind::Error` with
+/// the `errors` counter incremented **exactly once** (regression for
+/// the double-count bug surfaced during P6-4 manual smoke).
+#[tokio::test]
+async fn garbage_png_increments_errors_counter_exactly_once() {
+    // No mock server needed — extract fails before any HTTP call.
+    let env = TestEnv::lexical_only();
+    // Single non-image asset with .png extension.
+    std::fs::write(
+        env.workspace_root.join("garbage.png"),
+        b"this is not an image at all",
+    )
+    .expect("write garbage fixture");
+    let mut cfg = env.config.clone();
+    cfg.workspace.include.push("**/*.png".to_string());
+    cfg.image.ocr.enabled = false;
+    cfg.image.caption.enabled = false;
+
+    let cfg_clone = cfg.clone();
+    let scope = env.scope();
+    let report = spawn_blocking(move || {
+        kebab_app::ingest_with_config(cfg_clone, scope, false)
+            .expect("ingest does not abort on per-asset failure")
+    })
+    .await
+    .expect("task");
+
+    // Exactly-once: scanned counts the asset, errors counts it once,
+    // and (scanned == new + updated + skipped + errors) holds.
+    assert_eq!(
+        report.errors, 1,
+        "garbage PNG must increment errors exactly once, not twice (double-count regression)"
+    );
+    assert_eq!(
+        report.scanned,
+        report.new + report.updated + report.skipped + report.errors,
+        "counter sum must equal scanned — invariant of the IngestReport contract"
+    );
+
+    // The single Error item carries the propagated extract error.
+    let items = report.items.expect("items present");
+    let err_item = items
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("garbage.png"))
+        .expect("garbage item present");
+    assert_eq!(err_item.kind, kebab_core::IngestItemKind::Error);
+    assert!(err_item.error.is_some(), "Error item carries error string");
+}
+
+// ── 6. Determinism: re-ingest produces identical doc_id / chunk_id ───────
 
 /// Idempotency contract — running the same ingest twice should mark
 /// the asset Updated on the second run with byte-identical IDs.
