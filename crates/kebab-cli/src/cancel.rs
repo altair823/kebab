@@ -38,6 +38,14 @@ pub fn install_sigint_cancel() -> anyhow::Result<Arc<AtomicBool>> {
     let cancel_for_handler = cancel.clone();
     // Per-process count of received SIGINTs. Static so the closure
     // owns no extra state; first signal flips cancel, second exits.
+    //
+    // Process-lifetime: never reset. ctrlc::set_handler rejects
+    // multi-install with `Err(MultipleHandlers)`, so this counter
+    // is effectively single-use per `kebab` invocation. A future
+    // command that needs its own cancel token (e.g. `kebab eval
+    // run --with-cancel`) must factor the install path into a
+    // helper that takes the token as an arg and shares it across
+    // callers — not call `install_sigint_cancel` twice.
     static SIGNAL_COUNT: AtomicU8 = AtomicU8::new(0);
     ctrlc::set_handler(move || {
         let prev = SIGNAL_COUNT.fetch_add(1, Ordering::Relaxed);

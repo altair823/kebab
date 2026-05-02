@@ -80,11 +80,12 @@ fn cancel_mid_loop_after_first_asset_keeps_idempotent_resume() {
     let report = run_with(&env, cancel, Some(tx));
     listener.join().unwrap();
 
-    // Exactly 1 asset committed; remaining 2 skipped (untouched).
-    assert!(
-        report.new == 1 || report.new == 0 || report.new == 2,
-        "non-deterministic but must be < 3: {report:?}"
-    );
+    // cancel-mid is timing-dependent: the listener flips cancel
+    // after the first AssetFinished, but the loop may have started
+    // 1 more asset by the time the next iteration check runs.
+    // 0 (race won by listener), 1 (first only), or 2 (one extra
+    // slipped in) are all valid outcomes; report.new == 3 means
+    // cancel never propagated and is the only failure mode.
     assert!(report.new < 3, "loop should have broken: {report:?}");
 
     // Idempotent re-ingest finishes the job.
