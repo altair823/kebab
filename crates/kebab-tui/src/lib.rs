@@ -1,0 +1,23 @@
+//! `kebab-tui` — Ratatui shell + Library pane (P9-1).
+//!
+//! Per design §8 module boundary: UI crates may only touch the
+//! `kebab-app` facade. The store / search / embed / llm / rag layers
+//! stay invisible behind it. P9-1 establishes the shell (App loop,
+//! key dispatch, error popup, raw-mode panic guard) plus the Library
+//! pane. P9-2/3/4 plug into the same `App` struct via the
+//! `Option<*State>` slot pattern (parallel-safety: their sub-state
+//! types start as `pub struct *State;` opaque forward declarations
+//! and only their authoring crate fills the body).
+//!
+//! Per report §16.2 (TUI epic), design §1 (UX scenes), design §3.7
+//! (`SearchHit` / `DocSummary`).
+
+mod app;
+mod error_popup;
+mod library;
+mod run;
+mod terminal;
+
+pub use app::{App, AskState, InspectState, KeyOutcome, LibraryState, Pane, SearchState};
+pub use error_popup::{ErrorOverlay, render_error_overlay};
+pub use library::{handle_key_library, render_library};

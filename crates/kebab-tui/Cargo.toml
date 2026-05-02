@@ -1,0 +1,28 @@
+[package]
+name = "kebab-tui"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "Ratatui shell + Library pane for kebab — UI consumes kebab-app facade only (P9-1)"
+
+[dependencies]
+kebab-core   = { path = "../kebab-core" }
+kebab-config = { path = "../kebab-config" }
+# UI facade rule (design §8): UI crates may only touch `kebab-app`. The
+# search / store / embed / llm / rag layers stay invisible behind it.
+kebab-app    = { path = "../kebab-app" }
+ratatui      = "0.28"
+crossterm    = "0.28"
+anyhow       = { workspace = true }
+tracing      = { workspace = true }
+thiserror    = { workspace = true }
+time         = { workspace = true }
+# Korean / wide-char column width — Ratatui's `Span` truncates by chars,
+# not display width, so a list cell with `한` (width 2) followed by `a`
+# (width 1) overflows by one column without explicit width accounting.
+unicode-width = "0.2"
+
+[dev-dependencies]
+tempfile     = { workspace = true }
