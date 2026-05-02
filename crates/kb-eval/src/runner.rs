@@ -13,6 +13,7 @@ use kb_store_sqlite::{EvalRunRow, SqliteStore};
 use time::OffsetDateTime;
 
 use crate::loader::{load_golden_set, validate_against_db};
+use crate::metrics::{DEFAULT_GOLDEN_PATH, KB_EVAL_GOLDEN};
 use crate::types::{EvalRun, EvalRunOpts, GoldenQuery, QueryResult};
 
 /// Convert a wall-clock duration since `start` into milliseconds clamped
@@ -22,13 +23,6 @@ use crate::types::{EvalRun, EvalRunOpts, GoldenQuery, QueryResult};
 fn elapsed_ms_u32(start: Instant) -> u32 {
     start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32
 }
-
-/// Env var that overrides the default `fixtures/golden_queries.yaml`
-/// path. Resolved relative to the current working directory.
-const KB_EVAL_GOLDEN: &str = "KB_EVAL_GOLDEN";
-
-/// Default golden YAML path (relative to CWD when set).
-const DEFAULT_GOLDEN_PATH: &str = "fixtures/golden_queries.yaml";
 
 /// Run the golden suite end-to-end against the active XDG-loaded
 /// [`kb_config::Config`]. Wraps [`run_eval_with_config`] with

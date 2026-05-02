@@ -184,3 +184,28 @@ same one this spec defines, the names / wiring just differ.
 - **`anyhow`** is used in `Result` returns since the rest of the
   workspace already speaks anyhow; not in the spec's Allowed list but
   matches every other crate.
+- **`kb-eval` crate-level `kb-app` dep stays.** The crate already
+  depends on `kb-app` from P5-1 (the runner uses the `App` facade), so
+  the Cargo.toml entry remains. The new modules (`metrics.rs`,
+  `compare.rs`) do not import `kb-app` themselves — they're behind the
+  same crate boundary as the runner, but the metric/compare *surface*
+  is `kb-app`-clean. Splitting the crate to avoid a transitive Cargo
+  edge would be churn for no behavior gain.
+- **`citation_coverage` is intentionally weaker than the spec literal.**
+  Spec calls for "every citation resolves to a real chunk in the DB".
+  Current implementation: an Answer counts as fully covered iff it has
+  ≥1 citation AND every citation's path is non-empty. Tightening to a
+  per-citation `document_exists_by_path` SqliteStore probe is the next
+  step once that helper lands. Empty-citations no longer pass through
+  `Iterator::all`'s vacuous-true.
+- **`refusal_correctness` is undefined for non-RAG runs.** The metric
+  judges whether the system *refused*; without an `Answer` (lexical-
+  only or vector-only run), there's nothing to judge. We exclude such
+  queries from the denominator rather than auto-failing them, so a
+  search-only run reports `refusal_correctness` as `null` instead of a
+  misleading 0.0.
+- **`groundedness` skips queries with no `must_contain`/`forbidden`.**
+  An unconfigured golden entry would otherwise score a free 1.0 (or
+  0.0 if the answer happens to contain a forbidden string from a
+  later spec change). Refusal-class queries are also excluded — their
+  groundedness flows through `refusal_correctness`.

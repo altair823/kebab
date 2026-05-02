@@ -38,11 +38,13 @@ const STORAGE_DECIMALS: u32 = 4;
 /// Env var that overrides the default `fixtures/golden_queries.yaml`
 /// path during metric computation. Must be the same path the runner
 /// (P5-1) used — otherwise `expected_*` / `must_contain` won't line up
-/// with the stored `query_id`s.
-const KB_EVAL_GOLDEN: &str = "KB_EVAL_GOLDEN";
+/// with the stored `query_id`s. `pub(crate)` so the runner shares the
+/// exact same name + default rather than duplicating constants.
+pub(crate) const KB_EVAL_GOLDEN: &str = "KB_EVAL_GOLDEN";
 
-/// Default golden YAML path (relative to CWD when set).
-const DEFAULT_GOLDEN_PATH: &str = "fixtures/golden_queries.yaml";
+/// Default golden YAML path (relative to CWD when set). Same
+/// rationale as [`KB_EVAL_GOLDEN`] — single source of truth.
+pub(crate) const DEFAULT_GOLDEN_PATH: &str = "fixtures/golden_queries.yaml";
 
 /// Aggregate metrics for one stored eval run.
 ///
@@ -119,7 +121,7 @@ pub fn compute_aggregate_with_config(cfg: &Config, run_id: &str) -> Result<Aggre
         .load_eval_query_results(run_id)
         .context("load eval_query_results")?;
     let queries = load_golden_for_metrics()?;
-    aggregate_from_rows(&queries, &rows, &store)
+    aggregate_from_rows(&queries, &rows)
 }
 
 /// Persist `agg` into `eval_runs.aggregate_json` for `run_id`. Wraps
@@ -167,15 +169,13 @@ fn load_golden_for_metrics() -> Result<Vec<GoldenQuery>> {
 
 /// Pure computation kernel. Split out so unit tests can drive metrics
 /// off hand-rolled `(GoldenQuery, QueryResult)` fixtures without
-/// touching SQLite.
-///
-/// `_store` is currently unused — kept on the signature for the
-/// future `chunks` / `documents` lookups graceful-mode comparison
-/// would need.
+/// touching SQLite. No `&SqliteStore` parameter — the current metric
+/// formulas don't need DB lookups; once `citation_coverage` graduates
+/// to a per-citation `document_exists_by_path` probe (see deferral in
+/// `tasks/p5/p5-2-metrics-compare.md`), this will need to take one.
 pub(crate) fn aggregate_from_rows(
     queries: &[GoldenQuery],
     rows: &[kb_store_sqlite::EvalQueryResultRecord],
-    _store: &SqliteStore,
 ) -> Result<AggregateMetrics> {
     let golden_by_id: HashMap<&str, &GoldenQuery> =
         queries.iter().map(|q| (q.id.as_str(), q)).collect();
@@ -265,19 +265,17 @@ pub(crate) fn aggregate_from_rows(
             }
         } else {
             // refusal_correctness: golden marks "should refuse" via empty
-            // expected_doc_ids. The system "actually refused" iff there is
-            // an Answer with `grounded == false` (or no answer at all
-            // because score-gate refusal returned no hits-with-content).
-            refusal_denom += 1;
-            let refused = match &qr.answer {
-                Some(ans) => !ans.grounded,
-                // No RAG path on this query (e.g., search-only run) →
-                // can't judge; do not count as a refusal. Counts as
-                // failure to refuse so denominator stays honest.
-                None => false,
-            };
-            if refused {
-                refusal_num += 1;
+            // expected_doc_ids. We can only judge this on RAG runs — a
+            // lexical-only run produces no Answer, so "refusal" is
+            // undefined. Excluding such queries from the denominator
+            // (rather than counting them as failures) keeps the metric
+            // honest: a search-only run reports refusal_correctness as
+            // NaN/null, not 0.0.
+            if let Some(ans) = &qr.answer {
+                refusal_denom += 1;
+                if !ans.grounded {
+                    refusal_num += 1;
+                }
             }
         }
 
@@ -286,33 +284,41 @@ pub(crate) fn aggregate_from_rows(
         if let Some(answer) = &qr.answer
             && qr.error.is_none()
         {
-            groundedness_denom += 1;
-            let grounded_ok = gq.must_contain.iter().all(|s| answer.answer.contains(s))
-                && !gq.forbidden.iter().any(|s| answer.answer.contains(s));
-            if grounded_ok {
-                groundedness_num += 1;
+            // Skip "no-check" goldens (both must_contain and forbidden
+            // empty) so an unconfigured golden entry doesn't get a free
+            // 1.0 / 0.0 split. Refusal-class queries land here too;
+            // their groundedness is judged via refusal_correctness.
+            if !gq.must_contain.is_empty() || !gq.forbidden.is_empty() {
+                groundedness_denom += 1;
+                let grounded_ok = gq.must_contain.iter().all(|s| answer.answer.contains(s))
+                    && !gq.forbidden.iter().any(|s| answer.answer.contains(s));
+                if grounded_ok {
+                    groundedness_num += 1;
+                }
             }
-            // `citation_coverage` denominator is grounded RAG answers
-            // (so refusals don't drag it down). For each, every
-            // `Answer.citations[*].citation` chunk_id-equivalent must
-            // resolve to a real chunk — but `Citation` doesn't carry a
-            // `chunk_id` directly; the chunk it came from is identified
-            // by the corresponding `SearchHit.chunk_id`. Spec wording
-            // ("resolves to a real chunk in the DB") maps cleanly to:
-            // every Answer.citations[*].citation must equal a chunk
-            // whose path appears in the run's chunks table. We probe
-            // by document path → at-least-one chunk exists for that
-            // doc in `documents`, which is the loosest reasonable
-            // resolver and avoids a per-citation chunks scan.
+            // citation_coverage: denominator is grounded RAG answers
+            // (refusals don't drag it down). The spec calls for "every
+            // citation resolves to a real chunk in the DB"; the current
+            // implementation is intentionally weaker — see
+            // `tasks/p5/p5-2-metrics-compare.md` "Implementation
+            // deviations" for the deferral rationale. Today: an Answer
+            // counts as fully covered iff (a) it carries at least one
+            // citation (so empty-citations doesn't sneak through
+            // `Iterator::all`'s vacuous-true) and (b) every citation's
+            // path is non-empty. Tightening to a per-citation
+            // SqliteStore probe is the obvious next step once
+            // `document_exists_by_path` lands in `kb-store-sqlite`.
             if answer.grounded {
                 citation_denom += 1;
-                if answer.citations.iter().all(|c| match &c.citation {
-                    Citation::Line { path, .. }
-                    | Citation::Page { path, .. }
-                    | Citation::Region { path, .. }
-                    | Citation::Caption { path, .. }
-                    | Citation::Time { path, .. } => !path.0.is_empty(),
-                }) {
+                let covered = !answer.citations.is_empty()
+                    && answer.citations.iter().all(|c| match &c.citation {
+                        Citation::Line { path, .. }
+                        | Citation::Page { path, .. }
+                        | Citation::Region { path, .. }
+                        | Citation::Caption { path, .. }
+                        | Citation::Time { path, .. } => !path.0.is_empty(),
+                    });
+                if covered {
                     citation_num += 1;
                 }
             }
@@ -493,24 +499,6 @@ mod tests {
         }
     }
 
-    fn empty_store() -> SqliteStore {
-        // Open a fresh in-memory-style store rooted at a temp dir. We
-        // never read from it in these tests — `_store` is unused by
-        // `aggregate_from_rows`. Going through the real `open` path
-        // keeps the test free of any mock-vs-prod divergence.
-        let tmp = tempfile::tempdir().unwrap();
-        let mut cfg = kb_config::Config::defaults();
-        cfg.storage.data_dir = tmp.path().to_string_lossy().into_owned();
-        cfg.storage.copy_threshold_mb = 0;
-        cfg.storage.runs_dir = tmp.path().join("runs").to_string_lossy().into_owned();
-        let store = SqliteStore::open(&cfg).unwrap();
-        store.run_migrations().unwrap();
-        // Tempdir would normally be dropped at end of fn; leak it so the
-        // store keeps its DB file alive for the duration of the test.
-        std::mem::forget(tmp);
-        store
-    }
-
     #[test]
     fn hit_at_k_handles_ranks_1_4_miss() {
         // q1: hit @ rank 1, q2: hit @ rank 4, q3: miss
@@ -524,8 +512,7 @@ mod tests {
             record("q2", vec![hit(1, "x", "y"), hit(2, "x", "y"), hit(3, "x", "y"), hit(4, "c2", "d2")], None, None),
             record("q3", vec![hit(1, "x", "y")], None, None),
         ];
-        let store = empty_store();
-        let agg = aggregate_from_rows(&queries, &rows, &store).unwrap();
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
         // hit@1 = 1/3 (q1 only), hit@3 = 1/3, hit@5 = 2/3, hit@10 = 2/3
         assert_eq!(agg.hit_at_k[&1], 0.3333);
         assert_eq!(agg.hit_at_k[&3], 0.3333);
@@ -546,8 +533,7 @@ mod tests {
             record("q2", vec![hit(1, "x", "y"), hit(2, "x", "y"), hit(3, "x", "y"), hit(4, "c2", "d2")], None, None),
             record("q3", vec![hit(1, "x", "y")], None, None),
         ];
-        let store = empty_store();
-        let agg = aggregate_from_rows(&queries, &rows, &store).unwrap();
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
         assert_eq!(agg.mrr, 0.4167);
     }
 
@@ -556,8 +542,7 @@ mod tests {
         // q1 expects {d1, d2}; top-3 returns {d1}. recall@3 = 0.5
         let queries = vec![gq("q1", &[], &["d1", "d2"])];
         let rows = vec![record("q1", vec![hit(1, "c1", "d1"), hit(2, "c2", "d3")], None, None)];
-        let store = empty_store();
-        let agg = aggregate_from_rows(&queries, &rows, &store).unwrap();
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
         assert_eq!(agg.recall_at_k_doc[&3], 0.5);
         assert_eq!(agg.recall_at_k_doc[&10], 0.5);
     }
@@ -569,8 +554,7 @@ mod tests {
         let queries = vec![q];
         let ans = answer("contains alpha", true, &["docs/d1.md"]);
         let rows = vec![record("q1", vec![hit(1, "c1", "d1")], None, Some(ans))];
-        let store = empty_store();
-        let agg = aggregate_from_rows(&queries, &rows, &store).unwrap();
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
         assert_eq!(agg.citation_coverage, 1.0);
     }
 
@@ -582,8 +566,7 @@ mod tests {
         let queries = vec![q];
         let ans = answer("alpha and beta", true, &["docs/d1.md"]);
         let rows = vec![record("q1", vec![hit(1, "c1", "d1")], None, Some(ans))];
-        let store = empty_store();
-        let agg = aggregate_from_rows(&queries, &rows, &store).unwrap();
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
         assert_eq!(agg.groundedness, 0.0);
     }
 
@@ -592,9 +575,46 @@ mod tests {
         let queries = vec![gq("q1", &[], &[])]; // expected_doc_ids empty → "should refuse"
         let ans = answer("I cannot answer", false, &[]);
         let rows = vec![record("q1", vec![], None, Some(ans))];
-        let store = empty_store();
-        let agg = aggregate_from_rows(&queries, &rows, &store).unwrap();
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
         assert_eq!(agg.refusal_correctness, 1.0);
+    }
+
+    #[test]
+    fn refusal_correctness_nan_for_non_rag_run() {
+        // Even with a "should refuse" query, a lexical-only run has no
+        // Answer and so refusal cannot be judged → metric is NaN, not 0.
+        let queries = vec![gq("q1", &[], &[])];
+        let rows = vec![record("q1", vec![], None, None)];
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
+        assert!(agg.refusal_correctness.is_nan(), "got {}", agg.refusal_correctness);
+    }
+
+    #[test]
+    fn citation_coverage_zero_when_answer_has_no_citations() {
+        // A grounded answer with empty citations[] used to count as
+        // covered via Iterator::all's vacuous-true; now must score 0.
+        let mut q = gq("q1", &[], &["d1"]);
+        q.must_contain = vec!["alpha".into()];
+        let queries = vec![q];
+        let ans = answer("contains alpha", true, &[]);
+        let rows = vec![record("q1", vec![hit(1, "c1", "d1")], None, Some(ans))];
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
+        assert_eq!(agg.citation_coverage, 0.0);
+    }
+
+    #[test]
+    fn groundedness_skips_unconfigured_goldens() {
+        // A non-error RAG answer for a golden with neither must_contain
+        // nor forbidden must NOT score 1.0 by default — it should be
+        // excluded from the denominator entirely. Refusal-class
+        // queries are tracked via refusal_correctness instead.
+        let queries = vec![gq("q1", &["c1"], &["d1"])]; // no must_contain / forbidden
+        let ans = answer("anything", true, &["docs/d1.md"]);
+        let rows = vec![record("q1", vec![hit(1, "c1", "d1")], None, Some(ans))];
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
+        // denominator is 0 → ratio_or_zero returns 0.0 (not NaN, since
+        // groundedness isn't a NaN-flagged metric per spec).
+        assert_eq!(agg.groundedness, 0.0);
     }
 
     #[test]
@@ -602,8 +622,7 @@ mod tests {
         // No RAG answers → citation_coverage NaN. No "should refuse" → refusal_correctness NaN.
         let queries = vec![gq("q1", &["c1"], &["d1"])];
         let rows = vec![record("q1", vec![hit(1, "c1", "d1")], None, None)];
-        let store = empty_store();
-        let agg = aggregate_from_rows(&queries, &rows, &store).unwrap();
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
         let json: serde_json::Value = serde_json::to_value(&agg).unwrap();
         assert!(json["citation_coverage"].is_null(), "expected null, got {:?}", json["citation_coverage"]);
         assert!(json["refusal_correctness"].is_null(), "expected null, got {:?}", json["refusal_correctness"]);
@@ -616,9 +635,8 @@ mod tests {
             record("q1", vec![hit(1, "c1", "d1")], None, None),
             record("q2", vec![hit(1, "x", "y"), hit(2, "c2", "d2")], None, None),
         ];
-        let store = empty_store();
-        let a = aggregate_from_rows(&queries, &rows, &store).unwrap();
-        let b = aggregate_from_rows(&queries, &rows, &store).unwrap();
+        let a = aggregate_from_rows(&queries, &rows).unwrap();
+        let b = aggregate_from_rows(&queries, &rows).unwrap();
         // NaN != NaN under PartialEq, but the JSON encoding maps NaN
         // to null and is the actual storage form, so compare on that.
         assert_eq!(
@@ -634,8 +652,7 @@ mod tests {
             record("q1", vec![], None, None),
             record("q2", vec![hit(1, "c2", "d2")], None, None),
         ];
-        let store = empty_store();
-        let agg = aggregate_from_rows(&queries, &rows, &store).unwrap();
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
         assert_eq!(agg.empty_result_rate, 0.5);
     }
 
@@ -643,8 +660,7 @@ mod tests {
     fn failed_queries_counted() {
         let queries = vec![gq("q1", &["c1"], &["d1"])];
         let rows = vec![record("q1", vec![], Some("boom".into()), None)];
-        let store = empty_store();
-        let agg = aggregate_from_rows(&queries, &rows, &store).unwrap();
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
         assert_eq!(agg.failed_queries, 1);
         assert_eq!(agg.total_queries, 1);
     }

@@ -245,15 +245,24 @@ pub fn render_report_md(report: &CompareReport) -> String {
     for c in &report.per_query {
         let _ = writeln!(
             out,
-            "| {} | {:?} | {} | {} | {} |",
+            "| {} | {} | {} | {} | {} |",
             c.query_id,
-            c.kind,
+            comparison_kind_label(c.kind),
             c.a_hit_rank.map(|r| r.to_string()).unwrap_or_else(|| "—".into()),
             c.b_hit_rank.map(|r| r.to_string()).unwrap_or_else(|| "—".into()),
             c.note.as_deref().unwrap_or(""),
         );
     }
     out
+}
+
+fn comparison_kind_label(k: ComparisonKind) -> &'static str {
+    match k {
+        ComparisonKind::Win => "win",
+        ComparisonKind::Loss => "loss",
+        ComparisonKind::Draw => "draw",
+        ComparisonKind::Regression => "regression",
+    }
 }
 
 fn fmt(v: f32) -> String {
@@ -278,8 +287,11 @@ fn fmt_delta(a: f32, b: f32) -> String {
 
 /// Pull `chunker_version` out of a `config_snapshot_json` payload. The
 /// runner writes `{"chunker_version": "<id>", ...}`; missing or
-/// malformed → `None`, which downstream treats as "unknown" (still
-/// compares `None == None` as a match).
+/// malformed → `None`. Two `None`s compare as equal and route through
+/// the "exact" matcher, but only the runner writes these snapshots
+/// and it always emits `chunker_version` — so `None == None` can only
+/// arise from a hand-edited DB or a pre-P5-1 fixture, both of which
+/// are out-of-scope failure modes that the strict-mode flag covers.
 fn extract_chunker_version(snapshot_json: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(snapshot_json).ok()?;
     v.get("chunker_version")
@@ -468,7 +480,7 @@ mod tests {
 
     #[test]
     fn delta_null_when_either_nan() {
-        let mut a = AggregateMetrics {
+        let a = AggregateMetrics {
             hit_at_k: Default::default(),
             mrr: 0.5,
             recall_at_k_doc: Default::default(),
@@ -479,17 +491,12 @@ mod tests {
             total_queries: 0,
             failed_queries: 0,
         };
-        let mut b = a.clone();
-        b.mrr = 0.75;
+        let b = AggregateMetrics { mrr: 0.75, ..a.clone() };
         let d = build_deltas(&a, &b, "exact");
         assert!(d["citation_coverage"].is_null());
         assert!(d["refusal_correctness"].is_null());
         assert!((d["mrr"].as_f64().unwrap() - 0.25).abs() < 1e-6);
         assert_eq!(d["chunker_version_match"], "exact");
-        // Suppress unused-mut warnings — both values are conceptually
-        // mutated for the matrix above.
-        a.mrr = 0.0;
-        b.mrr = 0.0;
     }
 
     #[test]
