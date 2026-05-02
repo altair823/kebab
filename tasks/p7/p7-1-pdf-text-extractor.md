@@ -3,7 +3,7 @@ phase: P7
 component: kebab-parse-pdf (text extractor)
 task_id: p7-1
 title: "Text PDF extractor → CanonicalDocument with page-level blocks"
-status: planned
+status: completed
 depends_on: [p0-1, p1-6]
 unblocks: [p7-2]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
