@@ -8,7 +8,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use kebab_config::Config;
 use kebab_core::{
     Answer, AnswerCitation, AnswerRetrievalSummary, Citation, ModelRef,
-    PromptTemplateVersion, RefusalReason, SearchMode, TokenUsage, TraceId, WorkspacePath,
+    PromptTemplateVersion, RefusalReason, SearchMode, TokenUsage, TraceId, Turn,
+    WorkspacePath,
 };
 use kebab_tui::{App, AskState, KeyOutcome, Pane, handle_key_ask, render_ask};
 use ratatui::Terminal;
@@ -242,7 +243,17 @@ fn render_grounded_answer_with_citation() {
     {
         let s = app.ask.as_mut().unwrap();
         s.input = "test".into();
-        s.answer = Some(make_answer(true, None, "test answer body [1]."));
+        let ans = make_answer(true, None, "test answer body [1].");
+        // p9-fb-16: transcript renders completed turns; populate one
+        // alongside last_answer so the right-panel status + body
+        // assertions both have something to find.
+        s.turns.push(Turn {
+            question: "test question".into(),
+            answer: ans.answer.clone(),
+            citations: ans.citations.clone(),
+            created_at: ans.created_at,
+        });
+        s.last_answer = Some(ans);
     }
     let backend = TestBackend::new(100, 24);
     let mut terminal = Terminal::new(backend).unwrap();
@@ -274,7 +285,13 @@ fn render_refusal_score_gate_shows_status_without_citation_index_panic() {
         let s = app.ask.as_mut().unwrap();
         let mut ans = make_answer(false, Some(RefusalReason::ScoreGate), "insufficient grounding to answer.");
         ans.citations.clear(); // refusal often has no citations
-        s.answer = Some(ans);
+        s.turns.push(Turn {
+            question: "test refusal question".into(),
+            answer: ans.answer.clone(),
+            citations: ans.citations.clone(),
+            created_at: ans.created_at,
+        });
+        s.last_answer = Some(ans);
     }
     let backend = TestBackend::new(120, 20);
     let mut terminal = Terminal::new(backend).unwrap();
@@ -304,7 +321,7 @@ fn explain_toggle_changes_panel_title() {
     let mut app = fresh_app();
     {
         let s = app.ask.as_mut().unwrap();
-        s.answer = Some(make_answer(true, None, "answer body."));
+        s.last_answer = Some(make_answer(true, None, "answer body."));
         s.explain = true;
     }
     let backend = TestBackend::new(100, 24);
@@ -377,4 +394,126 @@ fn no_ask_state_returns_to_library() {
         KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
     );
     assert_eq!(outcome, KeyOutcome::SwitchPane(Pane::Library));
+}
+
+// ── p9-fb-16: multi-turn conversation transcript ──────────────────────────
+
+#[test]
+fn ctrl_l_clears_conversation_state() {
+    let mut app = fresh_app();
+    {
+        let s = app.ask.as_mut().unwrap();
+        s.conversation_id = Some("conv_test".into());
+        s.turns.push(Turn {
+            question: "Q".into(),
+            answer: "A".into(),
+            citations: Vec::new(),
+            created_at: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+        });
+        s.last_answer = Some(make_answer(true, None, "A"));
+        s.partial = "leftover".into();
+        s.current_question = Some("in flight".into());
+        s.scroll = 5;
+    }
+    let outcome = handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL),
+    );
+    assert_eq!(outcome, KeyOutcome::Continue);
+    let s = app.ask.as_ref().unwrap();
+    assert!(s.turns.is_empty(), "turns cleared");
+    assert!(s.conversation_id.is_none(), "conversation_id cleared");
+    assert!(s.last_answer.is_none(), "last_answer cleared");
+    assert!(s.partial.is_empty(), "partial cleared");
+    assert!(s.current_question.is_none(), "current_question cleared");
+    assert_eq!(s.scroll, 0, "scroll reset");
+}
+
+#[test]
+fn render_transcript_shows_completed_turns_in_order() {
+    let mut app = fresh_app();
+    {
+        let s = app.ask.as_mut().unwrap();
+        let ts = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+        s.turns.push(Turn {
+            question: "first question".into(),
+            answer: "first answer".into(),
+            citations: Vec::new(),
+            created_at: ts,
+        });
+        s.turns.push(Turn {
+            question: "second question".into(),
+            answer: "second answer".into(),
+            citations: Vec::new(),
+            created_at: ts,
+        });
+    }
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| {
+            let area = Rect::new(0, 0, 80, 24);
+            render_ask(f, area, &app);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let rendered: String = (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("Q1"), "Q1 marker rendered");
+    assert!(rendered.contains("Q2"), "Q2 marker rendered");
+    let q1_pos = rendered.find("Q1").unwrap();
+    let q2_pos = rendered.find("Q2").unwrap();
+    assert!(q1_pos < q2_pos, "chronological order: Q1 before Q2");
+    assert!(rendered.contains("first question"), "first question text");
+    assert!(rendered.contains("second answer"), "second answer text");
+    assert!(rendered.contains("transcript (2 turns)"), "title shows count");
+}
+
+#[test]
+fn render_streaming_inflight_turn_appears_below_completed_turns() {
+    let mut app = fresh_app();
+    {
+        let s = app.ask.as_mut().unwrap();
+        s.turns.push(Turn {
+            question: "first".into(),
+            answer: "ANSWERED".into(),
+            citations: Vec::new(),
+            created_at: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+        });
+        s.streaming = true;
+        s.current_question = Some("follow-up".into());
+        s.partial = "PARTIAL".into();
+    }
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| {
+            let area = Rect::new(0, 0, 80, 24);
+            render_ask(f, area, &app);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let rendered: String = (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("ANSWERED"), "completed turn body");
+    assert!(rendered.contains("PARTIAL"), "in-flight partial body");
+    assert!(rendered.contains("▍"), "cursor block on in-flight turn");
+    let answered_pos = rendered.find("ANSWERED").unwrap();
+    let partial_pos = rendered.find("PARTIAL").unwrap();
+    assert!(
+        answered_pos < partial_pos,
+        "completed turn before in-flight; got: {answered_pos} vs {partial_pos}"
+    );
 }

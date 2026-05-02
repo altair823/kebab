@@ -92,11 +92,20 @@ impl Default for SearchState {
     }
 }
 
-/// Ask pane state — owned by p9-3.
+/// Ask pane state — owned by p9-3, extended by p9-fb-16 for
+/// multi-turn conversation transcript.
 ///
 /// The worker thread (`thread`) owns the `mpsc::Sender<String>` that
 /// `kebab-app::ask` writes tokens into. The pane keeps the matching
 /// `rx` and drains it once per render frame (no blocking).
+///
+/// p9-fb-16: completed `Turn`s accumulate in `turns`; the worker
+/// passes a snapshot of `turns` as `history` to
+/// `RagPipeline::ask_with_history`, so each follow-up question sees
+/// the full prior conversation. `conversation_id` is auto-generated
+/// on the first submission (timestamp-based — unique per session,
+/// not cryptographic). `Ctrl-L` clears `turns + conversation_id` to
+/// start a fresh conversation.
 #[derive(Default)]
 pub struct AskState {
     pub input: String,
@@ -105,20 +114,38 @@ pub struct AskState {
     /// True between `Enter` press and worker thread completion.
     pub streaming: bool,
     /// Tokens accumulated from the worker so far. Cleared on each
-    /// new submission.
+    /// new submission. Mid-stream this is what the transcript shows
+    /// for the in-flight turn.
     pub partial: String,
-    /// Final `Answer` once the worker thread finishes.
-    pub answer: Option<kebab_core::Answer>,
     /// In-flight worker; `take()`n when it finishes.
     pub thread: Option<std::thread::JoinHandle<anyhow::Result<kebab_core::Answer>>>,
     /// Token receiver paired with the worker's `Sender`. Drained
     /// every render frame.
     pub rx: Option<std::sync::mpsc::Receiver<String>>,
-    /// Vertical scroll offset for the answer area when content
+    /// Vertical scroll offset for the transcript area when content
     /// exceeds the viewport.
     pub scroll: u16,
     /// Last error from the worker thread (rendered in popup if Some).
     pub last_error: Option<String>,
+    /// p9-fb-16: completed turns of the current conversation. Each
+    /// turn = (question, full answer text, citations, ts). Streaming
+    /// turn (the one being generated right now) lives in
+    /// `current_question` + `partial` and only graduates into
+    /// `turns` on `poll_worker` completion.
+    pub turns: Vec<kebab_core::Turn>,
+    /// p9-fb-16: question text for the in-flight turn. Cleared at
+    /// submission (input → current_question, input → empty),
+    /// finalized into the new Turn at completion.
+    pub current_question: Option<String>,
+    /// p9-fb-16: shared id stamped onto every `Answer` of this
+    /// conversation. Auto-generated on first submission, cleared by
+    /// `Ctrl-L` (next submission generates a fresh id).
+    pub conversation_id: Option<String>,
+    /// p9-fb-16: most-recent `Answer` for citation / status display
+    /// in the right panel. Same data also lives inside the last
+    /// `Turn`; this slot is just the easiest place for the panel
+    /// renderer to look.
+    pub last_answer: Option<kebab_core::Answer>,
 }
 
 
