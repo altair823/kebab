@@ -98,25 +98,6 @@ pub struct AskOpts {
     pub turn_index: Option<u32>,
 }
 
-impl AskOpts {
-    /// Default knobs for a single-shot ask (no history, no
-    /// conversation_id). `k` falls through to the config floor in
-    /// `RagPipeline::ask`.
-    pub fn single_shot(mode: SearchMode) -> Self {
-        Self {
-            k: 0,
-            explain: false,
-            mode,
-            temperature: None,
-            seed: None,
-            stream_sink: None,
-            history: Vec::new(),
-            conversation_id: None,
-            turn_index: None,
-        }
-    }
-}
-
 // ── RagPipeline ─────────────────────────────────────────────────────────────
 
 /// Single-threaded RAG orchestrator. See module docs for the stage list.
