@@ -3,7 +3,7 @@ phase: P9
 component: kebab-tui (inspect pane)
 task_id: p9-4
 title: "TUI Inspect pane: document & chunk detail render"
-status: planned
+status: completed
 depends_on: [p1-6, p9-1]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

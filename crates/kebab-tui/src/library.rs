@@ -279,6 +279,15 @@ pub fn handle_key_library(state: &mut App, key: KeyEvent) -> KeyOutcome {
             if inner.docs.is_empty() {
                 KeyOutcome::Continue
             } else {
+                let idx = inner.list_state.selected().unwrap_or(0);
+                // Capture doc_id and exit the `inner` borrow scope
+                // before re-borrowing `state` for `enter_inspect`.
+                let doc_id = inner.docs[idx].doc_id.clone();
+                // NLL releases the `inner` borrow at last use above;
+                // we can re-borrow `state` mutably for the inspect-side
+                // mutation below.
+                let target = crate::app::InspectTarget::Doc(doc_id);
+                crate::inspect::enter_inspect(state, target, Pane::Library);
                 KeyOutcome::SwitchPane(Pane::Inspect)
             }
         }

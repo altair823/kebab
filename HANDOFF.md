@@ -4,7 +4,7 @@
 
 ## 한 줄 요약
 
-P0–P5 + P6 + P7 + P9-1 (Library) + P9-2 (Search) + P9-3 (Ask) 머지 완료. `kebab ingest` 가 markdown / image / PDF 모두 처리. `kebab search` / `kebab ask` 가 매체 가로질러 결과 + page citation 반환. `kebab tui` 가 Library + Search + Ask 패널 제공 (inspect/desktop 진행 예정). 다음 후보 = P9-4 (TUI inspect) / P9-5 (desktop tauri), 또는 보류 중인 P8 (audio) 의 시스템 dep brainstorm.
+P0–P5 + P6 + P7 + P9-1/2/3/4 (Library / Search / Ask / Inspect) 머지 완료. `kebab ingest` 가 markdown / image / PDF 모두 처리. `kebab search` / `kebab ask` 가 매체 가로질러 결과 + page citation 반환. `kebab tui` 가 4 패널 (Library + Search + Ask + Inspect) 제공 — 사용자가 `?` 로 ask, `/` 로 search, Library Enter / Search `i` 로 inspect, Search `g` 로 editor jump. 다음 후보 = P9-5 (desktop tauri) 또는 보류 중인 P8 (audio) 의 시스템 dep brainstorm.
 
 ## Phase 로드맵
 
@@ -19,7 +19,7 @@ P0–P5 + P6 + P7 + P9-1 (Library) + P9-2 (Search) + P9-3 (Ask) 머지 완료. `
 | **P6** | 이미지 ingestion (OCR + caption) | `kebab-parse-image` | P5 | ✅ 완료 (4/4 component, OCR/caption Ollama-vision) |
 | **P7** | PDF text + page citation | `kebab-parse-pdf` | P5 | ✅ 완료 (3/3 component, page-level chunker + ingest wiring) |
 | **P8** | 음성 transcription + timestamp citation | `kebab-parse-audio` | P5 | ⏸ 보류 (whisper-rs 시스템 dep brainstorm 필요) |
-| **P9** | TUI + desktop app | `kebab-tui`, `kebab-desktop` | P5 | 🟡 진행 (3/5 component — P9-1 Library + P9-2 Search + P9-3 Ask 완료, P9-4/5 예정) |
+| **P9** | TUI + desktop app | `kebab-tui`, `kebab-desktop` | P5 | 🟡 진행 (4/5 component — P9-1/2/3/4 완료 [Library / Search / Ask / Inspect], P9-5 desktop 예정) |
 
 P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 
@@ -39,6 +39,7 @@ P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 - **P9-1 ratatui 0.28** — spec literal 의 `render_library<B: Backend>` generic 이 ratatui 0.28 의 backend-agnostic Frame 과 어긋나 있어 제거. 테스트 seam `App::populate_library_for_testing` (`#[doc(hidden)]`) 추가.
 - **P9-2 jump_to_citation workspace_root** — spec literal 의 `jump_to_citation(citation, editor_env)` 가 workspace_root 인자 누락. citation.path 가 workspace 상대라 editor 호출 시 절대 경로 필요 → `workspace_root: &Path` 인자 추가. 동일하게 `render_search<B: Backend>` generic 도 P9-1 과 같은 사유로 제거.
 - **P9-3 e/j/k 키 의 \"input empty\" 분기** — spec 의 `e=toggle explain` / `j=k=scroll` 이 typing 과 충돌 (\"explain\" / \"javascript\" 같은 단어 입력 깨짐). input 이 비어 있을 때만 command 키로 동작 — vim \"command vs insert\" 컨벤션 변형. 사용자가 텍스트 입력 시 모든 알파벳 정상 통과.
+- **P9-4 enter_inspect helper + Search `i` 키** — spec 의 진입 경로 (Library Enter → Doc inspect, Search `i` → Chunk inspect) 를 한 helper 로 묶음. `InspectTarget` enum (`Doc(DocumentId) | Chunk(ChunkId)`), `return_to: Pane` 가 Esc 시 원래 pane 으로 복귀. `c` 키가 모든 section (metadata / provenance / blocks / spans / text / embeddings) 일괄 collapse/expand — spec 의 \"focus 기반 selective collapse\" 는 v1 단순화.
 
 ## 다음 task 후보
 

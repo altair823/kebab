@@ -181,6 +181,32 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
     // workspace_root after dropping the `&mut state.search` borrow.
     // Handle it as a pre-pass so the rest of the function can use
     // `state.search.as_mut()` without scope juggling.
+    // `i` (chunk inspect) — pre-pass like `g`. Only fires on plain
+    // press, so typing 'i' in queries like "instance" still reaches
+    // the input buffer (P9-2 SHIFT/none convention).
+    if matches!(
+        (key.code, key.modifiers),
+        (KeyCode::Char('i'), KeyModifiers::NONE)
+    ) {
+        let chunk_id = {
+            let s = state.search.as_ref().unwrap();
+            if s.hits.is_empty() {
+                None
+            } else {
+                Some(s.hits[s.selected_hit].chunk_id.clone())
+            }
+        };
+        if let Some(chunk_id) = chunk_id {
+            crate::inspect::enter_inspect(
+                state,
+                crate::app::InspectTarget::Chunk(chunk_id),
+                Pane::Search,
+            );
+            return KeyOutcome::SwitchPane(Pane::Inspect);
+        }
+        return KeyOutcome::Continue;
+    }
+
     // `g` only fires the editor jump on plain (no-modifier) press —
     // SHIFT-G in vim land is "go to bottom" (not implemented here),
     // and CTRL/ALT chords stay reserved.
