@@ -163,12 +163,15 @@ pub(crate) fn build_doc_lines<'a>(
         lines.push(blank());
     }
 
-    // blocks
-    push_section_header(&mut lines, SECTION_BLOCKS, s);
-    lines.push(Line::from(format!(
-        "  count = {}",
-        doc.blocks.len()
-    )));
+    // blocks — section header carries the count inline so a
+    // collapsed view still reports "how many" without leaking
+    // body lines (R1 review: count must collapse with the rest).
+    push_section_header_with_count(
+        &mut lines,
+        SECTION_BLOCKS,
+        s,
+        Some(doc.blocks.len()),
+    );
     if !s.collapsed.contains(SECTION_BLOCKS) {
         let preview_n = 16.min(doc.blocks.len());
         for (i, b) in doc.blocks.iter().take(preview_n).enumerate() {
@@ -242,19 +245,18 @@ pub(crate) fn build_chunk_lines<'a>(
         lines.push(blank());
     }
 
-    // embeddings (block_ids serve as the lightweight provenance —
-    // full embedding records require an extra facade call out of v1
-    // scope; spec § Out of scope: \"Embedding inspection beyond
-    // listing model identity\")
-    push_section_header(&mut lines, SECTION_EMBEDDINGS, s);
+    // embeddings — section header carries the block_id count inline
+    // (spec § Out of scope: full embedding records lookup is P+).
+    push_section_header_with_count(
+        &mut lines,
+        SECTION_EMBEDDINGS,
+        s,
+        Some(chunk.block_ids.len()),
+    );
     if !s.collapsed.contains(SECTION_EMBEDDINGS) {
         lines.push(Line::from(Span::styled(
             "  (embedding records not loaded — out of v1 scope)",
             Style::default().add_modifier(Modifier::DIM),
-        )));
-        lines.push(Line::from(format!(
-            "  block_ids = {}",
-            chunk.block_ids.len()
         )));
         for bid in &chunk.block_ids {
             lines.push(Line::from(format!("    {}", bid.0)));
@@ -288,10 +290,26 @@ fn blank() -> Line<'static> {
 }
 
 fn push_section_header(lines: &mut Vec<Line<'static>>, name: &'static str, s: &InspectState) {
+    push_section_header_with_count(lines, name, s, None);
+}
+
+/// Section header + optional inline count. Inline-count form is used
+/// where a collapsed section should still report \"how many\" — see
+/// blocks / embeddings.
+fn push_section_header_with_count(
+    lines: &mut Vec<Line<'static>>,
+    name: &'static str,
+    s: &InspectState,
+    count: Option<usize>,
+) {
     let collapsed = s.collapsed.contains(name);
     let marker = if collapsed { "▸" } else { "▾" };
+    let title = match count {
+        Some(n) => format!("{marker} {name} ({n})"),
+        None => format!("{marker} {name}"),
+    };
     lines.push(Line::from(Span::styled(
-        format!("{marker} {name}"),
+        title,
         Style::default()
             .add_modifier(Modifier::BOLD)
             .fg(Color::Yellow),

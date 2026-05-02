@@ -264,6 +264,7 @@ fn doc_view_collapse_hides_section_body() {
     }
     let pre = render_to_string(&app, 100, 30);
     assert!(pre.contains("kb-source-fs"), "before collapse");
+    assert!(pre.contains("Heading L1"), "blocks body before collapse");
     handle_key_inspect(
         &mut app,
         KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
@@ -271,8 +272,16 @@ fn doc_view_collapse_hides_section_body() {
     let post = render_to_string(&app, 100, 30);
     assert!(post.contains("metadata"), "section header still visible");
     assert!(
+        post.contains("blocks (2)"),
+        "blocks count visible inline on collapsed header: {post}"
+    );
+    assert!(
         !post.contains("kb-source-fs"),
         "provenance body hidden after collapse: {post}"
+    );
+    assert!(
+        !post.contains("Heading L1"),
+        "blocks body hidden after collapse (count must collapse with body): {post}"
     );
 }
 
@@ -290,8 +299,8 @@ fn chunk_view_renders_text_and_block_ids() {
     assert!(rendered.contains("Line 1-5"), "source span described");
     assert!(rendered.contains("chunk body line one"), "text body rendered");
     assert!(
-        rendered.contains("block_ids = 2"),
-        "block_id count rendered"
+        rendered.contains("embeddings (2)"),
+        "block_id count rendered inline on embeddings header"
     );
 }
 
