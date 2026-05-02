@@ -3,7 +3,7 @@ phase: P9
 component: kebab-app + kebab-cli + kebab-tui
 task_id: p9-fb-04
 title: "Cooperative ingest cancellation (Ctrl-C / Esc)"
-status: in_progress
+status: completed
 depends_on: [p9-fb-01]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
