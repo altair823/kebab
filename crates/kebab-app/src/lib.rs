@@ -57,8 +57,10 @@ use kebab_source_fs::FsSourceConnector;
 mod app;
 pub mod doctor_signal;
 pub mod logging;
+pub mod reset;
 
 pub use app::App;
+pub use reset::{ResetReport, ResetScope};
 
 /// Parser-version label persisted in `documents.parser_version` for
 /// every Markdown file ingested through the `kb-parse-md` pipeline.

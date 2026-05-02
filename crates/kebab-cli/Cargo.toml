@@ -30,3 +30,6 @@ kebab-tui    = { path = "../kebab-tui" }
 anyhow       = { workspace = true }
 serde_json   = { workspace = true }
 clap         = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+tempfile     = { workspace = true }

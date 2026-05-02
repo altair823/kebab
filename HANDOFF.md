@@ -40,6 +40,7 @@ P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 - **P9-2 jump_to_citation workspace_root** — spec literal 의 `jump_to_citation(citation, editor_env)` 가 workspace_root 인자 누락. citation.path 가 workspace 상대라 editor 호출 시 절대 경로 필요 → `workspace_root: &Path` 인자 추가. 동일하게 `render_search<B: Backend>` generic 도 P9-1 과 같은 사유로 제거.
 - **P9-3 e/j/k 키 의 \"input empty\" 분기** — spec 의 `e=toggle explain` / `j=k=scroll` 이 typing 과 충돌 (\"explain\" / \"javascript\" 같은 단어 입력 깨짐). input 이 비어 있을 때만 command 키로 동작 — vim \"command vs insert\" 컨벤션 변형. 사용자가 텍스트 입력 시 모든 알파벳 정상 통과.
 - **P9-4 enter_inspect helper + Search `i` 키** — spec 의 진입 경로 (Library Enter → Doc inspect, Search `i` → Chunk inspect) 를 한 helper 로 묶음. `InspectTarget` enum (`Doc(DocumentId) | Chunk(ChunkId)`), `return_to: Pane` 가 Esc 시 원래 pane 으로 복귀. `c` 키가 모든 section (metadata / provenance / blocks / spans / text / embeddings) 일괄 collapse/expand — spec 의 \"focus 기반 selective collapse\" 는 v1 단순화.
+- **2026-05-02 P9 도그푸딩 후속 (p9-fb-06)** — `kebab reset --all|--data-only|--vector-only|--config-only [--yes]` 추가. TTY 가 아니면 `--yes` 필수 (silent destruction 금지). `--vector-only` 가 SQLite `embedding_records` 도 함께 truncate (off-disk Lance dir 만 wipe 시 orphan 방지). 도그푸딩 막힘 강도 1위 (수동 4 경로 `rm -rf` 부담) 해소. spec: `tasks/p9/p9-fb-06-data-reset-command.md`, plan: `docs/superpowers/plans/2026-05-02-p9-fb-06-reset-command.md`.
 
 ## 다음 task 후보
 
