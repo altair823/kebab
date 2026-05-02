@@ -118,15 +118,40 @@ max_context_tokens = 6000
 KEBAB() { ./target/debug/kebab --config /tmp/kebab-smoke/config.toml "$@"; }
 
 KB doctor                                          # 1. health check
-KB ingest                                          # 2. 워크스페이스 색인
-KB list docs                                       # 3. 색인 결과 목록
+KB ingest                                          # 2. 워크스페이스 색인 (markdown + image)
+KB list docs                                       # 3. 색인 결과 목록 (markdown + image 모두 표시)
 KB search --mode lexical "코루틴" --k 3            # 4. lexical 검색
 KB search --mode vector "memory safety" --k 3      # 5. vector 검색
 KB search --mode hybrid "Cargo workspace" --k 3    # 6. hybrid 검색
-KB inspect chunk <chunk_id>                        # 7. raw chunk 보기
-KB ask "이 KB 안에서 ..." --mode hybrid --k 5     # 8. RAG 답변 (Ollama 필요)
-KB --json ask "..." --mode hybrid                  # 9. 기계 친화 출력 검증
+KB search --mode lexical "Hello World" --k 3       # 7. image OCR 텍스트 검색 (P6-4)
+KB inspect chunk <chunk_id>                        # 8. raw chunk 보기
+KB ask "이 KB 안에서 ..." --mode hybrid --k 5     # 9. RAG 답변 (Ollama 필요)
+KB --json ask "..." --mode hybrid                  # 10. 기계 친화 출력 검증
 ```
+
+## P6-4 이미지 ingestion 옵션
+
+`config.toml` 에 다음 절을 추가하면 `kebab ingest` 가 `**/*.png` / `**/*.jpg` 등 이미지 자산도 함께 색인합니다 (텍스트만 색인하려면 생략):
+
+```toml
+[workspace]
+include = ["**/*.md", "**/*.png", "**/*.jpg"]
+
+[image.ocr]
+enabled = true                        # vision LM 으로 이미지 안 텍스트 전사
+engine = "ollama-vision"
+model = "gemma4:e4b"                  # 사용자 환경의 비전 모델
+endpoint = "http://192.168.0.47:11434"  # 비우면 models.llm.endpoint fallback
+languages = ["eng", "kor"]
+max_pixels = 1600                     # long-edge cap
+
+[image.caption]
+enabled = true                        # vision LM 으로 한 문장 객관 설명 생성
+max_pixels = 768
+prompt_template_version = "caption-v1"
+```
+
+이미지 자산 한 장당 OCR 1 호출 + Caption 1 호출 → ~3-6초 (`gemma4:e4b` 기준). 다이어그램 / 카메라 사진 / 스크린샷 위주 워크스페이스에 권장. 책 / 스캔본은 P7 PDF 라인으로 (P7 머지 후).
 
 각 명령은 0 종료 코드면 정상. `kebab ask` 는 거절 시 종료 코드 1 (`RefusalSignal`) — 의도된 동작.
 
@@ -138,6 +163,8 @@ KB --json ask "..." --mode hybrid                  # 9. 기계 친화 출력 검
 - `kebab search --mode hybrid` 의 `fusion_score` 가 `[0, 1]` 범위 (top-1 종종 1.0 — 두 retriever 모두 rank 1 일 때).
 - `kebab ask` JSON 응답에 `model.id` 가 config 의 모델 (`gemma4:26b` 등) 과 일치, `embedding.id = multilingual-e5-small`, `citations[].marker` 가 `[1]` / `[2]` 형식 (square-bracketed bare index).
 - 코퍼스에 없는 주제로 `kebab ask` → `refusal_reason: "llm_self_judge"` (또는 `no_chunks` / `score_gate`) + `grounded: false`.
+- (P6-4) `image.ocr.enabled = true` 로 PNG 자산을 ingest 하면 `kebab list docs` 가 markdown 옆에 image doc 도 출력 (`workspace_path` 가 `*.png`). `kebab inspect doc <image_doc_id>` 의 `block.ocr.joined` 가 vision LM 의 OCR 결과 (예: 스크린샷 안의 텍스트). `kebab search --mode lexical "<OCR text>"` 가 그 image chunk 를 반환하면 wiring 정상.
+- OCR / caption 부분 실패는 `errors` 카운터 미증가 — `kebab inspect doc <id>` 의 Provenance Warning 이벤트 또는 `--debug` 로그에서만 확인.
 
 ## 정리
 
@@ -154,5 +181,6 @@ rm -rf /tmp/kebab-smoke              # 통째로 정리
 - `kebab ask` 응답 시간 = LLM 토큰 throughput 에 종속. M4 Pro 48GB + gemma4:26b 기준 답변 50–100 토큰에 20–55초.
 - `--config` path 가 존재하지 않거나 malformed 면 `kebab doctor` 가 hard fail (defaults 가 silently mask 하지 않게 하는 hotfix 동작).
 - 매 CLI invocation 마다 fastembed 모델 init 비용 (~4초) — process-level 캐시 부재 때문. P9 TUI 진입 시 `App` 의 `OnceLock` 으로 세션 동안 한 번만 init.
+- (P6-4) `image.ocr.enabled = true` + `image.caption.enabled = true` 인 워크스페이스에 PNG 가 N장 있으면 ingest 시간 ≈ markdown_time + N × (OCR + Caption latency). `gemma4:e4b` + 192.168.0.47 로 자산당 ~5-10초. 다수의 책 페이지를 이미지로 넣지 말 것 — 책은 P7 PDF 라인 사용 권장 (P7 머지 후).
 
 자세한 history 와 발견된 버그는 [tasks/HOTFIXES.md](../tasks/HOTFIXES.md) 참조.

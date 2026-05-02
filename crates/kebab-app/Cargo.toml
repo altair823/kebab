@@ -23,6 +23,11 @@ kebab-embed-local = { path = "../kebab-embed-local" }
 kebab-llm = { path = "../kebab-llm" }
 kebab-llm-local = { path = "../kebab-llm-local" }
 kebab-rag = { path = "../kebab-rag" }
+# P6-4: image extractor + OCR + caption adapters live here. App
+# threads them into the per-asset dispatch (see `ingest_one_asset`
+# image branch). Trait-only consumption — no `kebab-parse-image`
+# internals leak into kb-app code.
+kebab-parse-image = { path = "../kebab-parse-image" }
 anyhow               = { workspace = true }
 blake3               = { workspace = true }
 serde                = { workspace = true }
@@ -37,3 +42,9 @@ dirs                 = "5"
 [dev-dependencies]
 rusqlite             = { workspace = true }
 tempfile             = { workspace = true }
+# Image-pipeline integration tests use wiremock to stub Ollama for OCR
+# / caption HTTP calls. Async runtime to host the mock server only;
+# the kb-app code under test stays sync.
+wiremock             = { workspace = true }
+tokio                = { workspace = true, features = ["rt-multi-thread"] }
+image                = { version = "0.25", default-features = false, features = ["png"] }

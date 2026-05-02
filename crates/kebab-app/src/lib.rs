@@ -41,12 +41,15 @@ use serde::{Deserialize, Serialize};
 
 use kebab_chunk::MdHeadingV1Chunker;
 use kebab_core::{
-    Answer, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
+    Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
-    EmbeddingKind, IngestReport, ParserVersion, RawAsset, SearchHit, SearchQuery,
-    SourceConnector, SourceScope, SourceUri, VectorRecord, VectorStore,
+    EmbeddingKind, ExtractContext, Extractor, IngestReport, Lang, LanguageModel, MediaType,
+    ParserVersion, RawAsset, SearchHit, SearchQuery, SourceConnector, SourceScope,
+    SourceUri, VectorRecord, VectorStore,
 };
+use kebab_llm_local::OllamaLanguageModel;
 use kebab_normalize::build_canonical_document;
+use kebab_parse_image::{ImageExtractor, OllamaVisionOcr, apply_caption, apply_ocr};
 use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
 
@@ -190,6 +193,35 @@ pub fn ingest_with_config(
     let parser_version = ParserVersion(KEBAB_PARSE_MD_VERSION.to_string());
     let chunk_policy = chunk_policy_from_config(&app.config);
 
+    // P6-4: build OCR / caption adapters once per ingest invocation,
+    // gated on their respective `enabled` flags. `reqwest::blocking::Client`
+    // is internally Arc-shared so reusing one instance across the asset
+    // loop is correct and cheap. Construction failure (e.g. invalid
+    // endpoint) aborts ingest fail-fast — better than silently disabling
+    // OCR/caption mid-run.
+    let ocr_engine: Option<OllamaVisionOcr> = if app.config.image.ocr.enabled {
+        Some(
+            OllamaVisionOcr::new(&app.config)
+                .context("kb-app::ingest: build OllamaVisionOcr")?,
+        )
+    } else {
+        None
+    };
+    let caption_llm: Option<Box<dyn LanguageModel>> = if app.config.image.caption.enabled {
+        Some(Box::new(
+            OllamaLanguageModel::new(&app.config)
+                .context("kb-app::ingest: build OllamaLanguageModel for caption")?,
+        ))
+    } else {
+        None
+    };
+    let image_extractor = ImageExtractor::new();
+    let image_pipeline = ImagePipeline {
+        extractor: &image_extractor,
+        ocr_engine: ocr_engine.as_ref(),
+        caption_llm: caption_llm.as_deref(),
+    };
+
     // Pre-load every existing doc_id so we can label `IngestItem.kind`
     // as `New` vs `Updated` correctly. `list_documents` returns one
     // row per `(workspace_path, asset_id)` — index by the deterministic
@@ -230,6 +262,7 @@ pub fn ingest_with_config(
             embedder.as_ref(),
             vector_store.as_ref(),
             &existing_doc_ids,
+            &image_pipeline,
         );
 
         let item = match item {
@@ -438,6 +471,16 @@ type SqliteStoreAlias = kebab_store_sqlite::SqliteStore;
 /// persist, embed. Per-asset failures bubble up to the caller for
 /// labelling as `IngestItemKind::Error` — they do NOT abort the
 /// whole run.
+/// P6-4: borrowed bundle of the three image-pipeline components built
+/// once per ingest invocation. Threaded through `ingest_one_asset` so
+/// the dispatch does not need ten separate parameters.
+struct ImagePipeline<'a> {
+    extractor: &'a ImageExtractor,
+    ocr_engine: Option<&'a OllamaVisionOcr>,
+    caption_llm: Option<&'a dyn LanguageModel>,
+}
+
+#[allow(clippy::too_many_arguments)]
 fn ingest_one_asset(
     app: &App,
     asset: &RawAsset,
@@ -446,27 +489,47 @@ fn ingest_one_asset(
     embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
+    image_pipeline: &ImagePipeline<'_>,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     tracing::debug!(
         target: "kebab-app::ingest",
         path = %asset.workspace_path.0,
+        media_type = ?asset.media_type,
         "processing asset"
     );
-    // Only handle Markdown for now; other media types are P6+ work.
-    if asset.media_type != kebab_core::MediaType::Markdown {
-        return Ok(kebab_core::IngestItem {
-            kind: kebab_core::IngestItemKind::Skipped,
-            doc_id: None,
-            doc_path: asset.workspace_path.clone(),
-            asset_id: Some(asset.asset_id.clone()),
-            byte_len: Some(asset.byte_len),
-            block_count: None,
-            chunk_count: None,
-            parser_version: None,
-            chunker_version: None,
-            warnings: Vec::new(),
-            error: None,
-        });
+    // P6-4: dispatch on media_type. Markdown takes the existing
+    // parse-md / normalize path; image takes the new
+    // ImageExtractor + (optional) OCR + (optional) caption path.
+    // Anything else (PDF, audio, unknown) is skipped — the
+    // respective phases (P7 / P8) wire them in later.
+    match &asset.media_type {
+        MediaType::Markdown => { /* fall through to markdown path */ }
+        MediaType::Image(_) => {
+            return ingest_one_image_asset(
+                app,
+                asset,
+                chunk_policy,
+                embedder,
+                vector_store,
+                existing_doc_ids,
+                image_pipeline,
+            );
+        }
+        _ => {
+            return Ok(kebab_core::IngestItem {
+                kind: kebab_core::IngestItemKind::Skipped,
+                doc_id: None,
+                doc_path: asset.workspace_path.clone(),
+                asset_id: Some(asset.asset_id.clone()),
+                byte_len: Some(asset.byte_len),
+                block_count: None,
+                chunk_count: None,
+                parser_version: None,
+                chunker_version: None,
+                warnings: Vec::new(),
+                error: None,
+            });
+        }
     }
 
     let path = match &asset.source_uri {
@@ -610,6 +673,228 @@ fn ingest_one_asset(
         warnings: warning_notes,
         error: None,
     })
+}
+
+/// P6-4: process one `MediaType::Image(_)` asset end-to-end.
+///
+/// Pipeline: read bytes → `ImageExtractor::extract` → optional
+/// `apply_ocr` → optional `apply_caption` → existing chunker / embedder
+/// / store path (the same one markdown uses, which already handles
+/// `Block::ImageRef` per P1-5).
+///
+/// Failure semantics (per P6-4 spec):
+/// - `ImageExtractor::extract` Err → propagate (caller increments
+///   `errors`).
+/// - OCR / caption Err → log + `Provenance::Warning` event, continue.
+///   `block.ocr` / `block.caption` stay `None`. `errors` NOT incremented.
+#[allow(clippy::too_many_arguments)]
+fn ingest_one_image_asset(
+    app: &App,
+    asset: &RawAsset,
+    chunk_policy: &ChunkPolicy,
+    embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
+    vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
+    existing_doc_ids: &std::collections::HashSet<String>,
+    image_pipeline: &ImagePipeline<'_>,
+) -> anyhow::Result<kebab_core::IngestItem> {
+    let image_extractor = image_pipeline.extractor;
+    let ocr_engine = image_pipeline.ocr_engine;
+    let caption_llm = image_pipeline.caption_llm;
+    let path = match &asset.source_uri {
+        SourceUri::File(p) => p.clone(),
+        SourceUri::Kb(_) => {
+            return Ok(kebab_core::IngestItem {
+                kind: kebab_core::IngestItemKind::Skipped,
+                doc_id: None,
+                doc_path: asset.workspace_path.clone(),
+                asset_id: Some(asset.asset_id.clone()),
+                byte_len: Some(asset.byte_len),
+                block_count: None,
+                chunk_count: None,
+                parser_version: None,
+                chunker_version: None,
+                warnings: vec![
+                    "kb:// source URIs are not supported by the fs ingester".into(),
+                ],
+                error: None,
+            });
+        }
+    };
+    let bytes = std::fs::read(&path)
+        .with_context(|| format!("read image asset bytes from {}", path.display()))?;
+
+    // 1. Decode + EXIF + dimensions. ExtractContext.config carries
+    //    nothing the image extractor reads today; we pass a default
+    //    instance per the trait shape.
+    let extract_config = kebab_core::ExtractConfig::default();
+    let workspace_root = std::path::PathBuf::from(&app.config.workspace.root);
+    let ctx = ExtractContext {
+        asset,
+        workspace_root: &workspace_root,
+        config: &extract_config,
+    };
+    let mut canonical = image_extractor
+        .extract(&ctx, &bytes)
+        .context("kb-parse-image::ImageExtractor::extract")?;
+
+    // 2 + 3. Apply OCR / caption when their adapters exist. Both are
+    //        Lenient — failure is captured into Provenance Warning,
+    //        `block.ocr` / `block.caption` stay `None`. P6-4 spec
+    //        explicitly: such partial failures do NOT increment the
+    //        `errors` counter.
+    let lang_hint = lang_hint_from_doc(&canonical);
+    let mut warning_notes: Vec<String> = Vec::new();
+    if !canonical.blocks.is_empty() {
+        // P6-1 contract: image documents always have exactly one
+        // `Block::ImageRef`. Defensive match keeps us forward-compatible.
+        if let Some(Block::ImageRef(block)) = canonical.blocks.first_mut() {
+            if let Some(engine) = ocr_engine {
+                if let Err(e) = apply_ocr(
+                    engine,
+                    &bytes,
+                    block,
+                    lang_hint.as_ref(),
+                    &mut canonical.provenance.events,
+                ) {
+                    let note = format!("ocr_failed: {e:#}");
+                    tracing::warn!(
+                        target: "kebab-app",
+                        path = %asset.workspace_path.0,
+                        "{}",
+                        note
+                    );
+                    canonical.provenance.events.push(kebab_core::ProvenanceEvent {
+                        at: time::OffsetDateTime::now_utc(),
+                        agent: "kb-app".to_string(),
+                        kind: kebab_core::ProvenanceKind::Warning,
+                        note: Some(note.clone()),
+                    });
+                    warning_notes.push(note);
+                }
+            }
+            if let Some(llm) = caption_llm {
+                if let Err(e) = apply_caption(
+                    llm,
+                    &bytes,
+                    block,
+                    lang_hint.as_ref(),
+                    &app.config,
+                    &mut canonical.provenance.events,
+                ) {
+                    let note = format!("caption_failed: {e:#}");
+                    tracing::warn!(
+                        target: "kebab-app",
+                        path = %asset.workspace_path.0,
+                        "{}",
+                        note
+                    );
+                    canonical.provenance.events.push(kebab_core::ProvenanceEvent {
+                        at: time::OffsetDateTime::now_utc(),
+                        agent: "kb-app".to_string(),
+                        kind: kebab_core::ProvenanceKind::Warning,
+                        note: Some(note.clone()),
+                    });
+                    warning_notes.push(note);
+                }
+            }
+        }
+    }
+
+    // 4. Chunk via the same `MdHeadingV1Chunker` markdown uses — its
+    //    `Block::ImageRef` arm already produces a single chunk per
+    //    image (P1-5). The chunk text now follows the (β) plain-concat
+    //    contract per the kebab-chunk render_block_text update.
+    let chunks = MdHeadingV1Chunker
+        .chunk(&canonical, chunk_policy)
+        .context("kb-chunk::MdHeadingV1Chunker::chunk (image)")?;
+
+    // 5. Persist + embed — identical sequence to markdown.
+    app.sqlite
+        .put_asset_with_bytes(asset, &bytes)
+        .context("DocumentStore::put_asset_with_bytes (image)")?;
+    app.sqlite
+        .put_document(&canonical)
+        .context("DocumentStore::put_document (image)")?;
+    app.sqlite
+        .put_blocks(&canonical.doc_id, &canonical.blocks)
+        .context("DocumentStore::put_blocks (image)")?;
+    app.sqlite
+        .put_chunks(&canonical.doc_id, &chunks)
+        .context("DocumentStore::put_chunks (image)")?;
+
+    if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
+        && !chunks.is_empty()
+    {
+        let inputs: Vec<EmbeddingInput<'_>> = chunks
+            .iter()
+            .map(|c| EmbeddingInput {
+                text: c.text.as_str(),
+                kind: EmbeddingKind::Document,
+            })
+            .collect();
+        let vectors = emb
+            .embed(&inputs)
+            .context("Embedder::embed (image chunks)")?;
+        let model_id = emb.model_id();
+        let model_version = emb.model_version();
+        let dimensions = emb.dimensions();
+        let records: Vec<VectorRecord> = chunks
+            .iter()
+            .zip(vectors)
+            .map(|(c, v)| VectorRecord {
+                embedding_id: kebab_core::id_for_embedding(
+                    &c.chunk_id,
+                    &model_id,
+                    &model_version,
+                    dimensions,
+                ),
+                chunk_id: c.chunk_id.clone(),
+                vector: v,
+                doc_id: canonical.doc_id.clone(),
+                text: c.text.clone(),
+                heading_path: c.heading_path.clone(),
+                model_id: model_id.clone(),
+                model_version: model_version.clone(),
+                dimensions,
+            })
+            .collect();
+        vec_store
+            .upsert(&records)
+            .context("VectorStore::upsert (image)")?;
+    }
+
+    let kind = if existing_doc_ids.contains(&canonical.doc_id.0) {
+        kebab_core::IngestItemKind::Updated
+    } else {
+        kebab_core::IngestItemKind::New
+    };
+
+    Ok(kebab_core::IngestItem {
+        kind,
+        doc_id: Some(canonical.doc_id.clone()),
+        doc_path: asset.workspace_path.clone(),
+        asset_id: Some(asset.asset_id.clone()),
+        byte_len: Some(asset.byte_len),
+        block_count: u32::try_from(canonical.blocks.len()).ok(),
+        chunk_count: u32::try_from(chunks.len()).ok(),
+        parser_version: Some(canonical.parser_version.clone()),
+        chunker_version: Some(MdHeadingV1Chunker.chunker_version()),
+        warnings: warning_notes,
+        error: None,
+    })
+}
+
+/// Pull the BCP-47 language hint from the canonical document. P6-1
+/// stamps `Lang("und")` by default; image-pipeline OCR / caption
+/// adapters special-case "und" so the hint is intentionally dropped
+/// from prompts.
+fn lang_hint_from_doc(doc: &CanonicalDocument) -> Option<Lang> {
+    let s = doc.lang.0.as_str();
+    if s.is_empty() || s == "und" {
+        None
+    } else {
+        Some(doc.lang.clone())
+    }
 }
 
 /// Convenience: end byte of the frontmatter region (or 0 when absent).
