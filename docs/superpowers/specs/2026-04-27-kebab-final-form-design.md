@@ -277,6 +277,27 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
 
 `--summary-only` 시 `items: null`.
 
+### 2.4a IngestProgressEvent
+
+`kebab ingest --json` 가 long-running 작업의 진행을 line-delimited JSON 으로 흘려보낸다. 마지막 줄은 기존 `ingest_report.v1` 그대로 유지 (외부 wrapper backward-compat). 그 위로 N 개의 `ingest_progress.v1` 줄이 streaming. discriminated by `kind`:
+
+```json
+{ "schema_version": "ingest_progress.v1", "kind": "scan_started",     "ts": "2026-05-02T18:30:00Z", "root": "/home/altair/KnowledgeBase" }
+{ "schema_version": "ingest_progress.v1", "kind": "scan_completed",   "ts": "...", "total": 142 }
+{ "schema_version": "ingest_progress.v1", "kind": "asset_started",    "ts": "...", "idx": 1, "total": 142, "path": "notes/foo.md", "media": "markdown" }
+{ "schema_version": "ingest_progress.v1", "kind": "embed_batch_started",  "ts": "...", "n_chunks": 32 }
+{ "schema_version": "ingest_progress.v1", "kind": "embed_batch_finished", "ts": "...", "n_chunks": 32, "ms": 412 }
+{ "schema_version": "ingest_progress.v1", "kind": "asset_finished",   "ts": "...", "idx": 1, "total": 142, "kind_result": "new", "chunks": 38 }
+{ "schema_version": "ingest_progress.v1", "kind": "completed",        "ts": "...", "counts": { "scanned": 142, "new": 12, "updated": 3, "skipped": 127, "errors": 0, "chunks_indexed": 421, "embeddings_indexed": 421 } }
+```
+
+**계약**:
+- 모든 ingest 실행은 정확히 한 번의 terminal 이벤트 (`completed` 또는 `aborted`) 로 종료.
+- 이벤트 ordering: `scan_started < scan_completed < (asset_started < asset_finished)* < (completed | aborted)`. embed batch 는 asset 이벤트 사이 임의 위치.
+- `aborted` 의 `counts` 는 cancel 시점까지의 부분 집계. SQLite 에 commit 된 doc/chunk 는 그대로 유지 — 다음 `kebab ingest` 가 idempotent 하게 이어받음.
+- non-`--json` 모드는 stderr 에 spinner + 사람-친화 라인 (구현 detail). `--json` 모드는 stderr 비움 + stdout 전부 line-delimited.
+- 같은 streaming surface 가 TUI / desktop UI 의 background ingest worker 도 소비 (in-memory mpsc, 와이어로 안 나감).
+
 ### 2.5 DocSummary (`kebab list docs`)
 
 ```json
@@ -1298,6 +1319,17 @@ fn exit_code(err: &anyhow::Error) -> i32 {
 Refusal 은 에러 아님. `kebab ask` 거절은 정상 stdout (Answer with grounded=false) + exit 1.
 
 Logging: `tracing` + `tracing-subscriber` + `tracing-appender` daily roll, `~/.local/state/kebab/logs/`. structured (`trace_id`, `doc_id`, `chunk_id`).
+
+**Long-running 작업의 진행 표시 + cancel** (도그푸딩 후 추가 — 2026-05-02):
+
+초 단위 이상 걸리는 모든 명령 (`kebab ingest`, future `kebab eval run`, RAG streaming, embed 배치) 은 다음 두 invariant 를 지킨다:
+
+1. **진행 표시는 surface 별로 분리되되 source 는 단일.** facade (`kebab-app`) 가 progress event 를 `mpsc::Sender<IngestEvent>` (또는 그에 준하는 channel) 로 흘려보내고, CLI / TUI / desktop 이 각자 방식으로 소비. CLI 의 `--json` 모드는 §2.4a 의 line-delimited dump, 사람-친화 모드는 stderr spinner + 단계 라인. TUI 는 status bar 1 줄. desktop (P9-5) 는 progress widget.
+2. **cancel 은 cooperative + step boundary 에서 즉시 응답.** facade 가 `Option<Arc<AtomicBool>>` cancel token 받음. asset loop iteration / embed batch / vector upsert 같은 step boundary 마다 check, true 면 in-flight asset 마무리 후 `Aborted` event 발신 + `Ok(IngestReport)` 정상 반환 (Err 아님 — 정상 종료의 한 형태). 부분 commit 된 doc/chunk 는 SQLite 에 살아있어 재실행이 idempotent. CLI 는 SIGINT, TUI 는 `Esc` / `Ctrl-C` 가 cancel 신호.
+
+`kebab-core` trait (§7.2) 시그니처는 무영향 — progress / cancel 은 `kebab-app` facade 의 hidden parameter 로 추가 (`ingest_with_config_progress(..., progress: Option<Sender<IngestEvent>>, cancel: Option<Arc<AtomicBool>>)`).
+
+
 
 `kebab doctor` 출력 (사람):
 
