@@ -192,7 +192,42 @@ pub fn ingest_with_config_progress(
     summary_only: bool,
     progress: Option<std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
 ) -> anyhow::Result<IngestReport> {
+    ingest_with_config_cancellable(config, scope, summary_only, progress, None)
+}
+
+/// Config + progress + cancel variant (p9-fb-04). The caller injects
+/// an `Arc<AtomicBool>` cancel token; setting it to `true` causes the
+/// ingest loop to break at the next step boundary (asset loop iter
+/// start), emit `IngestEvent::Aborted { counts: <partial> }`, and
+/// return `Ok(IngestReport)` with whatever assets were committed
+/// before cancellation. Per design §10:
+///
+/// - The current in-flight asset finishes (rollback would break
+///   idempotent re-run). Subsequent assets are skipped.
+/// - Cancellation is a normal exit, not an error — `Result::Err` is
+///   reserved for actual failures.
+/// - Partial commits in SQLite are kept; the next `kebab ingest` run
+///   picks up where this one left off (deterministic asset_id +
+///   doc_id recipes).
+///
+/// CLI's `Ctrl-C` SIGINT handler and TUI's `Esc` / `Ctrl-C` both
+/// flip the same `AtomicBool`. Pass `None` to retain pre-p9-fb-04
+/// behaviour (uncancellable).
+#[doc(hidden)]
+pub fn ingest_with_config_cancellable(
+    config: kebab_config::Config,
+    scope: SourceScope,
+    summary_only: bool,
+    progress: Option<std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
+    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> anyhow::Result<IngestReport> {
     let progress = progress.as_ref();
+    let cancelled = || {
+        cancel
+            .as_ref()
+            .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+            .unwrap_or(false)
+    };
     let started_instant = std::time::Instant::now();
 
     let app = App::open_with_config(config)?;
@@ -293,7 +328,20 @@ pub fn ingest_with_config_progress(
 
     let embed_active = embedder.is_some() && vector_store.is_some();
 
+    // p9-fb-04: track whether the loop exited via cancellation (vs
+    // running to completion) so we can emit `Aborted` rather than
+    // `Completed` and surface the right summary.
+    let mut was_cancelled = false;
+
     for (zero_idx, asset) in assets.into_iter().enumerate() {
+        // Step boundary check (p9-fb-04). Designed §10 invariant: the
+        // current in-flight asset finishes (idempotent re-run guard);
+        // subsequent assets are skipped. Check here is the cheapest
+        // possible — atomic load each iteration, no lock.
+        if cancelled() {
+            was_cancelled = true;
+            break;
+        }
         let idx = u32::try_from(zero_idx + 1).unwrap_or(u32::MAX);
         crate::ingest_progress::emit(
             progress,
@@ -501,20 +549,25 @@ pub fn ingest_with_config_progress(
         "kb-app::ingest: run complete"
     );
 
-    crate::ingest_progress::emit(
-        progress,
+    let final_counts = crate::ingest_progress::AggregateCounts {
+        scanned: scanned_count,
+        new: new_count,
+        updated: updated_count,
+        skipped: skipped_count,
+        errors: error_count,
+        chunks_indexed,
+        embeddings_indexed,
+    };
+    let terminal_event = if was_cancelled {
+        crate::ingest_progress::IngestEvent::Aborted {
+            counts: final_counts,
+        }
+    } else {
         crate::ingest_progress::IngestEvent::Completed {
-            counts: crate::ingest_progress::AggregateCounts {
-                scanned: scanned_count,
-                new: new_count,
-                updated: updated_count,
-                skipped: skipped_count,
-                errors: error_count,
-                chunks_indexed,
-                embeddings_indexed,
-            },
-        },
-    );
+            counts: final_counts,
+        }
+    };
+    crate::ingest_progress::emit(progress, terminal_event);
 
     Ok(IngestReport {
         scope,

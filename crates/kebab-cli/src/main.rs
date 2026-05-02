@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 
 use kebab_app::doctor_signal::{DoctorUnhealthy, NoHitSignal, RefusalSignal};
 
+mod cancel;
 mod progress;
 mod wire;
 
@@ -296,11 +297,17 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 progress::ProgressDisplay::new(mode).run(rx)
             });
 
-            let ingest_result = kebab_app::ingest_with_config_progress(
+            // p9-fb-04: register a Ctrl-C handler that flips the same
+            // AtomicBool the facade polls at each step boundary. The
+            // *second* Ctrl-C is a hard exit (handled inside `cancel`).
+            let cancel_token = cancel::install_sigint_cancel()?;
+
+            let ingest_result = kebab_app::ingest_with_config_cancellable(
                 cfg,
                 scope,
                 *summary_only,
                 Some(tx),
+                Some(cancel_token),
             );
 
             // Join the display thread *before* surfacing the ingest

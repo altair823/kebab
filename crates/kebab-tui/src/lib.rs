@@ -28,7 +28,9 @@ pub use app::{
 };
 pub use ask::{handle_key_ask, render_ask};
 pub use error_popup::{ErrorOverlay, render_error_overlay};
-pub use ingest_progress::{drain_progress, ready_to_clear, start_ingest, status_line};
+pub use ingest_progress::{
+    cancel_running_ingest, drain_progress, ready_to_clear, start_ingest, status_line,
+};
 pub use inspect::{enter_inspect, handle_key_inspect, render_inspect};
 pub use library::{handle_key_library, render_library};
 pub use search::{build_jump_command, handle_key_search, jump_to_citation, render_search};

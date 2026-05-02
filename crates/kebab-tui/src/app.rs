@@ -166,25 +166,23 @@ impl Default for InspectState {
     }
 }
 
-/// Background-ingest state — owned by p9-fb-03.
+/// Background-ingest state — owned by p9-fb-03 + extended by
+/// p9-fb-04 (cancel).
 ///
 /// The TUI lets the user fire `kebab ingest` from inside the shell
 /// without blocking the event loop. Pressing `r` on the Library pane
 /// spawns a worker thread that calls
-/// `kebab_app::ingest_with_config_progress(.., Some(tx))`; the run
-/// loop drains `rx` once per frame and updates the visible status
-/// bar. When the worker thread joins (Sender dropped → `recv()` Err),
-/// the final aggregate counts stay on screen for a few seconds and
-/// then the slot clears.
+/// `kebab_app::ingest_with_config_cancellable(.., Some(tx), Some(cancel))`;
+/// the run loop drains `rx` once per frame and updates the visible
+/// status bar. When the worker thread joins (Sender dropped →
+/// `recv()` Err), the final aggregate counts stay on screen for a
+/// few seconds and then the slot clears.
 ///
-/// `p9-fb-04` adds the cancel surface — at that point this struct
-/// gains a real `(cancel_tx, cancel_rx)` pair (the receiver moved
-/// into the worker thread alongside the progress sender). We do
-/// NOT pre-define a `cancel_tx` slot here because doing so without
-/// a matching receiver-bound worker would yield a dead channel
-/// (`send` returning `Err(SendError)` forever) — empty slot that
-/// pretends to be a future-compat shim is worse than no slot
-/// (CLAUDE.md "backward-compat shim 금지").
+/// `cancel` is the same `Arc<AtomicBool>` the worker polls at each
+/// step boundary. The `Esc` / `Ctrl-C` key (only while ingest is
+/// in flight) flips it via `cancel.store(true, Ordering::Relaxed)`
+/// — the worker breaks at its next iteration check, emits
+/// `IngestEvent::Aborted { counts: <partial> }`, and joins.
 pub struct IngestState {
     pub rx: std::sync::mpsc::Receiver<kebab_app::IngestEvent>,
     pub counts: kebab_app::AggregateCounts,
@@ -201,6 +199,9 @@ pub struct IngestState {
     /// Worker thread handle. `take()`n at clear time so the join
     /// happens after the user has had time to read the final line.
     pub thread: Option<std::thread::JoinHandle<anyhow::Result<kebab_core::IngestReport>>>,
+    /// p9-fb-04: shared cancel token. `Esc` / `Ctrl-C` flip it; the
+    /// worker thread polls it at each asset-loop boundary.
+    pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Seconds the final ingest status line stays on screen after a run

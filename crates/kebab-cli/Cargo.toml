@@ -36,6 +36,10 @@ clap         = { version = "4", features = ["derive"] }
 # - timestamp formatting (RFC 3339) 은 time crate.
 indicatif    = "0.17"
 time         = { workspace = true }
+# p9-fb-04: SIGINT handler for `kebab ingest` cooperative cancel.
+# `ctrlc` registers a single cross-platform handler; we count signal
+# arrivals to implement spec §10's "second Ctrl-C is a hard exit".
+ctrlc        = "3"
 
 [dev-dependencies]
 tempfile     = { workspace = true }
