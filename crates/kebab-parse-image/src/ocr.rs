@@ -116,6 +116,7 @@ pub fn apply_ocr(
 /// Ollama-vision OCR adapter — POSTs the image (base64) to
 /// `<endpoint>/api/generate` with a transcription prompt and reads the
 /// non-streaming response.
+#[derive(Debug)]
 pub struct OllamaVisionOcr {
     client: reqwest::blocking::Client,
     endpoint: String,
@@ -457,5 +458,45 @@ mod tests {
         .unwrap();
         let p = engine.build_prompt(Some(&Lang("und".into())));
         assert!(!p.contains("hint:"));
+    }
+
+    /// `from_parts` (and by extension `new`) must reject an empty
+    /// endpoint string. Pinned so the bail message stays grep-able and
+    /// the constructor cannot drift to "silently accept a bad config".
+    #[test]
+    fn build_rejects_empty_endpoint() {
+        let r = OllamaVisionOcr::from_parts("", "m", vec![], 1024);
+        let err = r.expect_err("empty endpoint must bail").to_string();
+        assert!(
+            err.contains("endpoint is empty"),
+            "bail message missing 'endpoint is empty': {err}"
+        );
+    }
+
+    /// Whitespace-only model id trims to empty and must be rejected —
+    /// both `new` and `from_parts` route through the shared `build`,
+    /// so testing `from_parts` covers both.
+    #[test]
+    fn build_rejects_empty_model_after_trim() {
+        let r = OllamaVisionOcr::from_parts("http://x", "   ", vec![], 1024);
+        let err = r.expect_err("empty model must bail").to_string();
+        assert!(
+            err.contains("model is empty"),
+            "bail message missing 'model is empty': {err}"
+        );
+    }
+
+    /// Out-of-range `max_pixels` is silently clamped (not rejected) so
+    /// a bad config can't kill ingest. The accessor exposes the clamped
+    /// value so tests can verify the bound; the warning side-effect is
+    /// tested implicitly (no panic, no error).
+    #[test]
+    fn build_clamps_max_pixels_outside_legal_range() {
+        let too_small =
+            OllamaVisionOcr::from_parts("http://x", "m", vec![], 1).unwrap();
+        assert_eq!(too_small.max_pixels(), MIN_LONG_EDGE);
+        let too_big =
+            OllamaVisionOcr::from_parts("http://x", "m", vec![], u32::MAX).unwrap();
+        assert_eq!(too_big.max_pixels(), MAX_LONG_EDGE);
     }
 }

@@ -8,7 +8,10 @@
 //! P6-2 adds the [`ocr`] module: an [`OcrEngine`] trait and an
 //! [`OllamaVisionOcr`] default adapter that talks to a vision-capable
 //! Ollama model. [`apply_ocr`] is the helper that mutates an
-//! [`ImageRefBlock`] in place.
+//! [`ImageRefBlock`] in place. Trust note — the LLM-driven default
+//! can hallucinate; `OcrText.engine` carries the source identity so
+//! consumers can branch trust by engine (Tesseract / Apple Vision
+//! adapters, when added, will write a different `engine` string).
 //!
 //! Per design §3.4 (Block::ImageRef + ImageRefBlock), §3.7a (OcrText /
 //! ModelCaption stubs), §9.1 (image extraction policy / OCR vs caption
