@@ -54,8 +54,8 @@ pub use search::{
     SearchMode, SearchQuery,
 };
 pub use answer::{
-    Answer, AnswerCitation, AnswerRetrievalSummary, ModelRef, RefusalReason,
-    TokenUsage, TraceId,
+    Answer, AnswerCitation, AnswerRetrievalSummary, ModelRef, RefusalReason, TokenUsage,
+    TraceId, Turn,
 };
 pub use ingest::{IngestItem, IngestItemKind, IngestReport};
 pub use jobs::{JobFilter, JobId, JobKind, JobRow, JobStatus};

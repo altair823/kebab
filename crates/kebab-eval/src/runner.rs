@@ -174,6 +174,11 @@ fn execute_query(app: &App, gq: &GoldenQuery, opts: &EvalRunOpts) -> QueryResult
             temperature: opts.temperature,
             seed: opts.seed,
             stream_sink: None,
+            // p9-fb-15: golden eval is single-shot per query; no
+            // conversational history.
+            history: Vec::new(),
+            conversation_id: None,
+            turn_index: None,
         };
         match app.ask(&gq.query, ask_opts) {
             Ok(ans) => Some(ans),

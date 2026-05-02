@@ -430,6 +430,12 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 // once on completion). The TUI ask pane (P9-3) is what
                 // wires up a real `mpsc::Sender` here.
                 stream_sink: None,
+                // p9-fb-15: CLI single-shot ask. p9-fb-18 adds
+                // `--session` / `--repl` for multi-turn over the same
+                // facade (passes a populated `history`).
+                history: Vec::new(),
+                conversation_id: None,
+                turn_index: None,
             };
             let ans = kebab_app::ask_with_config(cfg, query, opts)?;
             if cli.json {
