@@ -20,6 +20,7 @@ members = [
     "crates/kebab-cli",
     "crates/kebab-eval",
     "crates/kebab-parse-image",
+    "crates/kebab-parse-pdf",
 ]
 
 [workspace.package]
