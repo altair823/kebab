@@ -105,6 +105,7 @@ match &asset.media_type {
   - `MediaType::Image(_)` → P6-4 image branch (unchanged).
   - `MediaType::Pdf` → new PDF branch (this task).
   - `MediaType::Audio(_) | MediaType::Other(_)` → `skipped += 1` (existing behaviour).
+- **Operational jump**: before this task, `MediaType::Pdf` fell into the `_` arm and was counted as `Skipped`. After merge, every PDF asset shifts from `skipped` to `scanned` / `new` / `updated`. A workspace with N PDF files reports `skipped` decreasing by N and `scanned` (and `new` on the first ingest after merge) increasing by N — flag this in the implementation PR description so eval / smoke / runtime users can interpret the one-time discontinuity.
 - PDF branch (`ingest_one_pdf_asset`):
   1. Read bytes via `std::fs::read` (consistent with markdown / image branches).
   2. Build `kebab_core::ExtractContext { asset, workspace_root, config: &ExtractConfig::default() }`.
@@ -133,10 +134,12 @@ match &asset.media_type {
 |---|---|---|---|
 | `PdfTextExtractor::extract` Err (corrupt header / not a PDF) | `errors+=1` | no | n/a (no doc emitted) |
 | `PdfTextExtractor::extract` Err (encrypted PDF) | `errors+=1` | no | n/a — error message includes `qpdf --decrypt` hint |
-| `PdfPageV1Chunker::chunk` Err (validates non-Page span / non-Paragraph block) | `errors+=1` | no | n/a — would only fire on P7-1 contract drift |
+| `PdfPageV1Chunker::chunk` Err (validates non-Page span / non-Paragraph block) | `errors+=1` | no | n/a — defensive validation: fires on P7-1 contract drift OR future routing bug (e.g. a chunker registry mis-routes a markdown doc here) |
 | Per-page text extraction Err (panic absorbed by `catch_unwind`) | unchanged | yes | `Provenance::Warning` (page N "scanned candidate") — emitted by P7-1, propagated through |
 | Empty page (no `/Contents` stream) | unchanged | yes | `Provenance::Warning` (page N "empty (scanned candidate)") — emitted by P7-1 |
-| Embedding call fails for a chunk | bubbles up via existing markdown path's error handling | partial — depends on existing behaviour | n/a |
+| `Embedder::embed(...)` Err (any chunk) | `errors+=1` | yes (doc + chunk rows already written before embed call — see below) | n/a |
+
+The embedding call sits *after* `put_document` / `put_blocks` / `put_chunks` in `kebab-app::ingest_one_asset` (markdown path, lines 615+), so a failed embed leaves doc + chunk rows on disk while no vector exists. This is consistent with the markdown path and accepted as v1 behaviour — re-running `kebab ingest` re-attempts the embed for any chunk whose `embedding_id` is missing from the vector store. Whole-asset rollback on embed-fail is a P+ task (atomic ingest transaction).
 
 ## Storage / wire effects
 
@@ -156,13 +159,13 @@ match &asset.media_type {
 | kind | description | fixture / data |
 |------|-------------|----------------|
 | integration | TempDir KB + 1 small text PDF (3 pages) → `kebab ingest` produces 1 doc + 3 chunks; each chunk's `source_spans[0]` is `Page { page: i, .. }`; chunks stored + embedded | `kebab-app/tests/pdf_pipeline.rs` (new), in-memory PDF via `lopdf` builder (mirrors `kebab-parse-pdf::tests::common`) |
-| integration | Re-ingest same PDF → identical `doc_id` and identical `chunk_id` set (P1 idempotency contract) | inline |
+| integration | Re-ingest same PDF (identical bytes) → identical `doc_id` and identical `chunk_id` set (P1 idempotency contract) | inline |
+| integration | Edit a PDF (replace bytes — different blake3 → different `asset_id` → different `doc_id`) and re-ingest → `new+=1` for the new `doc_id`; old `doc_id` row remains untouched (orphan handling is a P+ task) | inline |
 | integration | Encrypted PDF → asset NOT stored; `errors+=1`; `IngestItem.error` mentions `qpdf` / `decrypt` | inline (lopdf builder + fake `/Encrypt` trailer) |
 | integration | Corrupt header PDF → asset NOT stored; `errors+=1`; error message mentions PDF parse failure | inline |
 | integration | Mixed page PDF (page 1 text, page 2 empty / scanned, page 3 text) → asset stored; 2 chunks (pages 1 + 3); `doc.provenance.events` contains exactly 1 `Warning` for page 2 marked "scanned candidate" | inline |
 | integration | `kebab inspect doc <pdf_doc_id>` returns the PDF `CanonicalDocument` with per-page `Block::Paragraph` and `SourceSpan::Page` intact | inline |
 | integration | Hybrid search across mixed corpus (1 markdown + 1 PDF) returns the PDF chunk for a query whose terms appear only in the PDF body | inline (real `multilingual-e5-small` embedding) |
-| integration | RAG `kebab ask` over a PDF-only KB returns an `Answer` whose `Citation::source_span` is `Page` for at least one cited chunk | inline (real `multilingual-e5-small` + mock LLM via wiremock to keep test hermetic) |
 | integration | `IngestReport` invariant `scanned == new + updated + skipped + errors` holds when ingesting a mixed corpus including a corrupt PDF | inline |
 | integration | Long PDF (50 pages × ~1.5 KB body each = ~75 KB) produces ≥50 chunks (≥1 per page); embedding loop completes; storage round-trips | inline |
 | smoke | Update `docs/SMOKE.md` so the runbook ingests at least one PDF fixture and verifies search-by-page-text works + `inspect doc` shows `SourceSpan::Page` | docs change |
@@ -186,12 +189,12 @@ The opt-in real-Ollama integration tests stay in `kebab-llm-local` / `kebab-pars
 - [ ] `kebab ingest` against a TempDir KB containing 1 markdown + 1 image + 1 PDF produces `scanned 3 / new 3 / errors 0`
 - [ ] `kebab search --mode hybrid "<text from PDF page 7>"` returns a chunk whose `source_span` is `Page { page: 7, .. }`
 - [ ] `kebab inspect doc <pdf_doc_id>` shows per-page `Block::Paragraph` with `SourceSpan::Page`
-- [ ] `kebab ask "<query about PDF body>"` produces an `Answer` whose `Citation` includes a `Page` span
-- [ ] HOTFIXES entry written if any spec deviation surfaces during implementation
+- [ ] HOTFIXES entry written for the `config.chunking.chunker_version` deviation (PDF ignores; hard-coded `pdf-page-v1`)
 - [ ] `docs/SMOKE.md` includes a PDF-fixture step
 
 ## Out of scope
 
+- **RAG `kebab ask` PDF citation** — verifying that `Answer::Citation::source_span = Page { ... }` round-trips through the RAG pipeline is structurally a P4-3 (RAG pipeline) responsibility, not a P7-3 ingest-wiring responsibility. P4-3 already exercises the citation contract over markdown chunks; PDF chunks share the exact same `Citation` shape (the difference is only `source_span` variant). A future PR can bolt on a "PDF chunks survive RAG citation" assertion to either P4-3's existing tests or a dedicated `kebab-rag` integration test — bringing wiremock + RAG fixture infrastructure into `kebab-app` integration tests is out of proportion for the P7-3 invariant (which is "PDF chunks emerge from search with `Page` spans"). Captured here so reviewers can find this decision later.
 - **Scanned PDF OCR fallback** — empty/extract-failed pages stay searchable=false in v1. A future task ("P+ scanned-PDF-ocr") routes those pages through P6-2's `OllamaVisionOcr` after rasterising the page via a PDF renderer (e.g. `mupdf-rs`, `pdfium-render`). Excluded here because (a) it requires a new system / Rust dep we don't have yet, and (b) v1 user scenario is text-embed PDFs (papers, exported reports).
 - **Multi-column reading order / table extraction / formula detection / form-field extraction / bookmark or outline ingestion** — all deferred to future PDF-layout task. P7-1 already lists these as out of scope and the wiring inherits.
 - **Body multilingual via CID font support** — handled at the parser layer (P7-1). UTF-16BE Title metadata works today; non-Latin body text depends on the PDF's font CID mapping.
