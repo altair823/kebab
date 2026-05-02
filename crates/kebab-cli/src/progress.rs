@@ -87,6 +87,15 @@ impl ProgressDisplay {
         }
     }
 
+    /// Render an event in human mode. **Best-effort**: every
+    /// `writeln!` into stderr swallows IO errors (`let _ = ...`)
+    /// because the progress display must not fail the ingest run if
+    /// the terminal is closed mid-stream. Likewise the
+    /// `self.bar.as_ref()` / `as_mut()` branches treat a missing
+    /// bar as silent skip — the bar is initialized lazily in the
+    /// `ScanStarted` arm and §2.4a's ordering invariant
+    /// (`ScanStarted` < everything else) guarantees it is `Some` by
+    /// the time later events arrive.
     fn handle_human(&mut self, event: &IngestEvent, tty: bool) -> anyhow::Result<()> {
         match event {
             IngestEvent::ScanStarted { root } => {

@@ -306,6 +306,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             // Join the display thread *before* surfacing the ingest
             // outcome so the spinner / final newline is flushed
             // regardless of whether ingest returned Ok or Err.
+            // join() returns Result<Result<(), anyhow::Error>, Box<dyn Any>>;
+            // we discard both — display thread errors / panics are
+            // best-effort and must not change ingest's exit code.
             let _ = display_handle.join();
 
             let report = ingest_result?;
