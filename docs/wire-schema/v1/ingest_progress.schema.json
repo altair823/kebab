@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/ingest_progress.schema.json",
+  "title": "IngestProgressEvent v1",
+  "description": "Streaming progress event emitted by `kebab ingest --json`. One event per line (line-delimited JSON). Discriminated by `kind`. The terminal events are `completed` and `aborted` — every ingest run ends with exactly one of them. The final stdout line of a `--json` ingest is still the existing `ingest_report.v1` for backwards compatibility; progress events stream above it.",
+  "type": "object",
+  "required": ["schema_version", "kind", "ts"],
+  "properties": {
+    "schema_version": { "const": "ingest_progress.v1" },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "scan_started",
+        "scan_completed",
+        "asset_started",
+        "asset_finished",
+        "embed_batch_started",
+        "embed_batch_finished",
+        "completed",
+        "aborted"
+      ]
+    },
+    "ts":           { "type": "string", "format": "date-time", "description": "RFC 3339 timestamp at the moment the event was emitted." },
+    "root":         { "type": "string", "description": "scan_started: workspace root being walked." },
+    "total":        { "type": "integer", "minimum": 0, "description": "scan_completed / asset_started / asset_finished: total assets discovered." },
+    "idx":          { "type": "integer", "minimum": 1, "description": "asset_started / asset_finished: 1-based index of the current asset within the scan." },
+    "path":         { "type": "string", "description": "asset_started: workspace-relative path of the asset being processed." },
+    "media":        { "type": "string", "description": "asset_started: media kind label (e.g. `markdown`, `pdf`, `image`)." },
+    "result":       {
+      "type": "string",
+      "enum": ["new", "updated", "skipped", "error"],
+      "description": "asset_finished: per-asset outcome (mirrors `ingest_report.v1.items[].kind`)."
+    },
+    "chunks":       { "type": "integer", "minimum": 0, "description": "asset_finished: chunk count produced for this asset." },
+    "n_chunks":     { "type": "integer", "minimum": 0, "description": "embed_batch_started / embed_batch_finished: chunks in this embedding batch." },
+    "ms":           { "type": "integer", "minimum": 0, "description": "embed_batch_finished: wall-clock duration of the batch." },
+    "counts":       {
+      "type": "object",
+      "description": "completed / aborted: aggregate counters at the moment the run ended (mirrors fields on `ingest_report.v1`).",
+      "properties": {
+        "scanned":            { "type": "integer", "minimum": 0 },
+        "new":                { "type": "integer", "minimum": 0 },
+        "updated":            { "type": "integer", "minimum": 0 },
+        "skipped":            { "type": "integer", "minimum": 0 },
+        "errors":             { "type": "integer", "minimum": 0 },
+        "chunks_indexed":     { "type": "integer", "minimum": 0 },
+        "embeddings_indexed": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
