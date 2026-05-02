@@ -52,10 +52,45 @@ impl Default for LibraryState {
     }
 }
 
-/// Forward-declared opaque sub-state. p9-2 fills the body in its own
-/// crate. P9-1 only allocates the slot (`Option<SearchState>` on
-/// `App`).
-pub struct SearchState;
+/// Search pane state — owned by p9-2.
+///
+/// Field-set kept in `app.rs` (not in `search.rs`) so cross-module
+/// access from `run.rs` (lazy-init, debounce tick) does not require
+/// re-exporting field accessors. The pane behavior + render live in
+/// `crate::search`.
+pub struct SearchState {
+    pub input: String,
+    pub mode: kebab_core::SearchMode,
+    pub hits: Vec<kebab_core::SearchHit>,
+    pub selected_hit: usize,
+    /// When the input last changed; the run loop debounces searches
+    /// against this (200 ms after the last keystroke).
+    pub input_dirty_at: Option<time::OffsetDateTime>,
+    /// Snapshot of `(input, mode)` at the moment the last search
+    /// fired. The debounce skips re-searches when nothing changed.
+    pub last_query: Option<(String, kebab_core::SearchMode)>,
+    /// True while a synchronous search call is in flight. The run
+    /// loop uses this to overlay a "searching…" hint.
+    pub searching: bool,
+    /// Cached preview text for the currently-selected hit (lazily
+    /// fetched via `kebab-app::inspect_chunk_with_config`).
+    pub preview: Option<String>,
+}
+
+impl Default for SearchState {
+    fn default() -> Self {
+        Self {
+            input: String::new(),
+            mode: kebab_core::SearchMode::Hybrid,
+            hits: Vec::new(),
+            selected_hit: 0,
+            input_dirty_at: None,
+            last_query: None,
+            searching: false,
+            preview: None,
+        }
+    }
+}
 
 /// Forward-declared opaque sub-state. p9-3 fills the body.
 pub struct AskState;
