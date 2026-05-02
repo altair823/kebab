@@ -28,6 +28,14 @@
 //!   chunk rather than hard-splitting mid-word — a real tokenizer slot
 //!   in P+ replaces this proxy and can do better mid-sentence splitting
 //!   when needed.
+//! - Common English abbreviations (`Mr.`, `i.e.`, `e.g.`, `Fig. 3`)
+//!   trip the sentence-end heuristic and produce spurious boundaries —
+//!   accepted as a v1 limit. A real sentence segmenter lands with the
+//!   P+ tokenizer slot.
+//! - The effective overlap budget is clamped at `target_bytes / 2` so a
+//!   pathological policy (`overlap_tokens >= target_tokens`) cannot
+//!   make a chunk fully re-emit the previous chunk's text. Same guard
+//!   pattern as `md-heading-v1::collect_overlap_seed`.
 //!
 //! ## `BYTES_PER_TOKEN`
 //!
@@ -110,7 +118,14 @@ impl Chunker for PdfPageV1Chunker {
             .target_tokens
             .saturating_mul(BYTES_PER_TOKEN)
             .max(1);
-        let overlap_bytes = policy.overlap_tokens.saturating_mul(BYTES_PER_TOKEN);
+        // Clamp the overlap to half the target. Without this, a policy
+        // with `overlap_tokens >= target_tokens` would make every chunk
+        // fully re-emit the previous chunk's text — mirrors
+        // md-heading-v1's `seed_budget = overlap_tokens.min(target/2)`.
+        let overlap_bytes = policy
+            .overlap_tokens
+            .saturating_mul(BYTES_PER_TOKEN)
+            .min(target_bytes / 2);
 
         let mut out: Vec<Chunk> = Vec::new();
         for b in &doc.blocks {
@@ -134,10 +149,19 @@ impl Chunker for PdfPageV1Chunker {
             for (char_start, char_end, slice) in
                 chunk_page(&p.text, target_bytes, overlap_bytes)
             {
+                // PDF chars-per-page comfortably fits in u32 (a single
+                // page maxes out around ~10k chars even for dense
+                // typography); silent `as u32` truncation would only
+                // surface on corrupted input, where an explicit panic
+                // is preferable to an off-by-2^32 span.
+                let char_start_u32 = u32::try_from(char_start)
+                    .expect("page chars fit in u32");
+                let char_end_u32 =
+                    u32::try_from(char_end).expect("page chars fit in u32");
                 let span = SourceSpan::Page {
                     page: page_num,
-                    char_start: Some(char_start as u32),
-                    char_end: Some(char_end as u32),
+                    char_start: Some(char_start_u32),
+                    char_end: Some(char_end_u32),
                 };
                 let block_ids: Vec<BlockId> = vec![p.common.block_id.clone()];
                 // Per-chunk policy_hash variant prevents chunk_id
@@ -591,6 +615,51 @@ mod tests {
             assert!(c.policy_hash.len() == POLICY_HASH_HEX_LEN);
             assert!(c.policy_hash.bytes().all(|b| b.is_ascii_hexdigit()));
         }
+    }
+
+    #[test]
+    fn overlap_clamped_when_overlap_exceeds_target() {
+        // Pathological policy: overlap = 4× target. Without the
+        // `target_bytes / 2` clamp, every chunk would fully re-emit
+        // the previous chunk's text (chunk N's actual_start collapses
+        // to chunk N-1's actual_start).
+        let para = "a".repeat(150);
+        let page_text = std::iter::repeat_n(para, 6)
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let doc = make_pdf_doc(&[&page_text]);
+        let policy = ChunkPolicy {
+            target_tokens: 50,
+            overlap_tokens: 200,
+            respect_markdown_headings: false,
+            chunker_version: ChunkerVersion(VERSION_LABEL.into()),
+        };
+        let chunks = PdfPageV1Chunker.chunk(&doc, &policy).unwrap();
+        // For each consecutive pair, the new chunk's actual_start must
+        // be strictly greater than the previous chunk's actual_start
+        // (no full re-emission). Without the clamp, equality (full
+        // overlap) is the failure mode.
+        for w in chunks.windows(2) {
+            let prev_start = match w[0].source_spans[0] {
+                SourceSpan::Page { char_start: Some(s), .. } => s,
+                _ => panic!("missing char_start"),
+            };
+            let next_start = match w[1].source_spans[0] {
+                SourceSpan::Page { char_start: Some(s), .. } => s,
+                _ => panic!("missing char_start"),
+            };
+            assert!(
+                next_start > prev_start,
+                "overlap must not fully re-emit prior chunk: prev_start={prev_start}, next_start={next_start}"
+            );
+        }
+        // chunk_ids stay distinct (the per-chunk hash variant keys off
+        // char_start which is now strictly increasing).
+        let mut ids: Vec<&str> = chunks.iter().map(|c| c.chunk_id.0.as_str()).collect();
+        ids.sort();
+        let total = ids.len();
+        ids.dedup();
+        assert_eq!(ids.len(), total, "chunk_ids must remain unique");
     }
 
     #[test]
