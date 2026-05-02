@@ -1084,6 +1084,19 @@ fn ingest_one_pdf_asset(
         kebab_core::IngestItemKind::New
     };
 
+    // Surface every `Provenance::Warning` note onto `IngestItem.warnings`
+    // so the ingest summary shows partial-success signals (e.g. "page 2
+    // empty (scanned candidate)") without forcing the operator into
+    // `kebab inspect doc <id>`. Mirrors how the markdown path threads
+    // frontmatter / block warnings up to the same field.
+    let warnings: Vec<String> = canonical
+        .provenance
+        .events
+        .iter()
+        .filter(|e| e.kind == kebab_core::ProvenanceKind::Warning)
+        .filter_map(|e| e.note.clone())
+        .collect();
+
     Ok(kebab_core::IngestItem {
         kind,
         doc_id: Some(canonical.doc_id.clone()),
@@ -1094,7 +1107,7 @@ fn ingest_one_pdf_asset(
         chunk_count: u32::try_from(chunks.len()).ok(),
         parser_version: Some(canonical.parser_version.clone()),
         chunker_version: Some(chunker.chunker_version()),
-        warnings: Vec::new(),
+        warnings,
         error: None,
     })
 }

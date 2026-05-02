@@ -218,6 +218,15 @@ fn re_ingest_identical_pdf_produces_updated_with_same_doc_id() {
         .unwrap();
     assert_eq!(item2.kind, IngestItemKind::Updated);
     assert_eq!(item2.doc_id, item1.doc_id);
+    // P1 idempotency contract: identical bytes → identical chunk set.
+    // Comparing `chunk_count` as a proxy (full chunk_id set comparison
+    // would need direct sqlite access; the per-chunk #c{char_start}
+    // hash variant in pdf-page-v1 is already tested for stability in
+    // `kebab-chunk::pdf_page_v1::deterministic_chunk_ids_1000`).
+    assert_eq!(
+        item1.chunk_count, item2.chunk_count,
+        "identical bytes must produce identical chunk count"
+    );
 }
 
 /// Edit a PDF (replace bytes) → different blake3 → different asset_id
@@ -285,7 +294,7 @@ fn encrypted_pdf_fails_with_qpdf_hint() {
 
     let report =
         kebab_app::ingest_with_config(cfg, env.scope(), false).unwrap();
-    assert!(report.errors >= 1, "encrypted PDF must increment errors");
+    assert_eq!(report.errors, 1, "encrypted PDF must increment errors exactly once");
     let items = report.items.as_ref().unwrap();
     let pdf_item = items
         .iter()
@@ -313,7 +322,7 @@ fn corrupt_pdf_fails_without_storing() {
 
     let report =
         kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
-    assert!(report.errors >= 1);
+    assert_eq!(report.errors, 1, "corrupt PDF must increment errors exactly once");
     let items = report.items.as_ref().unwrap();
     let pdf_item = items
         .iter()
@@ -389,6 +398,21 @@ fn mixed_page_pdf_stores_asset_with_scanned_candidate_warning() {
     assert!(
         note.contains("page2") && note.contains("scanned candidate"),
         "Warning note marks page 2 as scanned candidate: {note}"
+    );
+
+    // R1: Warning notes also surface on `IngestItem.warnings` so
+    // operators can see the partial-success signal in the ingest
+    // summary without `kebab inspect doc`.
+    assert_eq!(
+        pdf_item.warnings.len(),
+        1,
+        "exactly one warning surfaced on IngestItem"
+    );
+    assert!(
+        pdf_item.warnings[0].contains("page2")
+            && pdf_item.warnings[0].contains("scanned candidate"),
+        "IngestItem.warnings preserves the Provenance Warning note: {:?}",
+        pdf_item.warnings
     );
 }
 
