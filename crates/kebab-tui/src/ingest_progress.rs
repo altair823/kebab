@@ -10,9 +10,11 @@
 //! seconds (`TERMINAL_LINE_HOLD_SECS`) and then `tick_clear` returns
 //! true so the run loop can drop the slot.
 //!
-//! `cancel_tx` is allocated here but never sent on — the cancel
-//! wiring (`Esc` / `Ctrl-C`) lands in `p9-fb-04`. The slot exists
-//! today so this task does not have to reshape `IngestState` later.
+//! Cancel surface (Esc / Ctrl-C) lands in `p9-fb-04`; that task
+//! adds a `(cancel_tx, cancel_rx)` pair to `IngestState` and
+//! threads the receiver through `kebab_app::ingest_with_config_cancellable`.
+//! This task does NOT pre-allocate the channel — see the comment on
+//! `IngestState` for the rationale.
 
 use std::sync::mpsc;
 use std::thread;
@@ -37,11 +39,6 @@ pub fn start_ingest(app: &mut App) -> anyhow::Result<()> {
         exclude: cfg.workspace.exclude.clone(),
     };
     let (tx, rx) = mpsc::channel::<IngestEvent>();
-    let (cancel_tx, _cancel_rx) = mpsc::channel::<()>();
-    // _cancel_rx is intentionally dropped here; p9-fb-04 will wire it
-    // through to `ingest_with_config_cancellable` (or equivalent).
-    // Holding both ends today keeps the channel allocated without
-    // doing anything with it.
     let cfg_for_thread = cfg;
     let thread = thread::spawn(move || {
         kebab_app::ingest_with_config_progress(cfg_for_thread, scope, true, Some(tx))
@@ -55,7 +52,6 @@ pub fn start_ingest(app: &mut App) -> anyhow::Result<()> {
         terminal_at: None,
         aborted: false,
         thread: Some(thread),
-        cancel_tx,
     });
     Ok(())
 }
@@ -196,7 +192,6 @@ mod tests {
 
     fn fresh_state() -> IngestState {
         let (_tx, rx) = mpsc::channel::<IngestEvent>();
-        let (cancel_tx, _cancel_rx) = mpsc::channel::<()>();
         IngestState {
             rx,
             counts: AggregateCounts::default(),
@@ -206,7 +201,6 @@ mod tests {
             terminal_at: None,
             aborted: false,
             thread: None,
-            cancel_tx,
         }
     }
 

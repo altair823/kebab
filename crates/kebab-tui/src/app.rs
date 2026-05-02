@@ -177,8 +177,14 @@ impl Default for InspectState {
 /// the final aggregate counts stay on screen for a few seconds and
 /// then the slot clears.
 ///
-/// `cancel_tx` is reserved for `p9-fb-04` (Ctrl-C / Esc cancel
-/// wiring); this task allocates the channel but never sends on it.
+/// `p9-fb-04` adds the cancel surface — at that point this struct
+/// gains a real `(cancel_tx, cancel_rx)` pair (the receiver moved
+/// into the worker thread alongside the progress sender). We do
+/// NOT pre-define a `cancel_tx` slot here because doing so without
+/// a matching receiver-bound worker would yield a dead channel
+/// (`send` returning `Err(SendError)` forever) — empty slot that
+/// pretends to be a future-compat shim is worse than no slot
+/// (CLAUDE.md "backward-compat shim 금지").
 pub struct IngestState {
     pub rx: std::sync::mpsc::Receiver<kebab_app::IngestEvent>,
     pub counts: kebab_app::AggregateCounts,
@@ -195,10 +201,6 @@ pub struct IngestState {
     /// Worker thread handle. `take()`n at clear time so the join
     /// happens after the user has had time to read the final line.
     pub thread: Option<std::thread::JoinHandle<anyhow::Result<kebab_core::IngestReport>>>,
-    /// Cancel-token slot for `p9-fb-04`. Defined here so that task
-    /// can wire `Esc` / `Ctrl-C` without restructuring `IngestState`.
-    /// This task never sends on it.
-    pub cancel_tx: std::sync::mpsc::Sender<()>,
 }
 
 /// Seconds the final ingest status line stays on screen after a run
