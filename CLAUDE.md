@@ -74,6 +74,20 @@ The migration from the old `kb` name lives in commits `911fb49 / f1a448d / f9714
 
 `docs/SMOKE.md` walks through running the full pipeline against an isolated TempDir KB via `--config /tmp/kebab-smoke/config.toml`. Use this instead of touching `~/.local/share/kebab/` when verifying a fresh clone or a CLI flag change. Most CLI regressions surface here, not in unit tests (see HOTFIXES.md).
 
+## User-facing docs (README)
+
+`README.md` is the user's first stop. Every PR that adds or changes user-visible surface MUST update the README in the same PR — never as a follow-up. The three surfaces:
+
+- **CLI** — any new `kebab <subcommand>`, new flag, new `--json` field, or changed exit-code semantics. Update the command table near the top of the README and add an entry to the "빌드 + 실행" section if the new flow needs a different invocation pattern.
+- **TUI** — any new pane, key binding, or run-time behavior visible to a `kebab tui` user. The README's TUI section names what the shell can do today; a new pane (search / ask / inspect / desktop) flips its row from ⏳ to ✅ and adds the key bindings users need to know.
+- **Configuration** — any new `config.toml` field, env var (`KEBAB_*`), default value change, or XDG path. Update the config example block in `docs/SMOKE.md` AND the README's "핵심 결정" / "빌드 + 실행" rows that reference it.
+
+The README is also the place where the phase status table lives — flip the relevant row's status (⏳ → ✅) when a phase epic completes. `tasks/INDEX.md` tracks per-component progress; the README tracks per-phase user-visible promises.
+
+Spec PRs (`spec/*` branches) do not touch the README. Implementation PRs (`feat/*`) do. If a feature ships behind a flag that's off-by-default, mention the flag explicitly so a user reading only the README knows the surface exists but is gated.
+
+Out of scope for the README: HOTFIXES detail (those live in `tasks/HOTFIXES.md`), version cascade mechanics (CLAUDE.md owns those), per-task spec rationale (those live in `tasks/p<N>/`).
+
 ## Remote
 
 Git remote is Gitea: `https://gitea.altair823.xyz/altair823-org/kebab.git`. PRs are created via the Gitea REST API (`POST /repos/altair823-org/kebab/pulls`) — `gh` CLI does not work against this host. Auth uses `~/.netrc` (populated via `git credential fill`).
