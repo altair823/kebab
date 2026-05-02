@@ -329,6 +329,21 @@ impl VectorStore for LanceVectorStore {
                     }
                 };
                 for batch in chunk_ids.chunks(BATCH) {
+                    // chunk_ids in production come from `id_for_chunk`
+                    // which always emits 32 ASCII hex chars. The
+                    // `ChunkId(pub String)` newtype permits hand-
+                    // construction that bypasses that invariant; assert
+                    // it here so a misuse fails loudly in dev rather
+                    // than slipping a tainted string into Lance's SQL
+                    // parser.
+                    debug_assert!(
+                        batch
+                            .iter()
+                            .all(|id| id.0.bytes().all(|b| b.is_ascii_hexdigit())),
+                        "ChunkId must be ASCII hex (id_for_chunk invariant) — \
+                         hand-constructed IDs that bypass this would let \
+                         Lance's SQL parser see arbitrary text"
+                    );
                     let list = batch
                         .iter()
                         .map(|id| format!("'{}'", id.0))
