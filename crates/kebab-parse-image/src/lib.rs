@@ -129,7 +129,10 @@ impl Extractor for ImageExtractor {
         });
 
         let now = OffsetDateTime::now_utc();
-        let mut events: Vec<ProvenanceEvent> = Vec::with_capacity(3);
+        // Discovered + Parsed (always) + optional Warning when the
+        // dim probe failed.
+        let mut events: Vec<ProvenanceEvent> =
+            Vec::with_capacity(if dim_warning.is_some() { 3 } else { 2 });
         events.push(ProvenanceEvent {
             at: asset.discovered_at,
             agent: "kb-source-fs".to_string(),

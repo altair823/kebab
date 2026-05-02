@@ -35,7 +35,13 @@ pub(crate) fn extract_whitelisted(bytes: &[u8]) -> Map<String, JsonValue> {
     let mut out = Map::new();
     let exif = match Reader::new().read_from_container(&mut Cursor::new(bytes)) {
         Ok(e) => e,
-        Err(_) => return out,
+        Err(e) => {
+            tracing::debug!(
+                target: "kebab-parse-image",
+                "no readable EXIF block: {e}"
+            );
+            return out;
+        }
     };
 
     if let Some(s) = ascii_field(&exif, Tag::DateTimeOriginal)
@@ -130,9 +136,21 @@ fn exif_datetime_to_iso(raw: &str) -> Option<String> {
 
 /// Convert a GPS DMS triple (degrees / minutes / seconds, each
 /// `Rational`) into a signed decimal degree using the matching N/S/E/W
-/// reference tag. Returns `None` if either tag is missing or shaped
-/// unexpectedly.
+/// reference tag. Returns `None` if any of:
+///
+/// * `value_tag` is missing or not a 3-element rational triple
+/// * `ref_tag` (GPSLatitudeRef / GPSLongitudeRef) is missing — the EXIF
+///   spec requires it alongside the value, so absence is treated as
+///   corrupted metadata rather than \"assume positive\"
+/// * the resulting decimal is non-finite or out of physical range
+///   (`±90` for latitude, `±180` for longitude)
 fn gps_decimal(exif: &exif::Exif, value_tag: Tag, ref_tag: Tag) -> Option<f64> {
+    let limit = match value_tag {
+        Tag::GPSLatitude => 90.0_f64,
+        Tag::GPSLongitude => 180.0_f64,
+        _ => return None,
+    };
+
     let f = exif.get_field(value_tag, In::PRIMARY)?;
     let dms = match &f.value {
         Value::Rational(r) if r.len() == 3 => r,
@@ -142,17 +160,17 @@ fn gps_decimal(exif: &exif::Exif, value_tag: Tag, ref_tag: Tag) -> Option<f64> {
     let min = rational_to_f64(&dms[1])?;
     let sec = rational_to_f64(&dms[2])?;
     let mut decimal = deg + min / 60.0 + sec / 3600.0;
-    if let Some(reference) = ascii_field(exif, ref_tag) {
-        let r = reference.to_ascii_uppercase();
-        if r.starts_with('S') || r.starts_with('W') {
-            decimal = -decimal;
-        }
+
+    let reference = ascii_field(exif, ref_tag)?;
+    let r = reference.to_ascii_uppercase();
+    if r.starts_with('S') || r.starts_with('W') {
+        decimal = -decimal;
     }
-    if decimal.is_finite() {
-        Some(decimal)
-    } else {
-        None
+
+    if !decimal.is_finite() || decimal.abs() > limit {
+        return None;
     }
+    Some(decimal)
 }
 
 fn rational_to_f64(r: &exif::Rational) -> Option<f64> {

@@ -52,8 +52,25 @@ pub fn no_exif_png() -> Vec<u8> {
 /// APP1 segment immediately after SOI (FF D8). The EXIF blob is built
 /// with `exif::experimental::Writer`.
 pub fn exif_with_gps_jpg() -> Vec<u8> {
+    splice_exif_into_jpeg(build_exif_blob_gps(GpsFlavor::Valid))
+}
+
+/// JPEG carrying GPSLatitude / GPSLongitude triples but missing the
+/// matching `*Ref` tags. Used to verify the extractor drops the GPS
+/// coordinates entirely (rather than silently assuming positive sign).
+pub fn exif_gps_no_ref_jpg() -> Vec<u8> {
+    splice_exif_into_jpeg(build_exif_blob_gps(GpsFlavor::NoRef))
+}
+
+/// JPEG carrying a GPSLatitude triple whose decimal value lands outside
+/// the legal `[-90, 90]` range (300° here). Used to verify the extractor
+/// drops the coordinate as corrupted.
+pub fn exif_gps_out_of_range_jpg() -> Vec<u8> {
+    splice_exif_into_jpeg(build_exif_blob_gps(GpsFlavor::OutOfRange))
+}
+
+fn splice_exif_into_jpeg(exif_blob: Vec<u8>) -> Vec<u8> {
     let base = encode_tiny_jpeg();
-    let exif_blob = build_exif_blob_gps();
 
     let mut out = Vec::with_capacity(base.len() + exif_blob.len() + 16);
     // SOI: FF D8.
@@ -85,7 +102,21 @@ fn encode_tiny_jpeg() -> Vec<u8> {
     buf.into_inner()
 }
 
-fn build_exif_blob_gps() -> Vec<u8> {
+/// Selector for which GPS shape the test fixture should embed.
+#[derive(Clone, Copy)]
+enum GpsFlavor {
+    /// 37°30'0" N, 127°0'0" E with both `*Ref` tags (= 37.5, 127.0).
+    Valid,
+    /// Same DMS triples but `GPSLatitudeRef` / `GPSLongitudeRef` omitted.
+    /// Extractor must treat this as corrupted metadata and drop the
+    /// coordinates.
+    NoRef,
+    /// Latitude DMS encodes 300° (out of the legal `[-90, 90]` range).
+    /// Extractor must drop the coordinate.
+    OutOfRange,
+}
+
+fn build_exif_blob_gps(flavor: GpsFlavor) -> Vec<u8> {
     let make = Field {
         tag: Tag::Make,
         ifd_num: In::PRIMARY,
@@ -111,13 +142,17 @@ fn build_exif_blob_gps() -> Vec<u8> {
         ifd_num: In::PRIMARY,
         value: Value::Short(vec![1]),
     };
-    // GPS — 37.5 N, 127.0 E (Seoul-ish). DMS triple: 37°30'0" N,
-    // 127°0'0" E. Each component is num/denom rationals.
+    let (lat_deg, lon_deg) = match flavor {
+        GpsFlavor::OutOfRange => (300_u32, 127_u32),
+        _ => (37_u32, 127_u32),
+    };
+    // GPS DMS triples — `OutOfRange` puts 300° in the latitude degrees
+    // slot so the resulting decimal escapes ±90.
     let lat = Field {
         tag: Tag::GPSLatitude,
         ifd_num: In::PRIMARY,
         value: Value::Rational(vec![
-            Rational { num: 37, denom: 1 },
+            Rational { num: lat_deg, denom: 1 },
             Rational { num: 30, denom: 1 },
             Rational { num: 0, denom: 1 },
         ]),
@@ -131,7 +166,7 @@ fn build_exif_blob_gps() -> Vec<u8> {
         tag: Tag::GPSLongitude,
         ifd_num: In::PRIMARY,
         value: Value::Rational(vec![
-            Rational { num: 127, denom: 1 },
+            Rational { num: lon_deg, denom: 1 },
             Rational { num: 0, denom: 1 },
             Rational { num: 0, denom: 1 },
         ]),
@@ -149,9 +184,11 @@ fn build_exif_blob_gps() -> Vec<u8> {
     writer.push_field(&datetime);
     writer.push_field(&orientation);
     writer.push_field(&lat);
-    writer.push_field(&lat_ref);
     writer.push_field(&lon);
-    writer.push_field(&lon_ref);
+    if !matches!(flavor, GpsFlavor::NoRef) {
+        writer.push_field(&lat_ref);
+        writer.push_field(&lon_ref);
+    }
 
     let mut blob = Cursor::new(Vec::new());
     writer

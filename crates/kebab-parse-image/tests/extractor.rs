@@ -7,7 +7,8 @@ use kebab_parse_image::ImageExtractor;
 use serde_json::Value;
 
 use crate::common::{
-    corrupt_png, exif_with_gps_jpg, fixture_for, no_exif_png, red_100x50_png, strip_dynamic_at,
+    corrupt_png, exif_gps_no_ref_jpg, exif_gps_out_of_range_jpg, exif_with_gps_jpg, fixture_for,
+    no_exif_png, red_100x50_png, strip_dynamic_at,
 };
 
 fn extract_block(doc: &kebab_core::CanonicalDocument) -> &kebab_core::ImageRefBlock {
@@ -237,6 +238,51 @@ fn supports_only_image_media_type() {
     assert!(e.supports(&kebab_core::MediaType::Image(ImageType::Jpeg)));
     assert!(!e.supports(&kebab_core::MediaType::Markdown));
     assert!(!e.supports(&kebab_core::MediaType::Pdf));
+}
+
+#[test]
+fn jpeg_with_gps_missing_ref_drops_coordinates() {
+    let bytes = exif_gps_no_ref_jpg();
+    let fx = fixture_for("img/no-ref.jpg", ImageType::Jpeg, &bytes);
+    let doc = ImageExtractor::new().extract(&fx.ctx(), &bytes).unwrap();
+    let exif = doc
+        .metadata
+        .user
+        .get("exif")
+        .and_then(|v| v.as_object())
+        .expect("exif object present");
+    // Other whitelisted tags still load (Make / Model / …); GPS is
+    // dropped because the *Ref tags are missing.
+    assert!(exif.contains_key("make"));
+    assert!(
+        !exif.contains_key("gps_lat"),
+        "missing GPSLatitudeRef must drop gps_lat"
+    );
+    assert!(
+        !exif.contains_key("gps_lon"),
+        "missing GPSLongitudeRef must drop gps_lon"
+    );
+}
+
+#[test]
+fn jpeg_with_gps_out_of_range_drops_latitude() {
+    let bytes = exif_gps_out_of_range_jpg();
+    let fx = fixture_for("img/oor.jpg", ImageType::Jpeg, &bytes);
+    let doc = ImageExtractor::new().extract(&fx.ctx(), &bytes).unwrap();
+    let exif = doc
+        .metadata
+        .user
+        .get("exif")
+        .and_then(|v| v.as_object())
+        .expect("exif object present");
+    // Latitude (300° + 30' = ~300.5) is outside ±90, so it must be
+    // dropped. Longitude (127°) stays in range and survives.
+    assert!(
+        !exif.contains_key("gps_lat"),
+        "out-of-range latitude must be dropped"
+    );
+    let lon = exif.get("gps_lon").and_then(|v| v.as_f64()).expect("gps_lon");
+    assert!((lon - 127.0).abs() < 1e-6);
 }
 
 #[test]

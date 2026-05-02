@@ -14,7 +14,7 @@
 
 use std::io::Cursor;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use image::{ImageFormat, ImageReader};
 
 use crate::MAX_DECODE_DIM;
@@ -37,12 +37,9 @@ pub(crate) fn probe(bytes: &[u8]) -> Result<DimOutcome> {
         .with_guessed_format()
         .map_err(|e| anyhow::anyhow!("io error guessing format: {e}"))?;
 
-    let format = match reader.format() {
-        Some(f) => f,
-        None => {
-            anyhow::bail!("unsupported or unrecognised image format");
-        }
-    };
+    let format = reader
+        .format()
+        .context("unsupported or unrecognised image format")?;
     let format_str = format_label(format);
 
     match reader.into_dimensions() {
