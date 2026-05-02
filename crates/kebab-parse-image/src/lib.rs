@@ -13,14 +13,25 @@
 //! consumers can branch trust by engine (Tesseract / Apple Vision
 //! adapters, when added, will write a different `engine` string).
 //!
+//! P6-3 adds the [`caption`] module: [`caption_image`] /
+//! [`apply_caption`] route an image through any vision-capable
+//! [`kebab_core::LanguageModel`] (text-only LMs are not vision-aware
+//! and will surface a model-side error). Captions are explicitly
+//! marked **model-generated** — the trust gap between OCR (observed,
+//! engine-tagged) and caption (generated, prompt-tagged) is the
+//! workspace's central trust contract.
+//!
 //! Per design §3.4 (Block::ImageRef + ImageRefBlock), §3.7a (OcrText /
 //! ModelCaption stubs), §9.1 (image extraction policy / OCR vs caption
 //! provenance), §9 (versioning).
 
 mod dims;
 mod exif_extract;
+mod image_prep;
+pub mod caption;
 pub mod ocr;
 
+pub use caption::{apply_caption, caption_image};
 pub use ocr::{OcrEngine, OllamaVisionOcr, apply_ocr};
 
 use anyhow::{Context, Result};

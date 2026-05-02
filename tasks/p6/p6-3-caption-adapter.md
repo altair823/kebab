@@ -3,7 +3,7 @@ phase: P6
 component: kebab-parse-image (caption adapter)
 task_id: p6-3
 title: "ModelCaption adapter (LanguageModel-driven, feature-gated)"
-status: planned
+status: completed
 depends_on: [p6-1, p4-2]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

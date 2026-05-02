@@ -31,6 +31,7 @@ fn real_ollama_streams_non_empty_response() {
         max_tokens: 8,
         temperature: 0.0,
         seed: Some(0),
+        images: Vec::new(),
     };
 
     let stream = llm.generate_stream(req).expect("stream should start");

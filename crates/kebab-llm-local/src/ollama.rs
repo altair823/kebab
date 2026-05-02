@@ -140,9 +140,15 @@ impl LanguageModel for OllamaLanguageModel {
             format!("{}\n\n{}", req.system, req.user)
         };
 
+        // Vision inputs (P6-3) flow through the request via Ollama's
+        // `images: [base64, ...]` field. Empty for the text-only RAG
+        // path so older snapshots and JSON dumps stay byte-identical
+        // (the field is `#[serde(default)]` here so it's omitted from
+        // the wire when empty).
         let body = OllamaRequest {
             model: &self.model_id,
             prompt,
+            images: &req.images,
             stream: true,
             options: OllamaOptions {
                 temperature: effective_temperature,
@@ -188,6 +194,13 @@ impl LanguageModel for OllamaLanguageModel {
 struct OllamaRequest<'a> {
     model: &'a str,
     prompt: String,
+    /// Skipped from the JSON when empty so the text-only path keeps
+    /// the same on-the-wire shape it had pre-P6-3 (`{"model": ...,
+    /// "prompt": ..., "stream": ..., "options": ...}` — no `images`
+    /// key). Vision-capable callers populate this with one or more
+    /// base64-encoded images.
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    images: &'a [String],
     stream: bool,
     options: OllamaOptions<'a>,
 }

@@ -35,6 +35,7 @@ fn sample_request() -> GenerateRequest {
         max_tokens: 64,
         temperature: 0.0,
         seed: Some(0),
+        images: Vec::new(),
     }
 }
 

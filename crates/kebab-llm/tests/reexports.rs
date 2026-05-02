@@ -55,6 +55,7 @@ fn dyn_dispatch_via_box_works() {
         max_tokens: 16,
         temperature: 0.0,
         seed: None,
+        images: Vec::new(),
     };
     let stream = m.generate_stream(req).expect("stream");
     let chunks: Vec<TokenChunk> = stream.map(|r| r.expect("ok chunk")).collect();

@@ -69,6 +69,17 @@ pub struct GenerateRequest {
     pub max_tokens: usize,
     pub temperature: f32,
     pub seed: Option<u64>,
+    /// Vision inputs (base64-encoded, one per image). Empty for the
+    /// text-only path that P4-2 / P4-3 / RAG uses; non-empty when a
+    /// vision-capable adapter (P6-3 caption, future multimodal RAG)
+    /// drives the call. The LM adapter is responsible for routing
+    /// these onto the wire — Ollama uses `images: [base64, ...]`,
+    /// other backends may differ.
+    ///
+    /// Defaulted on deserialization so older `*.json` payloads /
+    /// snapshots that predate the field still parse.
+    #[serde(default)]
+    pub images: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
