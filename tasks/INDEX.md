@@ -77,12 +77,33 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
 - P8 — [p8/](p8/) — 2 components
   - [p8-1 whisper-adapter](p8/p8-1-whisper-adapter.md)
   - [p8-2 segment-chunker](p8/p8-2-segment-chunker.md)
-- P9 — [p9/](p9/) — 5 components
+- P9 — [p9/](p9/) — 5 components + 도그푸딩 피드백
   - [p9-1 tui-library](p9/p9-1-tui-library.md)
   - [p9-2 tui-search](p9/p9-2-tui-search.md)
   - [p9-3 tui-ask](p9/p9-3-tui-ask.md)
   - [p9-4 tui-inspect](p9/p9-4-tui-inspect.md)
   - [p9-5 desktop-tauri](p9/p9-5-desktop-tauri.md)
+  - [p9-dogfooding 피드백 인덱스](p9/p9-dogfooding-feedback.md) — 사용자가 직접 돌려보며 수집한 UX 잡음 → p9-fb-01 ~ 20 으로 분해 완료
+  - [p9-fb-01 ingest progress callback](p9/p9-fb-01-ingest-progress-callback.md)
+  - [p9-fb-02 CLI progress display](p9/p9-fb-02-cli-progress-display.md)
+  - [p9-fb-03 TUI ingest background](p9/p9-fb-03-tui-ingest-background.md)
+  - [p9-fb-04 ingest cancellation](p9/p9-fb-04-ingest-cancellation.md)
+  - [p9-fb-05 config path policy](p9/p9-fb-05-config-path-policy.md)
+  - [p9-fb-06 kebab reset](p9/p9-fb-06-data-reset-command.md)
+  - [p9-fb-07 MD title fallback](p9/p9-fb-07-md-title-fallback.md)
+  - [p9-fb-08 search debounce](p9/p9-fb-08-search-debounce.md)
+  - [p9-fb-09 editor restore](p9/p9-fb-09-tui-editor-restore.md)
+  - [p9-fb-10 CJK input](p9/p9-fb-10-tui-cjk-input.md)
+  - [p9-fb-11 ask markdown render](p9/p9-fb-11-ask-markdown-render.md)
+  - [p9-fb-12 mode machine](p9/p9-fb-12-tui-mode-machine.md)
+  - [p9-fb-13 cheatsheet](p9/p9-fb-13-tui-cheatsheet.md)
+  - [p9-fb-14 color theme](p9/p9-fb-14-tui-color-theme.md)
+  - [p9-fb-15 RAG multi-turn core](p9/p9-fb-15-rag-multi-turn-core.md)
+  - [p9-fb-16 TUI ask conversation](p9/p9-fb-16-tui-ask-conversation.md)
+  - [p9-fb-17 chat session storage (V004)](p9/p9-fb-17-chat-session-storage.md)
+  - [p9-fb-18 CLI ask session/repl](p9/p9-fb-18-cli-ask-session-repl.md)
+  - [p9-fb-19 search cache](p9/p9-fb-19-search-cache.md)
+  - [p9-fb-20 citation surface](p9/p9-fb-20-citation-surface.md)
 
 ## Post-merge 핫픽스
 
