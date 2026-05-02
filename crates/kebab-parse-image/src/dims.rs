@@ -35,7 +35,7 @@ pub(crate) enum DimOutcome {
 pub(crate) fn probe(bytes: &[u8]) -> Result<DimOutcome> {
     let reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
-        .map_err(|e| anyhow::anyhow!("io error guessing format: {e}"))?;
+        .context("reading image header")?;
 
     let format = reader
         .format()

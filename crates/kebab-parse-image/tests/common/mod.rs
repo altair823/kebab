@@ -210,8 +210,8 @@ pub fn corrupt_png() -> Vec<u8> {
 /// per §4.2 — this matches what `kebab-source-fs` does in production.
 pub struct ImageFixture {
     pub asset: RawAsset,
-    pub workspace_root: PathBuf,
-    pub config: ExtractConfig,
+    workspace_root: PathBuf,
+    config: ExtractConfig,
 }
 
 impl ImageFixture {

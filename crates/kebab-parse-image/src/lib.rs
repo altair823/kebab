@@ -85,7 +85,7 @@ impl Extractor for ImageExtractor {
                 let mut dims = Map::new();
                 dims.insert("w".into(), Value::Number((*width).into()));
                 dims.insert("h".into(), Value::Number((*height).into()));
-                dims.insert("format".into(), Value::String((*format).to_string()));
+                dims.insert("format".into(), Value::String(format.to_string()));
                 (
                     SourceSpan::Region {
                         x: 0,
