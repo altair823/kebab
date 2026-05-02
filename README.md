@@ -54,7 +54,7 @@ kebab search "Markdown chunking 규칙" --mode hybrid
 # 질문 (Ollama 필요, PDF 인용 시 page 번호 surface)
 kebab ask "내 KB 설계에서 저장소 전략은?"
 
-# Ratatui 셸 (Library 패널 — j/k 이동, f 필터, q 종료)
+# Ratatui 셸 (Library + Search 패널, ask/inspect 패널 진행 중)
 kebab tui
 
 # 헬스 체크 (config 경로 / 데이터 디렉토리 쓰기 가능 여부)
@@ -76,7 +76,7 @@ kebab doctor
 | `kebab inspect doc <id>` / `kebab inspect chunk <id>` | raw record 보기 |
 | `kebab ask "<query>"` | RAG 답변 + 근거 인용. 근거 부족 시 거절. Ollama 필요 |
 | `kebab doctor` | 설정/모델/DB 헬스 체크 |
-| `kebab tui` | Ratatui 셸 (Library 패널 v1, search/ask/inspect 패널 진행 중) |
+| `kebab tui` | Ratatui 셸 (Library + Search 패널, ask/inspect 패널 진행 중) |
 | `kebab eval run / compare` | golden query 회귀 측정 |
 
 모든 명령에 `--json` 플래그. 출력은 frozen wire schema v1 (`schema_version` 항상 포함, 예: `ingest_report.v1`, `search_hit.v1`, `answer.v1`, `doctor.v1`).

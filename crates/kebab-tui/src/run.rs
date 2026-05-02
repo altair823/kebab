@@ -10,9 +10,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use std::time::Duration;
 
-use crate::app::{App, KeyOutcome, Pane};
+use crate::app::{App, KeyOutcome, Pane, SearchState};
 use crate::error_popup::{ErrorOverlay, render_error_overlay};
 use crate::library::{handle_key_library, refresh_docs, render_library};
+use crate::search::{
+    debounce_due, fire_search, handle_key_search, refresh_preview, render_search,
+};
 use crate::terminal::TuiTerminal;
 
 /// Poll interval for crossterm's `event::poll`. Short enough that a
@@ -24,12 +27,41 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
     let mut terminal = TuiTerminal::enter()?;
 
     while !app.should_quit {
-        if app.library.inner.needs_refresh
-            && app.focus == Pane::Library
-            && app.error_overlay.is_none()
-        {
-            if let Err(e) = refresh_docs(app) {
-                app.error_overlay = Some(ErrorOverlay::from_anyhow(&e));
+        // Per-pane idle work BEFORE rendering so the frame reflects
+        // freshly-loaded state.
+        if app.error_overlay.is_none() {
+            match app.focus {
+                Pane::Library => {
+                    if app.library.inner.needs_refresh {
+                        if let Err(e) = refresh_docs(app) {
+                            app.error_overlay = Some(ErrorOverlay::from_anyhow(&e));
+                        }
+                    }
+                }
+                Pane::Search => {
+                    let due = app
+                        .search
+                        .as_ref()
+                        .map(debounce_due)
+                        .unwrap_or(false);
+                    if due {
+                        if let Err(e) = fire_search(app) {
+                            app.error_overlay = Some(ErrorOverlay::from_anyhow(&e));
+                        }
+                    }
+                    // Lazy preview fetch when selection lacks one.
+                    let needs_preview = app
+                        .search
+                        .as_ref()
+                        .map(|s| s.preview.is_none() && !s.hits.is_empty())
+                        .unwrap_or(false);
+                    if needs_preview {
+                        if let Err(e) = refresh_preview(app) {
+                            app.error_overlay = Some(ErrorOverlay::from_anyhow(&e));
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -40,22 +72,27 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     let outcome = match app.focus {
                         Pane::Library => handle_key_library(app, key),
-                        // p9-2/3/4 plug their handlers here as their
-                        // crates land. Until then, the non-Library
-                        // panes accept only `q` / `Esc` to return —
-                        // anything else is a no-op. The footer hint
-                        // tells the user the pane is unimplemented.
-                        Pane::Search | Pane::Ask | Pane::Inspect | Pane::Jobs => {
+                        Pane::Search => handle_key_search(app, key),
+                        // p9-3/4/5 plug their handlers here as their
+                        // crates land. Until then, those panes accept
+                        // only `q` / `Esc` to return.
+                        Pane::Ask | Pane::Inspect | Pane::Jobs => {
                             handle_key_unimplemented_pane(app, key)
                         }
                     };
                     match outcome {
                         KeyOutcome::Quit => app.should_quit = true,
-                        KeyOutcome::SwitchPane(p) => app.focus = p,
+                        KeyOutcome::SwitchPane(p) => {
+                            app.focus = p;
+                            // Lazy-init pane state on first switch.
+                            if p == Pane::Search && app.search.is_none() {
+                                app.search = Some(SearchState::default());
+                            }
+                        }
                         KeyOutcome::Refresh => {
-                            // `needs_refresh` was already set by the
-                            // pane handler; the next loop iteration
-                            // services it.
+                            // Library uses needs_refresh; Search uses
+                            // input_dirty_at — pane-specific. The next
+                            // loop iteration's idle pass services it.
                         }
                         KeyOutcome::Continue => {}
                     }
@@ -70,9 +107,6 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
 
 /// Stub key handler for panes whose authoring task has not landed
 /// yet. `q` / `Esc` returns to Library; everything else is a no-op.
-/// Does NOT delegate to `handle_key_library` because that would let
-/// `j` / `k` / `f` mutate Library state while focus says otherwise —
-/// confusing UX.
 fn handle_key_unimplemented_pane(
     app: &mut App,
     key: crossterm::event::KeyEvent,
@@ -100,9 +134,10 @@ fn render_root(f: &mut Frame, app: &App) {
     render_header(f, outer[0], app);
     match app.focus {
         Pane::Library => render_library(f, outer[1], app),
-        // Until p9-2/3/4 land, the run loop never actually moves
-        // focus to those panes; render_library serves as a safe
-        // placeholder.
+        Pane::Search => render_search(f, outer[1], app),
+        // p9-3/4/5 panes are not yet rendered; placeholder is the
+        // Library frame — focus state already reads "Search" /
+        // "Ask" / etc. in the header so the user is not misled.
         _ => render_library(f, outer[1], app),
     }
     render_footer(f, outer[2], app);
@@ -131,9 +166,6 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_footer(f: &mut Frame, area: Rect, app: &App) {
-    // p9-2/3/4 가 머지되기 전에는 SwitchPane(Search/Ask/Inspect) 가
-    // focus 만 바꾸고 본문은 Library 가 그려지는 절뚝거림이 사용자에게
-    // 보임. footer 에서 \"미구현\" 을 명시해 거짓말 안 함.
     let hints = match app.focus {
         Pane::Library => {
             if app.library.inner.filter_edit.is_some() {
@@ -142,7 +174,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
                 "j/k=move  gg=top  G=bottom  f=filter  /=search  ?=ask  Enter=inspect  q=quit"
             }
         }
-        Pane::Search => "Search pane not yet implemented (lands with p9-2) — q to return",
+        Pane::Search => "type=query  Tab=mode  Enter=search  j/k=move  g=open in $EDITOR  Esc=back",
         Pane::Ask => "Ask pane not yet implemented (lands with p9-3) — q to return",
         Pane::Inspect => "Inspect pane not yet implemented (lands with p9-4) — q to return",
         Pane::Jobs => "Jobs pane not yet implemented — q to return",

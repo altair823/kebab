@@ -3,7 +3,7 @@ phase: P9
 component: kebab-tui (search pane)
 task_id: p9-2
 title: "TUI Search pane: input + result list + preview + editor jump"
-status: planned
+status: completed
 depends_on: [p2-2, p3-4, p9-1]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
