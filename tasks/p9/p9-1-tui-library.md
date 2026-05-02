@@ -3,7 +3,7 @@ phase: P9
 component: kebab-tui (library view)
 task_id: p9-1
 title: "Ratatui library list view + tag filter"
-status: planned
+status: completed
 depends_on: [p1-6]
 unblocks: [p9-2, p9-3, p9-4]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

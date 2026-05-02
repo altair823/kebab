@@ -21,6 +21,7 @@ members = [
     "crates/kebab-eval",
     "crates/kebab-parse-image",
     "crates/kebab-parse-pdf",
+    "crates/kebab-tui",
 ]
 
 [workspace.package]

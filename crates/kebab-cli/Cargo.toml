@@ -23,6 +23,10 @@ kebab-app = { path = "../kebab-app" }
 # kb-cli → kb-eval directly; documented in
 # `tasks/p5/p5-2-metrics-compare.md`.
 kebab-eval = { path = "../kebab-eval" }
+# P9-1: Ratatui shell. UI consumes `kebab-app` only — `kebab-tui`
+# enforces the §8 boundary in its own Cargo.toml; kb-cli just
+# launches it.
+kebab-tui    = { path = "../kebab-tui" }
 anyhow       = { workspace = true }
 serde_json   = { workspace = true }
 clap         = { version = "4", features = ["derive"] }

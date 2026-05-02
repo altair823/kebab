@@ -102,6 +102,10 @@ enum Cmd {
     /// Health check.
     Doctor,
 
+    /// Launch the Ratatui shell (P9-1 — Library pane only; search /
+    /// ask / inspect panes land with p9-2 / p9-3 / p9-4).
+    Tui,
+
     /// Eval suite (placeholder; lands in P9).
     Eval {
         #[command(subcommand)]
@@ -398,6 +402,17 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 return Err(DoctorUnhealthy.into());
             }
             Ok(())
+        }
+
+        Cmd::Tui => {
+            // P9-1: Ratatui shell with Library pane. Search / Ask /
+            // Inspect panes land in p9-2 / p9-3 / p9-4.
+            let config = match cli.config.as_deref() {
+                Some(path) => kebab_config::Config::load(Some(path))?,
+                None => kebab_config::Config::load(None)?,
+            };
+            let mut app = kebab_tui::App::new(config)?;
+            app.run()
         }
 
         Cmd::Eval { what } => match what {
