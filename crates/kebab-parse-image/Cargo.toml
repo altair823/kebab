@@ -5,11 +5,13 @@ edition       = { workspace = true }
 rust-version  = { workspace = true }
 license       = { workspace = true }
 repository    = { workspace = true }
-description   = "Image extractor — produces a single-block CanonicalDocument with EXIF metadata (P6-1)"
+description   = "Image extractor + EXIF + OCR (Ollama-vision) for the kebab pipeline (P6-1, P6-2)"
 
 [dependencies]
 kebab-core   = { path = "../kebab-core" }
+kebab-config = { path = "../kebab-config" }
 anyhow       = { workspace = true }
+serde        = { workspace = true }
 serde_json   = { workspace = true }
 time         = { workspace = true }
 tracing      = { workspace = true }
@@ -21,7 +23,22 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 # kamadak-exif: pure-Rust EXIF reader. Used for the whitelisted tag
 # extraction (DateTimeOriginal, GPS, Make, Model, Orientation, Software).
 kamadak-exif = "0.6"
+# Ollama-vision OCR adapter (P6-2) talks HTTP directly. We keep the
+# feature surface identical to `kebab-llm-local` (blocking + json +
+# rustls-tls) so both crates share the same TLS backend and the
+# transitive tokio runtime is brought in once.
+reqwest      = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+base64       = "0.22"
 
 [dev-dependencies]
 tempfile     = { workspace = true }
 blake3       = { workspace = true }
+# Shared test infrastructure with `kebab-llm-local`: wiremock under
+# tokio for HTTP fixtures.
+wiremock     = { workspace = true }
+tokio        = { workspace = true, features = ["rt-multi-thread"] }
+# Used by `tests/common/mod.rs` to render the opt-in OCR integration
+# fixture. Only loaded for tests; the production crate doesn't need
+# font rendering.
+ab_glyph     = "0.2"
+base64       = "0.22"
