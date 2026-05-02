@@ -3,7 +3,7 @@ phase: P9
 component: kebab-tui (ask pane)
 task_id: p9-3
 title: "TUI Ask pane: streaming answer + citation links + --explain toggle"
-status: planned
+status: completed
 depends_on: [p4-3, p9-1]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

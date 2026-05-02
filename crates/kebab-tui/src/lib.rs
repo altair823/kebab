@@ -13,6 +13,7 @@
 //! (`SearchHit` / `DocSummary`).
 
 mod app;
+mod ask;
 mod error_popup;
 mod library;
 mod run;
@@ -20,6 +21,7 @@ mod search;
 mod terminal;
 
 pub use app::{App, AskState, InspectState, KeyOutcome, LibraryState, Pane, SearchState};
+pub use ask::{handle_key_ask, render_ask};
 pub use error_popup::{ErrorOverlay, render_error_overlay};
 pub use library::{handle_key_library, render_library};
 pub use search::{build_jump_command, handle_key_search, jump_to_citation, render_search};
