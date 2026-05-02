@@ -3,7 +3,7 @@ phase: P7
 component: kebab-chunk (pdf-page-v1)
 task_id: p7-2
 title: "PDF page-aware chunker (pdf-page-v1)"
-status: planned
+status: completed
 depends_on: [p7-1]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

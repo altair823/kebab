@@ -16,5 +16,7 @@
 //! It consumes `CanonicalDocument` purely through `kb-core` types.
 
 mod md_heading_v1;
+mod pdf_page_v1;
 
 pub use md_heading_v1::MdHeadingV1Chunker;
+pub use pdf_page_v1::PdfPageV1Chunker;
