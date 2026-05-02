@@ -15,6 +15,14 @@ path = "src/main.rs"
 kb-core      = { path = "../kb-core" }
 kb-config    = { path = "../kb-config" }
 kb-app       = { path = "../kb-app" }
+# kb-eval re-exports `compute_aggregate` / `compare_runs` /
+# `render_report_md` (P5-2). The DoD calls for these to be reached
+# "via kb-app", but kb-eval already depends on kb-app (P5-1 runner
+# uses the App facade) — routing the CLI through kb-app would
+# require kb-app → kb-eval, forming a cycle. We therefore wire
+# kb-cli → kb-eval directly; documented in
+# `tasks/p5/p5-2-metrics-compare.md`.
+kb-eval      = { path = "../kb-eval" }
 anyhow       = { workspace = true }
 serde_json   = { workspace = true }
 clap         = { version = "4", features = ["derive"] }

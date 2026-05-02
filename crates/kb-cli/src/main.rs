@@ -125,10 +125,41 @@ enum InspectWhat {
 
 #[derive(Subcommand, Debug)]
 enum EvalWhat {
-    /// Run an eval suite (placeholder for P9).
+    /// Run the golden suite end-to-end and persist `eval_runs` +
+    /// `eval_query_results` + `runs_dir/<run_id>/per_query.jsonl`
+    /// (P5-1).
     Run {
+        #[arg(long, default_value = "golden")]
+        suite: String,
+        #[arg(long, value_enum, default_value_t = ModeFlag::Lexical)]
+        mode: ModeFlag,
+        #[arg(long, default_value_t = 10)]
+        k: usize,
         #[arg(long)]
-        suite: Option<String>,
+        with_rag: bool,
+        #[arg(long)]
+        temperature: Option<f32>,
+        #[arg(long)]
+        seed: Option<u64>,
+    },
+
+    /// Compute aggregate metrics for a stored run and write them back
+    /// into `eval_runs.aggregate_json` (P5-2).
+    Aggregate { run_id: String },
+
+    /// Diff two stored runs (P5-2). Default output is a Markdown
+    /// summary; use `--json` (top-level flag) for the raw report.
+    Compare {
+        run_a: String,
+        run_b: String,
+        /// Refuse to compare when the two runs' `chunker_version`
+        /// differ (default is graceful doc-id fallback).
+        #[arg(long)]
+        strict_chunker_version: bool,
+        /// Also write the Markdown report to
+        /// `runs_dir/<run_b>/report.md`.
+        #[arg(long)]
+        write_report: bool,
     },
 }
 
@@ -370,8 +401,81 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
         }
 
         Cmd::Eval { what } => match what {
-            EvalWhat::Run { suite: _ } => {
-                anyhow::bail!("not yet wired (P9-3)")
+            EvalWhat::Run {
+                suite,
+                mode,
+                k,
+                with_rag,
+                temperature,
+                seed,
+            } => {
+                let opts = kb_eval::EvalRunOpts {
+                    suite: suite.clone(),
+                    mode: (*mode).into(),
+                    with_rag: *with_rag,
+                    k: *k,
+                    temperature: *temperature,
+                    seed: *seed,
+                };
+                let run = kb_eval::run_eval(&opts)?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&run)?);
+                } else {
+                    println!("run_id: {}", run.run_id);
+                    println!("queries: {}", run.per_query.len());
+                    let failed = run.per_query.iter().filter(|q| q.error.is_some()).count();
+                    println!("failed:  {failed}");
+                }
+                Ok(())
+            }
+
+            EvalWhat::Aggregate { run_id } => {
+                let agg = kb_eval::compute_aggregate(run_id)?;
+                kb_eval::store_aggregate(run_id, &agg)?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&agg)?);
+                } else {
+                    println!("run_id: {run_id}");
+                    println!("queries: {} ({} failed)", agg.total_queries, agg.failed_queries);
+                    println!("hit@1:   {:.4}", agg.hit_at_k.get(&1).copied().unwrap_or(0.0));
+                    println!("hit@5:   {:.4}", agg.hit_at_k.get(&5).copied().unwrap_or(0.0));
+                    println!("MRR:     {:.4}", agg.mrr);
+                }
+                Ok(())
+            }
+
+            EvalWhat::Compare {
+                run_a,
+                run_b,
+                strict_chunker_version,
+                write_report,
+            } => {
+                let cfg = kb_config::Config::load(None)?;
+                let opts = kb_eval::CompareOpts {
+                    strict_chunker_version: *strict_chunker_version,
+                };
+                let report = kb_eval::compare_runs_with_config(&cfg, run_a, run_b, &opts)?;
+                let md = kb_eval::render_report_md(&report);
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    print!("{md}");
+                }
+                if *write_report {
+                    let resolved_data_dir = kb_config::expand_path(&cfg.storage.data_dir, "");
+                    let runs_dir = kb_config::expand_path(
+                        &cfg.storage.runs_dir,
+                        &resolved_data_dir.to_string_lossy(),
+                    );
+                    let dir = runs_dir.join(run_b);
+                    std::fs::create_dir_all(&dir)?;
+                    let path = dir.join("report.md");
+                    std::fs::write(&path, &md)?;
+                    if !cli.json {
+                        eprintln!("wrote {}", path.display());
+                    }
+                }
+                Ok(())
             }
         },
     }

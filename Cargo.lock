@@ -3422,6 +3422,7 @@ dependencies = [
  "kb-app",
  "kb-config",
  "kb-core",
+ "kb-eval",
  "serde_json",
 ]
 

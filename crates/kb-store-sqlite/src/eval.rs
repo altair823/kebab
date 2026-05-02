@@ -16,7 +16,8 @@ use crate::store::SqliteStore;
 /// One row about to land in `eval_runs` (per V001 schema).
 ///
 /// `aggregate_json` is filled by P5-1 with the literal `"{}"` —
-/// metric computation lives in P5-2 and updates the row in place.
+/// metric computation lives in P5-2 and updates the row in place via
+/// [`SqliteStore::update_eval_run_aggregate`].
 #[derive(Clone, Debug)]
 pub struct EvalRunRow<'a> {
     pub run_id: &'a str,
@@ -25,6 +26,28 @@ pub struct EvalRunRow<'a> {
     pub aggregate_json: &'a str,
     pub commit_hash: Option<&'a str>,
     pub created_at: OffsetDateTime,
+}
+
+/// Owned mirror of a row read from `eval_runs`. Used by P5-2's
+/// `compute_aggregate` / `compare_runs` since [`EvalRunRow`] borrows
+/// from the writer's input buffers.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EvalRunRecord {
+    pub run_id: String,
+    pub suite: String,
+    pub config_snapshot_json: String,
+    pub aggregate_json: String,
+    pub commit_hash: Option<String>,
+    pub created_at: OffsetDateTime,
+}
+
+/// Owned per-query row read from `eval_query_results`. The
+/// `result_json` is the same `serde_json::to_string(&QueryResult)`
+/// payload [`SqliteStore::record_eval_query_result`] wrote.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EvalQueryResultRecord {
+    pub query_id: String,
+    pub result_json: String,
 }
 
 impl SqliteStore {
@@ -156,6 +179,100 @@ impl SqliteStore {
             }
         }
         tx.commit().map_err(StoreError::from)?;
+        Ok(())
+    }
+
+    /// Load a single `eval_runs` row by `run_id`. Returns `None` if no
+    /// row matches. Used by P5-2's `compute_aggregate` / `compare_runs`
+    /// to fetch the run-level metadata (config snapshot, aggregate,
+    /// commit, created_at).
+    pub fn load_eval_run(&self, run_id: &str) -> Result<Option<EvalRunRecord>> {
+        let conn = self.lock_conn();
+        let row = conn.query_row(
+            "SELECT run_id, suite, config_snapshot_json, aggregate_json,
+                    commit_hash, created_at
+             FROM eval_runs WHERE run_id = ?",
+            params![run_id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, String>(5)?,
+                ))
+            },
+        );
+        let (run_id, suite, snapshot, aggregate, commit, created_str) = match row {
+            Ok(t) => t,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+            Err(e) => return Err(StoreError::from(e).into()),
+        };
+        let created_at = OffsetDateTime::parse(
+            &created_str,
+            &time::format_description::well_known::Rfc3339,
+        )
+        .with_context(|| format!("parse eval_runs.created_at for {run_id}"))?;
+        Ok(Some(EvalRunRecord {
+            run_id,
+            suite,
+            config_snapshot_json: snapshot,
+            aggregate_json: aggregate,
+            commit_hash: commit,
+            created_at,
+        }))
+    }
+
+    /// Load every `eval_query_results` row for one `run_id`, ordered by
+    /// `query_id` ASC for determinism (the table has no insertion-order
+    /// column; query_id ordering matches the BTreeSet sort the loader
+    /// uses for missing-id reporting).
+    pub fn load_eval_query_results(
+        &self,
+        run_id: &str,
+    ) -> Result<Vec<EvalQueryResultRecord>> {
+        let conn = self.lock_conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT query_id, result_json FROM eval_query_results
+                 WHERE run_id = ? ORDER BY query_id ASC",
+            )
+            .map_err(StoreError::from)?;
+        let iter = stmt
+            .query_map(params![run_id], |r| {
+                Ok(EvalQueryResultRecord {
+                    query_id: r.get::<_, String>(0)?,
+                    result_json: r.get::<_, String>(1)?,
+                })
+            })
+            .map_err(StoreError::from)?;
+        let mut out = Vec::new();
+        for row in iter {
+            out.push(row.map_err(StoreError::from)?);
+        }
+        Ok(out)
+    }
+
+    /// Replace `eval_runs.aggregate_json` for one `run_id`. Returns
+    /// `Err` (not `Ok(0)`) if the run is missing — we never want to
+    /// silently drop computed metrics. Called once per run by
+    /// P5-2's `store_aggregate`.
+    pub fn update_eval_run_aggregate(
+        &self,
+        run_id: &str,
+        aggregate_json: &str,
+    ) -> Result<()> {
+        let conn = self.lock_conn();
+        let updated = conn
+            .execute(
+                "UPDATE eval_runs SET aggregate_json = ? WHERE run_id = ?",
+                params![aggregate_json, run_id],
+            )
+            .map_err(StoreError::from)?;
+        if updated == 0 {
+            anyhow::bail!("update_eval_run_aggregate: no row for run_id {run_id}");
+        }
         Ok(())
     }
 }
