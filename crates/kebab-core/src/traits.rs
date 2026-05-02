@@ -171,6 +171,18 @@ pub trait VectorStore {
         k: usize,
         filters: &SearchFilters,
     ) -> anyhow::Result<Vec<VectorHit>>;
+
+    /// Delete every vector whose `chunk_id` appears in `chunk_ids`.
+    ///
+    /// Used by `kebab-app` after `purge_orphan_at_workspace_path` sweeps
+    /// the SQLite side on a byte-edit re-ingest, so the LanceDB rows
+    /// keyed on the now-deleted `chunk_id`s do not stay on disk
+    /// forever. Empty input is a no-op. The default impl is a no-op so
+    /// older `VectorStore` impls (e.g. test fakes) keep compiling
+    /// without behavioural change.
+    fn delete_by_chunk_ids(&self, _chunk_ids: &[crate::ids::ChunkId]) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 pub trait JobRepo {

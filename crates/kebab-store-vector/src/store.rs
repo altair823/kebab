@@ -283,6 +283,76 @@ impl VectorStore for LanceVectorStore {
         Ok(())
     }
 
+    /// Delete every Lance row whose `chunk_id` matches one of the
+    /// supplied IDs. Iterates *all* `chunk_embeddings_*` tables in the
+    /// connection — a single chunk_id only ever lives in one table
+    /// (one-model-per-workspace today, see `INDEX_VERSION` in
+    /// `paths.rs`), but the loop keeps the helper correct should the
+    /// workspace ever maintain multiple tables (e.g. mid-migration
+    /// between embedding models).
+    ///
+    /// Wired in by `kebab-app::ingest_one_*_asset` after the SQLite
+    /// side has been swept by `purge_orphan_at_workspace_path` —
+    /// closes the "vector store orphan" caveat from HOTFIXES
+    /// 2026-05-02 P7-3.
+    fn delete_by_chunk_ids(&self, chunk_ids: &[kebab_core::ChunkId]) -> Result<()> {
+        if chunk_ids.is_empty() {
+            return Ok(());
+        }
+        // SQL IN() list. chunk_ids are 32-hex-char blake3 prefixes
+        // (validated upstream), so SQL injection is structurally
+        // impossible — we still quote to keep the predicate
+        // syntactically valid. We chunk into batches of 200 to keep the
+        // WHERE clause within typical SQL parser limits.
+        const BATCH: usize = 200;
+        self.runtime.block_on(async {
+            let names = self
+                .connection
+                .table_names()
+                .execute()
+                .await
+                .context("table_names")?;
+            for name in names {
+                if !name.starts_with("chunk_embeddings_") {
+                    continue;
+                }
+                let table = match self.connection.open_table(&name).execute().await {
+                    Ok(t) => t,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "kebab-store-vector",
+                            table = %name,
+                            error = %e,
+                            "delete_by_chunk_ids: skipped unopenable table"
+                        );
+                        continue;
+                    }
+                };
+                for batch in chunk_ids.chunks(BATCH) {
+                    let list = batch
+                        .iter()
+                        .map(|id| format!("'{}'", id.0))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let predicate = format!("chunk_id IN ({list})");
+                    table
+                        .delete(&predicate)
+                        .await
+                        .with_context(|| {
+                            format!("Lance delete on {name} ({} ids)", batch.len())
+                        })?;
+                }
+            }
+            anyhow::Ok(())
+        })?;
+        tracing::debug!(
+            target: "kebab-store-vector",
+            count = chunk_ids.len(),
+            "deleted vector rows by chunk_id"
+        );
+        Ok(())
+    }
+
     fn search(
         &self,
         query_vec: &[f32],
