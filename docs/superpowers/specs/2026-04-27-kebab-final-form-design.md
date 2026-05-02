@@ -287,7 +287,7 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
 { "schema_version": "ingest_progress.v1", "kind": "asset_started",    "ts": "...", "idx": 1, "total": 142, "path": "notes/foo.md", "media": "markdown" }
 { "schema_version": "ingest_progress.v1", "kind": "embed_batch_started",  "ts": "...", "n_chunks": 32 }
 { "schema_version": "ingest_progress.v1", "kind": "embed_batch_finished", "ts": "...", "n_chunks": 32, "ms": 412 }
-{ "schema_version": "ingest_progress.v1", "kind": "asset_finished",   "ts": "...", "idx": 1, "total": 142, "kind_result": "new", "chunks": 38 }
+{ "schema_version": "ingest_progress.v1", "kind": "asset_finished",   "ts": "...", "idx": 1, "total": 142, "result": "new", "chunks": 38 }
 { "schema_version": "ingest_progress.v1", "kind": "completed",        "ts": "...", "counts": { "scanned": 142, "new": 12, "updated": 3, "skipped": 127, "errors": 0, "chunks_indexed": 421, "embeddings_indexed": 421 } }
 ```
 
@@ -1328,8 +1328,6 @@ Logging: `tracing` + `tracing-subscriber` + `tracing-appender` daily roll, `~/.l
 2. **cancel 은 cooperative + step boundary 에서 즉시 응답.** facade 가 `Option<Arc<AtomicBool>>` cancel token 받음. asset loop iteration / embed batch / vector upsert 같은 step boundary 마다 check, true 면 in-flight asset 마무리 후 `Aborted` event 발신 + `Ok(IngestReport)` 정상 반환 (Err 아님 — 정상 종료의 한 형태). 부분 commit 된 doc/chunk 는 SQLite 에 살아있어 재실행이 idempotent. CLI 는 SIGINT, TUI 는 `Esc` / `Ctrl-C` 가 cancel 신호.
 
 `kebab-core` trait (§7.2) 시그니처는 무영향 — progress / cancel 은 `kebab-app` facade 의 hidden parameter 로 추가 (`ingest_with_config_progress(..., progress: Option<Sender<IngestEvent>>, cancel: Option<Arc<AtomicBool>>)`).
-
-
 
 `kebab doctor` 출력 (사람):
 

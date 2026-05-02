@@ -20,13 +20,13 @@
         "aborted"
       ]
     },
-    "ts":           { "type": "string", "description": "RFC 3339 timestamp at the moment the event was emitted." },
+    "ts":           { "type": "string", "format": "date-time", "description": "RFC 3339 timestamp at the moment the event was emitted." },
     "root":         { "type": "string", "description": "scan_started: workspace root being walked." },
     "total":        { "type": "integer", "minimum": 0, "description": "scan_completed / asset_started / asset_finished: total assets discovered." },
     "idx":          { "type": "integer", "minimum": 1, "description": "asset_started / asset_finished: 1-based index of the current asset within the scan." },
     "path":         { "type": "string", "description": "asset_started: workspace-relative path of the asset being processed." },
     "media":        { "type": "string", "description": "asset_started: media kind label (e.g. `markdown`, `pdf`, `image`)." },
-    "kind_result":  {
+    "result":       {
       "type": "string",
       "enum": ["new", "updated", "skipped", "error"],
       "description": "asset_finished: per-asset outcome (mirrors `ingest_report.v1.items[].kind`)."
