@@ -24,9 +24,10 @@
 - `crates/kebab-cli/src/main.rs` — add `Cmd::Reset` arm + handler
 - `crates/kebab-cli/src/wire.rs` — `wire_reset` helper
 - `README.md` — `kebab reset` in 명령 표 + Quick start safety note
-- `tasks/HOTFIXES.md` — n/a (new feature, not deviation; skip)
 
 **Delete:** none.
+
+**HOTFIXES:** n/a — 신규 기능이지 deviation 아님. `tasks/HOTFIXES.md` 는 건드리지 않음.
 
 ---
 
@@ -728,12 +729,16 @@ In `fn run(cli: &Cli) -> anyhow::Result<()>`, just above the `Cmd::Doctor =>` ar
 ```rust
         Cmd::Reset {
             all,
-            data_only,
+            data_only: _,
             vector_only,
             config_only,
             yes,
         } => {
             use kebab_app::ResetScope;
+            // `--data-only` explicit OR no scope flag at all → DataOnly.
+            // The `data_only: _` binding above is intentional — clap's
+            // `group = "reset_scope"` already enforces mutual exclusion,
+            // so the flag's presence does not change the resolved scope.
             let scope = if *all {
                 ResetScope::All
             } else if *vector_only {
@@ -741,8 +746,6 @@ In `fn run(cli: &Cli) -> anyhow::Result<()>`, just above the `Cmd::Doctor =>` ar
             } else if *config_only {
                 ResetScope::ConfigOnly
             } else {
-                // `--data-only` explicit OR no scope flag at all → DataOnly
-                let _ = data_only;
                 ResetScope::DataOnly
             };
 

@@ -220,7 +220,7 @@ search / ask 의 query input box 에 모든 키가 입력으로 들어가 e=expl
 - `--json` 모드 호환: `answer.v1` 에 `conversation_id` / `turn_index` 필드 (13 번에서 추가) — 외부 도구가 session 추적 가능.
 - **외부 AI 통합 효과** (README 의 외부 AI 섹션): Claude Code skill / MCP server 도 `--session` 으로 conversation context 보존. 이 부분이 multi-turn CLI 의 진짜 가치 — 내장 TUI 만 쓰는 사용자보다 외부 wrapper 사용자가 큼.
 
-**spec 영향**: §7 RAG 절 multi-turn 정책 + §externalAI 통합 절 (READE 와 ARCHITECTURE 동기화) 에 session 모델 추가. CLI flag 표 (`--session` / `--repl`) README 갱신.
+**spec 영향**: §7 RAG 절 multi-turn 정책 + §externalAI 통합 절 (README 와 ARCHITECTURE 동기화) 에 session 모델 추가. CLI flag 표 (`--session` / `--repl`) README 갱신.
 
 ### 15. search 결과 캐싱 (incremental invalidation)
 

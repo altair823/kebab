@@ -56,7 +56,7 @@ pub fn ingest_with_config_progress(
 
 - progress event 발신은 best-effort. receiver drop 되면 이후 send 무시 (panic 금지).
 - 이벤트 ordering: `ScanStarted < ScanCompleted < (AssetStarted < AssetFinished)* < Completed|Aborted`. embed batch 는 asset 사이 임의 위치.
-- `Aborted` 는 cancellation token (p9-fb-04) trigger 시. 혼자 발생 X — 14 번과 wiring.
+- `Aborted` 이벤트는 cancellation token (p9-fb-04) trigger 시에만 발신. CLI / TUI 의 cancel 신호 wiring 은 각각 p9-fb-04, p9-fb-03 에서 구현.
 - `--json` CLI 는 line-delimited 형태로 dump (`schema_version=ingest_progress.v1`) — 별도 task (p9-fb-02).
 
 ## Test plan
