@@ -725,7 +725,13 @@ pub struct Turn {
 }
 
 pub struct AnswerCitation { pub marker: Option<String>, pub citation: Citation }
-pub enum RefusalReason { ScoreGate, LlmSelfJudge, NoIndex, NoChunks }
+pub enum RefusalReason {
+    ScoreGate, LlmSelfJudge, NoIndex, NoChunks,
+    /// p9-fb-15: ask 가 LLM 토큰 stream 도중 cancel 됨. partial
+    /// answer 가 채워져 있을 수 있음 (사용자가 본 부분까지). RAG
+    /// retrieval 자체는 정상 — 모델 generation 단계에서만 중단.
+    LlmStreamAborted,
+}
 
 pub struct ModelRef {
     pub id: String,
@@ -768,8 +774,7 @@ prompt 빌드 priority (token budget = `cfg.rag.max_context_tokens`):
 
 **Retrieval query expansion** (선택): facade 가 새 question 단독 검색 X — 직전 answer 의 첫 N 자 (default 200) concat 해 query 확장 (간단). LLM 기반 standalone question rewriting 은 P+.
 
-**Aborted vs Completed semantics** 는 ingest 와 다름 — ask 는 single-shot 이라 cancel 시 partial token 그대로 stream 종료 + `Answer.grounded=false, refusal_reason=Some(LlmStreamAborted)` (refusal_reason variant 추가 필요 — p9-fb-15 가 함께 처리).
-
+**Aborted vs Completed semantics** 는 ingest 와 다름 — ask 는 single-shot 이라 cancel 시 partial token 그대로 stream 종료 + `Answer.grounded=false, refusal_reason=Some(LlmStreamAborted)`. 새 variant 는 아래 `RefusalReason` 정의에 함께 추가.
 
 ---
 
