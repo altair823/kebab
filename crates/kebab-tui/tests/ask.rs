@@ -329,6 +329,41 @@ fn explain_toggle_changes_panel_title() {
 }
 
 #[test]
+fn enter_with_detached_prior_thread_is_blocked() {
+    // R1 fix: after Esc, the prior worker is detached (thread still
+    // running, rx cleared, streaming=false). A new Enter must NOT
+    // spawn a second worker against the same Ollama endpoint until
+    // the prior thread finishes.
+    let mut app = fresh_app();
+    {
+        let s = app.ask.as_mut().unwrap();
+        s.input = "another question".into();
+        s.streaming = false;
+        // Simulate a detached prior worker by hand-installing a
+        // never-ending JoinHandle. (We can't easily make a sleeping
+        // thread without timing flakiness; an empty-loop shim works.)
+        s.thread = Some(std::thread::spawn(|| {
+            // Loop until the test drops the JoinHandle's owner via
+            // App going out of scope. is_finished() will report
+            // false until then.
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }));
+    }
+    let outcome = handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    );
+    // Enter is a no-op while a prior thread is attached.
+    assert_eq!(outcome, KeyOutcome::Continue);
+    let s = app.ask.as_ref().unwrap();
+    assert!(!s.streaming, "no second worker spawned");
+    // Detach so the never-ending thread can be reaped on test exit.
+    let _leaked = app.ask.as_mut().unwrap().thread.take();
+}
+
+#[test]
 fn no_ask_state_returns_to_library() {
     let mut config = Config::defaults();
     config.storage.data_dir = "/tmp/kebab-tui-ask-tests-noop".into();

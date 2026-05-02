@@ -51,7 +51,18 @@ pub fn render_ask(f: &mut Frame, area: Rect, state: &App) {
 
 fn render_input(f: &mut Frame, area: Rect, s: &AskState) {
     let mode_badge = if s.explain { " explain" } else { "" };
-    let busy = if s.streaming { "  streaming…" } else { "" };
+    // Distinguish three async states for the operator:
+    // - currently streaming (worker still emitting tokens)
+    // - prior worker detached (Esc-cancelled, no rx attached but
+    //   thread has not finished yet — Enter is blocked until it ends)
+    // - idle
+    let busy = if s.streaming {
+        "  streaming…"
+    } else if s.thread.is_some() {
+        "  awaiting prior answer (Enter blocked)"
+    } else {
+        ""
+    };
     let line = Line::from(vec![
         Span::styled("? ", Style::default().fg(Color::Cyan)),
         Span::raw(s.input.as_str()),
@@ -200,10 +211,18 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
             KeyOutcome::SwitchPane(Pane::Library)
         }
         (KeyCode::Enter, _) => {
+            // Submission gates:
+            // - empty input → no-op
+            // - already streaming → no-op (same worker is in flight)
+            // - prior worker still attached (e.g. user pressed Esc
+            //   then re-entered Ask before that thread finished) →
+            //   no-op. Otherwise the new worker would race the
+            //   detached one against the same Ollama endpoint and
+            //   the stream output would interleave.
             if state
                 .ask
                 .as_ref()
-                .map(|s| s.streaming || s.input.trim().is_empty())
+                .map(|s| s.streaming || s.thread.is_some() || s.input.trim().is_empty())
                 .unwrap_or(true)
             {
                 return KeyOutcome::Continue;
