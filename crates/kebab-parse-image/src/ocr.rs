@@ -25,16 +25,16 @@
 //! field on [`OcrText`] makes the source explicit, so a caller can
 //! decide whether to trust based on which engine produced the text.
 
-use std::io::Cursor;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use image::{ImageFormat, ImageReader};
 use kebab_core::{ImageRefBlock, Lang, OcrRegion, OcrText, ProvenanceEvent, ProvenanceKind};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
+
+use crate::image_prep;
 
 /// Engine name written into `OcrText.engine` for the Ollama-vision adapter.
 pub const OLLAMA_VISION_ENGINE: &str = "ollama-vision";
@@ -239,7 +239,7 @@ impl OcrEngine for OllamaVisionOcr {
         image_bytes: &[u8],
         lang_hint: Option<&Lang>,
     ) -> Result<OcrText> {
-        let (prepared, w, h) = downscale_to_long_edge(image_bytes, self.max_pixels)
+        let (prepared, w, h) = image_prep::downscale_to_png(image_bytes, self.max_pixels)
             .context("preparing image for OCR")?;
         let b64 = BASE64_STANDARD.encode(&prepared);
 
@@ -309,71 +309,6 @@ impl OcrEngine for OllamaVisionOcr {
             engine_version: self.engine_version(),
         })
     }
-}
-
-// ── Image preparation ─────────────────────────────────────────────────────
-
-/// Decode `bytes`, downscale so the long edge is at most `max_long_edge`,
-/// and re-encode as PNG. Returns `(png_bytes, final_w, final_h)`.
-///
-/// PNG sources that already fit the cap are passthrough (zero decodes,
-/// just a `Vec` clone). Every other path decodes the image exactly
-/// once: the cheap header sniff peeks at the format / dimensions before
-/// committing to a decode, so non-PNG passthrough and downscale share
-/// the same `decode → optionally resize → re-encode` tail.
-fn downscale_to_long_edge(bytes: &[u8], max_long_edge: u32) -> Result<(Vec<u8>, u32, u32)> {
-    let reader = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .context("reading image header for OCR")?;
-    let format = reader.format();
-    let (w, h) = reader
-        .into_dimensions()
-        .context("reading image dimensions for OCR")?;
-
-    let long = w.max(h);
-
-    // Hot path — PNG within budget already matches the wire format we
-    // send Ollama, so we ship the bytes verbatim without paying for a
-    // decode + re-encode round-trip.
-    if long <= max_long_edge && format == Some(ImageFormat::Png) {
-        return Ok((bytes.to_vec(), w, h));
-    }
-
-    // Every remaining branch needs the pixels — either to re-encode as
-    // PNG (non-PNG within budget) or to resize first (over budget).
-    // One decode covers both.
-    let img = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .context("re-reading image for OCR decode")?
-        .decode()
-        .context("decoding image for OCR")?;
-
-    let (final_w, final_h, final_img) = if long <= max_long_edge {
-        (w, h, img)
-    } else {
-        let scale = max_long_edge as f32 / long as f32;
-        let mut new_w = ((w as f32) * scale).round().max(1.0) as u32;
-        let mut new_h = ((h as f32) * scale).round().max(1.0) as u32;
-        // Independent rounding of the two axes can let `f32`'s nearest
-        // round push the long axis one pixel past `max_long_edge` for
-        // irrational scales (e.g. `max=1601, long=4001`). Pin the long
-        // axis to exactly `max_long_edge` so the doc-comment's
-        // "long edge is at most max_long_edge" stays a strict bound.
-        if w >= h {
-            new_w = new_w.min(max_long_edge);
-        } else {
-            new_h = new_h.min(max_long_edge);
-        }
-        let resized =
-            img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle);
-        (new_w, new_h, resized)
-    };
-
-    let mut out = Cursor::new(Vec::new());
-    final_img
-        .write_to(&mut out, ImageFormat::Png)
-        .context("encoding image as PNG for OCR")?;
-    Ok((out.into_inner(), final_w, final_h))
 }
 
 fn truncate(s: &str, n: usize) -> String {

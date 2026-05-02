@@ -27,6 +27,7 @@
 
 mod dims;
 mod exif_extract;
+mod image_prep;
 pub mod caption;
 pub mod ocr;
 

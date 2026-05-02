@@ -86,20 +86,17 @@ fn apply_caption_no_op_when_feature_disabled() {
 }
 
 #[test]
-fn caption_image_errors_when_feature_disabled() {
-    let cfg = Config::defaults(); // enabled = false
-    let mock = mk_mock("ignored");
+fn caption_image_runs_regardless_of_enabled_flag() {
+    // Feature gate lives in `apply_caption`; `caption_image` is the
+    // raw operation. Calling it directly with enabled = false must
+    // still produce a `ModelCaption` so tests can pin the produced
+    // shape independent of pipeline gating.
+    let cfg = Config::defaults(); // enabled = false (default)
+    let mock = mk_mock("hi");
     let bytes = red_100x50_png();
-    let r = caption_image(&mock, &bytes, None, &cfg);
-    assert!(
-        r.is_err(),
-        "caption_image must Err when image.caption.enabled = false"
-    );
-    let msg = format!("{:#}", r.unwrap_err());
-    assert!(
-        msg.contains("disabled"),
-        "error must mention disabled state: {msg}"
-    );
+    let cap = caption_image(&mock, &bytes, None, &cfg)
+        .expect("caption_image runs even when enabled = false");
+    assert_eq!(cap.text, "hi");
 }
 
 // ── Happy path ────────────────────────────────────────────────────────────
@@ -317,8 +314,9 @@ fn caption_image_clamps_oversized_max_pixels() {
     let (w, h) = reader.into_dimensions().unwrap();
     let long = w.max(h);
     assert!(
-        long <= 1536,
-        "max_pixels must clamp to MAX_CAPTION_LONG_EDGE=1536, got {long}"
+        long <= kebab_parse_image::caption::MAX_CAPTION_LONG_EDGE,
+        "max_pixels must clamp to MAX_CAPTION_LONG_EDGE={}, got {long}",
+        kebab_parse_image::caption::MAX_CAPTION_LONG_EDGE
     );
 }
 

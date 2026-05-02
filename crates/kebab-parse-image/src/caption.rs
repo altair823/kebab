@@ -25,50 +25,45 @@
 //! without saving meaningful binary weight. See `tasks/HOTFIXES.md`
 //! (2026-05-02) for the deviation log.
 
-use std::io::Cursor;
-
 use anyhow::{Context, Result};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use image::{ImageFormat, ImageReader};
 use kebab_core::{
     FinishReason, GenerateRequest, ImageRefBlock, Lang, LanguageModel, ModelCaption,
     ProvenanceEvent, ProvenanceKind, TokenChunk,
 };
 use time::OffsetDateTime;
 
+use crate::image_prep;
+
 /// Long-edge clamp range for caption inputs. Smaller than OCR's
 /// `[256, 4096]` because vision LMs charge proportionally to input
 /// dimension — captions tolerate aggressive downscale better than
 /// OCR.
-const MIN_CAPTION_LONG_EDGE: u32 = 128;
-const MAX_CAPTION_LONG_EDGE: u32 = 1536;
+pub const MIN_CAPTION_LONG_EDGE: u32 = 128;
+pub const MAX_CAPTION_LONG_EDGE: u32 = 1536;
 
 /// Token budget for captions. Captions are one-sentence by spec — 96
 /// tokens covers a 50-word English sentence or a 30-token Korean one
 /// with headroom for the LM's preamble before the stop sequence.
 const CAPTION_MAX_TOKENS: usize = 96;
 
-/// Run a caption pass and return the resulting `ModelCaption`. Honours
-/// `config.image.caption.enabled` — when disabled the function is a
-/// no-op and returns an `Err` so the caller can route the asset
-/// through `apply_caption` instead, which knows to short-circuit.
+/// Run a caption pass and return the resulting `ModelCaption`.
 ///
-/// Direct callers should prefer [`apply_caption`] for end-to-end
-/// pipeline integration; this lower-level entry exists so tests can
-/// pin the produced `ModelCaption` independent of block mutation.
+/// Pure raw operation — does **not** consult `config.image.caption.enabled`.
+/// The runtime feature gate lives in [`apply_caption`]; this entry
+/// always invokes the LM. Tests pinning the produced `ModelCaption`
+/// shape can call this directly without flipping the config flag.
+///
+/// Honours the `[MIN_CAPTION_LONG_EDGE, MAX_CAPTION_LONG_EDGE]` clamp
+/// on `config.image.caption.max_pixels` so a hostile config cannot
+/// blow up prompt cost.
 pub fn caption_image(
     llm: &dyn LanguageModel,
     image_bytes: &[u8],
     lang_hint: Option<&Lang>,
     cfg: &kebab_config::Config,
 ) -> Result<ModelCaption> {
-    if !cfg.image.caption.enabled {
-        anyhow::bail!(
-            "captioning is disabled (set image.caption.enabled = true in config to enable)"
-        );
-    }
-
     let max_pixels = cfg
         .image
         .caption
@@ -85,7 +80,7 @@ pub fn caption_image(
         );
     }
 
-    let prepared = downscale_to_png(image_bytes, max_pixels)
+    let (prepared, _w, _h) = image_prep::downscale_to_png(image_bytes, max_pixels)
         .context("preparing image for caption")?;
     let b64 = BASE64_STANDARD.encode(&prepared);
 
@@ -156,13 +151,13 @@ pub fn caption_image(
     })
 }
 
-/// Mutate `block.caption` in place by running `caption_image` over
-/// `image_bytes`. When `config.image.caption.enabled = false` the
-/// function is a clean no-op (returns `Ok(())` without invoking the
-/// LM and without writing a Provenance event).
+/// Pipeline entry point — gate-checks `config.image.caption.enabled`
+/// then mutates `block.caption` in place via [`caption_image`].
 ///
-/// On LM failure, `block.caption` stays `None` — partial state is
-/// never written. The caller decides whether to skip the asset or
+/// When `enabled = false` the function is a clean no-op (returns
+/// `Ok(())` without invoking the LM and without writing a Provenance
+/// event). On LM failure `block.caption` stays `None` — partial state
+/// is never written. The caller decides whether to skip the asset or
 /// surface the error.
 pub fn apply_caption(
     llm: &dyn LanguageModel,
@@ -180,16 +175,20 @@ pub fn apply_caption(
         return Ok(());
     }
     let caption = caption_image(llm, image_bytes, lang_hint, cfg)?;
-    let model_label = caption.model.clone();
-    let model_version_label = caption.model_version.clone();
+    // Build the Provenance note BEFORE moving `caption` into
+    // `block.caption` so we sidestep the per-call `String::clone` of
+    // `caption.model` + `caption.model_version`. Tight ingest loops
+    // (thousands of images) save two allocations per asset.
+    let note = format!(
+        "model={} model_version={}",
+        caption.model, caption.model_version
+    );
     block.caption = Some(caption);
     events.push(ProvenanceEvent {
         at: OffsetDateTime::now_utc(),
         agent: "kb-parse-image".to_string(),
         kind: ProvenanceKind::CaptionApplied,
-        note: Some(format!(
-            "model={model_label} model_version={model_version_label}"
-        )),
+        note: Some(note),
     });
     Ok(())
 }
@@ -214,50 +213,6 @@ fn build_prompt(lang_hint: Option<&str>) -> (String, String) {
             "Describe the image above in one English sentence.".to_string(),
         ),
     }
-}
-
-/// Decode `bytes`, downscale long-edge to `max_long_edge`, re-encode as
-/// PNG. Mirrors the OCR pipeline's pattern but with the caption-side
-/// long-edge bounds. PNG sources within the cap pass through without
-/// re-encode.
-fn downscale_to_png(bytes: &[u8], max_long_edge: u32) -> Result<Vec<u8>> {
-    let reader = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .context("reading image header for caption")?;
-    let format = reader.format();
-    let (w, h) = reader
-        .into_dimensions()
-        .context("reading image dimensions for caption")?;
-
-    let long = w.max(h);
-    if long <= max_long_edge && format == Some(ImageFormat::Png) {
-        return Ok(bytes.to_vec());
-    }
-
-    let img = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .context("re-reading image for caption decode")?
-        .decode()
-        .context("decoding image for caption")?;
-    let final_img = if long <= max_long_edge {
-        img
-    } else {
-        let scale = max_long_edge as f32 / long as f32;
-        let mut new_w = ((w as f32) * scale).round().max(1.0) as u32;
-        let mut new_h = ((h as f32) * scale).round().max(1.0) as u32;
-        if w >= h {
-            new_w = new_w.min(max_long_edge);
-        } else {
-            new_h = new_h.min(max_long_edge);
-        }
-        img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle)
-    };
-
-    let mut out = Cursor::new(Vec::new());
-    final_img
-        .write_to(&mut out, ImageFormat::Png)
-        .context("encoding image as PNG for caption")?;
-    Ok(out.into_inner())
 }
 
 #[cfg(test)]
