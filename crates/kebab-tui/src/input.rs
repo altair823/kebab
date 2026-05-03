@@ -74,6 +74,82 @@ pub fn truncate_to_display_width(s: &str, max_cols: usize) -> String {
     out
 }
 
+/// Text input buffer that tracks **display column** position, not
+/// char count. Every wide char (Hangul / Kanji / fullwidth) advances
+/// `cursor_col` by 2; every ASCII char by 1. Backspace pops one
+/// char (`String::pop()` is char-aware) and rewinds the cursor by
+/// that char's width.
+///
+/// Cursor invariant: `cursor_col == display_width(&content)` —
+/// the cursor sits at the right edge of the typed content. v1
+/// is append-only; mid-string editing (insert at cursor / arrow
+/// key navigation) is out of scope and would relax this invariant.
+#[derive(Debug, Default, Clone)]
+pub struct InputBuffer {
+    content: String,
+    cursor_col: usize,
+}
+
+impl InputBuffer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Append a single char and advance cursor by its display width.
+    /// Zero-width chars (combining marks) leave the cursor in place
+    /// but still extend `content`.
+    pub fn push_char(&mut self, ch: char) {
+        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        self.content.push(ch);
+        self.cursor_col += w;
+    }
+
+    /// Append a `&str` char-by-char. Same width semantics as
+    /// `push_char` per element.
+    pub fn push_str(&mut self, s: &str) {
+        for ch in s.chars() {
+            self.push_char(ch);
+        }
+    }
+
+    /// Remove the trailing char (Backspace) and rewind the cursor
+    /// by that char's display width. No-op on empty input.
+    pub fn pop_char(&mut self) -> Option<char> {
+        let ch = self.content.pop()?;
+        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        self.cursor_col = self.cursor_col.saturating_sub(w);
+        Some(ch)
+    }
+
+    /// Reset to empty.
+    pub fn clear(&mut self) {
+        self.content.clear();
+        self.cursor_col = 0;
+    }
+
+    /// Borrow the typed text.
+    pub fn as_str(&self) -> &str {
+        &self.content
+    }
+
+    /// Cursor column (display-width units). Matches
+    /// `display_width(self.as_str())` by construction.
+    pub fn cursor_col(&self) -> usize {
+        self.cursor_col
+    }
+
+    /// True when no chars have been typed.
+    pub fn is_empty(&self) -> bool {
+        self.content.is_empty()
+    }
+
+    /// Length of `content` in chars (NOT display columns). Use
+    /// `cursor_col()` for column-aware layout.
+    pub fn char_len(&self) -> usize {
+        self.content.chars().count()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +233,73 @@ mod tests {
         s.pop();
         assert_eq!(s, "러");
         assert_eq!(display_width(&s), 2);
+    }
+
+    /// p9-fb-10: ASCII typing advances cursor by 1 per char.
+    #[test]
+    fn input_buffer_ascii_cursor_advances_by_one() {
+        let mut b = InputBuffer::new();
+        for ch in "hello".chars() {
+            b.push_char(ch);
+        }
+        assert_eq!(b.cursor_col(), 5);
+        assert_eq!(b.as_str(), "hello");
+    }
+
+    /// p9-fb-10: Hangul typing advances cursor by 2 per char.
+    #[test]
+    fn input_buffer_hangul_cursor_advances_by_two() {
+        let mut b = InputBuffer::new();
+        for ch in "한글".chars() {
+            b.push_char(ch);
+        }
+        assert_eq!(b.cursor_col(), 4);
+        assert_eq!(b.as_str(), "한글");
+    }
+
+    /// p9-fb-10: Backspace rewinds cursor by the popped char's
+    /// width — Hangul rewinds by 2, ASCII by 1.
+    #[test]
+    fn input_buffer_pop_char_rewinds_cursor_by_width() {
+        let mut b = InputBuffer::new();
+        b.push_str("러스트");
+        assert_eq!(b.cursor_col(), 6);
+        let popped = b.pop_char();
+        assert_eq!(popped, Some('트'));
+        assert_eq!(b.cursor_col(), 4);
+        assert_eq!(b.as_str(), "러스");
+        b.push_char('a');
+        assert_eq!(b.cursor_col(), 5);
+        assert_eq!(b.as_str(), "러스a");
+    }
+
+    /// p9-fb-10: cursor invariant — cursor_col always equals
+    /// display_width(content).
+    #[test]
+    fn input_buffer_cursor_matches_display_width() {
+        let mut b = InputBuffer::new();
+        for ch in "Hello, 세계 mixed".chars() {
+            b.push_char(ch);
+        }
+        assert_eq!(b.cursor_col(), display_width(b.as_str()));
+    }
+
+    /// p9-fb-10: clear resets both content and cursor.
+    #[test]
+    fn input_buffer_clear_resets_state() {
+        let mut b = InputBuffer::new();
+        b.push_str("한글");
+        b.clear();
+        assert_eq!(b.cursor_col(), 0);
+        assert!(b.is_empty());
+    }
+
+    /// p9-fb-10: pop_char on empty input returns None and leaves
+    /// cursor at 0 (no underflow).
+    #[test]
+    fn input_buffer_pop_on_empty_is_noop() {
+        let mut b = InputBuffer::new();
+        assert!(b.pop_char().is_none());
+        assert_eq!(b.cursor_col(), 0);
     }
 }
