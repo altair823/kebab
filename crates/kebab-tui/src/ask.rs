@@ -73,6 +73,25 @@ fn render_input(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::T
         .title("ask (Enter=submit  e=explain  Ctrl-L=new conversation  Esc=back)")
         .borders(Borders::ALL);
     f.render_widget(Paragraph::new(line).block(block), area);
+
+    // p9-fb-10: position the terminal cursor at the end of the typed
+    // input. `area` has Borders::ALL so the inner content row is at
+    // y = area.y + 1, x starts at area.x + 1. The "? " prefix is
+    // 2 display columns; the buffer tracks cursor_col in the same
+    // column units. Clamp at the right inner edge so an overlong
+    // input never pushes the cursor outside the box.
+    // ratatui calls show_cursor + MoveTo whenever cursor_position is
+    // Some (our case here). When a render fn omits set_cursor_position
+    // (Library/Inspect), ratatui calls hide_cursor instead. So this
+    // single call both positions and unhides the caret for the Ask
+    // input column.
+    let prompt_w: u16 = 2; // "? " = 2 display columns
+    let inner_x = area.x + 1;
+    let inner_y = area.y + 1;
+    let inner_right = area.x + area.width.saturating_sub(1);
+    let raw_x = inner_x + prompt_w + s.input.cursor_col() as u16;
+    let cursor_x = raw_x.min(inner_right.saturating_sub(1));
+    f.set_cursor_position((cursor_x, inner_y));
 }
 
 fn render_answer(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::Theme) {
@@ -333,7 +352,7 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
             if state
                 .ask
                 .as_ref()
-                .map(|s| s.streaming || s.thread.is_some() || s.input.trim().is_empty())
+                .map(|s| s.streaming || s.thread.is_some() || s.input.as_str().trim().is_empty())
                 .unwrap_or(true)
             {
                 return KeyOutcome::Continue;
@@ -363,7 +382,7 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
         }
         (KeyCode::Backspace, _) => {
             let s = state.ask.as_mut().unwrap();
-            s.input.pop();
+            s.input.pop_char();
             KeyOutcome::Continue
         }
         // Insert mode: every non-chord Char (incl. e/j/k) types into
@@ -374,7 +393,7 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
                 && !m.contains(KeyModifiers::ALT) =>
         {
             let s = state.ask.as_mut().unwrap();
-            s.input.push(c);
+            s.input.push_char(c);
             KeyOutcome::Continue
         }
         // Normal mode + un-handled Char → no-op (no typing in Normal).
@@ -386,7 +405,9 @@ fn spawn_ask_worker(state: &mut App) {
     let (tx, rx) = mpsc::channel::<String>();
     let cfg = state.config.clone();
     let s = state.ask.as_mut().unwrap();
-    let query = s.input.clone();
+    // p9-fb-10: take() consumes the input in one step (no clone +
+    // clear). The buffer is left empty with cursor at 0.
+    let query = s.input.take();
     let explain = s.explain;
     s.partial.clear();
     s.last_answer = None;
@@ -397,7 +418,6 @@ fn spawn_ask_worker(state: &mut App) {
     // clear the input box, ensure conversation_id exists, snapshot
     // history for the worker.
     s.current_question = Some(query.clone());
-    s.input.clear();
     if s.conversation_id.is_none() {
         s.conversation_id = Some(make_conversation_id());
     }

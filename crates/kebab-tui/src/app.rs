@@ -199,7 +199,10 @@ impl Default for SearchState {
 /// start a fresh conversation.
 #[derive(Default)]
 pub struct AskState {
-    pub input: String,
+    /// p9-fb-10: `InputBuffer` tracks display-column cursor position
+    /// alongside content so wide chars (Hangul, CJK) place the
+    /// terminal cursor in the correct column.
+    pub input: crate::input::InputBuffer,
     /// Toggled by the `e` key. Re-applied on the next `Enter`.
     pub explain: bool,
     /// True between `Enter` press and worker thread completion.

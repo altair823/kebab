@@ -104,20 +104,20 @@ fn typing_appends_to_input() {
             KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
         );
     }
-    assert_eq!(app.ask.as_ref().unwrap().input, "hello");
+    assert_eq!(app.ask.as_ref().unwrap().input.as_str(), "hello");
 }
 
 #[test]
 fn backspace_pops_input() {
     let mut app = fresh_app();
     {
-        app.ask.as_mut().unwrap().input = "abcd".into();
+        app.ask.as_mut().unwrap().input.push_str("abcd");
     }
     handle_key_ask(
         &mut app,
         KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
     );
-    assert_eq!(app.ask.as_ref().unwrap().input, "abc");
+    assert_eq!(app.ask.as_ref().unwrap().input.as_str(), "abc");
 }
 
 /// p9-fb-12 follow-up: `e` types into input in Insert mode (does
@@ -135,7 +135,7 @@ fn e_types_in_insert_mode_does_not_toggle_explain() {
         KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
     );
     let s = app.ask.as_ref().unwrap();
-    assert_eq!(s.input, "e", "e must type in Insert mode");
+    assert_eq!(s.input.as_str(), "e", "e must type in Insert mode");
     assert!(!s.explain, "explain must NOT toggle in Insert mode");
 }
 
@@ -165,7 +165,7 @@ fn jk_scroll_in_normal_mode_type_in_insert() {
         &mut app,
         KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
     );
-    assert_eq!(app.ask.as_ref().unwrap().input, "jk");
+    assert_eq!(app.ask.as_ref().unwrap().input.as_str(), "jk");
     assert_eq!(app.ask.as_ref().unwrap().scroll, 0, "no scroll in Insert");
 }
 
@@ -193,14 +193,14 @@ fn e_toggles_explain_in_normal_mode() {
 fn e_typed_into_input_when_input_nonempty() {
     let mut app = fresh_app();
     {
-        app.ask.as_mut().unwrap().input = "qu".into();
+        app.ask.as_mut().unwrap().input.push_str("qu");
     }
     handle_key_ask(
         &mut app,
         KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
     );
     let s = app.ask.as_ref().unwrap();
-    assert_eq!(s.input, "que");
+    assert_eq!(s.input.as_str(), "que");
     assert!(!s.explain, "explain must NOT toggle while typing a word");
 }
 
@@ -220,7 +220,7 @@ fn enter_while_streaming_is_noop() {
     let mut app = fresh_app();
     {
         let s = app.ask.as_mut().unwrap();
-        s.input = "anything".into();
+        s.input.push_str("anything");
         s.streaming = true;
     }
     handle_key_ask(
@@ -265,7 +265,7 @@ fn render_streaming_shows_partial_with_cursor() {
     let mut app = fresh_app();
     {
         let s = app.ask.as_mut().unwrap();
-        s.input = "what is RRF fusion?".into();
+        s.input.push_str("what is RRF fusion?");
         s.streaming = true;
         s.partial = "RRF는 reciprocal rank fusion".into();
     }
@@ -299,7 +299,7 @@ fn render_grounded_answer_with_citation() {
     let mut app = fresh_app();
     {
         let s = app.ask.as_mut().unwrap();
-        s.input = "test".into();
+        s.input.push_str("test");
         let ans = make_answer(true, None, "test answer body [1].");
         // p9-fb-16: transcript renders completed turns; populate one
         // alongside last_answer so the right-panel status + body
@@ -413,7 +413,7 @@ fn enter_with_detached_prior_thread_is_blocked() {
     let mut app = fresh_app();
     {
         let s = app.ask.as_mut().unwrap();
-        s.input = "another question".into();
+        s.input.push_str("another question");
         s.streaming = false;
         // Simulate a detached prior worker by hand-installing a
         // never-ending JoinHandle. (We can't easily make a sleeping
@@ -629,4 +629,28 @@ fn render_streaming_inflight_turn_appears_below_completed_turns() {
         answered_pos < partial_pos,
         "completed turn before in-flight; got: {answered_pos} vs {partial_pos}"
     );
+}
+
+/// p9-fb-10: typing Hangul into Ask input advances cursor by 2
+/// per char and round-trips through the buffer correctly.
+#[test]
+fn hangul_typing_in_ask_input_advances_cursor_by_two_per_char() {
+    let mut app = fresh_app();
+    // Switch to ask + INSERT mode so chars type as input.
+    app.focus = Pane::Ask;
+    app.mode = kebab_tui::Mode::auto_for(Pane::Ask);
+    for ch in "한글".chars() {
+        kebab_tui::handle_key_ask(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+        );
+    }
+    assert_eq!(app.ask.as_ref().unwrap().input.as_str(), "한글");
+    assert_eq!(app.ask.as_ref().unwrap().input.cursor_col(), 4);
+    kebab_tui::handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+    );
+    assert_eq!(app.ask.as_ref().unwrap().input.as_str(), "한");
+    assert_eq!(app.ask.as_ref().unwrap().input.cursor_col(), 2);
 }

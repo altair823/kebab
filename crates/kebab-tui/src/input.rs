@@ -128,6 +128,13 @@ impl InputBuffer {
         self.cursor_col = 0;
     }
 
+    /// Move the typed string out, leaving the buffer empty (cursor 0).
+    /// Convenience for "submit" flows that consume the input.
+    pub fn take(&mut self) -> String {
+        self.cursor_col = 0;
+        std::mem::take(&mut self.content)
+    }
+
     /// Borrow the typed text.
     pub fn as_str(&self) -> &str {
         &self.content
@@ -297,6 +304,17 @@ mod tests {
     fn input_buffer_pop_on_empty_is_noop() {
         let mut b = InputBuffer::new();
         assert!(b.pop_char().is_none());
+        assert_eq!(b.cursor_col(), 0);
+    }
+
+    /// p9-fb-10: take() returns the content and resets state.
+    #[test]
+    fn input_buffer_take_returns_content_and_resets() {
+        let mut b = InputBuffer::new();
+        b.push_str("러스트");
+        let s = b.take();
+        assert_eq!(s, "러스트");
+        assert!(b.is_empty());
         assert_eq!(b.cursor_col(), 0);
     }
 }
