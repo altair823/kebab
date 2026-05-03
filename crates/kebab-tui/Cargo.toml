@@ -24,6 +24,10 @@ serde_json   = { workspace = true }
 # not display width, so a list cell with `한` (width 2) followed by `a`
 # (width 1) overflows by one column without explicit width accounting.
 unicode-width = "0.2"
+# p9-fb-11: parse markdown answer bodies into styled `Span`/`Line`s.
+# Same parser the ingest pipeline uses (kebab-parse-md) — keeps the
+# tokenizer behavior aligned with what the corpus is normalized as.
+pulldown-cmark = { version = "0.13", default-features = false }
 
 [dev-dependencies]
 tempfile     = { workspace = true }

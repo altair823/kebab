@@ -19,6 +19,7 @@ mod error_popup;
 mod ingest_progress;
 mod inspect;
 mod library;
+mod markdown;
 mod run;
 mod search;
 mod terminal;

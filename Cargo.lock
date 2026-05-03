@@ -3846,6 +3846,7 @@ dependencies = [
  "kebab-app",
  "kebab-config",
  "kebab-core",
+ "pulldown-cmark",
  "ratatui",
  "serde_json",
  "tempfile",

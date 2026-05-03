@@ -160,26 +160,41 @@ fn push_turn_lines(
         Span::raw(": "),
         Span::raw(question.to_string()),
     ]));
-    // p9-fb-16: refusal turn (caller passed Role::Warning) keeps the
-    // P9-3 visual distinction inside the transcript. Streaming turn
-    // fades to dim hint. Default is plain Body.
-    let answer_style = if let Some(role) = answer_role_override {
-        theme.style(role)
+    // p9-fb-11: render markdown (bold/italic/code/list/heading) when
+    // the answer is in a normal/grounded state. For refusal (Warning
+    // override) and streaming (Hint), force plain styled rendering so
+    // the role color stays visible — markdown styling on top would
+    // mask the "this is a refusal" / "this is in flight" signal.
+    let a_label_span = Span::styled(
+        a_label,
+        theme
+            .style(crate::theme::Role::Success)
+            .add_modifier(Modifier::BOLD),
+    );
+    if let Some(role) = answer_role_override {
+        out.push(Line::from(vec![
+            a_label_span,
+            Span::raw(": "),
+            Span::styled(answer.to_string(), theme.style(role)),
+        ]));
     } else if streaming {
-        theme.style(crate::theme::Role::Hint)
+        out.push(Line::from(vec![
+            a_label_span,
+            Span::raw(": "),
+            Span::styled(answer.to_string(), theme.style(crate::theme::Role::Hint)),
+        ]));
     } else {
-        theme.style(crate::theme::Role::Body)
-    };
-    out.push(Line::from(vec![
-        Span::styled(
-            a_label,
-            theme
-                .style(crate::theme::Role::Success)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(": "),
-        Span::styled(answer.to_string(), answer_style),
-    ]));
+        // Grounded answer: split A label onto its own marker line, then
+        // append markdown-rendered body lines indented two spaces (so
+        // the transcript stays readable when the answer wraps).
+        out.push(Line::from(vec![a_label_span, Span::raw(":")]));
+        for body_line in crate::markdown::render(answer, theme) {
+            let mut spans: Vec<Span<'static>> = Vec::with_capacity(body_line.spans.len() + 1);
+            spans.push(Span::raw("  "));
+            spans.extend(body_line.spans);
+            out.push(Line::from(spans));
+        }
+    }
 }
 
 fn render_bottom(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::Theme) {
