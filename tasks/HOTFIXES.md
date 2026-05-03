@@ -14,6 +14,19 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-03 — p9-fb-17 migration number V004 → V005
+
+**Spec amended**: `tasks/p9/p9-fb-17-chat-session-storage.md` (frozen —
+original contract calls the migration `V004__chat_sessions.sql`).
+
+**Why renamed**: `V004__kv.sql` was already taken by p9-fb-19's `kv`
+table for the `corpus_revision` counter (merged earlier the same day,
+PR #78). Refinery numbers must be globally unique + monotonically
+increasing, so chat-session storage shifts to `V005__chat_sessions.sql`.
+
+**Behavior unchanged**: identical schema to the spec (chat_sessions +
+chat_turns + idx_chat_turns_session); only the file name moved.
+
 ## 2026-05-03 — p9-fb-19 spec `index_version` → impl `corpus_revision` rename
 
 **Spec amended**: `tasks/p9/p9-fb-19-search-cache.md` (frozen — original

@@ -18,6 +18,7 @@
 //! round-trip test off a real Markdown fixture.)
 
 mod answers;
+mod chat_sessions;
 mod documents;
 mod embeddings;
 mod error;
