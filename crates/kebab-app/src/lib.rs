@@ -1499,6 +1499,23 @@ pub fn ask_with_config(
     App::open_with_config(config)?.ask(query, opts)
 }
 
+/// p9-fb-18: ask under a persistent chat session. Loads prior turns
+/// from `chat_sessions[session_id]`, runs the query as a follow-up
+/// (via `RagPipeline::ask_with_history`), and appends the new turn
+/// — auto-creating the session header on first use. Returns an
+/// `Answer` with `conversation_id = Some(session_id)` and
+/// `turn_index` set to the new (post-append) index. CLI `kebab
+/// ask --session <id>` entry point (p9-fb-18).
+#[doc(hidden)]
+pub fn ask_with_session_with_config(
+    config: kebab_config::Config,
+    session_id: &str,
+    query: &str,
+    opts: AskOpts,
+) -> anyhow::Result<Answer> {
+    App::open_with_config(config)?.ask_with_session(session_id, query, opts)
+}
+
 /// Run the doctor checks against the explicit config path the user
 /// requested via `--config` (or the XDG default if `None`). The
 /// `config_loaded` check reports the actual path probed and the
