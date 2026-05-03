@@ -399,7 +399,10 @@ pub fn mode_intercept(app: &mut crate::app::App, key: crossterm::event::KeyEvent
 /// - **`Esc` while visible** → close. Returning `true` here means
 ///   the global `mode_intercept` does NOT also see the Esc, so the
 ///   user's "close cheatsheet" action stays a single keystroke
-///   instead of also flipping mode.
+///   instead of also flipping mode. **Trade-off**: a user in
+///   Insert mode with the cheatsheet open needs a SECOND `Esc` to
+///   flip to Normal. Single-effect-per-keystroke wins over
+///   compound actions.
 /// - Any other key while visible → fall through (so the key reaches
 ///   the active pane normally — useful if the user wants to keep
 ///   the popup open and still navigate). The popup auto-closes

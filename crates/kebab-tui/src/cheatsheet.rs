@@ -15,6 +15,13 @@
 //! * The verb hint line redesign sits in the existing `render_footer`
 //!   path; the per-pane string already serves the same role. A
 //!   future PR can split it into mode-aware verb fragments.
+//!
+//! **Maintenance**: the `push_section(...)` calls below hold every
+//! key binding as a literal string — there is NO automated link
+//! from `handle_key_*` to the cheatsheet entries. A future PR that
+//! changes a binding (e.g. swap `r` → `R` for ingest) MUST update
+//! the matching entry here. Drift would be silently invisible
+//! (the cheatsheet still renders, but lies about the live key).
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
