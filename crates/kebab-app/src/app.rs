@@ -254,7 +254,20 @@ impl App {
     /// Run a RAG `ask` against the configured retriever + LLM. Reuses
     /// the memoized embedder / vector / LLM where applicable.
     pub fn ask(&self, query: &str, opts: AskOpts) -> Result<Answer> {
-        let retriever: Arc<dyn Retriever> = match opts.mode {
+        let retriever = self.build_retriever(opts.mode)?;
+        let llm = self.llm()?;
+        let pipeline =
+            RagPipeline::new(self.config.clone(), retriever, llm, self.sqlite.clone());
+        pipeline.ask(query, opts)
+    }
+
+    /// p9-fb-18: shared retriever-stack builder used by [`Self::ask`]
+    /// and [`Self::ask_with_session`]. Lexical mode uses the FTS5
+    /// retriever directly; vector / hybrid require embeddings (and
+    /// surface the same "switch to --mode lexical" error from
+    /// [`Self::require_embeddings`] when disabled).
+    fn build_retriever(&self, mode: SearchMode) -> Result<Arc<dyn Retriever>> {
+        Ok(match mode {
             SearchMode::Lexical => Arc::new(LexicalRetriever::with_settings(
                 self.sqlite.clone(),
                 lexical_index_version(&self.config),
@@ -292,12 +305,7 @@ impl App {
                 )) as Arc<dyn Retriever>;
                 Arc::new(HybridRetriever::new(&self.config, lex, vec_retr))
             }
-        };
-
-        let llm = self.llm()?;
-        let pipeline =
-            RagPipeline::new(self.config.clone(), retriever, llm, self.sqlite.clone());
-        pipeline.ask(query, opts)
+        })
     }
 
     /// p9-fb-18: ask under a persistent chat session. Loads the
@@ -353,46 +361,9 @@ impl App {
             })
             .collect();
 
-        // Build the retriever stack the same way `ask` does.
-        let retriever: Arc<dyn Retriever> = match opts.mode {
-            SearchMode::Lexical => Arc::new(LexicalRetriever::with_settings(
-                self.sqlite.clone(),
-                lexical_index_version(&self.config),
-                self.config.search.snippet_chars,
-            )),
-            SearchMode::Vector => {
-                let (emb, vec_store) = self.require_embeddings()?;
-                let vec_iv = vector_index_version(emb.as_ref());
-                let vec_dyn: Arc<dyn VectorStore + Send + Sync> = vec_store;
-                let emb_dyn: Arc<dyn Embedder> = emb;
-                Arc::new(VectorRetriever::with_settings(
-                    vec_dyn,
-                    emb_dyn,
-                    self.sqlite.clone(),
-                    vec_iv,
-                    self.config.search.snippet_chars,
-                ))
-            }
-            SearchMode::Hybrid => {
-                let lex = Arc::new(LexicalRetriever::with_settings(
-                    self.sqlite.clone(),
-                    lexical_index_version(&self.config),
-                    self.config.search.snippet_chars,
-                )) as Arc<dyn Retriever>;
-                let (emb, vec_store) = self.require_embeddings()?;
-                let vec_iv = vector_index_version(emb.as_ref());
-                let vec_dyn: Arc<dyn VectorStore + Send + Sync> = vec_store;
-                let emb_dyn: Arc<dyn Embedder> = emb;
-                let vec_retr = Arc::new(VectorRetriever::with_settings(
-                    vec_dyn,
-                    emb_dyn,
-                    self.sqlite.clone(),
-                    vec_iv,
-                    self.config.search.snippet_chars,
-                )) as Arc<dyn Retriever>;
-                Arc::new(HybridRetriever::new(&self.config, lex, vec_retr))
-            }
-        };
+        // p9-fb-18 R1: shared retriever builder removes the prior
+        // copy of `ask`'s 35-line stack — see [`Self::build_retriever`].
+        let retriever = self.build_retriever(opts.mode)?;
         let llm = self.llm()?;
         let pipeline =
             RagPipeline::new(self.config.clone(), retriever, llm, self.sqlite.clone());
