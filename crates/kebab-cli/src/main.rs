@@ -99,6 +99,21 @@ enum Cmd {
 
         #[arg(long)]
         seed: Option<u64>,
+
+        /// p9-fb-20: print the `근거:` block (full path / line range
+        /// / score, one per line) after the answer. Default on.
+        /// `--json` mode is unaffected — citations are always
+        /// included in the wire payload regardless of this flag.
+        #[arg(long, action = clap::ArgAction::SetTrue,
+              conflicts_with = "hide_citations",
+              default_value_t = true)]
+        show_citations: bool,
+
+        /// p9-fb-20: opt out of the `근거:` block (sticky-overrides
+        /// `--show-citations`). Useful when piping the answer body
+        /// to another tool that doesn't want trailing metadata.
+        #[arg(long)]
+        hide_citations: bool,
     },
 
     /// Wipe XDG data dirs (and optionally the Lance vector store) so the
@@ -418,6 +433,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             explain,
             temperature,
             seed,
+            show_citations,
+            hide_citations,
         } => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
             let opts = kebab_app::AskOpts {
@@ -442,6 +459,34 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string(&wire::wire_answer(&ans))?);
             } else {
                 println!("{}", ans.answer);
+                // p9-fb-20: print the citation block after the
+                // answer body when --hide-citations is not set
+                // (--show-citations is the default). Skipped on
+                // refusal-with-zero-citations to avoid an empty
+                // `근거:` header.
+                let print_citations = *show_citations && !*hide_citations;
+                if print_citations && !ans.citations.is_empty() {
+                    println!();
+                    println!("근거:");
+                    for (idx, c) in ans.citations.iter().enumerate() {
+                        let marker = c
+                            .marker
+                            .clone()
+                            .unwrap_or_else(|| format!("{}", idx + 1));
+                        println!("  [{}] {}", marker, c.citation.to_uri());
+                    }
+                    // p9-fb-20: retrieval 메타는 citation 별 점수가
+                    // AnswerCitation 에 없는 (`top_score` 만 retrieval-
+                    // 전체 max) 한계상 한 줄로 분리. per-citation score
+                    // 노출은 facade + AnswerCitation 의 미래 확장 후.
+                    println!(
+                        "(retrieval: top_score={:.2}, k={}, used={}/{})",
+                        ans.retrieval.top_score,
+                        ans.retrieval.k,
+                        ans.retrieval.chunks_used,
+                        ans.retrieval.chunks_returned,
+                    );
+                }
             }
             // Refusal → exit 1.
             if !ans.grounded {
