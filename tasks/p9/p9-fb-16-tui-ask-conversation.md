@@ -3,7 +3,7 @@ phase: P9
 component: kebab-tui (ask pane)
 task_id: p9-fb-16
 title: "TUI ask conversation transcript view"
-status: in_progress
+status: completed
 depends_on: [p9-fb-15, p9-fb-12]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
