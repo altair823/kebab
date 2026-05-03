@@ -3,7 +3,7 @@ phase: P9
 component: kebab-tui + README
 task_id: p9-fb-13
 title: "Cheatsheet popup (?) + README keymap table + verb hint line"
-status: planned
+status: in_progress
 depends_on: [p9-fb-12]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

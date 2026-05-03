@@ -14,6 +14,27 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-03 — p9-fb-13 cheatsheet: `?` → `F1` rebind
+
+**Spec amended**: `tasks/p9/p9-fb-13-tui-cheatsheet.md` (frozen —
+original contract uses `?` as the cheatsheet trigger).
+
+**Why rebind**: Library 가 이미 `Char('?')` 를 quick-Ask binding 으로
+사용 중 (`Pane::Library::handle_key_library` line ~305: `?` →
+`SwitchPane(Pane::Ask)`). spec 의 `?` 도입은 이 기존 binding 을 깨거나
+mode-aware override 가 필요한데, 후자는 mode machine 의 추가 special
+casing.
+
+**Live binding**: `F1` (universal help key, no collision). modifier-
+bearing 변종 (Ctrl-F1 등) 은 미발동. cheatsheet 가 visible 인 동안
+`Esc` 도 닫기 (cheatsheet_intercept 가 mode_intercept 보다 먼저
+처리).
+
+**Per-pane hint line redesign**: 별도 spec 항목 (verb-form hint
+재구성) 은 본 PR 에서 deferral. 기존 `render_footer` 의 pane-별
+힌트 문자열이 동일 역할을 하므로 사용자 경험상 누락 없음. 후속 PR
+가 mode-aware verb fragments 로 split 가능.
+
 ## 2026-05-03 — p9-fb-12 partial: mode machine without dispatch removal
 
 **Spec amended**: `tasks/p9/p9-fb-12-tui-mode-machine.md` (status stays

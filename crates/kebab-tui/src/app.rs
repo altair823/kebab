@@ -380,6 +380,21 @@ pub struct App {
     /// any future code path that needs a forced redraw can flip
     /// this flag.
     pub(crate) force_redraw: bool,
+    /// p9-fb-13: cheatsheet popup visibility. Toggled by `F1` (set
+    /// via `cheatsheet_intercept` in the run loop). When true, the
+    /// renderer overlays a modal listing every keybinding for the
+    /// active pane plus the global mode toggles.
+    pub(crate) cheatsheet_visible: bool,
+}
+
+impl App {
+    /// p9-fb-13: read-only accessor for the cheatsheet visibility
+    /// flag — used by integration tests to assert the toggle
+    /// without exposing the field as `pub` (which would let
+    /// external code break the F1-only set/unset invariant).
+    pub fn cheatsheet_visible(&self) -> bool {
+        self.cheatsheet_visible
+    }
 }
 
 /// p9-fb-09: external-program spawn request. Posted by a pane's key
@@ -413,6 +428,7 @@ impl App {
             should_quit: false,
             pending_editor: None,
             force_redraw: false,
+            cheatsheet_visible: false,
         })
     }
 
