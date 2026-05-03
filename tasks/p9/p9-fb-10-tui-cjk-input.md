@@ -3,7 +3,7 @@ phase: P9
 component: kebab-tui
 task_id: p9-fb-10
 title: "CJK input + wide-char rendering audit"
-status: in_progress
+status: completed
 depends_on: [p9-fb-12]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
@@ -43,9 +43,9 @@ source_feedback: p9-dogfooding-feedback.md item 8
 
 ## DoD
 
-- [ ] `cargo test -p kebab-tui` 통과
-- [ ] 한글 fixture 추가
-- [ ] README — CJK 입력 동작 정상 명시
+- [x] `cargo test -p kebab-tui` 통과
+- [x] 한글 fixture 추가
+- [x] README — CJK 입력 동작 정상 명시
 
 ## Out of scope
 
@@ -55,3 +55,4 @@ source_feedback: p9-dogfooding-feedback.md item 8
 ## Notes
 
 - 2026-05-03 partial: `kebab-tui::input::{display_width, truncate_to_display_width}` helper 모듈 + Korean/Japanese fixture render audit + 9 unit tests + library.rs 의 중복 truncate 제거 (단일 source). `InputBuffer` struct 도입은 follow-up — Ask/Search/Editor pane 의 String + cursor 를 일괄 마이그레이션하면 회귀 표면이 커서 위 helper 만 먼저 머지. 백스페이스는 `String::pop()` 이 char-aware 라 byte-boundary 안전성은 이미 확보된 상태. 후속 spec issue 는 HOTFIXES.md 참조.
+- 2026-05-03 follow-up: `InputBuffer { content, cursor_col }` struct landed; Search/Ask/FilterEdit migrated; cursor column-aligned via `f.set_cursor_position` in each render fn (block.inner-derived coordinates, right-edge clamp). Korean FTS5 end-to-end smoke pin in `crates/kebab-app/tests/search_korean.rs`. `lexical_query` test helper 가 `crates/kebab-app/tests/common/mod.rs` 로 promotion. spec status `in_progress` → `completed`.
