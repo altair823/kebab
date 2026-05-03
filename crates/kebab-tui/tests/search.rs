@@ -7,7 +7,8 @@ use kebab_core::{
     RetrievalDetail, SearchHit, SearchMode, WorkspacePath,
 };
 use kebab_tui::{
-    App, KeyOutcome, Pane, SearchState, build_jump_command, handle_key_search, render_search,
+    App, KeyOutcome, Pane, SearchState, SearchWorkerMessage, build_jump_command,
+    handle_key_search, poll_search_worker, render_search,
 };
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
@@ -332,6 +333,99 @@ fn g_key_with_no_hits_does_not_enqueue() {
         app.pending_editor().is_none(),
         "g with no hits must not enqueue"
     );
+}
+
+// ── p9-fb-08: async search worker + generation counter ────────────
+
+/// `poll_search_worker` applies a fresh result (matching generation)
+/// to `state.search.hits` and clears `searching`.
+#[test]
+fn poll_worker_applies_fresh_result_to_hits() {
+    let mut app = fresh_app();
+    let (tx, rx) = std::sync::mpsc::channel();
+    {
+        let s = app.search.as_mut().unwrap();
+        s.generation = 5;
+        s.searching = true;
+        s.worker_rx = Some(rx);
+    }
+    let hit = make_hit(1, "a.md", "snip", line_citation("a.md", 1));
+    tx.send(SearchWorkerMessage::Done {
+        generation: 5,
+        result: Ok(vec![hit]),
+    })
+    .unwrap();
+    poll_search_worker(&mut app);
+    let s = app.search.as_ref().unwrap();
+    assert_eq!(s.hits.len(), 1, "fresh result populates hits");
+    assert!(!s.searching, "searching cleared");
+    assert!(s.worker_rx.is_none(), "rx drained");
+}
+
+/// p9-fb-08 — a stale result (generation mismatch) is silently
+/// dropped. `searching` remains true since a newer worker is
+/// (presumed) still in flight.
+#[test]
+fn poll_worker_drops_stale_result() {
+    let mut app = fresh_app();
+    let (tx, rx) = std::sync::mpsc::channel();
+    {
+        let s = app.search.as_mut().unwrap();
+        s.generation = 7;
+        s.searching = true;
+        s.worker_rx = Some(rx);
+    }
+    let hit = make_hit(1, "stale.md", "snip", line_citation("stale.md", 1));
+    // generation 3 < current 7 → stale.
+    tx.send(SearchWorkerMessage::Done {
+        generation: 3,
+        result: Ok(vec![hit]),
+    })
+    .unwrap();
+    poll_search_worker(&mut app);
+    let s = app.search.as_ref().unwrap();
+    assert!(s.hits.is_empty(), "stale result must not populate hits");
+    assert!(
+        s.searching,
+        "searching stays true so newer worker can resolve it"
+    );
+    assert!(
+        s.worker_rx.is_none(),
+        "stale message still drains the rx slot — worker is one-shot"
+    );
+}
+
+/// p9-fb-08 — `poll_search_worker` is a no-op when no worker is in
+/// flight (no rx). Common case on every tick the user isn't typing.
+#[test]
+fn poll_worker_noop_when_no_rx() {
+    let mut app = fresh_app();
+    {
+        let s = app.search.as_mut().unwrap();
+        s.hits = vec![make_hit(1, "x.md", "snip", line_citation("x.md", 1))];
+    }
+    poll_search_worker(&mut app);
+    let s = app.search.as_ref().unwrap();
+    assert_eq!(s.hits.len(), 1, "existing hits preserved");
+    assert!(s.worker_rx.is_none());
+}
+
+/// p9-fb-08 — disconnected channel (worker panicked) clears the rx
+/// + searching flag so the next debounce tick can re-fire cleanly.
+#[test]
+fn poll_worker_handles_disconnected_channel() {
+    let mut app = fresh_app();
+    let (tx, rx) = std::sync::mpsc::channel::<SearchWorkerMessage>();
+    {
+        let s = app.search.as_mut().unwrap();
+        s.searching = true;
+        s.worker_rx = Some(rx);
+    }
+    drop(tx); // simulate worker panic before send
+    poll_search_worker(&mut app);
+    let s = app.search.as_ref().unwrap();
+    assert!(!s.searching, "searching cleared on disconnect");
+    assert!(s.worker_rx.is_none());
 }
 
 #[test]

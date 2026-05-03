@@ -28,7 +28,7 @@ mod theme;
 pub use theme::{Palette, Role, Theme};
 pub use app::{
     App, AskState, IngestState, InspectState, InspectTarget, KeyOutcome, LibraryState, Pane,
-    SearchState, TERMINAL_LINE_HOLD_SECS,
+    SearchState, SearchWorkerMessage, TERMINAL_LINE_HOLD_SECS,
 };
 pub use ask::{handle_key_ask, render_ask};
 pub use error_popup::{ErrorOverlay, render_error_overlay};
@@ -43,3 +43,8 @@ pub use library::{handle_key_library, render_library};
 // only safe constructor path for raw mode + alt-screen). External
 // callers stage editor spawns via `App.pending_editor` instead.
 pub use search::{build_jump_command, handle_key_search, render_search};
+// p9-fb-08: expose `poll_worker` so integration tests can drive the
+// stale-result drop / fresh-result apply paths without spawning the
+// real thread (they inject a `SearchWorkerMessage` directly via a
+// channel they construct in the test).
+pub use search::poll_worker as poll_search_worker;

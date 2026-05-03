@@ -65,6 +65,11 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                     }
                 }
                 Pane::Search => {
+                    // p9-fb-08: drain the async search worker first.
+                    // Stale generations are silently dropped; the
+                    // current generation's result populates `hits`
+                    // / clears `searching` here.
+                    crate::search::poll_worker(app);
                     let due = app
                         .search
                         .as_ref()

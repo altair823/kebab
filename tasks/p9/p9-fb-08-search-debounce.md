@@ -3,7 +3,7 @@ phase: P9
 component: kebab-tui (search pane)
 task_id: p9-fb-08
 title: "Search debounce + Enter-immediate trigger"
-status: planned
+status: in_progress
 depends_on: []
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

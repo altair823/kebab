@@ -427,7 +427,10 @@ fn parse_editor_env(env: &str) -> (String, Vec<String>) {
 
 /// Run-loop hook: tick called every poll cycle. Returns `true` if a
 /// search should fire this tick (debounce expired and query
-/// changed).
+/// changed). p9-fb-08 adds two skip cases:
+/// - if a worker is already in flight for the *same* `(input, mode)`
+///   the spawn is redundant — wait for the result.
+/// - dedupe against `last_query` (was already there pre-fb-08, kept).
 pub(crate) fn debounce_due(s: &SearchState) -> bool {
     let Some(at) = s.input_dirty_at else { return false };
     let elapsed = (time::OffsetDateTime::now_utc() - at)
@@ -440,6 +443,16 @@ pub(crate) fn debounce_due(s: &SearchState) -> bool {
     if q.is_empty() {
         return false;
     }
+    // p9-fb-08: if the most-recent in-flight query is identical to
+    // the current input/mode pair, don't spawn another worker — the
+    // existing result will land via `poll_worker`.
+    if s.searching {
+        if let Some((prev_input, prev_mode)) = &s.last_query {
+            if prev_input == &s.input && *prev_mode == s.mode {
+                return false;
+            }
+        }
+    }
     !matches!(
         &s.last_query,
         Some((prev_input, prev_mode))
@@ -447,38 +460,113 @@ pub(crate) fn debounce_due(s: &SearchState) -> bool {
     )
 }
 
-/// Run-loop hook: actually perform the search, populate `hits`. The
-/// state's `input_dirty_at` is cleared, `last_query` snapshots, and
-/// `searching` flag toggles around the call.
+/// Run-loop hook: spawn an asynchronous search worker. Returns
+/// immediately so the event loop keeps polling — the result lands in
+/// `state.search.worker_rx` and is applied by `poll_worker` on a
+/// later tick. p9-fb-08 deviation from the original synchronous
+/// design (the user typed faster than vector search could complete,
+/// freezing the UI for 50-200 ms per keystroke under hybrid mode).
+///
+/// Behavior:
+/// 1. Increment `generation` so any in-flight result becomes stale
+///    on receive (`poll_worker` drops it).
+/// 2. Drop the prior `worker_rx` (the old worker keeps running and
+///    its result is silently discarded — search is a pure read with
+///    no cleanup obligation).
+/// 3. Snapshot `last_query` + clear `input_dirty_at` for the
+///    debounce machinery (so a no-op keystroke doesn't re-spawn).
+/// 4. Spawn a fresh worker carrying its generation token.
 pub(crate) fn fire_search(state: &mut App) -> anyhow::Result<()> {
     let cfg = state.config.clone();
-    let (q_text, mode) = {
+    let (q_text, mode, generation) = {
         let s = state.search.as_mut().expect("Search slot must exist");
+        s.generation = s.generation.wrapping_add(1);
         s.searching = true;
         s.input_dirty_at = None;
         s.last_query = Some((s.input.clone(), s.mode));
-        (s.input.clone(), s.mode)
+        (s.input.clone(), s.mode, s.generation)
     };
-    let query = SearchQuery {
-        text: q_text,
-        mode,
-        k: SEARCH_K,
-        filters: kebab_core::SearchFilters::default(),
-    };
-    let result = kebab_app::search_with_config(cfg, query);
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = std::thread::Builder::new()
+        .name(format!("kebab-tui-search-gen{generation}"))
+        .spawn(move || {
+            let query = SearchQuery {
+                text: q_text,
+                mode,
+                k: SEARCH_K,
+                filters: kebab_core::SearchFilters::default(),
+            };
+            let result = kebab_app::search_with_config(cfg, query);
+            // Send result back. If the receiver dropped (UI closed,
+            // or — in tests — state torn down), the result is
+            // discarded; that's fine since search is a pure read.
+            let _ = tx.send(crate::app::SearchWorkerMessage::Done {
+                generation,
+                result,
+            });
+        })
+        .map_err(|e| anyhow::anyhow!("spawn search worker: {e}"))?;
+
     let s = state.search.as_mut().expect("Search slot must exist");
-    s.searching = false;
-    match result {
-        Ok(hits) => {
-            s.hits = hits;
-            s.selected_hit = 0;
-            s.preview = None;
-            Ok(())
+    s.worker_thread = Some(handle);
+    s.worker_rx = Some(rx);
+    Ok(())
+}
+
+/// Run-loop hook: drain any pending message from the search worker.
+/// Stale results (newer query already in flight) are silently
+/// dropped per the generation-counter contract. `pub` so integration
+/// tests can drive the stale-result paths by injecting a channel.
+pub fn poll_worker(state: &mut App) {
+    let Some(s) = state.search.as_mut() else { return };
+    let Some(rx) = s.worker_rx.as_ref() else { return };
+    let msg = match rx.try_recv() {
+        Ok(m) => m,
+        Err(std::sync::mpsc::TryRecvError::Empty) => return,
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            // Worker panicked or dropped tx without sending. Clear
+            // the worker handles + searching flag so the next debounce
+            // tick can re-fire if needed.
+            s.worker_thread = None;
+            s.worker_rx = None;
+            s.searching = false;
+            return;
         }
-        Err(e) => {
-            s.hits.clear();
-            s.selected_hit = 0;
-            Err(e)
+    };
+    s.worker_thread = None;
+    s.worker_rx = None;
+    match msg {
+        crate::app::SearchWorkerMessage::Done { generation, result } => {
+            // p9-fb-08: stale guard. The user kept typing after this
+            // worker spawned and a newer query is in flight — drop
+            // the result. Don't clear `searching` because the newer
+            // worker (if any) is still running; if there's no newer
+            // worker (rare race), the next debounce_due tick will
+            // re-fire `fire_search` and reset everything.
+            if generation != s.generation {
+                tracing::debug!(
+                    target: "kebab-tui",
+                    stale_gen = generation,
+                    current_gen = s.generation,
+                    "dropping stale search result"
+                );
+                return;
+            }
+            s.searching = false;
+            match result {
+                Ok(hits) => {
+                    s.hits = hits;
+                    s.selected_hit = 0;
+                    s.preview = None;
+                }
+                Err(e) => {
+                    s.hits.clear();
+                    s.selected_hit = 0;
+                    state.error_overlay =
+                        Some(crate::error_popup::ErrorOverlay::from_anyhow(&e));
+                }
+            }
         }
     }
 }
