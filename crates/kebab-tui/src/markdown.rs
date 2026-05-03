@@ -208,9 +208,28 @@ pub fn render(text: &str, theme: &Theme) -> Vec<Line<'static>> {
                     theme.style(Role::Hint),
                 ));
             }
-            Event::FootnoteReference(_) | Event::TaskListMarker(_) | Event::InlineMath(_)
-            | Event::DisplayMath(_) => {
-                // Out of v1 scope — silently drop.
+            Event::InlineMath(s) | Event::DisplayMath(s) => {
+                // No LaTeX rendering in a terminal v1, but preserve
+                // the source so the answer's math still reaches the
+                // user as readable text instead of vanishing.
+                current.push(Span::styled(
+                    s.into_string(),
+                    theme.style(Role::Hint),
+                ));
+            }
+            Event::FootnoteReference(label) => {
+                // Render as `[^label]` so the footnote anchor is
+                // visible in the answer body.
+                current.push(Span::styled(
+                    format!("[^{}]", label),
+                    theme.style(Role::CitationMarker),
+                ));
+            }
+            Event::TaskListMarker(checked) => {
+                // GFM task lists — surface as `[x] ` / `[ ] ` so
+                // checklists stay legible in the answer.
+                let marker = if checked { "[x] " } else { "[ ] " };
+                current.push(Span::styled(marker, theme.style(Role::Bullet)));
             }
         }
     }
@@ -238,6 +257,15 @@ fn heading_role_for(level: HeadingLevel) -> Role {
 /// Compose the active inline style from the heading override (if any),
 /// the modifier stack (Strong/Emph/Strikethrough), and the link /
 /// inline-code flags.
+///
+/// Layering rule: the **base color** comes from the most-specific
+/// container — heading first, then link, then inline code, then body.
+/// **Modifiers** from `style_stack` AND from link/inline-code overlay
+/// on top regardless. So `# Section [docs](url) `code``:
+/// - `docs` keeps the heading color (Cyan + BOLD) but also gains
+///   `UNDERLINED` from the link, signalling "clickable text" without
+///   losing the heading's hierarchy color.
+/// - `code` keeps the heading color and adds `DIM` from inline-code.
 fn compose_style(
     theme: &Theme,
     heading_role: Option<Role>,
@@ -248,12 +276,11 @@ fn compose_style(
     let base = if let Some(role) = heading_role {
         theme.style(role)
     } else if in_link {
-        theme.style(Role::CitationMarker).add_modifier(Modifier::UNDERLINED)
+        theme.style(Role::CitationMarker)
     } else if inline_code {
-        // Inline code — represent with a Hint-style background substitute
-        // (DIM) since Terminal doesn't reliably do bg colors without
-        // 256-color, and italic is already taken by Emphasis. This is a
-        // visible-but-conservative cue.
+        // Inline code — represent with Hint (DIM) since Terminal
+        // doesn't reliably do bg colors without 256-color, and italic
+        // is taken by Emphasis. Conservative-but-visible cue.
         theme.style(Role::Hint)
     } else {
         theme.style(Role::Body)
@@ -261,6 +288,14 @@ fn compose_style(
     let mut acc = Modifier::empty();
     for m in style_stack {
         acc.insert(*m);
+    }
+    if in_link {
+        acc.insert(Modifier::UNDERLINED);
+    }
+    if inline_code && heading_role.is_some() {
+        // Inside a heading, inline code keeps heading color but takes
+        // the DIM marker so it still reads as code.
+        acc.insert(Modifier::DIM);
     }
     base.add_modifier(acc)
 }
@@ -401,6 +436,62 @@ mod tests {
         );
     }
 
+    /// p9-fb-11 R1: link inside a heading layers — heading color
+    /// stays (Cyan + BOLD) AND link's UNDERLINE marker is added.
+    #[test]
+    fn link_inside_heading_layers_underline_on_heading_color() {
+        let lines = render("# Section [docs](https://x)", &theme());
+        let docs = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .find(|s| s.content.as_ref() == "docs")
+            .expect("link text span");
+        assert!(
+            docs.style.add_modifier.contains(Modifier::UNDERLINED),
+            "link inside heading should still get UNDERLINED: {:?}",
+            docs.style
+        );
+        assert!(
+            docs.style.add_modifier.contains(Modifier::BOLD),
+            "link inside heading should keep heading BOLD: {:?}",
+            docs.style
+        );
+    }
+
+    /// p9-fb-11 R1: math expressions render as text (they used to be
+    /// silently dropped, losing answer content).
+    #[test]
+    fn inline_and_display_math_render_as_text() {
+        let inline = render("see $E = mc^2$ here", &theme());
+        let combined: String = inline.iter().map(line_text).collect::<Vec<_>>().join("");
+        assert!(
+            combined.contains("E = mc^2"),
+            "inline math content dropped: {combined:?}"
+        );
+        let display = render("$$\\sum_i x_i$$", &theme());
+        let combined: String = display.iter().map(line_text).collect::<Vec<_>>().join("");
+        assert!(
+            combined.contains("\\sum_i x_i") || combined.contains("sum_i x_i"),
+            "display math content dropped: {combined:?}"
+        );
+    }
+
+    /// p9-fb-11 R1: GFM task lists render as `[ ] ` / `[x] `.
+    #[test]
+    fn task_list_renders_checkbox_glyphs() {
+        let md = "- [ ] todo\n- [x] done";
+        let lines = render(md, &theme());
+        let texts: Vec<String> = lines.iter().map(line_text).collect();
+        assert!(
+            texts.iter().any(|t| t.contains("[ ] todo")),
+            "unchecked task missing: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t.contains("[x] done")),
+            "checked task missing: {texts:?}"
+        );
+    }
+
     /// `[text](https://x)` underlines `text`.
     #[test]
     fn link_underlines_text() {
@@ -488,16 +579,20 @@ mod tests {
         );
     }
 
-    /// Streaming partial: an unterminated `**` emits the literal
-    /// asterisks (pulldown treats them as Text). The render must NOT
-    /// panic / drop characters.
+    /// Streaming partial: an unterminated `**` MUST NOT drop the
+    /// content text. pulldown-cmark 0.13 emits the suffix as a Text
+    /// event (with or without preserving the `**` literal — both are
+    /// acceptable as long as `still typing` reaches the output).
+    /// Splitting the assertion: content presence is a hard constraint
+    /// (regression catches `pulldown` upgrades that lose characters);
+    /// the literal `**` is cosmetic and not pinned.
     #[test]
-    fn unterminated_bold_renders_literal_asterisks() {
+    fn unterminated_bold_does_not_drop_content() {
         let lines = render("**still typing", &theme());
         let combined: String = lines.iter().map(line_text).collect::<Vec<_>>().join("");
         assert!(
-            combined.contains("**still typing") || combined.contains("still typing"),
-            "stream-mid output lost characters: {combined:?}"
+            combined.contains("still typing"),
+            "stream-mid output dropped content text: {combined:?}"
         );
     }
 
