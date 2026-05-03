@@ -20,6 +20,61 @@ pub enum Pane {
     Jobs,
 }
 
+/// p9-fb-12 (partial): vim-style modal interface.
+///
+/// `Normal` is the navigation / command mode; `Insert` is for typing
+/// queries / questions. The run loop intercepts `i` / `Esc` globally
+/// to flip between them, and pane switches auto-select the natural
+/// mode for the destination (Library/Inspect → Normal; Search/Ask →
+/// Insert). The status bar shows the active mode label so the user
+/// always knows which keys do what.
+///
+/// **Scope deviation from spec p9-fb-12** (recorded in HOTFIXES):
+/// the existing `is_typing_mod` heuristic in `search::handle_key_search`
+/// and the input-empty heuristic in `ask::handle_key_ask` are NOT
+/// removed in this PR — they continue to gate j/k/e between
+/// "navigation" and "typing" based on input buffer state. Removing
+/// them lands in a follow-up PR so the test surface (which leans on
+/// the heuristics) gets a focused review. The mode label is
+/// authoritative for the user-visible signal in the status bar; the
+/// dispatch is still heuristic-driven.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Mode {
+    #[default]
+    Normal,
+    Insert,
+}
+
+impl Mode {
+    /// Status-bar label (`-- NORMAL --` / `-- INSERT --`).
+    pub fn label(self) -> &'static str {
+        match self {
+            Mode::Normal => "-- NORMAL --",
+            Mode::Insert => "-- INSERT --",
+        }
+    }
+
+    /// p9-fb-12: which mode a freshly-focused pane should auto-enter.
+    /// Library / Inspect are read-only navigation panes (`Normal`);
+    /// Search / Ask are typing panes so we pre-flip to `Insert` so
+    /// the user doesn't have to press `i` after every Tab.
+    ///
+    /// **Auto-flip overrides any prior user-flipped mode on pane
+    /// switch** — if a user pressed `Esc` on Search to read scroll-
+    /// back, then Tab'd back into Ask, the next focus auto-flips
+    /// to Insert (clobbering the user's Normal). This is
+    /// intentional: the typing case is the dominant one for
+    /// Search/Ask, and a sticky-per-pane mode adds state most
+    /// users don't ask for. Sticky mode is a future task —
+    /// current heuristic optimizes for the common case.
+    pub fn auto_for(pane: Pane) -> Self {
+        match pane {
+            Pane::Search | Pane::Ask => Mode::Insert,
+            Pane::Library | Pane::Inspect | Pane::Jobs => Mode::Normal,
+        }
+    }
+}
+
 /// Outcome of a key handler — what the run loop should do next.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum KeyOutcome {
@@ -280,6 +335,13 @@ pub struct App {
     /// `Style::default().fg(Color::*)`.
     pub theme: crate::theme::Theme,
     pub focus: Pane,
+    /// p9-fb-12 (partial): vim-style modal interface. Run loop
+    /// intercepts `i` / `Esc` to toggle, pane switches auto-flip via
+    /// `Mode::auto_for(pane)`. Status bar renders the label. The
+    /// per-pane key handlers still use their pre-fb-12 input-empty
+    /// heuristics for j/k vs typing — full mode-authoritative
+    /// dispatch is a follow-up PR.
+    pub mode: Mode,
     pub library: LibraryState,
     /// Populated by p9-2 (None until that crate links in).
     pub search: Option<SearchState>,
@@ -335,10 +397,13 @@ impl App {
     /// `kebab-app::list_docs_with_config` does not block startup.
     pub fn new(config: Config) -> anyhow::Result<Self> {
         let theme = crate::theme::Theme::from_name(&config.ui.theme);
+        let initial_pane = Pane::Library;
         Ok(Self {
             config,
             theme,
-            focus: Pane::Library,
+            focus: initial_pane,
+            // p9-fb-12: starting pane = Library → Normal mode.
+            mode: Mode::auto_for(initial_pane),
             library: LibraryState::new(),
             search: None,
             ask: None,
@@ -387,5 +452,38 @@ impl App {
         } else {
             self.library.inner.list_state.select(Some(0));
         }
+    }
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+
+    /// p9-fb-12: Library / Inspect / Jobs auto-Normal; Search / Ask
+    /// auto-Insert. Pin so a future pane addition has to think
+    /// explicitly about its starting mode.
+    #[test]
+    fn auto_for_pane_routes_to_natural_mode() {
+        assert_eq!(Mode::auto_for(Pane::Library), Mode::Normal);
+        assert_eq!(Mode::auto_for(Pane::Inspect), Mode::Normal);
+        assert_eq!(Mode::auto_for(Pane::Jobs), Mode::Normal);
+        assert_eq!(Mode::auto_for(Pane::Search), Mode::Insert);
+        assert_eq!(Mode::auto_for(Pane::Ask), Mode::Insert);
+    }
+
+    /// p9-fb-12: status-bar label literals are part of the contract
+    /// (the user sees them; tests / docs reference them).
+    #[test]
+    fn label_literals_stable() {
+        assert_eq!(Mode::Normal.label(), "-- NORMAL --");
+        assert_eq!(Mode::Insert.label(), "-- INSERT --");
+    }
+
+    /// p9-fb-12: default `Mode` = `Normal` (the safe non-typing
+    /// state). Pin so a future #[derive(Default)] tweak doesn't
+    /// silently flip.
+    #[test]
+    fn default_is_normal() {
+        assert_eq!(Mode::default(), Mode::Normal);
     }
 }

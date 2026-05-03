@@ -130,6 +130,17 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
         if event::poll(POLL_INTERVAL)? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    // p9-fb-12: global mode toggle. `Esc` from
+                    // Insert → Normal is intercepted here so it
+                    // works on every pane uniformly. `i` from
+                    // Normal → Insert is also intercepted, but
+                    // ONLY on Library/Inspect (where `i` has no
+                    // pre-fb-12 meaning); on Search/Ask the user
+                    // is already in Insert by Mode::auto_for, so
+                    // `i` falls through as a typed character.
+                    if mode_intercept(app, key) {
+                        continue;
+                    }
                     let outcome = match app.focus {
                         Pane::Library => handle_key_library(app, key),
                         Pane::Search => handle_key_search(app, key),
@@ -143,6 +154,11 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                         KeyOutcome::Quit => app.should_quit = true,
                         KeyOutcome::SwitchPane(p) => {
                             app.focus = p;
+                            // p9-fb-12: auto-flip mode on switch.
+                            // Library/Inspect/Jobs → Normal,
+                            // Search/Ask → Insert. User can still
+                            // press i/Esc to override.
+                            app.mode = crate::app::Mode::auto_for(p);
                             // Lazy-init pane state on first switch.
                             if p == Pane::Search && app.search.is_none() {
                                 app.search = Some(SearchState::default());
@@ -277,10 +293,19 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
         Pane::Inspect => "Inspect",
         Pane::Jobs => "Jobs",
     };
+    // p9-fb-12: mode label colored — Insert = Success (green), Normal
+    // = Heading (cyan + bold). The literal text is the user-visible
+    // signal; color is reinforcement (a11y: never color-only).
+    let mode_role = match app.mode {
+        crate::app::Mode::Insert => crate::theme::Role::Success,
+        crate::app::Mode::Normal => crate::theme::Role::Heading,
+    };
     let line = Line::from(vec![
         Span::styled("kebab", app.theme.style(crate::theme::Role::Title)),
         Span::raw(" / "),
         Span::raw(pane_label),
+        Span::raw("  "),
+        Span::styled(app.mode.label(), app.theme.style(mode_role)),
     ]);
     f.render_widget(Paragraph::new(line), area);
 }
@@ -307,4 +332,45 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
         Paragraph::new(line).block(Block::default().borders(Borders::TOP)),
         area,
     );
+}
+
+/// p9-fb-12: global mode toggle interception. Returns `true` when
+/// the key was consumed (caller should `continue` and skip pane
+/// dispatch); `false` when the key should fall through to the
+/// active pane's handler.
+///
+/// Rules:
+/// - **`Esc` in Insert mode** → flip to Normal. Consumed (do NOT
+///   forward as a back-out signal to the pane). Library/Inspect
+///   start in Normal so this is a no-op there.
+/// - **`i` in Normal mode on Library / Inspect / Jobs** → flip to
+///   Insert. Consumed. (`i` has no pre-fb-12 meaning on these
+///   panes; on Search/Ask the pane is already Insert by
+///   `Mode::auto_for`, so the global `i` interception would
+///   swallow what should be a typed character. We let `i` fall
+///   through there.)
+/// - Everything else → not consumed.
+///
+/// `pub` so integration tests + future TUI consumers can drive the
+/// intercept paths by constructing KeyEvents directly without
+/// standing up the full run loop.
+pub fn mode_intercept(app: &mut crate::app::App, key: crossterm::event::KeyEvent) -> bool {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    use crate::app::{Mode, Pane};
+
+    // Modifier-bearing keys (Ctrl-Esc etc.) are not the toggle.
+    if !key.modifiers.is_empty() && key.modifiers != KeyModifiers::SHIFT {
+        return false;
+    }
+    match (key.code, app.mode, app.focus) {
+        (KeyCode::Esc, Mode::Insert, _) => {
+            app.mode = Mode::Normal;
+            true
+        }
+        (KeyCode::Char('i'), Mode::Normal, Pane::Library | Pane::Inspect | Pane::Jobs) => {
+            app.mode = Mode::Insert;
+            true
+        }
+        _ => false,
+    }
 }
