@@ -3,7 +3,7 @@ phase: P9
 component: kebab-search + kebab-app
 task_id: p9-fb-19
 title: "Search result cache (in-memory LRU + index_version invalidation)"
-status: in_progress
+status: completed
 depends_on: []
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
