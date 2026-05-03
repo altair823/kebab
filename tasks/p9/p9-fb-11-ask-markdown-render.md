@@ -3,7 +3,7 @@ phase: P9
 component: kebab-tui (ask pane)
 task_id: p9-fb-11
 title: "Ask answer markdown rendering (bold/italic/code/list/table)"
-status: in_progress
+status: completed
 depends_on: [p9-fb-14]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
