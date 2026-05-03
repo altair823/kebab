@@ -469,14 +469,23 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     println!();
                     println!("근거:");
                     for (idx, c) in ans.citations.iter().enumerate() {
-                        let marker = c.marker.as_deref().unwrap_or(&format!("{}", idx + 1)).to_string();
-                        println!(
-                            "  [{}] {}  (score={:.2})",
-                            marker,
-                            c.citation.to_uri(),
-                            ans.retrieval.top_score,
-                        );
+                        let marker = c
+                            .marker
+                            .clone()
+                            .unwrap_or_else(|| format!("{}", idx + 1));
+                        println!("  [{}] {}", marker, c.citation.to_uri());
                     }
+                    // p9-fb-20: retrieval 메타는 citation 별 점수가
+                    // AnswerCitation 에 없는 (`top_score` 만 retrieval-
+                    // 전체 max) 한계상 한 줄로 분리. per-citation score
+                    // 노출은 facade + AnswerCitation 의 미래 확장 후.
+                    println!(
+                        "(retrieval: top_score={:.2}, k={}, used={}/{})",
+                        ans.retrieval.top_score,
+                        ans.retrieval.k,
+                        ans.retrieval.chunks_used,
+                        ans.retrieval.chunks_returned,
+                    );
                 }
             }
             // Refusal → exit 1.
