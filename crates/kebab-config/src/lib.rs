@@ -39,8 +39,13 @@ pub struct Config {
     /// against the config file's location instead of the user's
     /// `cwd` (so `--config /tmp/cfg.toml` + `root = "kb"` reads
     /// `/tmp/kb` no matter where the user invoked from).
+    ///
+    /// `pub(crate)` so external callers can't break the
+    /// "stamped only by from_file/load" invariant by hand. Use
+    /// [`Config::with_source_dir`] for tests / programmatic
+    /// construction that need a specific `source_dir`.
     #[serde(skip)]
-    pub source_dir: Option<PathBuf>,
+    pub(crate) source_dir: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -308,6 +313,21 @@ impl Config {
         }
     }
 
+    /// p9-fb-05: read-only accessor for the source-file directory
+    /// (where `from_file` / `load` stamped it). Returns `None` for
+    /// `Config::defaults()` and other in-memory constructions.
+    pub fn source_dir(&self) -> Option<&Path> {
+        self.source_dir.as_deref()
+    }
+
+    /// p9-fb-05: builder for tests / programmatic callers that need
+    /// to pin `source_dir` without going through `from_file`. Returns
+    /// `self` so it chains: `Config::defaults().with_source_dir(p)`.
+    pub fn with_source_dir(mut self, dir: PathBuf) -> Self {
+        self.source_dir = Some(dir);
+        self
+    }
+
     /// p9-fb-05: resolve `workspace.root` to an absolute `PathBuf`.
     /// Order:
     /// 1. tilde / env / `${VAR}` substitutions per [`expand_path`].
@@ -321,10 +341,21 @@ impl Config {
     /// arise when the user is using defaults AND has a relative
     /// root, which is rare (defaults ship `~/KnowledgeBase`).
     pub fn resolve_workspace_root(&self) -> PathBuf {
-        let base = self
-            .source_dir
-            .clone()
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        let base = self.source_dir.clone().unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|e| {
+                // chroot / deleted-cwd / permission failure: log so a
+                // user with an environment problem doesn't silently
+                // wonder why their workspace.root resolved to "./root"
+                // (which then fails at `create_dir_all` time with a
+                // less obvious error).
+                tracing::warn!(
+                    target: "kebab-config",
+                    error = %e,
+                    "current_dir() failed; falling back to '.' for workspace.root resolution"
+                );
+                PathBuf::from(".")
+            })
+        });
         paths::expand_path_with_base(&self.workspace.root, "", &base)
     }
 
