@@ -371,11 +371,11 @@ pub fn footer_hints(focus: Pane, mode: crate::app::Mode, filter_open: bool) -> &
         // `i` becomes a typed char here (intercept only fires in
         // Normal mode); `o` is the chunk-inspect command exposed
         // via Esc → o (was `i` pre-fb-21).
-        (Pane::Search, Insert, _) => "F1 도움말  타이핑 검색어  Tab 모드전환  Enter 검색  Esc 로 NORMAL 모드 (j/k 이동  o 인스펙트  g 에디터  i 다시 입력)",
+        (Pane::Search, Insert, _) => "F1 도움말  타이핑 검색어  Tab 모드전환  Enter 검색  Esc 로 NORMAL 모드 (j/k 이동  o 인스펙트  g 에디터  i 입력모드)",
         // Search Normal: navigation + commands.
         (Pane::Search, Normal, _) => "F1 도움말  ↑/k 위로  ↓/j 아래로  Tab 모드전환  Enter 검색  o 인스펙트  g 에디터  i 입력모드  Esc 뒤로",
         // Ask Insert: typing the question.
-        (Pane::Ask, Insert, _) => "F1 도움말  타이핑 질문  Enter 전송  Esc 로 NORMAL 모드 (e 상세  j/k 스크롤  i 다시 입력)",
+        (Pane::Ask, Insert, _) => "F1 도움말  타이핑 질문  Enter 전송  Esc 로 NORMAL 모드 (e 상세  j/k 스크롤  i 입력모드)",
         // Ask Normal: scroll + toggle.
         (Pane::Ask, Normal, _) => "F1 도움말  e 상세설명  ↑/k 위로  ↓/j 아래로  Enter 전송  Ctrl-L 새대화  i 입력모드  Esc 뒤로",
         // Inspect Normal (default): scroll + collapse.
