@@ -3,7 +3,7 @@ phase: P9
 component: kebab-tui
 task_id: p9-fb-09
 title: "External editor return — terminal restore + force redraw"
-status: in_progress
+status: completed
 depends_on: []
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
