@@ -3515,6 +3515,7 @@ dependencies = [
  "kebab-store-sqlite",
  "kebab-store-vector",
  "lopdf",
+ "lru",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3525,6 +3526,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "unicode-normalization",
  "wiremock",
 ]
 

@@ -102,6 +102,7 @@ default_k = 10
 hybrid_fusion = "rrf"
 rrf_k = 60
 snippet_chars = 220
+cache_capacity = 256                 # p9-fb-19 — in-process LRU cap; 0 disables, default 256
 
 [rag]
 prompt_template_version = "rag-v1"

@@ -33,9 +33,11 @@
 //! in that mode [`App::embedder`] returns `None` and callers must fall
 //! back to lexical-only search.
 
-use std::sync::{Arc, OnceLock};
+use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{Context, Result, anyhow};
+use lru::LruCache;
 
 use kebab_core::{
     Answer, Embedder, IndexVersion, LanguageModel, Retriever, SearchHit, SearchMode,
@@ -69,6 +71,52 @@ pub struct App {
     /// client per query (cheap, but still measurable on a 50-query
     /// suite).
     llm: OnceLock<Arc<dyn LanguageModel>>,
+    /// p9-fb-19: in-process LRU search-result cache. Capacity comes
+    /// from `config.search.cache_capacity` (default 256, ~1.3 MB
+    /// cap). `None` when capacity is 0 (cache disabled). The
+    /// `corpus_revision` snapshot embedded in `SearchCacheKey`
+    /// invalidates every entry the moment a new ingest commit lands.
+    search_cache: Option<Mutex<LruCache<SearchCacheKey, Vec<SearchHit>>>>,
+}
+
+/// p9-fb-19: cache key for `App::search`. Includes every field that
+/// could change the result set:
+/// - normalized query (NFKC + trim + lowercase)
+/// - mode + k + snippet_chars (caller knobs)
+/// - embedding_version + chunker_version (model identity)
+/// - corpus_revision (monotonic counter that ingest bumps)
+///
+/// Lexical mode has no embedding identity → empty string in that
+/// slot, harmless because the rest of the key still distinguishes
+/// queries.
+///
+/// **Naming note**: spec p9-fb-19 calls the invalidation counter
+/// `index_version`, but the impl renames it to `corpus_revision` to
+/// avoid confusion with the pre-existing `IndexVersion` newtype
+/// (design §9 — embedding-index identity label, a completely
+/// different concept). The `corpus_revision` row in the §9
+/// versioning table documents the new dimension; HOTFIXES entry
+/// tracks the rename.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct SearchCacheKey {
+    pub query_norm: String,
+    pub mode: SearchMode,
+    pub k: u32,
+    pub snippet_chars: u32,
+    pub embedding_version: String,
+    pub chunker_version: String,
+    pub corpus_revision: u64,
+}
+
+impl SearchCacheKey {
+    /// Normalize `query.text` per spec p9-fb-19: NFKC + trim +
+    /// lowercase. Means `"Foo"` / `"FOO"` / `" foo "` collapse to a
+    /// single cache entry — redundant work avoided when the user's
+    /// input differs only in shape.
+    pub fn normalize_query(text: &str) -> String {
+        use unicode_normalization::UnicodeNormalization;
+        text.trim().nfkc().collect::<String>().to_lowercase()
+    }
 }
 
 impl App {
@@ -85,22 +133,78 @@ impl App {
         sqlite
             .run_migrations()
             .context("kb-app: run SqliteStore migrations")?;
+        // p9-fb-19: build the LRU cache from config. Capacity 0 →
+        // `None` (cache disabled — every search hits the retrievers).
+        let search_cache = NonZeroUsize::new(config.search.cache_capacity)
+            .map(|cap| Mutex::new(LruCache::new(cap)));
         Ok(Self {
             config,
             sqlite: Arc::new(sqlite),
             embedder: OnceLock::new(),
             vector: OnceLock::new(),
             llm: OnceLock::new(),
+            search_cache,
         })
     }
 
     /// Run a [`SearchQuery`] through the configured retriever stack and
-    /// return the top-k hits.
+    /// return the top-k hits. p9-fb-19: result is served from the
+    /// in-process LRU cache when the same `(query_norm, mode, k,
+    /// snippet_chars, embedding_version, chunker_version,
+    /// corpus_revision)` tuple was seen before; cache miss falls
+    /// through to [`Self::search_uncached`].
     ///
     /// Reuses any previously-built embedder / vector store on this `App`
     /// — long-lived callers (kb-eval, future TUI) get amortized cost
     /// across calls.
     pub fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>> {
+        let Some(cache) = self.search_cache.as_ref() else {
+            // Cache disabled (capacity = 0) — straight-line.
+            return self.search_uncached(query);
+        };
+        // Build the cache key. embedding_version is empty for lexical
+        // mode (no embedder identity); for vector/hybrid we need the
+        // embedder built (which forces the cold-start cost), but
+        // that's the cost the cache exists to amortize across
+        // *subsequent* identical queries.
+        let key = self.build_cache_key(&query)?;
+        // Lock the cache long enough to lookup; clone the hit out so
+        // we can drop the lock before returning. Mutex poison
+        // recovery: `into_inner()` of a poison error returns the
+        // (still-valid) underlying guard so we can keep using the
+        // cache after a panic in another thread. Log once so the
+        // poison itself is visible — the cache is still functional
+        // but a panic in a previous search is worth knowing about.
+        let mut guard = cache.lock().unwrap_or_else(|e| {
+            tracing::warn!(
+                target: "kebab-app",
+                "search_cache mutex was poisoned; recovering and continuing — \
+                 a previous search-thread panic preceded this call"
+            );
+            e.into_inner()
+        });
+        if let Some(hits) = guard.get(&key) {
+            tracing::debug!(
+                target: "kebab-app",
+                cache = "hit",
+                corpus_revision = key.corpus_revision,
+                "search served from LRU cache"
+            );
+            return Ok(hits.clone());
+        }
+        // Drop the lock before the (potentially slow) retriever call
+        // so other in-flight searches can use the cache concurrently.
+        drop(guard);
+        let hits = self.search_uncached(query)?;
+        let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        guard.put(key, hits.clone());
+        Ok(hits)
+    }
+
+    /// p9-fb-19: bypass the LRU cache and run the search directly.
+    /// Used by `--no-cache` CLI invocations and by `search` itself
+    /// on cache miss. Identical behavior to the pre-fb-19 `search`.
+    pub fn search_uncached(&self, query: SearchQuery) -> Result<Vec<SearchHit>> {
         match query.mode {
             SearchMode::Lexical => {
                 let lex = LexicalRetriever::with_settings(
@@ -255,6 +359,46 @@ impl App {
         );
         let _ = self.llm.set(llm.clone());
         Ok(self.llm.get().cloned().unwrap_or(llm))
+    }
+
+    /// p9-fb-19: build a `SearchCacheKey` for `query`. For lexical
+    /// mode the embedding_version slot is left empty (no embedder
+    /// identity contributes to the result). For vector / hybrid
+    /// modes the embedder is built (cold-start) so the version
+    /// label can be read; that's the cost the cache exists to
+    /// amortize over the next few identical queries.
+    fn build_cache_key(&self, query: &SearchQuery) -> Result<SearchCacheKey> {
+        let embedding_version = match query.mode {
+            SearchMode::Lexical => String::new(),
+            SearchMode::Vector | SearchMode::Hybrid => {
+                let emb = self.embedder()?.ok_or_else(|| {
+                    anyhow!(
+                        "embeddings disabled; vector / hybrid search require an \
+                         embedder — switch to --mode lexical or enable a provider"
+                    )
+                })?;
+                vector_index_version(emb.as_ref()).0
+            }
+        };
+        Ok(SearchCacheKey {
+            query_norm: SearchCacheKey::normalize_query(&query.text),
+            mode: query.mode,
+            k: u32::try_from(query.k).unwrap_or(u32::MAX),
+            snippet_chars: u32::try_from(self.config.search.snippet_chars).unwrap_or(u32::MAX),
+            embedding_version,
+            chunker_version: self.config.chunking.chunker_version.clone(),
+            corpus_revision: self.sqlite.corpus_revision(),
+        })
+    }
+
+    /// p9-fb-19: clear the in-process search cache. Useful for tests
+    /// and for explicit user actions (e.g. a future `kebab cache
+    /// clear` admin command). No-op when the cache is disabled.
+    pub fn clear_search_cache(&self) {
+        if let Some(cache) = self.search_cache.as_ref() {
+            let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+            guard.clear();
+        }
     }
 
     /// Resolve the embedder + vector store, surfacing the user-friendly

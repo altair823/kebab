@@ -1324,6 +1324,7 @@ kebab-cli, kebab-tui, kebab-desktop
 | `embedding_model.version` | 같은 모델 가중치/토크나이저 변경 | bump |
 | `embedding.dimensions` | 차원 변경 | 새 lance 테이블 강제 |
 | `index_version` | retrieval 형상 변화 | bump |
+| `corpus_revision` | ingest commit 발생 (ANY new/updated) | 모노토닉 u64, SQLite `kv['corpus_revision']` 에 영속. p9-fb-19 의 in-process LRU search cache 가 cache-key 에 snapshot 으로 포함 → 다음 lookup 에서 자동 무효화. |
 | `prompt_template_version` | template 변경 | 코드 상수 (`rag-v2`) |
 | DB `schema_version` | DDL 변경 | 마이그레이션 정수 증가 |
 | wire schema (`*.v1`) | 깨는 변경 시 | `*.v2` 신설, v1 additive only |

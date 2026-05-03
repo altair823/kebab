@@ -14,6 +14,26 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-03 — p9-fb-19 spec `index_version` → impl `corpus_revision` rename
+
+**Spec amended**: `tasks/p9/p9-fb-19-search-cache.md` (frozen — original
+contract uses `index_version` for the monotonic counter that ingest
+bumps and `App::search` snapshots into its cache key).
+
+**Why renamed**: design §9 already has an `index_version` identifier
+(`IndexVersion` newtype, used in the §4.2 `index_id` recipe and on
+`SearchHit`) — a *string label* for embedding-index identity. Reusing
+the name for the monotonic u64 counter would collide silently on every
+grep / type-search.
+
+**Live name**: `corpus_revision` (added as a new row in design §9
+versioning table). `SqliteStore::corpus_revision()` /
+`bump_corpus_revision()` methods + `kv['corpus_revision']` row.
+`SearchCacheKey.corpus_revision` field on `App`.
+
+**Behavior unchanged**: every other detail (monotonic, ingest-commit
+bump, in-key snapshot, no-bump on no-op reingest) matches the spec.
+
 ## 2026-05-02 — Config defaults: LLM = gemma4:e4b + workspace.root tilde expansion
 
 **Discovered**: 사용자가 도그푸딩 환경에 `kebab init` 으로 생성된 `~/.config/kebab/config.toml` 검토하던 중.
