@@ -86,12 +86,16 @@ fn render_input_bar(f: &mut Frame, area: Rect, s: &SearchState, theme: &crate::t
         .borders(Borders::ALL);
     let inner = block.inner(area);
     f.render_widget(Paragraph::new(line).block(block), area);
-    // p9-fb-10: place the terminal cursor inside the block border at
-    // `prompt_w + cursor_col` columns from the inner left edge.
-    // The `Hide` call in terminal.rs keeps the caret invisible in
-    // normal use; placing it here is still correct for any consumer
-    // that flips the cursor on (e.g. a future INSERT-mode `Show`).
-    let cursor_x = inner.x + (prompt_w + s.input.cursor_col()) as u16;
+    // p9-fb-10: ratatui calls show_cursor + MoveTo whenever
+    // cursor_position is Some (our case here). When a render fn
+    // omits set_cursor_position (Library/Inspect), ratatui calls
+    // hide_cursor instead. So this single call both positions and
+    // unhides the caret for the Search input column.
+    let raw_x = inner.x + (prompt_w + s.input.cursor_col()) as u16;
+    // Clamp to the right edge of the inner area — a long CJK query
+    // in a narrow terminal could otherwise place the caret beyond
+    // the box; crossterm passes coords through verbatim.
+    let cursor_x = raw_x.min(inner.x + inner.width.saturating_sub(1));
     let cursor_y = inner.y;
     f.set_cursor_position((cursor_x, cursor_y));
 }
@@ -512,8 +516,9 @@ pub(crate) fn fire_search(state: &mut App) -> anyhow::Result<()> {
         s.generation = s.generation.wrapping_add(1);
         s.searching = true;
         s.input_dirty_at = None;
-        s.last_query = Some((s.input.as_str().to_string(), s.mode));
-        (s.input.as_str().to_string(), s.mode, s.generation)
+        let q_text = s.input.as_str().to_string();
+        s.last_query = Some((q_text.clone(), s.mode));
+        (q_text, s.mode, s.generation)
     };
 
     let (tx, rx) = std::sync::mpsc::channel();

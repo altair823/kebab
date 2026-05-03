@@ -92,7 +92,6 @@ fn backspace_removes_last_char() {
     let mut app = fresh_app();
     {
         let s = app.search.as_mut().unwrap();
-        s.input.clear();
         s.input.push_str("abc");
     }
     handle_key_search(
@@ -100,6 +99,7 @@ fn backspace_removes_last_char() {
         KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
     );
     assert_eq!(app.search.as_ref().unwrap().input.as_str(), "ab");
+    assert_eq!(app.search.as_ref().unwrap().input.cursor_col(), 2);
 }
 
 #[test]
@@ -125,7 +125,6 @@ fn enter_with_query_emits_refresh() {
     let mut app = fresh_app();
     {
         let s = app.search.as_mut().unwrap();
-        s.input.clear();
         s.input.push_str("rust");
     }
     let outcome = handle_key_search(
@@ -218,7 +217,6 @@ fn render_search_with_hits_shows_input_and_path() {
     let mut app = fresh_app();
     {
         let s = app.search.as_mut().unwrap();
-        s.input.clear();
         s.input.push_str("rust traits");
         s.mode = SearchMode::Hybrid;
         s.hits = vec![
