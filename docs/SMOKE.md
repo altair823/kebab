@@ -108,6 +108,9 @@ prompt_template_version = "rag-v1"
 score_gate = 0.05                    # RRF 정규화 후 [0, 1] 범위라 default 그대로 OK
 explain_default = false
 max_context_tokens = 6000
+
+[ui]
+theme = "dark"                       # p9-fb-14 — TUI palette ("dark" / "light", default "dark")
 ```
 
 `KEBAB_*` 환경변수로 override 가능 (`KEBAB_MODELS_LLM_MODEL=gemma4:26b kebab …` 등). 자세한 키 목록은 `crates/kebab-config/src/lib.rs` 의 `apply_env` 매치 암.

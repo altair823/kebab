@@ -17,7 +17,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use kebab_core::{RefusalReason, SearchMode};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use std::sync::mpsc;
@@ -44,12 +44,12 @@ pub fn render_ask(f: &mut Frame, area: Rect, state: &App) {
         ])
         .split(area);
 
-    render_input(f, layout[0], s);
-    render_answer(f, layout[1], s);
-    render_bottom(f, layout[2], s);
+    render_input(f, layout[0], s, &state.theme);
+    render_answer(f, layout[1], s, &state.theme);
+    render_bottom(f, layout[2], s, &state.theme);
 }
 
-fn render_input(f: &mut Frame, area: Rect, s: &AskState) {
+fn render_input(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::Theme) {
     let mode_badge = if s.explain { " explain" } else { "" };
     // Distinguish three async states for the operator:
     // - currently streaming (worker still emitting tokens)
@@ -64,10 +64,10 @@ fn render_input(f: &mut Frame, area: Rect, s: &AskState) {
         ""
     };
     let line = Line::from(vec![
-        Span::styled("? ", Style::default().fg(Color::Cyan)),
+        Span::styled("? ", theme.style(crate::theme::Role::Heading)),
         Span::raw(s.input.as_str()),
-        Span::styled(mode_badge, Style::default().fg(Color::Yellow)),
-        Span::styled(busy, Style::default().add_modifier(Modifier::DIM)),
+        Span::styled(mode_badge, theme.style(crate::theme::Role::Warning)),
+        Span::styled(busy, theme.style(crate::theme::Role::Hint)),
     ]);
     let block = Block::default()
         .title("ask (Enter=submit  e=explain  Ctrl-L=new conversation  Esc=back)")
@@ -75,7 +75,7 @@ fn render_input(f: &mut Frame, area: Rect, s: &AskState) {
     f.render_widget(Paragraph::new(line).block(block), area);
 }
 
-fn render_answer(f: &mut Frame, area: Rect, s: &AskState) {
+fn render_answer(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::Theme) {
     let title = if s.turns.is_empty() && !s.streaming {
         "transcript".to_string()
     } else {
@@ -88,14 +88,20 @@ fn render_answer(f: &mut Frame, area: Rect, s: &AskState) {
     // Completed turns first (chronological), then the in-flight
     // turn (if any) at the bottom. The most-recent completed
     // turn's grounded flag (from `last_answer`) styles its A line
-    // — yellow on refusal so the user keeps the P9-3 visual
-    // distinction even inside the transcript.
+    // via the theme's Warning role on refusal so the user keeps
+    // the P9-3 visual distinction even inside the transcript.
     let last_turn_grounded = s.last_answer.as_ref().map(|a| a.grounded);
     let last_turn_idx = s.turns.len().saturating_sub(1);
     let mut lines: Vec<Line> = Vec::new();
     for (idx, turn) in s.turns.iter().enumerate() {
-        let style_override = if idx == last_turn_idx {
-            last_turn_grounded.and_then(|g| if g { None } else { Some(Color::Yellow) })
+        let role_override = if idx == last_turn_idx {
+            last_turn_grounded.and_then(|g| {
+                if g {
+                    None
+                } else {
+                    Some(crate::theme::Role::Warning)
+                }
+            })
         } else {
             None
         };
@@ -105,7 +111,8 @@ fn render_answer(f: &mut Frame, area: Rect, s: &AskState) {
             &turn.question,
             &turn.answer,
             false,
-            style_override,
+            role_override,
+            theme,
         );
         lines.push(Line::raw(""));
     }
@@ -115,13 +122,13 @@ fn render_answer(f: &mut Frame, area: Rect, s: &AskState) {
         let mut a = s.partial.clone();
         a.push('▍');
         let idx = s.turns.len();
-        push_turn_lines(&mut lines, idx, q, &a, true, None);
+        push_turn_lines(&mut lines, idx, q, &a, true, None, theme);
     }
 
     if lines.is_empty() {
         let hint = Paragraph::new(Span::styled(
             "(type a question and press Enter. follow-ups inherit history. Ctrl-L clears the conversation.)",
-            Style::default().add_modifier(Modifier::DIM),
+            theme.style(crate::theme::Role::Hint),
         ))
         .wrap(Wrap { trim: false });
         f.render_widget(hint.block(block), area);
@@ -140,35 +147,36 @@ fn push_turn_lines(
     question: &str,
     answer: &str,
     streaming: bool,
-    answer_color_override: Option<Color>,
+    answer_role_override: Option<crate::theme::Role>,
+    theme: &crate::theme::Theme,
 ) {
     let q_label = format!("Q{}", idx + 1);
     let a_label = format!("A{}", idx + 1);
     out.push(Line::from(vec![
         Span::styled(
             q_label,
-            Style::default()
-                .fg(Color::Cyan)
+            theme
+                .style(crate::theme::Role::Heading)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(": "),
         Span::raw(question.to_string()),
     ]));
-    // p9-fb-16: refusal turn (caller passed Yellow) keeps the P9-3
-    // visual distinction inside the transcript. Streaming turn fades
-    // to dim gray. Default is plain.
-    let answer_style = if let Some(c) = answer_color_override {
-        Style::default().fg(c)
+    // p9-fb-16: refusal turn (caller passed Role::Warning) keeps the
+    // P9-3 visual distinction inside the transcript. Streaming turn
+    // fades to dim hint. Default is plain Body.
+    let answer_style = if let Some(role) = answer_role_override {
+        theme.style(role)
     } else if streaming {
-        Style::default().fg(Color::Gray)
+        theme.style(crate::theme::Role::Hint)
     } else {
-        Style::default()
+        theme.style(crate::theme::Role::Body)
     };
     out.push(Line::from(vec![
         Span::styled(
             a_label,
-            Style::default()
-                .fg(Color::Green)
+            theme
+                .style(crate::theme::Role::Success)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(": "),
@@ -176,21 +184,21 @@ fn push_turn_lines(
     ]));
 }
 
-fn render_bottom(f: &mut Frame, area: Rect, s: &AskState) {
+fn render_bottom(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::Theme) {
     let split = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
         .split(area);
-    render_status(f, split[0], s);
-    render_citations_or_explain(f, split[1], s);
+    render_status(f, split[0], s, theme);
+    render_citations_or_explain(f, split[1], s, theme);
 }
 
-fn render_status(f: &mut Frame, area: Rect, s: &AskState) {
+fn render_status(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::Theme) {
     let block = Block::default().title("status").borders(Borders::ALL);
     let lines: Vec<Line> = match &s.last_answer {
         None => vec![Line::from(Span::styled(
             "(no answer yet)",
-            Style::default().add_modifier(Modifier::DIM),
+            theme.style(crate::theme::Role::Hint),
         ))],
         Some(a) => {
             let grounded = if a.grounded { "✓" } else { "✗" };
@@ -220,17 +228,17 @@ fn render_status(f: &mut Frame, area: Rect, s: &AskState) {
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn render_citations_or_explain(f: &mut Frame, area: Rect, s: &AskState) {
+fn render_citations_or_explain(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::Theme) {
     let title = if s.explain { "explain (per-claim)" } else { "citations" };
     let block = Block::default().title(title).borders(Borders::ALL);
     let lines: Vec<Line> = match &s.last_answer {
         None => vec![Line::from(Span::styled(
             "(submit a question to see citations)",
-            Style::default().add_modifier(Modifier::DIM),
+            theme.style(crate::theme::Role::Hint),
         ))],
         Some(a) if a.citations.is_empty() => vec![Line::from(Span::styled(
             if a.grounded { "(no citations)" } else { "(가까운 후보 없음)" },
-            Style::default().add_modifier(Modifier::DIM),
+            theme.style(crate::theme::Role::Hint),
         ))],
         Some(a) => a
             .citations
@@ -240,7 +248,7 @@ fn render_citations_or_explain(f: &mut Frame, area: Rect, s: &AskState) {
                 Line::from(vec![
                     Span::styled(
                         format!("[{marker}] "),
-                        Style::default().fg(Color::Cyan),
+                        theme.style(crate::theme::Role::CitationMarker),
                     ),
                     Span::raw(c.citation.to_uri()),
                 ])

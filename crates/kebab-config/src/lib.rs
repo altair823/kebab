@@ -27,6 +27,11 @@ pub struct Config {
     /// (they cost a model call per asset).
     #[serde(default = "ImageCfg::defaults")]
     pub image: ImageCfg,
+    /// p9-fb-14: TUI palette + role-style mapping. `#[serde(default)]`
+    /// so configs that predate this section still load (defaults to
+    /// `dark`).
+    #[serde(default = "UiCfg::defaults")]
+    pub ui: UiCfg,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -194,6 +199,27 @@ impl CaptionCfg {
     }
 }
 
+/// p9-fb-14: TUI-only configuration. Currently a single `theme`
+/// selector (`"dark"` / `"light"`); future fields (custom role
+/// overrides, mode-machine cursor shapes, …) extend the same
+/// section so the CLI doesn't grow a per-feature `[ui.*]` table.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UiCfg {
+    /// Palette name. Recognized: `"dark"` (default), `"light"`.
+    /// Unknown values fall back to `"dark"` at construction time
+    /// — config never errors on a typo, the TUI just keeps the
+    /// default theme so the user has a working shell.
+    pub theme: String,
+}
+
+impl UiCfg {
+    pub fn defaults() -> Self {
+        Self {
+            theme: "dark".to_string(),
+        }
+    }
+}
+
 impl Config {
     /// Defaults per design §6.4.
     pub fn defaults() -> Self {
@@ -263,6 +289,7 @@ impl Config {
                 max_context_tokens: 8000,
             },
             image: ImageCfg::defaults(),
+            ui: UiCfg::defaults(),
         }
     }
 

@@ -240,6 +240,12 @@ pub const TERMINAL_LINE_HOLD_SECS: u64 = 3;
 /// add panes by populating their `Option<*State>` slot.
 pub struct App {
     pub config: Config,
+    /// p9-fb-14: resolved palette + role-style mapping. Built once
+    /// in `App::new` from `config.ui.theme` (`"dark"` / `"light"`,
+    /// fallback dark on unknown). Every pane reads its styles via
+    /// `app.theme.style(Role::X)` instead of inlining
+    /// `Style::default().fg(Color::*)`.
+    pub theme: crate::theme::Theme,
     pub focus: Pane,
     pub library: LibraryState,
     /// Populated by p9-2 (None until that crate links in).
@@ -295,8 +301,10 @@ impl App {
     /// run loop calls `library.refresh` on first frame so a slow
     /// `kebab-app::list_docs_with_config` does not block startup.
     pub fn new(config: Config) -> anyhow::Result<Self> {
+        let theme = crate::theme::Theme::from_name(&config.ui.theme);
         Ok(Self {
             config,
+            theme,
             focus: Pane::Library,
             library: LibraryState::new(),
             search: None,
