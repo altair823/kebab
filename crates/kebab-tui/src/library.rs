@@ -13,9 +13,9 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
-use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, KeyOutcome, Pane};
+use crate::input::truncate_to_display_width;
 
 /// Internal state owned by `LibraryState`. Public-by-crate so
 /// `handle_key_library` can mutate it without crossing the
@@ -210,24 +210,6 @@ pub(crate) fn format_doc_row(d: &DocSummary, title_w: usize) -> String {
         chunk_count = d.chunk_count,
         title_w = title_w,
     )
-}
-
-fn truncate_to_display_width(s: &str, max_cols: usize) -> String {
-    if s.width() <= max_cols {
-        return s.to_string();
-    }
-    let mut out = String::new();
-    let mut cols = 0;
-    for ch in s.chars() {
-        let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
-        if cols + w > max_cols.saturating_sub(1) {
-            out.push('…');
-            return out;
-        }
-        cols += w;
-        out.push(ch);
-    }
-    out
 }
 
 /// Library pane key dispatch. Mutates `App.library.inner`; never
