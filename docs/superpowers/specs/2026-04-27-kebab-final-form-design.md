@@ -1045,6 +1045,38 @@ CREATE TABLE eval_query_results (
 );
 ```
 
+### 5.7a Chat sessions / turns (p9-fb-17)
+
+multi-turn 대화 영속화 — `kebab ask --session foo` 의 backing store.
+
+```sql
+CREATE TABLE chat_sessions (
+  session_id           TEXT    PRIMARY KEY NOT NULL,
+  created_at           INTEGER NOT NULL,
+  updated_at           INTEGER NOT NULL,
+  title                TEXT,                       -- 첫 question 의 N 자
+  config_snapshot_json TEXT    NOT NULL            -- prompt_template_version, llm.model 등
+) STRICT;
+
+CREATE TABLE chat_turns (
+  turn_id        TEXT    PRIMARY KEY NOT NULL,    -- blake3(session_id || turn_index)
+  session_id     TEXT    NOT NULL REFERENCES chat_sessions(session_id) ON DELETE CASCADE,
+  turn_index     INTEGER NOT NULL,                -- monotonic per session, 0-based
+  question       TEXT    NOT NULL,
+  answer         TEXT    NOT NULL,
+  citations_json TEXT    NOT NULL,                -- Vec<Citation> JSON
+  created_at     INTEGER NOT NULL,
+  UNIQUE(session_id, turn_index)
+) STRICT;
+
+CREATE INDEX idx_chat_turns_session ON chat_turns(session_id, turn_index);
+```
+
+`kebab_core::ChatSessionRepo` trait 가 6 메서드 (create_session,
+get_session, list_sessions, delete_session, append_turn, list_turns).
+`kebab-store-sqlite::SqliteStore` impl 가 V005 migration 위에서 동작.
+`kebab reset --data-only` (p9-fb-06) 가 양 테이블 wipe.
+
 ### 5.8 트랜잭션 정책
 
 - ingest 1 doc = 1 트랜잭션.

@@ -62,9 +62,9 @@ pub use jobs::{JobFilter, JobId, JobKind, JobRow, JobStatus};
 pub use vector::{VectorHit, VectorRecord};
 pub use errors::CoreError;
 pub use traits::{
-    ChunkPolicy, Chunker, DocumentStore, Embedder, EmbeddingInput,
-    EmbeddingKind, ExtractConfig, ExtractContext, Extractor, FinishReason,
-    GenerateRequest, JobRepo, LanguageModel, Retriever, SourceConnector,
+    ChatSessionRepo, ChatSessionRow, ChatTurnRow, ChunkPolicy, Chunker, DocumentStore,
+    Embedder, EmbeddingInput, EmbeddingKind, ExtractConfig, ExtractContext, Extractor,
+    FinishReason, GenerateRequest, JobRepo, LanguageModel, Retriever, SourceConnector,
     SourceScope, TokenChunk, VectorStore,
 };
 pub use normalize::{nfc, to_posix};
