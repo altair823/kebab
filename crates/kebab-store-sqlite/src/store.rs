@@ -309,6 +309,63 @@ fn temp_path_for(dest: &Path) -> PathBuf {
 }
 
 impl SqliteStore {
+    /// p9-fb-19: read the persisted `corpus_revision` from the `kv`
+    /// table. Returns `0` if the row is missing (not migrated yet) or
+    /// unparseable — defensive: callers use the value as a cache-key
+    /// salt, never as an authority.
+    pub fn corpus_revision(&self) -> u64 {
+        let conn = self.read_conn();
+        let row: rusqlite::Result<String> = conn.query_row(
+            "SELECT value FROM kv WHERE key = 'corpus_revision'",
+            [],
+            |r| r.get(0),
+        );
+        match row {
+            Ok(s) => s.parse().unwrap_or(0),
+            Err(rusqlite::Error::QueryReturnedNoRows) => 0,
+            Err(e) => {
+                tracing::warn!(
+                    target: "kebab-store-sqlite",
+                    error = %e,
+                    "kv['corpus_revision'] read failed; defaulting to 0"
+                );
+                0
+            }
+        }
+    }
+
+    /// p9-fb-19: monotonically bump `corpus_revision` by one and
+    /// return the new value. Called by every `kebab-app::ingest`
+    /// path after a successful commit (any `new` / `updated`).
+    /// Atomic via SQLite's `UPDATE ... SET value = CAST(value AS
+    /// INTEGER) + 1` — no read-modify-write race.
+    pub fn bump_corpus_revision(&self) -> Result<u64> {
+        let conn = self.lock_conn();
+        // INSERT-OR-IGNORE first to handle a fresh DB where the
+        // V004 seed hasn't run yet (paranoia — the migration always
+        // seeds, but SqliteStore's contract is "one method works
+        // even if the constructor was unusual"). Then bump.
+        conn.execute(
+            "INSERT OR IGNORE INTO kv (key, value) VALUES ('corpus_revision', '0')",
+            [],
+        )
+        .map_err(StoreError::from)?;
+        conn.execute(
+            "UPDATE kv SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) \
+             WHERE key = 'corpus_revision'",
+            [],
+        )
+        .map_err(StoreError::from)?;
+        let new_val: String = conn
+            .query_row(
+                "SELECT value FROM kv WHERE key = 'corpus_revision'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(StoreError::from)?;
+        Ok(new_val.parse().unwrap_or(0))
+    }
+
     /// SELECT every `chunks.chunk_id` whose owning document points at a
     /// stale `asset_id` for `workspace_path` (i.e. the file's bytes have
     /// changed since the last ingest, producing a brand-new

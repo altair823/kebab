@@ -42,6 +42,13 @@ tracing-subscriber   = { version = "0.3", features = ["env-filter", "fmt", "json
 tracing-appender     = "0.2"
 toml                 = "0.8"
 dirs                 = "5"
+# p9-fb-19: in-process LRU cache for `App::search`. Capacity from
+# `config.search.cache_capacity` (default 256, ~1.3 MB cap).
+lru                  = { workspace = true }
+# p9-fb-19: NFKC-normalize cache-key queries so `"Foo"` / `"FOO"` /
+# `" foo "` collapse to one entry. Same crate kebab-normalize +
+# kebab-core already use, no version drift.
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 rusqlite             = { workspace = true }

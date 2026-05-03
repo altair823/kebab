@@ -79,6 +79,16 @@ enum Cmd {
 
         #[arg(long)]
         explain: bool,
+
+        /// p9-fb-19: bypass the in-process LRU search cache for
+        /// this invocation. Forces a fresh retriever run even when
+        /// the same query was just served from cache. Useful when
+        /// debugging retriever behavior — and a no-op for the CLI
+        /// (each invocation is a new process anyway, so the cache
+        /// starts empty), but the flag stays for parity with the
+        /// future TUI cache-aware search and for explicit intent.
+        #[arg(long)]
+        no_cache: bool,
     },
 
     /// Retrieval-augmented question answering.
@@ -392,6 +402,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             k,
             mode,
             explain: _,
+            no_cache,
         } => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
             let q = kebab_core::SearchQuery {
@@ -400,7 +411,14 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 k: *k,
                 filters: kebab_core::SearchFilters::default(),
             };
-            let hits = kebab_app::search_with_config(cfg, q)?;
+            // p9-fb-19: --no-cache routes to the uncached facade.
+            // Both calls go through the same App; only the cache
+            // lookup/insert is skipped.
+            let hits = if *no_cache {
+                kebab_app::search_uncached_with_config(cfg, q)?
+            } else {
+                kebab_app::search_with_config(cfg, q)?
+            };
             if cli.json {
                 println!("{}", serde_json::to_string(&wire::wire_search_hits(&hits))?);
             } else {

@@ -600,6 +600,26 @@ pub fn ingest_with_config_cancellable(
     };
     crate::ingest_progress::emit(progress, terminal_event);
 
+    // p9-fb-19: bump the persistent corpus_revision counter when a
+    // commit landed (any new / updated). This invalidates every
+    // entry in any in-process LRU search cache (in this process or
+    // a sibling) on the next lookup. No-op when nothing changed
+    // (skipped-only run) — the cache stays valid.
+    if new_count > 0 || updated_count > 0 {
+        match app.sqlite.bump_corpus_revision() {
+            Ok(rev) => tracing::debug!(
+                target: "kebab-app",
+                corpus_revision = rev,
+                "bumped corpus_revision after ingest commit"
+            ),
+            Err(e) => tracing::warn!(
+                target: "kebab-app",
+                error = %e,
+                "bump_corpus_revision failed; cache may serve stale results until process restart"
+            ),
+        }
+    }
+
     Ok(IngestReport {
         scope,
         scanned: scanned_count,
@@ -1441,6 +1461,17 @@ pub fn search_with_config(
     query: SearchQuery,
 ) -> anyhow::Result<Vec<SearchHit>> {
     App::open_with_config(config)?.search(query)
+}
+
+/// p9-fb-19: bypass the LRU search cache for one call. Same shape as
+/// [`search_with_config`] but routes through [`App::search_uncached`]
+/// — used by `kebab search --no-cache`.
+#[doc(hidden)]
+pub fn search_uncached_with_config(
+    config: kebab_config::Config,
+    query: SearchQuery,
+) -> anyhow::Result<Vec<SearchHit>> {
+    App::open_with_config(config)?.search_uncached(query)
 }
 
 // ── ask ──────────────────────────────────────────────────────────────────

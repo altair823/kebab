@@ -113,6 +113,16 @@ pub struct SearchCfg {
     pub hybrid_fusion: String,
     pub rrf_k: u32,
     pub snippet_chars: usize,
+    /// p9-fb-19: in-memory LRU cache capacity for `App::search`.
+    /// One entry ≈ 5 KB → default 256 caps memory at ~1.3 MB. Set
+    /// to `0` to disable the cache entirely. Stale entries
+    /// (corpus_revision mismatch) are evicted on next access.
+    #[serde(default = "default_cache_capacity")]
+    pub cache_capacity: usize,
+}
+
+fn default_cache_capacity() -> usize {
+    256
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -295,6 +305,7 @@ impl Config {
                 hybrid_fusion: "rrf".to_string(),
                 rrf_k: 60,
                 snippet_chars: 220,
+                cache_capacity: default_cache_capacity(),
             },
             rag: RagCfg {
                 prompt_template_version: "rag-v1".to_string(),
