@@ -69,12 +69,43 @@ pub struct SearchState {
     /// Snapshot of `(input, mode)` at the moment the last search
     /// fired. The debounce skips re-searches when nothing changed.
     pub last_query: Option<(String, kebab_core::SearchMode)>,
-    /// True while a synchronous search call is in flight. The run
-    /// loop uses this to overlay a "searching…" hint.
+    /// True while a search worker is in flight. The run loop uses
+    /// this to overlay a "searching…" hint and to dedupe rapid
+    /// keystroke spawns.
     pub searching: bool,
     /// Cached preview text for the currently-selected hit (lazily
     /// fetched via `kebab-app::inspect_chunk_with_config`).
     pub preview: Option<String>,
+    /// p9-fb-08: monotonic counter incremented every time
+    /// `fire_search` spawns a worker. Each worker carries its
+    /// generation back via the channel; if it doesn't match the
+    /// current value at receive time, the result is silently dropped
+    /// (the user kept typing and a newer query is already in
+    /// flight). Wraps at u64::MAX which is unreachable in practice.
+    pub generation: u64,
+    /// p9-fb-08: receiver for the in-flight worker's
+    /// `SearchWorkerMessage::Done`. Drained every tick by
+    /// `crate::search::poll_worker`. `None` between runs.
+    ///
+    /// Workers are fire-and-forget (no join) — search is a pure
+    /// read with no cleanup obligation, and dropping the receiver
+    /// makes the worker's `tx.send` no-op (worker exits after).
+    /// We don't store the `JoinHandle` because nothing observes it
+    /// (cf. `AskState.thread` which is `take().join()`'d on
+    /// `Ctrl-L`); the previous draft kept one for "symmetry" but
+    /// it was dead code.
+    pub worker_rx: Option<std::sync::mpsc::Receiver<SearchWorkerMessage>>,
+}
+
+/// p9-fb-08: payload posted by the search worker on completion.
+/// `generation` matches the value of `SearchState.generation` at the
+/// moment the worker was spawned; the run loop drops the message if
+/// `generation` no longer matches (a newer query is in flight).
+pub enum SearchWorkerMessage {
+    Done {
+        generation: u64,
+        result: anyhow::Result<Vec<kebab_core::SearchHit>>,
+    },
 }
 
 impl Default for SearchState {
@@ -88,6 +119,8 @@ impl Default for SearchState {
             last_query: None,
             searching: false,
             preview: None,
+            generation: 0,
+            worker_rx: None,
         }
     }
 }
