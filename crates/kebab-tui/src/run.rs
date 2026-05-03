@@ -356,29 +356,34 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
 ///   the way back out (`Esc`/`q`).
 pub fn footer_hints(focus: Pane, mode: crate::app::Mode, filter_open: bool) -> &'static str {
     use crate::app::Mode::*;
+    // p9-fb-21: every hint starts with `F1 도움말` so the cheatsheet
+    // is always one keystroke away — dogfooding feedback was that
+    // the F1 binding itself was undiscoverable.
     match (focus, mode, filter_open) {
         // Library filter overlay — same on both modes (overlay
         // captures every key, mode label irrelevant).
-        (Pane::Library, _, true) => "Tab 필드전환  Enter 적용  Esc 취소",
+        (Pane::Library, _, true) => "F1 도움말  Tab 필드전환  Enter 적용  Esc 취소",
         // Library Normal: full navigation surface.
-        (Pane::Library, Normal, false) => "↑/k 위로  ↓/j 아래로  gg 맨위  G 맨아래  f 필터  / 검색  ? 질문  Enter 자세히  r 인덱싱  q 종료",
-        // Library Insert: degenerate — nothing types in Library, so
-        // tell the user how to get back out.
-        (Pane::Library, Insert, false) => "Esc 로 NORMAL 모드",
+        (Pane::Library, Normal, false) => "F1 도움말  ↑/k 위로  ↓/j 아래로  gg 맨위  G 맨아래  f 필터  / 검색  ? 질문  Enter 자세히  r 인덱싱  q 종료",
+        // Library Insert: degenerate — nothing types in Library.
+        (Pane::Library, Insert, false) => "F1 도움말  Esc 로 NORMAL 모드",
         // Search Insert: typing the query is the dominant action.
-        (Pane::Search, Insert, _) => "타이핑 검색어  Tab 모드전환  Enter 검색  Esc 로 NORMAL 모드 (j/k 이동  i 인스펙트  g 에디터)",
+        // `i` becomes a typed char here (intercept only fires in
+        // Normal mode); `o` is the chunk-inspect command exposed
+        // via Esc → o (was `i` pre-fb-21).
+        (Pane::Search, Insert, _) => "F1 도움말  타이핑 검색어  Tab 모드전환  Enter 검색  Esc 로 NORMAL 모드 (j/k 이동  o 인스펙트  g 에디터  i 다시 입력)",
         // Search Normal: navigation + commands.
-        (Pane::Search, Normal, _) => "↑/k 위로  ↓/j 아래로  Tab 모드전환  Enter 검색  i 인스펙트  g 에디터  Esc 뒤로",
+        (Pane::Search, Normal, _) => "F1 도움말  ↑/k 위로  ↓/j 아래로  Tab 모드전환  Enter 검색  o 인스펙트  g 에디터  i 입력모드  Esc 뒤로",
         // Ask Insert: typing the question.
-        (Pane::Ask, Insert, _) => "타이핑 질문  Enter 전송  Esc 로 NORMAL 모드 (e 상세  j/k 스크롤)",
+        (Pane::Ask, Insert, _) => "F1 도움말  타이핑 질문  Enter 전송  Esc 로 NORMAL 모드 (e 상세  j/k 스크롤  i 다시 입력)",
         // Ask Normal: scroll + toggle.
-        (Pane::Ask, Normal, _) => "e 상세설명  ↑/k 위로  ↓/j 아래로  Enter 전송  Ctrl-L 새대화  Esc 뒤로",
+        (Pane::Ask, Normal, _) => "F1 도움말  e 상세설명  ↑/k 위로  ↓/j 아래로  Enter 전송  Ctrl-L 새대화  i 입력모드  Esc 뒤로",
         // Inspect Normal (default): scroll + collapse.
-        (Pane::Inspect, Normal, _) => "↑/k 위로  ↓/j 아래로  PgUp/PgDn 페이지  c 섹션접기  Esc/q 뒤로",
+        (Pane::Inspect, Normal, _) => "F1 도움말  ↑/k 위로  ↓/j 아래로  PgUp/PgDn 페이지  c 섹션접기  Esc/q 뒤로",
         // Inspect Insert: degenerate.
-        (Pane::Inspect, Insert, _) => "Esc 로 NORMAL 모드",
+        (Pane::Inspect, Insert, _) => "F1 도움말  Esc 로 NORMAL 모드",
         // Jobs pane: placeholder.
-        (Pane::Jobs, _, _) => "Jobs pane 미구현 — q 로 복귀",
+        (Pane::Jobs, _, _) => "F1 도움말  Jobs pane 미구현 — q 로 복귀",
     }
 }
 
@@ -392,11 +397,15 @@ pub fn footer_hints(focus: Pane, mode: crate::app::Mode, filter_open: bool) -> &
 ///   forward as a back-out signal to the pane). Library/Inspect
 ///   start in Normal so this is a no-op there.
 /// - **`i` in Normal mode on Library / Inspect / Jobs** → flip to
-///   Insert. Consumed. (`i` has no pre-fb-12 meaning on these
-///   panes; on Search/Ask the pane is already Insert by
-///   `Mode::auto_for`, so the global `i` interception would
-///   swallow what should be a typed character. We let `i` fall
-///   through there.)
+///   Insert. Consumed.
+///   - Library/Inspect/Jobs: `i` has no pre-fb-12 meaning, so the
+///     intercept is unambiguous.
+///   - Search/Ask (p9-fb-21): once the user has pressed `Esc` to
+///     leave the auto-Insert state, they need a way back. `i`
+///     intercepts here too — the dogfooding feedback was that the
+///     Insert→Normal→? loop dead-ended. Search's pre-fb-21 `i` =
+///     chunk inspect was rebound to `o` (vim "open") to free `i`
+///     for the universal toggle.
 /// - Everything else → not consumed.
 ///
 /// `pub` so integration tests + future TUI consumers can drive the
@@ -404,7 +413,7 @@ pub fn footer_hints(focus: Pane, mode: crate::app::Mode, filter_open: bool) -> &
 /// standing up the full run loop.
 pub fn mode_intercept(app: &mut crate::app::App, key: crossterm::event::KeyEvent) -> bool {
     use crossterm::event::{KeyCode, KeyModifiers};
-    use crate::app::{Mode, Pane};
+    use crate::app::Mode;
 
     // Modifier-bearing keys (Ctrl-Esc etc.) are not the toggle.
     if !key.modifiers.is_empty() && key.modifiers != KeyModifiers::SHIFT {
@@ -415,7 +424,12 @@ pub fn mode_intercept(app: &mut crate::app::App, key: crossterm::event::KeyEvent
             app.mode = Mode::Normal;
             true
         }
-        (KeyCode::Char('i'), Mode::Normal, Pane::Library | Pane::Inspect | Pane::Jobs) => {
+        // p9-fb-21: `i` intercepts on every pane in Normal mode.
+        // Pre-fb-21 this was Library/Inspect/Jobs only; Search/Ask
+        // had no Normal→Insert key, so once the user pressed Esc
+        // they were stuck. Search's `i` (chunk inspect) was
+        // rebound to `o` to free this slot.
+        (KeyCode::Char('i'), Mode::Normal, _) => {
             app.mode = Mode::Insert;
             true
         }
@@ -482,7 +496,7 @@ mod footer_hints_tests {
     #[test]
     fn library_filter_overlay_hint_lists_overlay_keys_only() {
         let h = footer_hints(Pane::Library, Mode::Normal, true);
-        assert_eq!(h, "Tab 필드전환  Enter 적용  Esc 취소");
+        assert_eq!(h, "F1 도움말  Tab 필드전환  Enter 적용  Esc 취소");
     }
 
     /// p9-fb-13 follow-up: Insert mode reminds user how to leave —
@@ -505,7 +519,11 @@ mod footer_hints_tests {
     #[test]
     fn search_insert_hint_leads_with_typing_verb() {
         let h = footer_hints(Pane::Search, Mode::Insert, false);
-        assert!(h.starts_with("타이핑 검색어"), "should lead with 타이핑: {h}");
+        // p9-fb-21: every hint now leads with `F1 도움말`. The
+        // "typing verb" (`타이핑 검색어`) follows immediately so it's
+        // still the dominant action visually.
+        assert!(h.starts_with("F1 도움말"), "should lead with F1 도움말: {h}");
+        assert!(h.contains("타이핑 검색어"), "expected 타이핑 검색어: {h}");
         assert!(h.contains("Tab 모드전환"), "expected Tab 모드전환: {h}");
         assert!(h.contains("Enter 검색"), "expected Enter 검색: {h}");
     }
@@ -514,7 +532,9 @@ mod footer_hints_tests {
     #[test]
     fn ask_insert_hint_leads_with_typing_verb() {
         let h = footer_hints(Pane::Ask, Mode::Insert, false);
-        assert!(h.starts_with("타이핑 질문"), "should lead with 타이핑: {h}");
+        // p9-fb-21: F1 prefix now leads; typing verb is second.
+        assert!(h.starts_with("F1 도움말"), "should lead with F1 도움말: {h}");
+        assert!(h.contains("타이핑 질문"), "expected 타이핑 질문: {h}");
         assert!(h.contains("Enter 전송"), "expected Enter 전송: {h}");
     }
 
@@ -529,15 +549,48 @@ mod footer_hints_tests {
         assert!(h.contains("뒤로"), "expected 뒤로 verb: {h}");
     }
 
-    /// p9-fb-13 follow-up: Search Normal hint enables j/k/i/g as
-    /// commands (no parens — they're first-class in Normal mode).
+    /// p9-fb-21: Search Normal hint enables o/g as commands (i is
+    /// now the universal Insert toggle, not chunk-inspect).
     #[test]
     fn search_normal_hint_lists_commands_directly() {
         let h = footer_hints(Pane::Search, Mode::Normal, false);
         assert!(h.contains("위로"), "expected 위로 verb: {h}");
         assert!(h.contains("Tab 모드전환"), "expected Tab 모드전환: {h}");
-        assert!(h.contains("i 인스펙트"), "expected i 인스펙트: {h}");
+        assert!(h.contains("o 인스펙트"), "expected o 인스펙트: {h}");
         assert!(h.contains("g 에디터"), "expected g 에디터: {h}");
+        assert!(h.contains("i 입력모드"), "expected i 입력모드: {h}");
+    }
+
+    /// p9-fb-21: every footer hint starts with `F1 도움말` so the
+    /// cheatsheet binding is always discoverable. Pre-fb-21 it was
+    /// invisible until the user already knew about it.
+    #[test]
+    fn every_hint_starts_with_f1_help_prefix() {
+        for pane in [Pane::Library, Pane::Search, Pane::Ask, Pane::Inspect, Pane::Jobs] {
+            for mode in [Mode::Normal, Mode::Insert] {
+                for filter_open in [false, true] {
+                    let h = footer_hints(pane, mode, filter_open);
+                    assert!(
+                        h.starts_with("F1 도움말"),
+                        "{pane:?}/{mode:?}/filter={filter_open} missing F1 prefix: {h}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// p9-fb-21: Search/Ask Normal hints advertise `i` as the
+    /// Insert toggle. Pre-fb-21 these panes had no Normal→Insert
+    /// key documented and the user was dead-ended.
+    #[test]
+    fn search_ask_normal_hint_advertises_i_insert_toggle() {
+        for pane in [Pane::Search, Pane::Ask] {
+            let h = footer_hints(pane, Mode::Normal, false);
+            assert!(
+                h.contains("i 입력모드"),
+                "{pane:?} Normal hint missing i 입력모드: {h}"
+            );
+        }
     }
 
     /// p9-fb-13 follow-up: every (pane, mode, filter_open) tuple

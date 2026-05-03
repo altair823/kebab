@@ -197,10 +197,15 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
     // pre-fb-12 SHIFT/none heuristic).
     let is_normal = state.mode == crate::app::Mode::Normal;
 
+    // p9-fb-21: chunk-inspect rebound from `i` to `o` (vim "open").
+    // The `i` key is now the universal Normal→Insert toggle (handled
+    // in `mode_intercept`), so it cannot also mean "inspect chunk"
+    // here. `o` is unused elsewhere on this pane and matches the vim
+    // mnemonic "open" — we're opening the selected chunk in Inspect.
     if is_normal
         && matches!(
             (key.code, key.modifiers),
-            (KeyCode::Char('i'), KeyModifiers::NONE)
+            (KeyCode::Char('o'), KeyModifiers::NONE)
         )
     {
         let chunk_id = {
