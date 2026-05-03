@@ -346,7 +346,9 @@ fn flatten_inline(i: &Inline, out: &mut String) {
 /// 3. First `Heading` block at level 2 with non-blank text.
 /// 4. First `Paragraph` block (NOT `Quote`, `List`, `Code`, `Table`,
 ///    `ImageRef`, `AudioRef`) with non-blank text — first 80 chars.
-/// 5. `file_stem` (filename minus extension, kebab-case preserved).
+/// 5. `file_stem` (filename minus extension — returned verbatim, no
+///    case transformation; whatever the on-disk filename is becomes
+///    the title text).
 ///
 /// The chosen string is NFC-normalized so the on-wire title is
 /// canonically equivalent to the source content. Never returns an
@@ -367,9 +369,12 @@ pub fn derive_title(frontmatter_title: &str, blocks: &[Block], file_stem: &str) 
     if let Some(excerpt) = first_paragraph_excerpt(blocks, 80) {
         return excerpt;
     }
+    // `file_stem` originates from `WorkspacePath`, which `to_posix`
+    // already NFC-normalizes (§6.6). No second NFC pass needed — pass
+    // through verbatim after a defensive `trim`.
     let stem = file_stem.trim();
     if !stem.is_empty() {
-        return stem.nfc().collect();
+        return stem.to_string();
     }
     "untitled".to_string()
 }
@@ -887,8 +892,8 @@ mod tests {
 
     /// M7 (revised by p9-fb-07) — `metadata.user["title"] = ""` lifts
     /// as an empty string but the new derive_title fallback chain
-    /// promotes the file stem so the resulting title is non-empty. The
-    /// spec forbids empty `CanonicalDocument.title` (p9-fb-07 line 37).
+    /// promotes the file stem so the resulting title is non-empty.
+    /// spec p9-fb-07: "빈 문자열 반환 금지".
     #[test]
     fn title_empty_string_in_user_map_falls_back_to_file_stem() {
         let asset = fixture_asset();
@@ -906,6 +911,7 @@ mod tests {
     /// M7 (revised by p9-fb-07) — `metadata.user["title"] = 42` is
     /// non-stringy and silently drops at the lift stage; derive_title
     /// then falls back through the chain to the file stem.
+    /// spec p9-fb-07: "빈 문자열 반환 금지".
     #[test]
     fn title_non_string_in_user_map_falls_back_to_file_stem() {
         let asset = fixture_asset();
