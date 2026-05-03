@@ -3,7 +3,7 @@ phase: P9
 component: kebab-config + kebab-cli (init) + README
 task_id: p9-fb-05
 title: "workspace.root path policy (relative? + init placeholder + README)"
-status: in_progress
+status: completed
 depends_on: []
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
