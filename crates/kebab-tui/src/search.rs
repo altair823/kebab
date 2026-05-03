@@ -289,29 +289,27 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
             KeyOutcome::Continue
         }
         // p9-fb-12 follow-up: Char dispatch is mode-gated. Normal
-        // mode → j/k navigate, other Char fall through (no typing).
-        // Insert mode → every non-chord Char is typed.
-        (KeyCode::Char('j'), KeyModifiers::NONE) if !is_normal => {
-            // 'j' in Insert types literally; falls through to the
-            // catch-all Insert branch below. (This guard short-
-            // circuits so the navigation arm doesn't fire.)
-            s.input.push('j');
-            s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
-            KeyOutcome::Continue
-        }
-        (KeyCode::Char('k'), KeyModifiers::NONE) if !is_normal => {
-            s.input.push('k');
-            s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
-            KeyOutcome::Continue
-        }
+        // mode → j/k navigate; Insert mode → typed into input.
+        // Single arm per key, body branches on mode (clearer than
+        // duplicate-arm + guard).
         (KeyCode::Char('j'), KeyModifiers::NONE) => {
-            move_selection(s, 1);
-            s.preview = None;
+            if is_normal {
+                move_selection(s, 1);
+                s.preview = None;
+            } else {
+                s.input.push('j');
+                s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
+            }
             KeyOutcome::Continue
         }
         (KeyCode::Char('k'), KeyModifiers::NONE) => {
-            move_selection(s, -1);
-            s.preview = None;
+            if is_normal {
+                move_selection(s, -1);
+                s.preview = None;
+            } else {
+                s.input.push('k');
+                s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
+            }
             KeyOutcome::Continue
         }
         (KeyCode::Char(c), m)
@@ -340,10 +338,6 @@ fn cycle_mode(m: SearchMode) -> SearchMode {
         SearchMode::Hybrid => SearchMode::Lexical,
     }
 }
-
-// p9-fb-12 follow-up: `is_typing_mod` removed. Mode field on `App`
-// is now authoritative — the dispatch above gates Char handling on
-// `state.mode`, not on modifier-vs-input heuristics.
 
 fn move_selection(s: &mut SearchState, delta: i32) {
     if s.hits.is_empty() {
