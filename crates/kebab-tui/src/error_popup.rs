@@ -4,9 +4,11 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+
+use crate::theme::{Role, Theme};
 
 /// Captured snapshot of an `anyhow::Error` for rendering. We do NOT
 /// store the `anyhow::Error` itself (it is `!Sync` in pre-1.0.99
@@ -38,16 +40,16 @@ impl ErrorOverlay {
 
 /// Render the popup centred in `area`. Caller is responsible for
 /// clearing the underlying region (`Clear` widget); we do that here.
-pub fn render_error_overlay(f: &mut Frame, area: Rect, overlay: &ErrorOverlay) {
+/// `theme` is threaded so the overlay's red borders / dim hint use
+/// the same role-style mapping as every other pane (p9-fb-14).
+pub fn render_error_overlay(f: &mut Frame, area: Rect, overlay: &ErrorOverlay, theme: &Theme) {
     let popup_area = centered_rect(area, 60, 50);
     f.render_widget(Clear, popup_area);
 
     let mut lines: Vec<Line> = Vec::with_capacity(overlay.chain.len() + 2);
     lines.push(Line::from(Span::styled(
         format!("{}: {}", overlay.title, overlay.chain.first().map_or("(unknown)", String::as_str)),
-        Style::default()
-            .fg(Color::Red)
-            .add_modifier(Modifier::BOLD),
+        theme.style(Role::Error).add_modifier(Modifier::BOLD),
     )));
     for cause in overlay.chain.iter().skip(1) {
         lines.push(Line::from(format!("  caused by: {cause}")));
@@ -55,13 +57,13 @@ pub fn render_error_overlay(f: &mut Frame, area: Rect, overlay: &ErrorOverlay) {
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "press any key to dismiss",
-        Style::default().add_modifier(Modifier::DIM),
+        theme.style(Role::Hint),
     )));
 
     let block = Block::default()
         .title("error")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Red));
+        .border_style(theme.style(Role::Error));
     let para = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
     f.render_widget(para, popup_area);
 }

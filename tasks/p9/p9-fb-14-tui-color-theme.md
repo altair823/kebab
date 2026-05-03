@@ -3,7 +3,7 @@ phase: P9
 component: kebab-tui
 task_id: p9-fb-14
 title: "TUI color theme module (role-based + dark/light toggle)"
-status: planned
+status: in_progress
 depends_on: []
 unblocks: [p9-fb-11]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

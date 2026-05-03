@@ -11,7 +11,6 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use kebab_core::{DocFilter, DocSummary, Lang};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use unicode_width::UnicodeWidthStr;
@@ -111,7 +110,7 @@ pub fn render_library(f: &mut Frame, area: Rect, state: &App) {
         .split(area);
 
     if let Some(edit) = &state.library.inner.filter_edit {
-        render_filter_overlay(f, layout[0], edit);
+        render_filter_overlay(f, layout[0], edit, &state.theme);
     }
     render_doc_list(f, layout[1], state);
 }
@@ -124,7 +123,7 @@ fn filter_overlay_height(state: &App) -> u16 {
     }
 }
 
-fn render_filter_overlay(f: &mut Frame, area: Rect, edit: &FilterEdit) {
+fn render_filter_overlay(f: &mut Frame, area: Rect, edit: &FilterEdit, theme: &crate::theme::Theme) {
     let block = Block::default()
         .title("Filter (Tab=cycle field, Enter=apply, Esc=cancel)")
         .borders(Borders::ALL);
@@ -132,18 +131,23 @@ fn render_filter_overlay(f: &mut Frame, area: Rect, edit: &FilterEdit) {
     f.render_widget(block, area);
 
     let lines = vec![
-        line_with_focus("tags_any (csv): ", &edit.tags_buf, edit.field == FilterField::Tags),
-        line_with_focus("lang:           ", &edit.lang_buf, edit.field == FilterField::Lang),
+        line_with_focus("tags_any (csv): ", &edit.tags_buf, edit.field == FilterField::Tags, theme),
+        line_with_focus("lang:           ", &edit.lang_buf, edit.field == FilterField::Lang, theme),
     ];
     let para = Paragraph::new(lines);
     f.render_widget(para, inner);
 }
 
-fn line_with_focus<'a>(label: &'a str, value: &'a str, focused: bool) -> Line<'a> {
+fn line_with_focus<'a>(
+    label: &'a str,
+    value: &'a str,
+    focused: bool,
+    theme: &crate::theme::Theme,
+) -> Line<'a> {
     let style = if focused {
-        Style::default().add_modifier(Modifier::REVERSED)
+        theme.style(crate::theme::Role::Selected)
     } else {
-        Style::default()
+        theme.style(crate::theme::Role::Body)
     };
     Line::from(vec![Span::raw(label), Span::styled(value, style)])
 }
@@ -173,7 +177,7 @@ fn render_doc_list(f: &mut Frame, area: Rect, state: &App) {
 
     let list = List::new(items)
         .block(block)
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+        .highlight_style(state.theme.style(crate::theme::Role::Selected))
         .highlight_symbol("> ");
 
     let mut list_state = inner.list_state.clone();

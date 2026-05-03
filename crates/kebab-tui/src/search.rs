@@ -19,7 +19,6 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use kebab_core::{Citation, SearchHit, SearchMode, SearchQuery};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use std::path::Path;
@@ -60,18 +59,23 @@ pub fn render_search(f: &mut Frame, area: Rect, state: &App) {
         ])
         .split(area);
 
-    render_input_bar(f, layout[0], s);
-    render_result_list(f, layout[1], s);
-    render_preview(f, layout[2], s);
+    render_input_bar(f, layout[0], s, &state.theme);
+    render_result_list(f, layout[1], s, &state.theme);
+    render_preview(f, layout[2], s, &state.theme);
 }
 
-fn render_input_bar(f: &mut Frame, area: Rect, s: &SearchState) {
+fn render_input_bar(f: &mut Frame, area: Rect, s: &SearchState, theme: &crate::theme::Theme) {
     let mode_label = mode_label(s.mode);
+    let mode_role = match s.mode {
+        SearchMode::Lexical => crate::theme::Role::ModeLexical,
+        SearchMode::Vector => crate::theme::Role::ModeVector,
+        SearchMode::Hybrid => crate::theme::Role::ModeHybrid,
+    };
     let searching_hint = if s.searching { "  searching…" } else { "" };
     let line = Line::from(vec![
-        Span::styled(format!("[{mode_label}] "), Style::default().fg(Color::Cyan)),
+        Span::styled(format!("[{mode_label}] "), theme.style(mode_role)),
         Span::raw(s.input.as_str()),
-        Span::styled(searching_hint, Style::default().add_modifier(Modifier::DIM)),
+        Span::styled(searching_hint, theme.style(crate::theme::Role::Hint)),
     ]);
     let block = Block::default()
         .title("query (Tab=mode  Enter=search  Esc=back)")
@@ -87,7 +91,7 @@ fn mode_label(m: SearchMode) -> &'static str {
     }
 }
 
-fn render_result_list(f: &mut Frame, area: Rect, s: &SearchState) {
+fn render_result_list(f: &mut Frame, area: Rect, s: &SearchState, theme: &crate::theme::Theme) {
     let block = Block::default()
         .title(format!("results ({})", s.hits.len()))
         .borders(Borders::ALL);
@@ -100,11 +104,11 @@ fn render_result_list(f: &mut Frame, area: Rect, s: &SearchState) {
     let items: Vec<ListItem> = s
         .hits
         .iter()
-        .map(|h| ListItem::new(format_hit_lines(h)))
+        .map(|h| ListItem::new(format_hit_lines(h, theme)))
         .collect();
     let list = List::new(items)
         .block(block)
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+        .highlight_style(theme.style(crate::theme::Role::Selected))
         .highlight_symbol("> ");
     let mut list_state = ListState::default();
     list_state.select(Some(s.selected_hit.min(s.hits.len().saturating_sub(1))));
@@ -116,7 +120,7 @@ fn render_result_list(f: &mut Frame, area: Rect, s: &SearchState) {
 /// 2. `<heading_path joined by " / "> | section_label?`
 /// 3. snippet line 1
 /// 4. snippet line 2 (or trailing blank for layout symmetry)
-fn format_hit_lines(h: &SearchHit) -> Vec<Line<'static>> {
+fn format_hit_lines(h: &SearchHit, theme: &crate::theme::Theme) -> Vec<Line<'static>> {
     let header = format!(
         "{}. {:.4}  {}",
         h.rank,
@@ -138,17 +142,14 @@ fn format_hit_lines(h: &SearchHit) -> Vec<Line<'static>> {
     let s1 = snippet_lines.next().unwrap_or("").to_string();
     let s2 = snippet_lines.next().unwrap_or("").to_string();
     vec![
-        Line::from(Span::styled(
-            header,
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(path_line, Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(header, theme.style(crate::theme::Role::Title))),
+        Line::from(Span::styled(path_line, theme.style(crate::theme::Role::Path))),
         Line::from(format!("  {s1}")),
         Line::from(format!("  {s2}")),
     ]
 }
 
-fn render_preview(f: &mut Frame, area: Rect, s: &SearchState) {
+fn render_preview(f: &mut Frame, area: Rect, s: &SearchState, theme: &crate::theme::Theme) {
     let block = Block::default()
         .title("preview (g=open in $EDITOR)")
         .borders(Borders::ALL);
@@ -157,7 +158,7 @@ fn render_preview(f: &mut Frame, area: Rect, s: &SearchState) {
         (Some(text), _) => Paragraph::new(text.as_str()).wrap(Wrap { trim: false }),
         (None, _) => Paragraph::new(Span::styled(
             "(loading preview… select a hit to fetch its chunk text)",
-            Style::default().add_modifier(Modifier::DIM),
+            theme.style(crate::theme::Role::Hint),
         )),
     };
     f.render_widget(body.block(block), area);

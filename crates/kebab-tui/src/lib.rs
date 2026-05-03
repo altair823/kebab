@@ -22,7 +22,9 @@ mod library;
 mod run;
 mod search;
 mod terminal;
+mod theme;
 
+pub use theme::{Palette, Role, Theme};
 pub use app::{
     App, AskState, IngestState, InspectState, InspectTarget, KeyOutcome, LibraryState, Pane,
     SearchState, TERMINAL_LINE_HOLD_SECS,

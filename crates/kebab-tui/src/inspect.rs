@@ -19,7 +19,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use kebab_core::{Block, CanonicalDocument, Chunk};
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block as RBlock, Borders, Paragraph, Wrap};
 
@@ -48,9 +48,9 @@ pub fn render_inspect(f: &mut Frame, area: Rect, state: &App) {
         return;
     }
     match (&s.target, &s.doc, &s.chunk) {
-        (Some(InspectTarget::Doc(_)), Some(doc), _) => render_doc(f, area, s, doc),
+        (Some(InspectTarget::Doc(_)), Some(doc), _) => render_doc(f, area, s, doc, &state.theme),
         (Some(InspectTarget::Chunk(_)), _, Some(chunk)) => {
-            render_chunk(f, area, s, chunk)
+            render_chunk(f, area, s, chunk, &state.theme)
         }
         _ => {
             let block = RBlock::default()
@@ -59,7 +59,7 @@ pub fn render_inspect(f: &mut Frame, area: Rect, state: &App) {
             let hint = Paragraph::new(Span::styled(
                 "(no target — return to Library and press Enter on a doc, \
                  or to Search and press `i` on a hit)",
-                Style::default().add_modifier(Modifier::DIM),
+                state.theme.style(crate::theme::Role::Hint),
             ))
             .wrap(Wrap { trim: false });
             f.render_widget(hint.block(block), area);
@@ -67,8 +67,8 @@ pub fn render_inspect(f: &mut Frame, area: Rect, state: &App) {
     }
 }
 
-fn render_doc(f: &mut Frame, area: Rect, s: &InspectState, doc: &CanonicalDocument) {
-    let lines = build_doc_lines(s, doc);
+fn render_doc(f: &mut Frame, area: Rect, s: &InspectState, doc: &CanonicalDocument, theme: &crate::theme::Theme) {
+    let lines = build_doc_lines(s, doc, theme);
     let block = RBlock::default()
         .title(format!(
             "Inspect Doc — {}",
@@ -81,8 +81,8 @@ fn render_doc(f: &mut Frame, area: Rect, s: &InspectState, doc: &CanonicalDocume
     f.render_widget(para.block(block), area);
 }
 
-fn render_chunk(f: &mut Frame, area: Rect, s: &InspectState, chunk: &Chunk) {
-    let lines = build_chunk_lines(s, chunk);
+fn render_chunk(f: &mut Frame, area: Rect, s: &InspectState, chunk: &Chunk, theme: &crate::theme::Theme) {
+    let lines = build_chunk_lines(s, chunk, theme);
     let block = RBlock::default()
         .title(format!(
             "Inspect Chunk — {}",
@@ -100,31 +100,34 @@ fn render_chunk(f: &mut Frame, area: Rect, s: &InspectState, chunk: &Chunk) {
 pub(crate) fn build_doc_lines<'a>(
     s: &InspectState,
     doc: &'a CanonicalDocument,
+    theme: &crate::theme::Theme,
 ) -> Vec<Line<'a>> {
     let mut lines: Vec<Line> = Vec::new();
     // Header
-    lines.push(header_kv("title", &doc.title));
-    lines.push(header_kv("doc_path", &doc.workspace_path.0));
-    lines.push(header_kv("doc_id", &doc.doc_id.0));
-    lines.push(header_kv("lang", &doc.lang.0));
+    lines.push(header_kv("title", &doc.title, theme));
+    lines.push(header_kv("doc_path", &doc.workspace_path.0, theme));
+    lines.push(header_kv("doc_id", &doc.doc_id.0, theme));
+    lines.push(header_kv("lang", &doc.lang.0, theme));
     lines.push(header_kv(
         "source_type",
         &format!("{:?}", doc.metadata.source_type).to_lowercase(),
+        theme,
     ));
     lines.push(header_kv(
         "trust_level",
         &format!("{:?}", doc.metadata.trust_level).to_lowercase(),
+        theme,
     ));
-    lines.push(header_kv("parser_version", &doc.parser_version.0));
+    lines.push(header_kv("parser_version", &doc.parser_version.0, theme));
     lines.push(blank());
 
     // metadata
-    push_section_header(&mut lines, SECTION_METADATA, s);
+    push_section_header(&mut lines, SECTION_METADATA, s, theme);
     if !s.collapsed.contains(SECTION_METADATA) {
-        lines.push(kv("aliases", &format!("{:?}", doc.metadata.aliases)));
-        lines.push(kv("tags", &format!("{:?}", doc.metadata.tags)));
-        lines.push(kv("created_at", &fmt_dt(&doc.metadata.created_at)));
-        lines.push(kv("updated_at", &fmt_dt(&doc.metadata.updated_at)));
+        lines.push(kv("aliases", &format!("{:?}", doc.metadata.aliases), theme));
+        lines.push(kv("tags", &format!("{:?}", doc.metadata.tags), theme));
+        lines.push(kv("created_at", &fmt_dt(&doc.metadata.created_at), theme));
+        lines.push(kv("updated_at", &fmt_dt(&doc.metadata.updated_at), theme));
         // user metadata pretty-printed JSON
         if let Ok(pretty) =
             serde_json::to_string_pretty(&serde_json::Value::Object(
@@ -139,12 +142,12 @@ pub(crate) fn build_doc_lines<'a>(
     }
 
     // provenance
-    push_section_header(&mut lines, SECTION_PROVENANCE, s);
+    push_section_header(&mut lines, SECTION_PROVENANCE, s, theme);
     if !s.collapsed.contains(SECTION_PROVENANCE) {
         if doc.provenance.events.is_empty() {
             lines.push(Line::from(Span::styled(
                 "  (no events)",
-                Style::default().add_modifier(Modifier::DIM),
+                theme.style(crate::theme::Role::Hint),
             )));
         } else {
             for ev in &doc.provenance.events {
@@ -171,6 +174,7 @@ pub(crate) fn build_doc_lines<'a>(
         SECTION_BLOCKS,
         s,
         Some(doc.blocks.len()),
+        theme,
     );
     if !s.collapsed.contains(SECTION_BLOCKS) {
         let preview_n = 16.min(doc.blocks.len());
@@ -183,7 +187,7 @@ pub(crate) fn build_doc_lines<'a>(
         if doc.blocks.len() > preview_n {
             lines.push(Line::from(Span::styled(
                 format!("  … +{} more", doc.blocks.len() - preview_n),
-                Style::default().add_modifier(Modifier::DIM),
+                theme.style(crate::theme::Role::Hint),
             )));
         }
     }
@@ -193,11 +197,12 @@ pub(crate) fn build_doc_lines<'a>(
 pub(crate) fn build_chunk_lines<'a>(
     s: &InspectState,
     chunk: &'a Chunk,
+    theme: &crate::theme::Theme,
 ) -> Vec<Line<'a>> {
     let mut lines: Vec<Line> = Vec::new();
     // Header
-    lines.push(header_kv("chunk_id", &chunk.chunk_id.0));
-    lines.push(header_kv("doc_id", &chunk.doc_id.0));
+    lines.push(header_kv("chunk_id", &chunk.chunk_id.0, theme));
+    lines.push(header_kv("doc_id", &chunk.doc_id.0, theme));
     lines.push(header_kv(
         "heading_path",
         &if chunk.heading_path.is_empty() {
@@ -205,22 +210,24 @@ pub(crate) fn build_chunk_lines<'a>(
         } else {
             chunk.heading_path.join(" / ")
         },
+        theme,
     ));
-    lines.push(header_kv("chunker_version", &chunk.chunker_version.0));
-    lines.push(header_kv("policy_hash", &chunk.policy_hash));
+    lines.push(header_kv("chunker_version", &chunk.chunker_version.0, theme));
+    lines.push(header_kv("policy_hash", &chunk.policy_hash, theme));
     lines.push(header_kv(
         "token_estimate",
         &chunk.token_estimate.to_string(),
+        theme,
     ));
     lines.push(blank());
 
     // source spans
-    push_section_header(&mut lines, SECTION_SPANS, s);
+    push_section_header(&mut lines, SECTION_SPANS, s, theme);
     if !s.collapsed.contains(SECTION_SPANS) {
         if chunk.source_spans.is_empty() {
             lines.push(Line::from(Span::styled(
                 "  (no spans)",
-                Style::default().add_modifier(Modifier::DIM),
+                theme.style(crate::theme::Role::Hint),
             )));
         } else {
             for span in &chunk.source_spans {
@@ -231,7 +238,7 @@ pub(crate) fn build_chunk_lines<'a>(
     }
 
     // text
-    push_section_header(&mut lines, SECTION_TEXT, s);
+    push_section_header(&mut lines, SECTION_TEXT, s, theme);
     if !s.collapsed.contains(SECTION_TEXT) {
         for line in chunk.text.lines() {
             lines.push(Line::from(format!("  {line}")));
@@ -239,7 +246,7 @@ pub(crate) fn build_chunk_lines<'a>(
         if chunk.text.is_empty() {
             lines.push(Line::from(Span::styled(
                 "  (empty)",
-                Style::default().add_modifier(Modifier::DIM),
+                theme.style(crate::theme::Role::Hint),
             )));
         }
         lines.push(blank());
@@ -252,11 +259,12 @@ pub(crate) fn build_chunk_lines<'a>(
         SECTION_EMBEDDINGS,
         s,
         Some(chunk.block_ids.len()),
+        theme,
     );
     if !s.collapsed.contains(SECTION_EMBEDDINGS) {
         lines.push(Line::from(Span::styled(
             "  (embedding records not loaded — out of v1 scope)",
-            Style::default().add_modifier(Modifier::DIM),
+            theme.style(crate::theme::Role::Hint),
         )));
         for bid in &chunk.block_ids {
             lines.push(Line::from(format!("    {}", bid.0)));
@@ -265,21 +273,21 @@ pub(crate) fn build_chunk_lines<'a>(
     lines
 }
 
-fn header_kv(k: &str, v: &str) -> Line<'static> {
+fn header_kv(k: &str, v: &str, theme: &crate::theme::Theme) -> Line<'static> {
     Line::from(vec![
         Span::styled(
             format!("{k:>16}: "),
-            Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+            theme.style(crate::theme::Role::Heading),
         ),
         Span::raw(v.to_string()),
     ])
 }
 
-fn kv(k: &str, v: &str) -> Line<'static> {
+fn kv(k: &str, v: &str, theme: &crate::theme::Theme) -> Line<'static> {
     Line::from(vec![
         Span::styled(
             format!("  {k}: "),
-            Style::default().add_modifier(Modifier::DIM),
+            theme.style(crate::theme::Role::Hint),
         ),
         Span::raw(v.to_string()),
     ])
@@ -289,8 +297,13 @@ fn blank() -> Line<'static> {
     Line::from("")
 }
 
-fn push_section_header(lines: &mut Vec<Line<'static>>, name: &'static str, s: &InspectState) {
-    push_section_header_with_count(lines, name, s, None);
+fn push_section_header(
+    lines: &mut Vec<Line<'static>>,
+    name: &'static str,
+    s: &InspectState,
+    theme: &crate::theme::Theme,
+) {
+    push_section_header_with_count(lines, name, s, None, theme);
 }
 
 /// Section header + optional inline count. Inline-count form is used
@@ -301,6 +314,7 @@ fn push_section_header_with_count(
     name: &'static str,
     s: &InspectState,
     count: Option<usize>,
+    theme: &crate::theme::Theme,
 ) {
     let collapsed = s.collapsed.contains(name);
     let marker = if collapsed { "▸" } else { "▾" };
@@ -310,9 +324,9 @@ fn push_section_header_with_count(
     };
     lines.push(Line::from(Span::styled(
         title,
-        Style::default()
-            .add_modifier(Modifier::BOLD)
-            .fg(Color::Yellow),
+        theme
+            .style(crate::theme::Role::Warning)
+            .add_modifier(Modifier::BOLD),
     )));
 }
 

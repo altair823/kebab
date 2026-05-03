@@ -5,7 +5,6 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use std::time::Duration;
@@ -239,7 +238,7 @@ fn render_root(f: &mut Frame, app: &App) {
         render_footer(f, outer[2], app);
     }
     if let Some(err) = &app.error_overlay {
-        render_error_overlay(f, f.area(), err);
+        render_error_overlay(f, f.area(), err, &app.theme);
     }
 }
 
@@ -248,10 +247,16 @@ fn render_ingest_status(f: &mut Frame, area: Rect, app: &App) {
         return;
     };
     let line = crate::ingest_progress::status_line(state);
+    // p9-fb-14: `aborted` is a non-fatal-but-noteworthy state (Ctrl-C
+    // partial commit) — `Role::Warning` (yellow) is the right semantic
+    // signal, plus an explicit BOLD so the abort line still stands
+    // out from the live progress lines around it.
     let style = if state.aborted {
-        Style::default().add_modifier(Modifier::BOLD)
+        app.theme
+            .style(crate::theme::Role::Warning)
+            .add_modifier(ratatui::style::Modifier::BOLD)
     } else {
-        Style::default()
+        app.theme.style(crate::theme::Role::Body)
     };
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(line, style))),
@@ -268,10 +273,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
         Pane::Jobs => "Jobs",
     };
     let line = Line::from(vec![
-        Span::styled(
-            "kebab",
-            Style::default().add_modifier(Modifier::BOLD),
-        ),
+        Span::styled("kebab", app.theme.style(crate::theme::Role::Title)),
         Span::raw(" / "),
         Span::raw(pane_label),
     ]);
@@ -294,7 +296,7 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
     };
     let line = Line::from(Span::styled(
         hints,
-        Style::default().add_modifier(Modifier::DIM),
+        app.theme.style(crate::theme::Role::Hint),
     ));
     f.render_widget(
         Paragraph::new(line).block(Block::default().borders(Borders::TOP)),
