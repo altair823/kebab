@@ -32,6 +32,27 @@
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+/// Compute the cursor column for a text-input pane: prompt width +
+/// content cursor, summed in `usize` to avoid `u16` overflow, then
+/// clamped to fit within `inner_width` columns from `inner_x`.
+///
+/// Use as:
+/// ```ignore
+/// f.set_cursor_position((place_cursor_x(inner.x, inner.width, prompt_w, buf.cursor_col()), inner.y));
+/// ```
+///
+/// If a fourth input pane is added, use this helper rather than
+/// open-coding the arithmetic — one place to fix if the clamping
+/// policy ever changes.
+pub fn place_cursor_x(inner_x: u16, inner_width: u16, prompt_w: usize, cursor_col: usize) -> u16 {
+    let raw = (inner_x as usize)
+        .saturating_add(prompt_w)
+        .saturating_add(cursor_col);
+    let max = (inner_x as usize)
+        .saturating_add(inner_width.saturating_sub(1) as usize);
+    raw.min(max).try_into().unwrap_or(u16::MAX)
+}
+
 /// Display width of `s` in terminal columns. CJK / fullwidth = 2
 /// per char, ASCII = 1, combining marks = 0. Sums every char's
 /// `unicode-width` reading — same calculation Ratatui uses
@@ -316,5 +337,19 @@ mod tests {
         assert_eq!(s, "러스트");
         assert!(b.is_empty());
         assert_eq!(b.cursor_col(), 0);
+    }
+
+    /// p9-fb-10: place_cursor_x clamps within the inner area.
+    #[test]
+    fn place_cursor_x_clamps_to_inner_right_edge() {
+        // inner.x=10, width=20, so the rightmost column is 10+20-1 = 29.
+        // prompt_w=2, cursor_col=100 (overflow) → clamped to 29.
+        assert_eq!(place_cursor_x(10, 20, 2, 100), 29);
+    }
+
+    /// p9-fb-10: place_cursor_x preserves position when within bounds.
+    #[test]
+    fn place_cursor_x_keeps_position_when_within_bounds() {
+        assert_eq!(place_cursor_x(10, 20, 2, 5), 17); // 10 + 2 + 5
     }
 }

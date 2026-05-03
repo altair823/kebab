@@ -153,13 +153,14 @@ fn render_filter_overlay(f: &mut Frame, area: Rect, edit: &FilterEdit, theme: &c
     // omits set_cursor_position (Library/Inspect main view), ratatui
     // calls hide_cursor instead. So this single call positions the
     // caret on the focused field of the filter overlay.
+    // place_cursor_x sums in usize (avoiding u16 wrap) and clamps to
+    // the right edge of the inner area.
     let (label, focused_buf, row_offset) = match edit.field {
         FilterField::Tags => (LABEL_TAGS, &edit.tags_buf, 0u16),
         FilterField::Lang => (LABEL_LANG, &edit.lang_buf, 1u16),
     };
-    let label_w = display_width(label) as u16;
-    let raw_x = inner.x + label_w + focused_buf.cursor_col() as u16;
-    let cursor_x = raw_x.min(inner.x + inner.width.saturating_sub(1));
+    let label_w = display_width(label);
+    let cursor_x = crate::input::place_cursor_x(inner.x, inner.width, label_w, focused_buf.cursor_col());
     f.set_cursor_position((cursor_x, inner.y + row_offset));
 }
 

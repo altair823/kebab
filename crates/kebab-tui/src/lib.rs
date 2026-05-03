@@ -27,7 +27,7 @@ mod search;
 mod terminal;
 mod theme;
 
-pub use input::{InputBuffer, display_width, truncate_to_display_width};
+pub use input::{InputBuffer, display_width, place_cursor_x, truncate_to_display_width};
 pub use theme::{Palette, Role, Theme};
 pub use app::{
     App, AskState, IngestState, InspectState, InspectTarget, KeyOutcome, LibraryState, Mode,

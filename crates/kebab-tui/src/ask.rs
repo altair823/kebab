@@ -83,9 +83,10 @@ fn render_input(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::T
     // omits set_cursor_position (Library/Inspect), ratatui calls
     // hide_cursor instead. So this single call both positions and
     // unhides the caret for the Ask input column.
-    let prompt_w = crate::input::display_width(PROMPT) as u16;
-    let raw_x = inner.x + prompt_w + s.input.cursor_col() as u16;
-    let cursor_x = raw_x.min(inner.x + inner.width.saturating_sub(1));
+    // place_cursor_x sums in usize (avoiding u16 wrap) and clamps to
+    // the right edge of the inner area.
+    let prompt_w = crate::input::display_width(PROMPT);
+    let cursor_x = crate::input::place_cursor_x(inner.x, inner.width, prompt_w, s.input.cursor_col());
     f.set_cursor_position((cursor_x, inner.y));
 }
 

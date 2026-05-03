@@ -249,6 +249,43 @@ fn filter_overlay_accepts_hangul_tags() {
     );
 }
 
+/// p9-fb-10: filter overlay calls f.set_cursor_position so ratatui
+/// shows the caret on the focused field. Pin: after opening the
+/// overlay, render → terminal cursor is set + has non-zero x
+/// (the label offset > 0).
+#[test]
+fn filter_overlay_render_places_cursor_on_focused_field() {
+    let mut app = app_with_docs(vec![make_doc("a.md", "A", vec![])]);
+    // Open filter.
+    let _ = kebab_tui::handle_key_library(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
+    );
+    let backend = TestBackend::new(80, 20);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| {
+            let area = Rect::new(0, 0, 80, 20);
+            render_library(f, area, &app);
+        })
+        .expect("render must not panic");
+    // After draw, ratatui calls backend.set_cursor_position when the
+    // frame's cursor_position is Some. The terminal's
+    // get_cursor_position proxies to the backend.
+    let pos = terminal.get_cursor_position().expect(
+        "filter overlay must call set_cursor_position, so cursor pos must be readable",
+    );
+    // The Tags label ("tags_any (csv): ") has display_width 16; inner.x
+    // is 1 (inside border). With empty input cursor_col=0, expected x=17.
+    // We assert x>0 to avoid hardcoding the exact layout geometry while
+    // still confirming set_cursor_position was called with a meaningful
+    // offset (not stuck at origin).
+    assert!(
+        pos.x > 0,
+        "cursor x should be positive (label offset > 0): {pos:?}"
+    );
+}
+
 /// p9-fb-10: Library renders Hangul / CJK titles without overflowing
 /// the title column. Smoke pin — render with a mixed Korean fixture
 /// and confirm no panic + the truncated width fits the column.

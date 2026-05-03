@@ -91,13 +91,10 @@ fn render_input_bar(f: &mut Frame, area: Rect, s: &SearchState, theme: &crate::t
     // omits set_cursor_position (Library/Inspect), ratatui calls
     // hide_cursor instead. So this single call both positions and
     // unhides the caret for the Search input column.
-    let raw_x = inner.x + (prompt_w + s.input.cursor_col()) as u16;
-    // Clamp to the right edge of the inner area — a long CJK query
-    // in a narrow terminal could otherwise place the caret beyond
-    // the box; crossterm passes coords through verbatim.
-    let cursor_x = raw_x.min(inner.x + inner.width.saturating_sub(1));
-    let cursor_y = inner.y;
-    f.set_cursor_position((cursor_x, cursor_y));
+    // place_cursor_x sums in usize (avoiding u16 wrap) and clamps to
+    // the right edge of the inner area.
+    let cursor_x = crate::input::place_cursor_x(inner.x, inner.width, prompt_w, s.input.cursor_col());
+    f.set_cursor_position((cursor_x, inner.y));
 }
 
 fn mode_label(m: SearchMode) -> &'static str {
