@@ -37,7 +37,7 @@ helper 는 **rendering width** 만 정정.
 로만 도달. macOS / Windows / Linux (ibus/fcitx) 모두 동일. preedit
 handling 은 out-of-scope (spec 도 "not in scope" 로 명시).
 
-**Follow-up shipped 2026-05-03 in PR #?? — InputBuffer struct + Search/Ask/FilterEdit pane migrations + display-column-aware cursor placement + Korean FTS5 smoke pin. spec status flipped `in_progress` → `completed`.**
+**Follow-up shipped 2026-05-03 in PR #88 — InputBuffer struct + Search/Ask/FilterEdit pane migrations + display-column-aware cursor placement + Korean FTS5 smoke pin. spec status flipped `in_progress` → `completed`.**
 
 **후속 PR 체크리스트** (별 PR 에서 cover, 본 HOTFIXES 항목이 owner —
 새 spec 파일을 만들지 않고 기존 `tasks/p9/p9-fb-10-tui-cjk-input.md`
