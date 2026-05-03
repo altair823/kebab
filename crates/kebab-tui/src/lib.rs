@@ -14,6 +14,7 @@
 
 mod app;
 mod ask;
+mod editor;
 mod error_popup;
 mod ingest_progress;
 mod inspect;
@@ -33,4 +34,9 @@ pub use ingest_progress::{
 };
 pub use inspect::{enter_inspect, handle_key_inspect, render_inspect};
 pub use library::{handle_key_library, render_library};
-pub use search::{build_jump_command, handle_key_search, jump_to_citation, render_search};
+// `editor::with_external_program` and `search::jump_to_citation`
+// stay `pub(crate)` — they take the internal `TuiTerminal` handle,
+// which is intentionally module-private (its `Drop` lifecycle is the
+// only safe constructor path for raw mode + alt-screen). External
+// callers stage editor spawns via `App.pending_editor` instead.
+pub use search::{build_jump_command, handle_key_search, render_search};

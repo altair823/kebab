@@ -259,6 +259,35 @@ pub struct App {
     /// or by a future pane's quit key. The run loop drains this on
     /// each tick.
     pub(crate) should_quit: bool,
+    /// p9-fb-09: deferred external-program request. A pane's key
+    /// handler enqueues an `EditorRequest` here when the user wants
+    /// to spawn `$EDITOR` (e.g. Search `g` jumps to a citation in
+    /// vim) — the actual suspend / spawn / restore happens in the
+    /// run loop, where the `TuiTerminal` handle is in scope.
+    /// Drained every tick after the key dispatch.
+    ///
+    /// `pub(crate)` because the enqueue/take invariant ("set by a
+    /// key handler, drained by the next run-loop tick") only holds
+    /// for in-crate callers; external mutation could leave a stale
+    /// request that never gets serviced.
+    pub(crate) pending_editor: Option<EditorRequest>,
+    /// p9-fb-09: when set, the next run-loop draw runs
+    /// `terminal.clear()` first so any leftover screen content from
+    /// a suspension (post-editor, future config-reload, …) is wiped
+    /// before Ratatui's diff renders the new frame. Reset back to
+    /// false after the clear. Independent of `pending_editor` —
+    /// any future code path that needs a forced redraw can flip
+    /// this flag.
+    pub(crate) force_redraw: bool,
+}
+
+/// p9-fb-09: external-program spawn request. Posted by a pane's key
+/// handler, serviced by the run loop on the next tick.
+#[derive(Clone, Debug)]
+pub struct EditorRequest {
+    pub citation: kebab_core::Citation,
+    pub editor_env: String,
+    pub workspace_root: std::path::PathBuf,
 }
 
 impl App {
@@ -276,7 +305,18 @@ impl App {
             ingest_state: None,
             error_overlay: None,
             should_quit: false,
+            pending_editor: None,
+            force_redraw: false,
         })
+    }
+
+    /// Read-only accessor for the in-flight external-program request.
+    /// Tests and future external observers (e.g. integration smokes)
+    /// use this to assert that a key dispatch enqueued a spawn —
+    /// mutating the slot stays `pub(crate)` to preserve the
+    /// "set-then-drained-on-next-tick" invariant.
+    pub fn pending_editor(&self) -> Option<&EditorRequest> {
+        self.pending_editor.as_ref()
     }
 
     /// Blocking event loop. Returns when the user quits or a fatal

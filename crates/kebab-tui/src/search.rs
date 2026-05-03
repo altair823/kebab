@@ -27,7 +27,6 @@ use std::process::Command;
 use std::time::Duration;
 
 use crate::app::{App, KeyOutcome, Pane, SearchState};
-use crate::error_popup::ErrorOverlay;
 
 /// Debounce window after the last keystroke before re-searching.
 /// Matches the spec's 200 ms.
@@ -223,15 +222,22 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
             }
         };
         if has_hits {
+            // p9-fb-09: enqueue the spawn for the run loop. Calling
+            // `jump_to_citation` directly here would not have access
+            // to the TuiTerminal handle, so the post-resume
+            // `terminal.clear()` couldn't happen — leaving the
+            // previous frame leaking through the new draw.
             let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
             // `~/...` / `${XDG_…}` expansion via `kebab-config::expand_path`
             // — same helper used by the markdown / image / PDF ingest
             // paths (HOTFIXES 2026-05-02 P9-4 follow-up).
             let workspace_root =
                 kebab_config::expand_path(&state.config.workspace.root, "");
-            if let Err(e) = jump_to_citation(&citation.unwrap(), &editor, &workspace_root) {
-                state.error_overlay = Some(ErrorOverlay::from_anyhow(&e));
-            }
+            state.pending_editor = Some(crate::app::EditorRequest {
+                citation: citation.unwrap(),
+                editor_env: editor,
+                workspace_root,
+            });
         }
         return KeyOutcome::Continue;
     }
@@ -384,40 +390,26 @@ pub fn build_jump_command(
     (program, args)
 }
 
-/// Suspend the TUI raw mode, spawn `$EDITOR`, restore raw mode on
-/// return. Errors propagate; raw-mode restore happens via a guard so
-/// a panic during the editor child does not strand the user in a
-/// corrupt terminal.
-pub fn jump_to_citation(
+/// Suspend the TUI, spawn `$EDITOR`, restore the TUI on return.
+///
+/// p9-fb-09: delegates the suspend/restore dance to
+/// [`crate::editor::with_external_program`] so the post-resume
+/// `terminal.clear()` lands consistently — without it, the previous
+/// frame leaked through the new draw and the user saw a corrupted
+/// screen on return (도그푸딩 item 7).
+///
+/// Errors propagate; the helper's RAII guard restores the terminal
+/// even on panic.
+pub(crate) fn jump_to_citation(
+    terminal: &mut crate::terminal::TuiTerminal,
     citation: &Citation,
     editor_env: &str,
     workspace_root: &Path,
 ) -> anyhow::Result<()> {
-    use crossterm::execute;
-    use crossterm::terminal::{
-        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-    };
-
     let (program, args) = build_jump_command(citation, editor_env, workspace_root);
-
-    // Suspend.
-    let _ = execute!(std::io::stdout(), LeaveAlternateScreen);
-    let _ = disable_raw_mode();
-
-    // RAII guard re-enters even on panic.
-    struct RawModeRestore;
-    impl Drop for RawModeRestore {
-        fn drop(&mut self) {
-            let _ = enable_raw_mode();
-            let _ = execute!(std::io::stdout(), EnterAlternateScreen);
-        }
-    }
-    let _restore = RawModeRestore;
-
-    let status = Command::new(&program)
-        .args(&args)
-        .status()
-        .map_err(|e| anyhow::anyhow!("spawn {program} failed: {e}"))?;
+    let mut cmd = Command::new(&program);
+    cmd.args(&args);
+    let status = crate::editor::with_external_program(terminal, cmd)?;
     if !status.success() {
         anyhow::bail!("{program} exited with {status:?}");
     }

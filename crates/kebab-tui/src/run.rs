@@ -111,6 +111,16 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
             }
         }
 
+        // p9-fb-09: any code path (editor return, future reset
+        // helper, …) that toggled `force_redraw` gets a fresh
+        // framebuffer for this draw — without it, residual content
+        // from before the suspension would layer through Ratatui's
+        // diff and produce a corrupted-looking screen.
+        if app.force_redraw {
+            terminal.inner.clear()?;
+            app.force_redraw = false;
+        }
+
         terminal.inner.draw(|f| render_root(f, app))?;
 
         if event::poll(POLL_INTERVAL)? {
@@ -149,6 +159,24 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                     }
                 }
                 _ => {}
+            }
+        }
+
+        // p9-fb-09: drain any pending external-program request that
+        // a key handler enqueued. The actual suspend / spawn /
+        // restore needs the `TuiTerminal` handle, which is only in
+        // scope here. After return, `force_redraw` is set so the
+        // next iteration's draw paints from a clean canvas.
+        if let Some(req) = app.pending_editor.take() {
+            let result = crate::search::jump_to_citation(
+                &mut terminal,
+                &req.citation,
+                &req.editor_env,
+                &req.workspace_root,
+            );
+            app.force_redraw = true;
+            if let Err(e) = result {
+                app.error_overlay = Some(ErrorOverlay::from_anyhow(&e));
             }
         }
     }
