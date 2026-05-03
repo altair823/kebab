@@ -14,6 +14,39 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-03 — p9-fb-10 partial: helpers shipped, InputBuffer struct deferred
+
+**Spec amended**: `tasks/p9/p9-fb-10-tui-cjk-input.md` (status flipped
+planned → in_progress).
+
+**Live state**: 본 PR 은 `kebab-tui::input::{display_width,
+truncate_to_display_width}` helper 모듈 + Korean / Japanese fixture
+render audit + 9 unit tests + library.rs 의 중복 truncate 제거 (단일
+source) 만 머지. spec 의 `InputBuffer` struct (cursor 가 column 단위
+wide-char width 를 추적) 도입은 follow-up.
+
+**Why split**: Ask / Search / Editor pane 의 String + cursor 를
+일괄 마이그레이션하면 회귀 표면이 커서 위 helper 만 먼저 머지. 백스페이스
+경로는 모든 pane 이 이미 `String::pop()` 사용 — pop 은 `Option<char>`
+반환 + UTF-8 sequence mid-byte split 안 함 (Rust std 가 char-aware).
+즉 byte-boundary 안전성은 helper 없이도 이미 확보된 상태였고, 본 PR 의
+helper 는 **rendering width** 만 정정.
+
+**IME composing**: crossterm 0.28 이 native IME composing surface 를
+노출 안 함 — finalized jamo / composed glyph 가 `KeyCode::Char(c)`
+로만 도달. macOS / Windows / Linux (ibus/fcitx) 모두 동일. preedit
+handling 은 out-of-scope (spec 도 "not in scope" 로 명시).
+
+**후속 PR 체크리스트** (별 PR 에서 cover, 본 HOTFIXES 항목이 owner —
+새 spec 파일을 만들지 않고 기존 `tasks/p9/p9-fb-10-tui-cjk-input.md`
+의 status `in_progress` 가 유지되는 동안 본 체크리스트를 참조):
+
+- [ ] `kebab-tui::input::InputBuffer { content: String, cursor_col: usize }` struct
+- [ ] Ask / Search / Editor pane 의 String + cursor 를 InputBuffer 로 교체
+- [ ] cursor render 가 wide-char 위에서 column 단위로 정렬 (현재 char-count 기반)
+- [ ] 한글 query → SQLite FTS5 검색 fixture 추가 (이미 NFC 정규화 됨, 단순 smoke pin)
+- [ ] DoD 체크박스 3 개 모두 채우고 spec status `in_progress` → `completed`
+
 ## 2026-05-03 — p9-fb-13 cheatsheet: `?` → `F1` rebind
 
 **Spec amended**: `tasks/p9/p9-fb-13-tui-cheatsheet.md` (frozen —

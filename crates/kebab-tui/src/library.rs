@@ -13,9 +13,14 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
-use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, KeyOutcome, Pane};
+use crate::input::{display_width, truncate_to_display_width};
+
+/// Width (in display columns) of the `tags` column in the doc-list
+/// row. Used twice — truncate input + pad calculation — so a const
+/// keeps them in sync.
+const TAGS_COL_W: usize = 12;
 
 /// Internal state owned by `LibraryState`. Public-by-crate so
 /// `handle_key_library` can mutate it without crossing the
@@ -185,7 +190,7 @@ fn render_doc_list(f: &mut Frame, area: Rect, state: &App) {
 }
 
 /// Format a `DocSummary` row using display-width-aware truncation
-/// (Korean / wide chars contribute 2 columns each).
+/// and padding. Korean / wide chars contribute 2 columns each.
 pub(crate) fn format_doc_row(d: &DocSummary, title_w: usize) -> String {
     let title = truncate_to_display_width(&d.title, title_w);
     let tags = if d.tags.is_empty() {
@@ -193,41 +198,31 @@ pub(crate) fn format_doc_row(d: &DocSummary, title_w: usize) -> String {
     } else {
         d.tags.join(",")
     };
+    let tags = truncate_to_display_width(&tags, TAGS_COL_W);
     let updated = d
         .updated_at
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_else(|_| "?".to_string());
     let updated_short = updated.split('T').next().unwrap_or("?");
-    // `<width$>` is std::fmt's named-arg width form (`title_w` is the
-    // named arg below; `$` says "use it as the padding width"). See
-    // https://doc.rust-lang.org/std/fmt/#width §"Width via named
-    // parameters".
+    // std::fmt's `<width$>` form pads by **char count**, which
+    // overshoots when the value contains wide chars (each Hangul
+    // adds 2 cols but counts as 1 char → padding is half-short and
+    // downstream columns drift). Compute the pad spaces ourselves
+    // from `display_width`, then concatenate — the truncate above
+    // already guarantees `display_width(title) <= title_w`.
+    let title_pad = title_w.saturating_sub(display_width(&title));
+    let tags_pad = TAGS_COL_W.saturating_sub(display_width(&tags));
     format!(
-        "{title:<title_w$}  {tags:<12}  {updated_short:<10}  {chunk_count}",
+        "{title}{:title_pad$}  {tags}{:tags_pad$}  {updated_short:<10}  {chunk_count}",
+        "",
+        "",
         title = title,
-        tags = truncate_to_display_width(&tags, 12),
+        tags = tags,
         updated_short = updated_short,
         chunk_count = d.chunk_count,
-        title_w = title_w,
+        title_pad = title_pad,
+        tags_pad = tags_pad,
     )
-}
-
-fn truncate_to_display_width(s: &str, max_cols: usize) -> String {
-    if s.width() <= max_cols {
-        return s.to_string();
-    }
-    let mut out = String::new();
-    let mut cols = 0;
-    for ch in s.chars() {
-        let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
-        if cols + w > max_cols.saturating_sub(1) {
-            out.push('…');
-            return out;
-        }
-        cols += w;
-        out.push(ch);
-    }
-    out
 }
 
 /// Library pane key dispatch. Mutates `App.library.inner`; never
@@ -412,5 +407,58 @@ pub(crate) fn refresh_docs(state: &mut App) -> anyhow::Result<()> {
             state.library.inner.needs_refresh = false;
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kebab_core::{
+        ChunkerVersion, DocSummary, DocumentId, Lang, ParserVersion, SourceType, TrustLevel,
+        WorkspacePath,
+    };
+    use time::OffsetDateTime;
+
+    fn doc(title: &str, tags: &[&str]) -> DocSummary {
+        DocSummary {
+            doc_id: DocumentId("a".repeat(32)),
+            doc_path: WorkspacePath::new("x.md".into()).unwrap(),
+            title: title.into(),
+            lang: Lang("en".into()),
+            tags: tags.iter().map(|s| (*s).into()).collect(),
+            trust_level: TrustLevel::Primary,
+            source_type: SourceType::Note,
+            byte_len: 1,
+            chunk_count: 1,
+            created_at: OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap(),
+            updated_at: OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap(),
+            parser_version: ParserVersion("p".into()),
+            chunker_version: ChunkerVersion("c".into()),
+        }
+    }
+
+    /// p9-fb-10: format_doc_row pads by display width (not char
+    /// count) so wide-char titles don't shift downstream columns.
+    /// Regression pin — `<title_w$>` (std::fmt char-count form)
+    /// would fail this for any Hangul title.
+    #[test]
+    fn format_doc_row_pads_by_display_width_for_hangul_title() {
+        let row = format_doc_row(&doc("러스트로 만드는 KB", &["rust"]), 30);
+        // Expected layout (display cols):
+        //   title 30  +  "  "(2)  +  tags 12  +  "  "(2)  +  date 10  +  "  "(2)  +  chunk
+        // chunk = "1" → 1 col. Total = 30+2+12+2+10+2+1 = 59.
+        assert_eq!(
+            display_width(&row),
+            59,
+            "row must align to display columns, not char count: {row:?}"
+        );
+    }
+
+    /// p9-fb-10: Hangul tag also pads by display width.
+    #[test]
+    fn format_doc_row_pads_by_display_width_for_hangul_tag() {
+        let row = format_doc_row(&doc("ascii", &["한글"]), 20);
+        // title 20 + "  " + tags 12 + "  " + date 10 + "  " + "1" = 49
+        assert_eq!(display_width(&row), 49, "row: {row:?}");
     }
 }

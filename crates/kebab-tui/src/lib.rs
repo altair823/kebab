@@ -18,6 +18,7 @@ mod cheatsheet;
 mod editor;
 mod error_popup;
 mod ingest_progress;
+mod input;
 mod inspect;
 mod library;
 mod markdown;
@@ -26,6 +27,7 @@ mod search;
 mod terminal;
 mod theme;
 
+pub use input::{display_width, truncate_to_display_width};
 pub use theme::{Palette, Role, Theme};
 pub use app::{
     App, AskState, IngestState, InspectState, InspectTarget, KeyOutcome, LibraryState, Mode,
