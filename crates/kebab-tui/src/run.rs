@@ -368,11 +368,11 @@ pub fn footer_hints(focus: Pane, mode: crate::app::Mode, filter_open: bool) -> &
         // Search Insert: typing the query is the dominant action.
         (Pane::Search, Insert, _) => "타이핑 검색어  Tab 모드전환  Enter 검색  Esc 로 NORMAL 모드 (j/k 이동  i 인스펙트  g 에디터)",
         // Search Normal: navigation + commands.
-        (Pane::Search, Normal, _) => "↑/k 위로  ↓/j 아래로  Tab 모드전환  Enter 검색  i 인스펙트  g 에디터  Esc 종료",
+        (Pane::Search, Normal, _) => "↑/k 위로  ↓/j 아래로  Tab 모드전환  Enter 검색  i 인스펙트  g 에디터  Esc 뒤로",
         // Ask Insert: typing the question.
         (Pane::Ask, Insert, _) => "타이핑 질문  Enter 전송  Esc 로 NORMAL 모드 (e 상세  j/k 스크롤)",
         // Ask Normal: scroll + toggle.
-        (Pane::Ask, Normal, _) => "e 상세설명  ↑/k 위로  ↓/j 아래로  Enter 전송  Ctrl-L 새대화  Esc 종료",
+        (Pane::Ask, Normal, _) => "e 상세설명  ↑/k 위로  ↓/j 아래로  Enter 전송  Ctrl-L 새대화  Esc 뒤로",
         // Inspect Normal (default): scroll + collapse.
         (Pane::Inspect, Normal, _) => "↑/k 위로  ↓/j 아래로  PgUp/PgDn 페이지  c 섹션접기  Esc/q 뒤로",
         // Inspect Insert: degenerate.
