@@ -14,6 +14,31 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-03 — p9-fb-12 partial: mode machine without dispatch removal
+
+**Spec amended**: `tasks/p9/p9-fb-12-tui-mode-machine.md` (status stays
+`in_progress`, NOT `completed`). Original contract: introduce vim
+NORMAL/INSERT modes globally AND remove `is_typing_mod` (search) +
+input-empty heuristic (ask) so the per-pane key dispatch becomes
+mode-authoritative.
+
+**What shipped**: Mode enum + `App.mode` field + global `i`/`Esc`
+interception in run loop + auto mode flip on pane switch
+(`Mode::auto_for(pane)`) + status-bar mode label (color-graded via
+`Role::Success` for Insert, `Role::Heading` for Normal). Status bar
+literals (`-- NORMAL --` / `-- INSERT --`) pinned.
+
+**Deferred to follow-up PR**: removal of the existing input-empty
+heuristics in `search::handle_key_search` and `ask::handle_key_ask`.
+These continue to gate j/k vs typing based on input buffer state.
+Tests rely on those heuristics, so the removal warrants its own
+focused PR (separate review, separate test sweep).
+
+**Why partial-ship**: the user-visible signal (mode label + auto
+flip + i/Esc) is the most load-bearing part of the spec; the
+heuristic removal is cleanup that doesn't change behavior anyone
+currently observes. Splitting keeps the PR review surface small.
+
 ## 2026-05-03 — p9-fb-17 migration number V004 → V005
 
 **Spec amended**: `tasks/p9/p9-fb-17-chat-session-storage.md` (frozen —

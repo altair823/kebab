@@ -27,8 +27,8 @@ mod theme;
 
 pub use theme::{Palette, Role, Theme};
 pub use app::{
-    App, AskState, IngestState, InspectState, InspectTarget, KeyOutcome, LibraryState, Pane,
-    SearchState, SearchWorkerMessage, TERMINAL_LINE_HOLD_SECS,
+    App, AskState, IngestState, InspectState, InspectTarget, KeyOutcome, LibraryState, Mode,
+    Pane, SearchState, SearchWorkerMessage, TERMINAL_LINE_HOLD_SECS,
 };
 pub use ask::{handle_key_ask, render_ask};
 pub use error_popup::{ErrorOverlay, render_error_overlay};

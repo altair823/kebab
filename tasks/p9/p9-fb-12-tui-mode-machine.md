@@ -3,7 +3,7 @@ phase: P9
 component: kebab-tui
 task_id: p9-fb-12
 title: "TUI mode state machine (NORMAL / INSERT)"
-status: planned
+status: in_progress
 depends_on: []
 unblocks: [p9-fb-10, p9-fb-13]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
