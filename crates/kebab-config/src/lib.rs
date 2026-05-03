@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 mod paths;
-pub use paths::expand_path;
+pub use paths::{expand_path, expand_path_with_base};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
@@ -32,6 +32,20 @@ pub struct Config {
     /// `dark`).
     #[serde(default = "UiCfg::defaults")]
     pub ui: UiCfg,
+    /// p9-fb-05: directory of the on-disk config file this `Config`
+    /// was loaded from, if any. Populated by `Config::from_file` /
+    /// `Config::load` — never serialized (`#[serde(skip)]`). Used by
+    /// `expand_path_with_base` to resolve relative `workspace.root`
+    /// against the config file's location instead of the user's
+    /// `cwd` (so `--config /tmp/cfg.toml` + `root = "kb"` reads
+    /// `/tmp/kb` no matter where the user invoked from).
+    ///
+    /// `pub(crate)` so external callers can't break the
+    /// "stamped only by from_file/load" invariant by hand. Use
+    /// [`Config::with_source_dir`] for tests / programmatic
+    /// construction that need a specific `source_dir`.
+    #[serde(skip)]
+    pub(crate) source_dir: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -290,7 +304,59 @@ impl Config {
             },
             image: ImageCfg::defaults(),
             ui: UiCfg::defaults(),
+            // p9-fb-05: defaults are not loaded from disk, so no
+            // source_dir. Relative `workspace.root` (rare with
+            // defaults) falls back to caller `cwd` via the
+            // `unwrap_or_else(...)` in `expand_path_with_base`
+            // sites — see kebab-app's resolve_workspace_root.
+            source_dir: None,
         }
+    }
+
+    /// p9-fb-05: read-only accessor for the source-file directory
+    /// (where `from_file` / `load` stamped it). Returns `None` for
+    /// `Config::defaults()` and other in-memory constructions.
+    pub fn source_dir(&self) -> Option<&Path> {
+        self.source_dir.as_deref()
+    }
+
+    /// p9-fb-05: builder for tests / programmatic callers that need
+    /// to pin `source_dir` without going through `from_file`. Returns
+    /// `self` so it chains: `Config::defaults().with_source_dir(p)`.
+    pub fn with_source_dir(mut self, dir: PathBuf) -> Self {
+        self.source_dir = Some(dir);
+        self
+    }
+
+    /// p9-fb-05: resolve `workspace.root` to an absolute `PathBuf`.
+    /// Order:
+    /// 1. tilde / env / `${VAR}` substitutions per [`expand_path`].
+    /// 2. if still relative, join onto `source_dir` (config file's
+    ///    directory) when known, else `cwd`.
+    ///
+    /// Tilde / absolute / `${VAR}`-rooted inputs ignore `source_dir`.
+    /// `Config::defaults()` (which has no `source_dir`) effectively
+    /// uses `cwd` for relative inputs — which is the surprising
+    /// case spec p9-fb-05 calls out as a foot-gun, but it can only
+    /// arise when the user is using defaults AND has a relative
+    /// root, which is rare (defaults ship `~/KnowledgeBase`).
+    pub fn resolve_workspace_root(&self) -> PathBuf {
+        let base = self.source_dir.clone().unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|e| {
+                // chroot / deleted-cwd / permission failure: log so a
+                // user with an environment problem doesn't silently
+                // wonder why their workspace.root resolved to "./root"
+                // (which then fails at `create_dir_all` time with a
+                // less obvious error).
+                tracing::warn!(
+                    target: "kebab-config",
+                    error = %e,
+                    "current_dir() failed; falling back to '.' for workspace.root resolution"
+                );
+                PathBuf::from(".")
+            })
+        });
+        paths::expand_path_with_base(&self.workspace.root, "", &base)
     }
 
     /// Read config from disk and merge env overrides on top of it. If the
@@ -313,9 +379,14 @@ impl Config {
         Ok(from_disk.apply_env(&env))
     }
 
+    /// Parse a config from `path`. p9-fb-05: also stamps
+    /// `source_dir = path.parent()` so relative `workspace.root`
+    /// values resolve against the config file's directory rather
+    /// than the user's `cwd`.
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
         let text = std::fs::read_to_string(path)?;
-        let cfg: Self = toml::from_str(&text)?;
+        let mut cfg: Self = toml::from_str(&text)?;
+        cfg.source_dir = path.parent().map(Path::to_path_buf);
         Ok(cfg)
     }
 

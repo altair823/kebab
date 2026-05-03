@@ -44,11 +44,11 @@ pub struct FsSourceConnector {
 
 impl FsSourceConnector {
     pub fn new(config: &Config) -> Result<Self> {
-        // `config.workspace.root` is a String that may contain `~` or env
-        // expansions. P0-* did not yet provide a path-expansion helper in
-        // kb-config; for P1-1 we expand `~` ourselves and leave `${VAR}`
-        // for a follow-up. The vast majority of users hit the `~` case.
-        let root = expand_tilde(&config.workspace.root);
+        // p9-fb-05: tilde / env / `${VAR}` substitutions plus
+        // relative-path resolution against the config file's
+        // directory (Config.source_dir) — so `--config /tmp/cfg.toml`
+        // + `root = "kb"` reads `/tmp/kb`, not the user's cwd.
+        let root = config.resolve_workspace_root();
 
         let copy_threshold_bytes = config
             .storage
@@ -166,30 +166,11 @@ impl SourceConnector for FsSourceConnector {
     }
 }
 
-// TODO(kb-config): hoist tilde + ${VAR} expansion into a kb-config helper
-// once that crate gains a path-expansion API. Today this duplicates logic
-// that P1-6 (store-sqlite) and future crates will also need.
-/// Expand a leading `~` to the current user's home directory. No-op for
-/// any other shape (absolute, relative, `${VAR}`-style).
-fn expand_tilde(s: &str) -> PathBuf {
-    if let Some(rest) = s.strip_prefix("~/") {
-        if let Some(home) = dirs_home() {
-            return home.join(rest);
-        }
-    } else if s == "~" {
-        if let Some(home) = dirs_home() {
-            return home;
-        }
-    }
-    PathBuf::from(s)
-}
-
-/// Tiny `dirs::home_dir`-compat shim that does NOT add the `dirs` crate to
-/// our dep set (we explicitly enumerate allowed deps in the task spec).
-/// Reads `$HOME` directly.
-fn dirs_home() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
-}
+// p9-fb-05: removed local `expand_tilde` + `dirs_home` shim. The
+// canonical helper now lives in `kebab-config::resolve_workspace_root`
+// (calling `expand_path_with_base`), so this crate just delegates via
+// `Config::resolve_workspace_root` above. Keeps tilde / `${VAR}` /
+// relative path semantics consistent with kebab-app and kebab-cli.
 
 #[cfg(test)]
 mod tests {

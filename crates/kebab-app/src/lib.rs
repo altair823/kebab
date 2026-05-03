@@ -123,13 +123,36 @@ pub fn init_workspace(force: bool) -> anyhow::Result<()> {
         }
     }
 
-    let workspace_root = expand_tilde(&kebab_config::Config::defaults().workspace.root);
+    let workspace_root = kebab_config::Config::defaults().resolve_workspace_root();
     std::fs::create_dir_all(&workspace_root)?;
 
     if !cfg_path.exists() || force {
         let cfg = kebab_config::Config::defaults();
         let toml_text = toml::to_string_pretty(&cfg)?;
-        std::fs::write(&cfg_path, toml_text)?;
+        // p9-fb-05: prepend a header comment documenting the path
+        // policy so a user editing this file knows what's allowed
+        // for `workspace.root` (and how relative paths resolve).
+        // The actual key lives inside `[workspace]` further down;
+        // we keep the explanation up top because users skim header
+        // comments first.
+        let header = "\
+# kebab config — `~/.config/kebab/config.toml`.
+#
+# `workspace.root` accepts:
+#   • absolute paths       (`/home/me/KnowledgeBase`)
+#   • tilde                (`~/KnowledgeBase`)         ← default
+#   • env vars             (`${XDG_DATA_HOME}/kebab`)
+#   • relative paths       (`./notes`, `notes`, `../shared/x`)
+#     — relative paths resolve against the directory of THIS
+#       config file, NOT the user's `cwd` at invocation time.
+#
+# Override individual keys at runtime with `KEBAB_*` env vars
+# (e.g. `KEBAB_WORKSPACE_ROOT=/tmp/test kebab ingest`).
+\n";
+        let mut combined = String::with_capacity(header.len() + toml_text.len());
+        combined.push_str(header);
+        combined.push_str(&toml_text);
+        std::fs::write(&cfg_path, combined)?;
     }
 
     Ok(())
@@ -881,7 +904,9 @@ fn ingest_one_image_asset(
     // `~` / `${XDG_…}` expansion via the same helper the markdown
     // path uses, so a `~/KnowledgeBase` workspace.root resolves
     // identically across all media (HOTFIXES 2026-05-02 P9-4 follow-up).
-    let workspace_root = expand_tilde(&app.config.workspace.root);
+    // p9-fb-05: relative `workspace.root` resolves against the config
+    // file's directory (Config.source_dir), not the user's cwd.
+    let workspace_root = app.config.resolve_workspace_root();
     let ctx = ExtractContext {
         asset,
         workspace_root: &workspace_root,
@@ -1185,7 +1210,9 @@ fn ingest_one_pdf_asset(
 
     let extract_config = kebab_core::ExtractConfig::default();
     // `~` / `${XDG_…}` expansion (HOTFIXES 2026-05-02 P9-4 follow-up).
-    let workspace_root = expand_tilde(&app.config.workspace.root);
+    // p9-fb-05: relative `workspace.root` resolves against the config
+    // file's directory (Config.source_dir), not the user's cwd.
+    let workspace_root = app.config.resolve_workspace_root();
     let ctx = ExtractContext {
         asset,
         workspace_root: &workspace_root,
