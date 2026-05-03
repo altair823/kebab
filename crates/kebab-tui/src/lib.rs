@@ -61,3 +61,6 @@ pub use run::mode_intercept;
 // for integration tests + future TUI consumers.
 pub use cheatsheet::render_cheatsheet;
 pub use run::cheatsheet_intercept;
+// p9-fb-13 follow-up: expose footer_hints so integration tests can
+// pin the verb-form per (pane, mode) without standing up the run loop.
+pub use run::footer_hints;

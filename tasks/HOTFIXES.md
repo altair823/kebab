@@ -70,6 +70,8 @@ bearing 변종 (Ctrl-F1 등) 은 미발동. cheatsheet 가 visible 인 동안
 힌트 문자열이 동일 역할을 하므로 사용자 경험상 누락 없음. 후속 PR
 가 mode-aware verb fragments 로 split 가능.
 
+**Follow-up shipped 2026-05-03 — verb-form hint line redesign.** `pub fn footer_hints(focus: Pane, mode: Mode, filter_open: bool) -> &'static str` 신규 (run.rs). 한국어 동사구 (`"위로"` / `"아래로"` / `"필터"` / `"타이핑 검색어"` / `"Esc 로 NORMAL 모드"`) + mode-aware (NORMAL = navigation, INSERT = typing + Esc reminder) + filter overlay 분기. 8 unit tests pin (Library Normal/Insert/filter, Search Normal/Insert, Ask Normal/Insert, Inspect Normal/Insert + 모든 (pane, mode, filter) 조합 non-empty exhaustive). spec status `in_progress` → `completed`.
+
 ## 2026-05-03 — p9-fb-12 partial: mode machine without dispatch removal
 
 **Spec amended**: `tasks/p9/p9-fb-12-tui-mode-machine.md` (status stays
