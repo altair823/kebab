@@ -91,6 +91,7 @@ pub struct InputBuffer {
 }
 
 impl InputBuffer {
+    /// Create an empty buffer.
     pub fn new() -> Self {
         Self::default()
     }
@@ -141,12 +142,6 @@ impl InputBuffer {
     /// True when no chars have been typed.
     pub fn is_empty(&self) -> bool {
         self.content.is_empty()
-    }
-
-    /// Length of `content` in chars (NOT display columns). Use
-    /// `cursor_col()` for column-aware layout.
-    pub fn char_len(&self) -> usize {
-        self.content.chars().count()
     }
 }
 
@@ -268,6 +263,8 @@ mod tests {
         assert_eq!(popped, Some('트'));
         assert_eq!(b.cursor_col(), 4);
         assert_eq!(b.as_str(), "러스");
+        // Invariant must still hold after pop, not just after push.
+        assert_eq!(b.cursor_col(), display_width(b.as_str()));
         b.push_char('a');
         assert_eq!(b.cursor_col(), 5);
         assert_eq!(b.as_str(), "러스a");
