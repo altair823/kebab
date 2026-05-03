@@ -37,9 +37,15 @@ helper 는 **rendering width** 만 정정.
 로만 도달. macOS / Windows / Linux (ibus/fcitx) 모두 동일. preedit
 handling 은 out-of-scope (spec 도 "not in scope" 로 명시).
 
-**후속 spec issue**: InputBuffer 도입 시 (a) 모든 pane 의 input string
-을 InputBuffer 로 교체, (b) cursor render 가 wide-char 위에서 column
-정렬, (c) 한글 query → SQLite FTS5 검색 fixture (이미 NFC 정규화).
+**후속 PR 체크리스트** (별 PR 에서 cover, 본 HOTFIXES 항목이 owner —
+새 spec 파일을 만들지 않고 기존 `tasks/p9/p9-fb-10-tui-cjk-input.md`
+의 status `in_progress` 가 유지되는 동안 본 체크리스트를 참조):
+
+- [ ] `kebab-tui::input::InputBuffer { content: String, cursor_col: usize }` struct
+- [ ] Ask / Search / Editor pane 의 String + cursor 를 InputBuffer 로 교체
+- [ ] cursor render 가 wide-char 위에서 column 단위로 정렬 (현재 char-count 기반)
+- [ ] 한글 query → SQLite FTS5 검색 fixture 추가 (이미 NFC 정규화 됨, 단순 smoke pin)
+- [ ] DoD 체크박스 3 개 모두 채우고 spec status `in_progress` → `completed`
 
 ## 2026-05-03 — p9-fb-13 cheatsheet: `?` → `F1` rebind
 

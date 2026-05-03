@@ -15,7 +15,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use crate::app::{App, KeyOutcome, Pane};
-use crate::input::truncate_to_display_width;
+use crate::input::{display_width, truncate_to_display_width};
 
 /// Internal state owned by `LibraryState`. Public-by-crate so
 /// `handle_key_library` can mutate it without crossing the
@@ -185,7 +185,7 @@ fn render_doc_list(f: &mut Frame, area: Rect, state: &App) {
 }
 
 /// Format a `DocSummary` row using display-width-aware truncation
-/// (Korean / wide chars contribute 2 columns each).
+/// and padding. Korean / wide chars contribute 2 columns each.
 pub(crate) fn format_doc_row(d: &DocSummary, title_w: usize) -> String {
     let title = truncate_to_display_width(&d.title, title_w);
     let tags = if d.tags.is_empty() {
@@ -193,22 +193,30 @@ pub(crate) fn format_doc_row(d: &DocSummary, title_w: usize) -> String {
     } else {
         d.tags.join(",")
     };
+    let tags = truncate_to_display_width(&tags, 12);
     let updated = d
         .updated_at
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_else(|_| "?".to_string());
     let updated_short = updated.split('T').next().unwrap_or("?");
-    // `<width$>` is std::fmt's named-arg width form (`title_w` is the
-    // named arg below; `$` says "use it as the padding width"). See
-    // https://doc.rust-lang.org/std/fmt/#width §"Width via named
-    // parameters".
+    // std::fmt's `<width$>` form pads by **char count**, which
+    // overshoots when the value contains wide chars (each Hangul
+    // adds 2 cols but counts as 1 char → padding is half-short and
+    // downstream columns drift). Compute the pad spaces ourselves
+    // from `display_width`, then concatenate — the truncate above
+    // already guarantees `display_width(title) <= title_w`.
+    let title_pad = title_w.saturating_sub(display_width(&title));
+    let tags_pad = 12usize.saturating_sub(display_width(&tags));
     format!(
-        "{title:<title_w$}  {tags:<12}  {updated_short:<10}  {chunk_count}",
+        "{title}{:title_pad$}  {tags}{:tags_pad$}  {updated_short:<10}  {chunk_count}",
+        "",
+        "",
         title = title,
-        tags = truncate_to_display_width(&tags, 12),
+        tags = tags,
         updated_short = updated_short,
         chunk_count = d.chunk_count,
-        title_w = title_w,
+        title_pad = title_pad,
+        tags_pad = tags_pad,
     )
 }
 

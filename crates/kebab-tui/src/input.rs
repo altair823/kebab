@@ -97,8 +97,7 @@ mod tests {
     /// p9-fb-10: mixed ASCII + Hangul sums correctly.
     #[test]
     fn mixed_ascii_hangul_width() {
-        // "kb-한글" = 2 ASCII + 1 dash + 2 Hangul × 2 = 5 + 4 = wait
-        // "k" 1 + "b" 1 + "-" 1 + "한" 2 + "글" 2 = 7
+        // "kb-한글" = k(1) + b(1) + -(1) + 한(2) + 글(2) = 7
         assert_eq!(display_width("kb-한글"), 7);
         // "Hello, 세계" = "Hello"(5) + ","(1) + " "(1) + "세"(2) + "계"(2) = 11
         assert_eq!(display_width("Hello, 세계"), 11);
