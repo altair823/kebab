@@ -70,7 +70,7 @@ kebab doctor
 | 명령 | 동작 |
 |------|------|
 | `kebab init` | XDG 경로에 데이터 디렉토리 + config.toml 생성 |
-| `kebab ingest [<path>]` | Markdown / 이미지 / PDF 색인 (idempotent). TTY 에서는 stderr 진행 바, non-TTY (CI / pipe) 는 stderr 한 줄씩, `--json` 은 stdout 에 `ingest_progress.v1` 라인 streaming 후 마지막에 `ingest_report.v1`. Ctrl-C 한 번이면 현재 asset 마무리 후 abort (부분 commit 보존, idempotent re-run), 두 번째 Ctrl-C 는 hard exit |
+| `kebab ingest [<path>]` | Markdown / 이미지 / PDF 색인 (idempotent). TTY 에서는 stderr 진행 바, non-TTY (CI / pipe) 는 stderr 한 줄씩, `--json` 은 stdout 에 `ingest_progress.v1` 라인 streaming 후 마지막에 `ingest_report.v1`. Ctrl-C 한 번이면 현재 asset 마무리 후 abort (부분 commit 보존, idempotent re-run), 두 번째 Ctrl-C 는 hard exit. Markdown title 이 frontmatter 에 없어도 첫 H1 → H2 → 첫 paragraph 80 자 → 파일명 순으로 자동 채움 (parser_version `md-frontmatter-v2`) — 기존 색인된 doc 도 다음 ingest 에서 새 title 로 갱신 |
 | `kebab search --mode {lexical,vector,hybrid} "<query>"` | 검색. hybrid는 RRF fusion, citation 포함 |
 | `kebab list docs` | 색인된 문서 목록 |
 | `kebab inspect doc <id>` / `kebab inspect chunk <id>` | raw record 보기 |

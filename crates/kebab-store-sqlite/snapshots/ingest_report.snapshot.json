@@ -12,7 +12,7 @@
       "doc_path": "notes/alpha.md",
       "error": null,
       "kind": "new",
-      "parser_version": "pulldown-cmark-0.x",
+      "parser_version": "md-frontmatter-v2",
       "warnings": []
     },
     {
@@ -25,7 +25,7 @@
       "doc_path": "notes/beta.md",
       "error": null,
       "kind": "updated",
-      "parser_version": "pulldown-cmark-0.x",
+      "parser_version": "md-frontmatter-v2",
       "warnings": [
         "malformed frontmatter"
       ]

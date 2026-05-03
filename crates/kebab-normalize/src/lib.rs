@@ -18,6 +18,7 @@
 //! the shared `kb-parse-types` crate.
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use anyhow::Result;
 use kebab_core::{
@@ -94,6 +95,15 @@ pub fn build_canonical_document(
         .into_iter()
         .filter_map(|pb| lift_block(&doc_id, pb, &mut counters, &mut lift_warnings))
         .collect();
+
+    // p9-fb-07: title fallback chain. `title` so far holds the
+    // frontmatter `title` (step 1). If empty / whitespace, walk the
+    // lifted blocks for an H1 → H2 → first paragraph excerpt → file
+    // stem. NFC-normalize the chosen string so the on-wire title is
+    // canonically equivalent to whatever the user stored, regardless
+    // of source NFD/NFC form.
+    let file_stem = workspace_path_stem(&asset.workspace_path.0);
+    let title = derive_title(&title, &lifted_blocks, &file_stem);
 
     tracing::debug!(
         target: "kebab-normalize",
@@ -324,6 +334,90 @@ fn flatten_inline(i: &Inline, out: &mut String) {
             }
         }
     }
+}
+
+/// p9-fb-07: derive a usable title from the frontmatter, lifted blocks,
+/// and the source filename, using a documented fallback chain.
+///
+/// Priority (first non-blank wins):
+///
+/// 1. `frontmatter_title` — verbatim, after trimming whitespace.
+/// 2. First `Heading` block at level 1 with non-blank text.
+/// 3. First `Heading` block at level 2 with non-blank text.
+/// 4. First `Paragraph` block (NOT `Quote`, `List`, `Code`, `Table`,
+///    `ImageRef`, `AudioRef`) with non-blank text — first 80 chars.
+/// 5. `file_stem` (filename minus extension — returned verbatim, no
+///    case transformation; whatever the on-disk filename is becomes
+///    the title text).
+///
+/// The chosen string is NFC-normalized so the on-wire title is
+/// canonically equivalent to the source content. Never returns an
+/// empty string — if every step is blank (e.g. an empty file), the
+/// `file_stem` fallback ensures a non-empty result. If `file_stem` is
+/// also blank (pathological), returns `"untitled"` as a last resort.
+pub fn derive_title(frontmatter_title: &str, blocks: &[Block], file_stem: &str) -> String {
+    let trimmed = frontmatter_title.trim();
+    if !trimmed.is_empty() {
+        return trimmed.nfc().collect();
+    }
+    if let Some(text) = first_heading_text(blocks, 1) {
+        return text;
+    }
+    if let Some(text) = first_heading_text(blocks, 2) {
+        return text;
+    }
+    if let Some(excerpt) = first_paragraph_excerpt(blocks, 80) {
+        return excerpt;
+    }
+    // `file_stem` originates from `WorkspacePath`, which `to_posix`
+    // already NFC-normalizes (§6.6). No second NFC pass needed — pass
+    // through verbatim after a defensive `trim`.
+    let stem = file_stem.trim();
+    if !stem.is_empty() {
+        return stem.to_string();
+    }
+    "untitled".to_string()
+}
+
+fn first_heading_text(blocks: &[Block], level: u8) -> Option<String> {
+    blocks.iter().find_map(|b| match b {
+        Block::Heading(h) if h.level == level => {
+            let trimmed = h.text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.nfc().collect())
+            }
+        }
+        _ => None,
+    })
+}
+
+fn first_paragraph_excerpt(blocks: &[Block], max_chars: usize) -> Option<String> {
+    blocks.iter().find_map(|b| match b {
+        Block::Paragraph(t) => {
+            let trimmed = t.text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                let nfc: String = trimmed.nfc().collect();
+                Some(nfc.chars().take(max_chars).collect())
+            }
+        }
+        _ => None,
+    })
+}
+
+/// Extract the filename stem (no extension) from a workspace path
+/// string. Returns the empty string if no filename can be derived
+/// (e.g. trailing slash). Multi-extension cases (`foo.tar.gz`) follow
+/// `Path::file_stem` semantics — only the last extension is stripped.
+fn workspace_path_stem(workspace_path: &str) -> String {
+    Path::new(workspace_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 #[cfg(test)]
@@ -796,11 +890,12 @@ mod tests {
         assert_eq!(id_nfd, id_nfc, "NFD and NFC heading paths must hash equal");
     }
 
-    /// M7 — `metadata.user["title"] = ""` is stringy and lifts to an
-    /// empty `CanonicalDocument.title`. This pins the policy: an
-    /// explicit empty string is *not* dropped, it's lifted as-is.
+    /// M7 (revised by p9-fb-07) — `metadata.user["title"] = ""` lifts
+    /// as an empty string but the new derive_title fallback chain
+    /// promotes the file stem so the resulting title is non-empty.
+    /// spec p9-fb-07: "빈 문자열 반환 금지".
     #[test]
-    fn title_empty_string_in_user_map_falls_back_to_default() {
+    fn title_empty_string_in_user_map_falls_back_to_file_stem() {
         let asset = fixture_asset();
         let mut metadata = fixture_metadata();
         metadata
@@ -809,13 +904,16 @@ mod tests {
         let pv = parser_version();
         let doc =
             build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
-        assert_eq!(doc.title, "");
+        // workspace_path = "notes/example.md" → stem "example".
+        assert_eq!(doc.title, "example");
     }
 
-    /// M7 — `metadata.user["title"] = 42` is non-stringy and silently
-    /// drops; the fallback default (empty title) is used.
+    /// M7 (revised by p9-fb-07) — `metadata.user["title"] = 42` is
+    /// non-stringy and silently drops at the lift stage; derive_title
+    /// then falls back through the chain to the file stem.
+    /// spec p9-fb-07: "빈 문자열 반환 금지".
     #[test]
-    fn title_non_string_in_user_map_silently_drops() {
+    fn title_non_string_in_user_map_falls_back_to_file_stem() {
         let asset = fixture_asset();
         let mut metadata = fixture_metadata();
         metadata
@@ -824,7 +922,7 @@ mod tests {
         let pv = parser_version();
         let doc =
             build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
-        assert_eq!(doc.title, "");
+        assert_eq!(doc.title, "example");
     }
 
     /// M7 — non-stringy `lang` (e.g. an array) silently drops. This is
@@ -839,5 +937,155 @@ mod tests {
         let doc =
             build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
         assert_eq!(doc.lang, Lang(String::new()));
+    }
+
+    // ── p9-fb-07: derive_title fallback chain ───────────────────────────
+
+    fn span() -> SourceSpan {
+        SourceSpan::Line { start: 1, end: 1 }
+    }
+
+    fn common_for_test() -> CommonBlock {
+        CommonBlock {
+            block_id: BlockId("0".repeat(32)),
+            heading_path: vec![],
+            source_span: span(),
+        }
+    }
+
+    fn heading(level: u8, text: &str) -> Block {
+        Block::Heading(HeadingBlock {
+            common: common_for_test(),
+            level,
+            text: text.to_string(),
+        })
+    }
+
+    fn paragraph(text: &str) -> Block {
+        Block::Paragraph(TextBlock {
+            common: common_for_test(),
+            text: text.to_string(),
+            inlines: vec![],
+        })
+    }
+
+    /// Step 1 — frontmatter title wins, NFC-normalized.
+    #[test]
+    fn derive_title_uses_frontmatter_first() {
+        let blocks = vec![heading(1, "H1 Title"), paragraph("body")];
+        assert_eq!(
+            derive_title("Frontmatter Title", &blocks, "fallback-stem"),
+            "Frontmatter Title"
+        );
+    }
+
+    /// Whitespace-only frontmatter title falls through to the next step.
+    #[test]
+    fn derive_title_blank_frontmatter_falls_through_to_h1() {
+        let blocks = vec![heading(1, "First H1")];
+        assert_eq!(derive_title("   ", &blocks, "stem"), "First H1");
+    }
+
+    /// Step 2 — first H1 wins when frontmatter empty.
+    #[test]
+    fn derive_title_uses_h1_when_no_frontmatter() {
+        let blocks = vec![paragraph("intro"), heading(1, "Real Title"), heading(2, "Sub")];
+        assert_eq!(derive_title("", &blocks, "stem"), "Real Title");
+    }
+
+    /// Step 3 — first H2 wins when no H1.
+    #[test]
+    fn derive_title_uses_h2_when_no_h1() {
+        let blocks = vec![heading(2, "First H2"), heading(2, "Second H2"), heading(1, "")];
+        assert_eq!(derive_title("", &blocks, "stem"), "First H2");
+    }
+
+    /// Step 4 — first non-blank Paragraph wins; truncated to 80 chars.
+    /// Quotes / Lists / Code / Tables / ImageRefs do not qualify.
+    #[test]
+    fn derive_title_uses_first_paragraph_excerpt() {
+        let blocks = vec![
+            Block::Quote(TextBlock {
+                common: common_for_test(),
+                text: "blockquote should be skipped".into(),
+                inlines: vec![],
+            }),
+            Block::Code(CodeBlock {
+                common: common_for_test(),
+                lang: None,
+                code: "code should be skipped".into(),
+            }),
+            paragraph("This paragraph wins. Long text that would exceed eighty characters once concatenated end-to-end here."),
+        ];
+        let title = derive_title("", &blocks, "stem");
+        assert_eq!(title.chars().count(), 80);
+        assert!(title.starts_with("This paragraph wins."));
+    }
+
+    /// Step 5 — file stem is the final fallback when there are no
+    /// usable blocks (e.g. table-only doc with no paragraphs).
+    #[test]
+    fn derive_title_falls_back_to_file_stem() {
+        let blocks = vec![Block::Table(TableBlock {
+            common: common_for_test(),
+            headers: vec!["a".into()],
+            rows: vec![vec!["1".into()]],
+        })];
+        assert_eq!(derive_title("", &blocks, "table-only-doc"), "table-only-doc");
+    }
+
+    /// Step 5 sentinel — empty file_stem AND no usable blocks falls back
+    /// to the literal `"untitled"`. Pathological case (workspace_path
+    /// with no filename component).
+    #[test]
+    fn derive_title_returns_untitled_when_everything_blank() {
+        assert_eq!(derive_title("", &[], ""), "untitled");
+        assert_eq!(derive_title("   ", &[], "   "), "untitled");
+    }
+
+    /// Korean H1 in NFD form is normalized to NFC before being chosen
+    /// as the title. Mirrors the heading_path NFC pin elsewhere.
+    #[test]
+    fn derive_title_nfc_normalizes_korean_h1() {
+        let nfd = "\u{1100}\u{1161}".to_string(); // 가 (NFD)
+        let nfc = "\u{AC00}".to_string(); // 가 (NFC)
+        let blocks = vec![heading(1, &nfd)];
+        assert_eq!(derive_title("", &blocks, "stem"), nfc);
+    }
+
+    /// `build_canonical_document` integrates the derive_title chain —
+    /// when frontmatter title is empty, the first H1 is used.
+    #[test]
+    fn build_canonical_document_falls_back_to_first_h1() {
+        let asset = fixture_asset();
+        let mut metadata = fixture_metadata();
+        metadata.user.remove("title");
+        let blocks = vec![ParsedBlock {
+            kind: kebab_parse_types::ParsedBlockKind::Heading,
+            heading_path: vec![],
+            source_span: span(),
+            payload: ParsedPayload::Heading {
+                level: 1,
+                text: "Lifted From H1".into(),
+            },
+        }];
+        let pv = parser_version();
+        let doc =
+            build_canonical_document(&asset, metadata, blocks, &pv, vec![]).unwrap();
+        assert_eq!(doc.title, "Lifted From H1");
+    }
+
+    /// `build_canonical_document` integrates the file_stem fallback —
+    /// no frontmatter title, no headings, no paragraphs → filename
+    /// (stripped of extension).
+    #[test]
+    fn build_canonical_document_falls_back_to_file_stem() {
+        let asset = fixture_asset();
+        // workspace_path = "notes/example.md" → stem "example"
+        let mut metadata = fixture_metadata();
+        metadata.user.remove("title");
+        let pv = parser_version();
+        let doc = build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
+        assert_eq!(doc.title, "example");
     }
 }
