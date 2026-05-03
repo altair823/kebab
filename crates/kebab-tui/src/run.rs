@@ -350,7 +350,11 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
 ///   swallow what should be a typed character. We let `i` fall
 ///   through there.)
 /// - Everything else → not consumed.
-fn mode_intercept(app: &mut crate::app::App, key: crossterm::event::KeyEvent) -> bool {
+///
+/// `pub` so integration tests + future TUI consumers can drive the
+/// intercept paths by constructing KeyEvents directly without
+/// standing up the full run loop.
+pub fn mode_intercept(app: &mut crate::app::App, key: crossterm::event::KeyEvent) -> bool {
     use crossterm::event::{KeyCode, KeyModifiers};
     use crate::app::{Mode, Pane};
 

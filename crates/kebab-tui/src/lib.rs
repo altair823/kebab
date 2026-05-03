@@ -50,3 +50,7 @@ pub use search::{build_jump_command, handle_key_search, render_search};
 // the test) and can pin the in-flight-skip invariant of debounce.
 pub use search::poll_worker as poll_search_worker;
 pub use search::debounce_due as search_debounce_due;
+// p9-fb-12: expose the global mode-toggle intercept so integration
+// tests can pin the i/Esc behavior without standing up the full
+// run loop.
+pub use run::mode_intercept;

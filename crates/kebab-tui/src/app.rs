@@ -58,6 +58,15 @@ impl Mode {
     /// Library / Inspect are read-only navigation panes (`Normal`);
     /// Search / Ask are typing panes so we pre-flip to `Insert` so
     /// the user doesn't have to press `i` after every Tab.
+    ///
+    /// **Auto-flip overrides any prior user-flipped mode on pane
+    /// switch** — if a user pressed `Esc` on Search to read scroll-
+    /// back, then Tab'd back into Ask, the next focus auto-flips
+    /// to Insert (clobbering the user's Normal). This is
+    /// intentional: the typing case is the dominant one for
+    /// Search/Ask, and a sticky-per-pane mode adds state most
+    /// users don't ask for. Sticky mode is a future task —
+    /// current heuristic optimizes for the common case.
     pub fn auto_for(pane: Pane) -> Self {
         match pane {
             Pane::Search | Pane::Ask => Mode::Insert,
