@@ -431,7 +431,7 @@ fn parse_editor_env(env: &str) -> (String, Vec<String>) {
 /// - if a worker is already in flight for the *same* `(input, mode)`
 ///   the spawn is redundant — wait for the result.
 /// - dedupe against `last_query` (was already there pre-fb-08, kept).
-pub(crate) fn debounce_due(s: &SearchState) -> bool {
+pub fn debounce_due(s: &SearchState) -> bool {
     let Some(at) = s.input_dirty_at else { return false };
     let elapsed = (time::OffsetDateTime::now_utc() - at)
         .try_into()
@@ -488,7 +488,12 @@ pub(crate) fn fire_search(state: &mut App) -> anyhow::Result<()> {
     };
 
     let (tx, rx) = std::sync::mpsc::channel();
-    let handle = std::thread::Builder::new()
+    // Fire-and-forget — `JoinHandle` is dropped immediately so the
+    // OS detaches the thread. Search is a pure read with no
+    // cleanup obligation; if the receiver is replaced (next
+    // keystroke spawns a fresh worker), the old worker's
+    // `tx.send` no-ops and it exits silently.
+    std::thread::Builder::new()
         .name(format!("kebab-tui-search-gen{generation}"))
         .spawn(move || {
             let query = SearchQuery {
@@ -498,9 +503,6 @@ pub(crate) fn fire_search(state: &mut App) -> anyhow::Result<()> {
                 filters: kebab_core::SearchFilters::default(),
             };
             let result = kebab_app::search_with_config(cfg, query);
-            // Send result back. If the receiver dropped (UI closed,
-            // or — in tests — state torn down), the result is
-            // discarded; that's fine since search is a pure read.
             let _ = tx.send(crate::app::SearchWorkerMessage::Done {
                 generation,
                 result,
@@ -509,7 +511,6 @@ pub(crate) fn fire_search(state: &mut App) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("spawn search worker: {e}"))?;
 
     let s = state.search.as_mut().expect("Search slot must exist");
-    s.worker_thread = Some(handle);
     s.worker_rx = Some(rx);
     Ok(())
 }
@@ -526,15 +527,13 @@ pub fn poll_worker(state: &mut App) {
         Err(std::sync::mpsc::TryRecvError::Empty) => return,
         Err(std::sync::mpsc::TryRecvError::Disconnected) => {
             // Worker panicked or dropped tx without sending. Clear
-            // the worker handles + searching flag so the next debounce
-            // tick can re-fire if needed.
-            s.worker_thread = None;
+            // the rx + searching flag so the next debounce tick can
+            // re-fire if needed.
             s.worker_rx = None;
             s.searching = false;
             return;
         }
     };
-    s.worker_thread = None;
     s.worker_rx = None;
     match msg {
         crate::app::SearchWorkerMessage::Done { generation, result } => {

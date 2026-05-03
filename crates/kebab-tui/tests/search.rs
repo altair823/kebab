@@ -8,7 +8,7 @@ use kebab_core::{
 };
 use kebab_tui::{
     App, KeyOutcome, Pane, SearchState, SearchWorkerMessage, build_jump_command,
-    handle_key_search, poll_search_worker, render_search,
+    handle_key_search, poll_search_worker, render_search, search_debounce_due,
 };
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
@@ -408,6 +408,56 @@ fn poll_worker_noop_when_no_rx() {
     let s = app.search.as_ref().unwrap();
     assert_eq!(s.hits.len(), 1, "existing hits preserved");
     assert!(s.worker_rx.is_none());
+}
+
+/// Helper for the debounce_due tests — build a state with the four
+/// fields the test cares about set, others default.
+#[allow(clippy::field_reassign_with_default)]
+fn search_state_with(input: &str, mode: SearchMode, searching: bool, last_query: Option<(String, SearchMode)>) -> SearchState {
+    let mut s = SearchState::default();
+    s.input = input.into();
+    s.mode = mode;
+    s.searching = searching;
+    s.last_query = last_query;
+    s.input_dirty_at = Some(
+        time::OffsetDateTime::now_utc() - time::Duration::seconds(1),
+    );
+    s
+}
+
+/// p9-fb-08 — `debounce_due` skips when an in-flight worker is
+/// already running for the same `(input, mode)` pair. Without this
+/// guard, a "phantom keystroke" (re-typing the same chars) would
+/// pile up workers and burn CPU.
+#[test]
+fn debounce_due_skips_when_in_flight_for_same_query() {
+    let s = search_state_with(
+        "hello",
+        SearchMode::Hybrid,
+        true,
+        Some(("hello".into(), SearchMode::Hybrid)),
+    );
+    assert!(
+        !search_debounce_due(&s),
+        "in-flight worker for same query → debounce must skip"
+    );
+}
+
+/// p9-fb-08 — `debounce_due` still fires when a different query is
+/// in flight (user typed past the in-flight one). The new spawn
+/// makes the prior result stale (handled by `poll_worker`).
+#[test]
+fn debounce_due_fires_when_in_flight_for_different_query() {
+    let s = search_state_with(
+        "hello world",
+        SearchMode::Hybrid,
+        true,
+        Some(("hello".into(), SearchMode::Hybrid)),
+    );
+    assert!(
+        search_debounce_due(&s),
+        "in-flight worker for old query → new query still spawns"
+    );
 }
 
 /// p9-fb-08 — disconnected channel (worker panicked) clears the rx

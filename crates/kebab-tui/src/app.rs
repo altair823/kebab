@@ -83,12 +83,17 @@ pub struct SearchState {
     /// (the user kept typing and a newer query is already in
     /// flight). Wraps at u64::MAX which is unreachable in practice.
     pub generation: u64,
-    /// p9-fb-08: in-flight worker thread. Held so the worker can be
-    /// joined / observed; results stream back via `worker_rx`.
-    pub worker_thread: Option<std::thread::JoinHandle<()>>,
-    /// p9-fb-08: receiver for `(generation, Result<Vec<SearchHit>>)`
-    /// messages from the in-flight worker. Drained every tick by
+    /// p9-fb-08: receiver for the in-flight worker's
+    /// `SearchWorkerMessage::Done`. Drained every tick by
     /// `crate::search::poll_worker`. `None` between runs.
+    ///
+    /// Workers are fire-and-forget (no join) — search is a pure
+    /// read with no cleanup obligation, and dropping the receiver
+    /// makes the worker's `tx.send` no-op (worker exits after).
+    /// We don't store the `JoinHandle` because nothing observes it
+    /// (cf. `AskState.thread` which is `take().join()`'d on
+    /// `Ctrl-L`); the previous draft kept one for "symmetry" but
+    /// it was dead code.
     pub worker_rx: Option<std::sync::mpsc::Receiver<SearchWorkerMessage>>,
 }
 
@@ -115,7 +120,6 @@ impl Default for SearchState {
             searching: false,
             preview: None,
             generation: 0,
-            worker_thread: None,
             worker_rx: None,
         }
     }
