@@ -414,6 +414,9 @@ fn ctrl_l_clears_conversation_state() {
         s.partial = "leftover".into();
         s.current_question = Some("in flight".into());
         s.scroll = 5;
+        s.streaming = true;
+        // Note: thread / rx 는 JoinHandle 인 만큼 직접 mock 어려움 —
+        // streaming flag 만으로 detach side-effect 검증.
     }
     let outcome = handle_key_ask(
         &mut app,
@@ -427,6 +430,59 @@ fn ctrl_l_clears_conversation_state() {
     assert!(s.partial.is_empty(), "partial cleared");
     assert!(s.current_question.is_none(), "current_question cleared");
     assert_eq!(s.scroll, 0, "scroll reset");
+    // 회차 1 fix: streaming flag + thread/rx 도 detach.
+    assert!(!s.streaming, "streaming flag cleared");
+    assert!(s.thread.is_none(), "thread detached");
+    assert!(s.rx.is_none(), "rx detached");
+}
+
+#[test]
+fn render_refusal_turn_in_transcript_uses_yellow_when_last_answer_ungrounded() {
+    let mut app = fresh_app();
+    {
+        let s = app.ask.as_mut().unwrap();
+        let mut ans = make_answer(false, Some(RefusalReason::ScoreGate), "REFUSED BODY");
+        ans.citations.clear();
+        s.turns.push(Turn {
+            question: "Q".into(),
+            answer: ans.answer.clone(),
+            citations: Vec::new(),
+            created_at: ans.created_at,
+        });
+        s.last_answer = Some(ans);
+    }
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| {
+            let area = Rect::new(0, 0, 80, 24);
+            render_ask(f, area, &app);
+        })
+        .unwrap();
+    // Find the cell containing the first character of REFUSED BODY
+    // and assert its fg is Yellow (the refusal-style override).
+    let buffer = terminal.backend().buffer().clone();
+    let mut found = None;
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
+            let cell = &buffer[(x, y)];
+            if cell.symbol() == "R" {
+                // First R after Q: line — likely the answer body.
+                // Check fg color.
+                if let ratatui::style::Color::Yellow = cell.fg {
+                    found = Some((x, y));
+                    break;
+                }
+            }
+        }
+        if found.is_some() {
+            break;
+        }
+    }
+    assert!(
+        found.is_some(),
+        "expected at least one yellow R cell from REFUSED BODY in the transcript"
+    );
 }
 
 #[test]

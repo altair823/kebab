@@ -86,10 +86,27 @@ fn render_answer(f: &mut Frame, area: Rect, s: &AskState) {
 
     // p9-fb-16: render the full conversation as Q/A pairs.
     // Completed turns first (chronological), then the in-flight
-    // turn (if any) at the bottom.
+    // turn (if any) at the bottom. The most-recent completed
+    // turn's grounded flag (from `last_answer`) styles its A line
+    // — yellow on refusal so the user keeps the P9-3 visual
+    // distinction even inside the transcript.
+    let last_turn_grounded = s.last_answer.as_ref().map(|a| a.grounded);
+    let last_turn_idx = s.turns.len().saturating_sub(1);
     let mut lines: Vec<Line> = Vec::new();
     for (idx, turn) in s.turns.iter().enumerate() {
-        push_turn_lines(&mut lines, idx, &turn.question, &turn.answer, false);
+        let style_override = if idx == last_turn_idx {
+            last_turn_grounded.and_then(|g| if g { None } else { Some(Color::Yellow) })
+        } else {
+            None
+        };
+        push_turn_lines(
+            &mut lines,
+            idx,
+            &turn.question,
+            &turn.answer,
+            false,
+            style_override,
+        );
         lines.push(Line::raw(""));
     }
 
@@ -98,7 +115,7 @@ fn render_answer(f: &mut Frame, area: Rect, s: &AskState) {
         let mut a = s.partial.clone();
         a.push('▍');
         let idx = s.turns.len();
-        push_turn_lines(&mut lines, idx, q, &a, true);
+        push_turn_lines(&mut lines, idx, q, &a, true, None);
     }
 
     if lines.is_empty() {
@@ -123,6 +140,7 @@ fn push_turn_lines(
     question: &str,
     answer: &str,
     streaming: bool,
+    answer_color_override: Option<Color>,
 ) {
     let q_label = format!("Q{}", idx + 1);
     let a_label = format!("A{}", idx + 1);
@@ -136,7 +154,12 @@ fn push_turn_lines(
         Span::raw(": "),
         Span::raw(question.to_string()),
     ]));
-    let answer_style = if streaming {
+    // p9-fb-16: refusal turn (caller passed Yellow) keeps the P9-3
+    // visual distinction inside the transcript. Streaming turn fades
+    // to dim gray. Default is plain.
+    let answer_style = if let Some(c) = answer_color_override {
+        Style::default().fg(c)
+    } else if streaming {
         Style::default().fg(Color::Gray)
     } else {
         Style::default()
@@ -253,6 +276,16 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
             s.partial.clear();
             s.current_question = None;
             s.scroll = 0;
+            // p9-fb-16: detach the in-flight worker so its eventual
+            // result does NOT graduate into the new conversation as
+            // a stale Turn. JoinHandle Drop on `None` assignment is
+            // the same detach pattern P9-3 uses for Esc cancel —
+            // worker keeps running in the background, finishes its
+            // SQLite `answers` write (the failed-conv attempt is
+            // preserved on disk), TUI ignores the result.
+            s.thread = None;
+            s.rx = None;
+            s.streaming = false;
             KeyOutcome::Continue
         }
         (KeyCode::Esc, _) => {
