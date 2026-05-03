@@ -70,47 +70,110 @@ fn render_input(f: &mut Frame, area: Rect, s: &AskState) {
         Span::styled(busy, Style::default().add_modifier(Modifier::DIM)),
     ]);
     let block = Block::default()
-        .title("ask (Enter=submit  e=explain  Esc=back)")
+        .title("ask (Enter=submit  e=explain  Ctrl-L=new conversation  Esc=back)")
         .borders(Borders::ALL);
     f.render_widget(Paragraph::new(line).block(block), area);
 }
 
 fn render_answer(f: &mut Frame, area: Rect, s: &AskState) {
-    let block = Block::default().title("answer").borders(Borders::ALL);
+    let title = if s.turns.is_empty() && !s.streaming {
+        "transcript".to_string()
+    } else {
+        let count = s.turns.len() + if s.streaming { 1 } else { 0 };
+        format!("transcript ({} turn{})", count, if count == 1 { "" } else { "s" })
+    };
+    let block = Block::default().title(title).borders(Borders::ALL);
+
+    // p9-fb-16: render the full conversation as Q/A pairs.
+    // Completed turns first (chronological), then the in-flight
+    // turn (if any) at the bottom. The most-recent completed
+    // turn's grounded flag (from `last_answer`) styles its A line
+    // — yellow on refusal so the user keeps the P9-3 visual
+    // distinction even inside the transcript.
+    let last_turn_grounded = s.last_answer.as_ref().map(|a| a.grounded);
+    let last_turn_idx = s.turns.len().saturating_sub(1);
+    let mut lines: Vec<Line> = Vec::new();
+    for (idx, turn) in s.turns.iter().enumerate() {
+        let style_override = if idx == last_turn_idx {
+            last_turn_grounded.and_then(|g| if g { None } else { Some(Color::Yellow) })
+        } else {
+            None
+        };
+        push_turn_lines(
+            &mut lines,
+            idx,
+            &turn.question,
+            &turn.answer,
+            false,
+            style_override,
+        );
+        lines.push(Line::raw(""));
+    }
 
     if s.streaming {
-        // Mid-stream: show partial + cursor block.
-        let mut content = s.partial.clone();
-        content.push('▍');
-        let para = Paragraph::new(content)
-            .wrap(Wrap { trim: false })
-            .scroll((s.scroll, 0));
-        f.render_widget(para.block(block), area);
+        let q = s.current_question.as_deref().unwrap_or("");
+        let mut a = s.partial.clone();
+        a.push('▍');
+        let idx = s.turns.len();
+        push_turn_lines(&mut lines, idx, q, &a, true, None);
+    }
+
+    if lines.is_empty() {
+        let hint = Paragraph::new(Span::styled(
+            "(type a question and press Enter. follow-ups inherit history. Ctrl-L clears the conversation.)",
+            Style::default().add_modifier(Modifier::DIM),
+        ))
+        .wrap(Wrap { trim: false });
+        f.render_widget(hint.block(block), area);
         return;
     }
 
-    if let Some(answer) = &s.answer {
-        // Style refusal answers (grounded=false) in yellow so the user
-        // immediately spots they're not getting a sourced answer.
-        let style = if answer.grounded {
+    let para = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .scroll((s.scroll, 0));
+    f.render_widget(para.block(block), area);
+}
+
+fn push_turn_lines(
+    out: &mut Vec<Line<'static>>,
+    idx: usize,
+    question: &str,
+    answer: &str,
+    streaming: bool,
+    answer_color_override: Option<Color>,
+) {
+    let q_label = format!("Q{}", idx + 1);
+    let a_label = format!("A{}", idx + 1);
+    out.push(Line::from(vec![
+        Span::styled(
+            q_label,
             Style::default()
-        } else {
-            Style::default().fg(Color::Yellow)
-        };
-        let para = Paragraph::new(Span::styled(answer.answer.as_str(), style))
-            .wrap(Wrap { trim: false })
-            .scroll((s.scroll, 0));
-        f.render_widget(para.block(block), area);
-        return;
-    }
-
-    // No question yet.
-    let hint = Paragraph::new(Span::styled(
-        "(type a question and press Enter to ask. RAG answers stream token-by-token.)",
-        Style::default().add_modifier(Modifier::DIM),
-    ))
-    .wrap(Wrap { trim: false });
-    f.render_widget(hint.block(block), area);
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(": "),
+        Span::raw(question.to_string()),
+    ]));
+    // p9-fb-16: refusal turn (caller passed Yellow) keeps the P9-3
+    // visual distinction inside the transcript. Streaming turn fades
+    // to dim gray. Default is plain.
+    let answer_style = if let Some(c) = answer_color_override {
+        Style::default().fg(c)
+    } else if streaming {
+        Style::default().fg(Color::Gray)
+    } else {
+        Style::default()
+    };
+    out.push(Line::from(vec![
+        Span::styled(
+            a_label,
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(": "),
+        Span::styled(answer.to_string(), answer_style),
+    ]));
 }
 
 fn render_bottom(f: &mut Frame, area: Rect, s: &AskState) {
@@ -124,7 +187,7 @@ fn render_bottom(f: &mut Frame, area: Rect, s: &AskState) {
 
 fn render_status(f: &mut Frame, area: Rect, s: &AskState) {
     let block = Block::default().title("status").borders(Borders::ALL);
-    let lines: Vec<Line> = match &s.answer {
+    let lines: Vec<Line> = match &s.last_answer {
         None => vec![Line::from(Span::styled(
             "(no answer yet)",
             Style::default().add_modifier(Modifier::DIM),
@@ -160,7 +223,7 @@ fn render_status(f: &mut Frame, area: Rect, s: &AskState) {
 fn render_citations_or_explain(f: &mut Frame, area: Rect, s: &AskState) {
     let title = if s.explain { "explain (per-claim)" } else { "citations" };
     let block = Block::default().title(title).borders(Borders::ALL);
-    let lines: Vec<Line> = match &s.answer {
+    let lines: Vec<Line> = match &s.last_answer {
         None => vec![Line::from(Span::styled(
             "(submit a question to see citations)",
             Style::default().add_modifier(Modifier::DIM),
@@ -200,6 +263,31 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
     }
 
     match (key.code, key.modifiers) {
+        // p9-fb-16: Ctrl-L clears the in-pane conversation (turns +
+        // conversation_id). Doesn't kill the in-flight worker — that
+        // turn still finishes and its result is silently discarded
+        // (joined into a new conversation that didn't exist when the
+        // worker was spawned). Behaviour mirrors `:new` slash command.
+        (KeyCode::Char('l'), m) if m.contains(KeyModifiers::CONTROL) => {
+            let s = state.ask.as_mut().unwrap();
+            s.turns.clear();
+            s.conversation_id = None;
+            s.last_answer = None;
+            s.partial.clear();
+            s.current_question = None;
+            s.scroll = 0;
+            // p9-fb-16: detach the in-flight worker so its eventual
+            // result does NOT graduate into the new conversation as
+            // a stale Turn. JoinHandle Drop on `None` assignment is
+            // the same detach pattern P9-3 uses for Esc cancel —
+            // worker keeps running in the background, finishes its
+            // SQLite `answers` write (the failed-conv attempt is
+            // preserved on disk), TUI ignores the result.
+            s.thread = None;
+            s.rx = None;
+            s.streaming = false;
+            KeyOutcome::Continue
+        }
         (KeyCode::Esc, _) => {
             // Best-effort cancellation per spec — worker keeps running
             // but its result is dropped. Detach by clearing rx /
@@ -209,6 +297,7 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
             s.rx = None;
             s.thread = None;
             s.streaming = false;
+            s.current_question = None;
             KeyOutcome::SwitchPane(Pane::Library)
         }
         (KeyCode::Enter, _) => {
@@ -289,10 +378,21 @@ fn spawn_ask_worker(state: &mut App) {
     let query = s.input.clone();
     let explain = s.explain;
     s.partial.clear();
-    s.answer = None;
+    s.last_answer = None;
     s.streaming = true;
     s.scroll = 0;
     s.rx = Some(rx);
+    // p9-fb-16: graduate the typed input into the in-flight turn,
+    // clear the input box, ensure conversation_id exists, snapshot
+    // history for the worker.
+    s.current_question = Some(query.clone());
+    s.input.clear();
+    if s.conversation_id.is_none() {
+        s.conversation_id = Some(make_conversation_id());
+    }
+    let conversation_id = s.conversation_id.clone().unwrap();
+    let turn_index = u32::try_from(s.turns.len()).unwrap_or(u32::MAX);
+    let history = s.turns.clone();
 
     let opts = kebab_app::AskOpts {
         k: 0, // facade clamps to config.search.default_k floor
@@ -301,15 +401,25 @@ fn spawn_ask_worker(state: &mut App) {
         temperature: None,
         seed: None,
         stream_sink: Some(tx),
-        // p9-fb-15: TUI ask is single-shot in this task; multi-turn
-        // conversation UI lands in p9-fb-16.
-        history: Vec::new(),
-        conversation_id: None,
-        turn_index: None,
+        history,
+        conversation_id: Some(conversation_id),
+        turn_index: Some(turn_index),
     };
     let handle =
         thread::spawn(move || kebab_app::ask_with_config(cfg, &query, opts));
     s.thread = Some(handle);
+}
+
+/// Generate a fresh conversation_id. Timestamp-based — unique per
+/// session, not cryptographic. spec p9-fb-16 calls for blake3 of
+/// (first_question + ts) but the only guarantee we need is
+/// per-session uniqueness; nanosecond ts hex is enough.
+fn make_conversation_id() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("conv_{:032x}", nanos)
 }
 
 /// Run-loop hook: drain the streaming channel into `partial`. Called
@@ -341,11 +451,20 @@ pub(crate) fn poll_worker(state: &mut App) {
     s.rx = None;
     match result {
         Ok(Ok(answer)) => {
-            // Final partial is the full answer text; replace partial
-            // with the canonical answer.answer so post-stream rendering
-            // is identical regardless of stream pacing.
+            // p9-fb-16: graduate the in-flight (current_question +
+            // partial / answer) into a completed Turn appended to
+            // `turns`. Next submission's spawn_ask_worker reads
+            // `turns` as history and stamps turn_index.
+            let question = s.current_question.take().unwrap_or_default();
             s.partial.clear();
-            s.answer = Some(answer);
+            let turn = kebab_core::Turn {
+                question,
+                answer: answer.answer.clone(),
+                citations: answer.citations.clone(),
+                created_at: answer.created_at,
+            };
+            s.turns.push(turn);
+            s.last_answer = Some(answer);
         }
         Ok(Err(e)) => {
             s.last_error = Some(format!("{e:#}"));
