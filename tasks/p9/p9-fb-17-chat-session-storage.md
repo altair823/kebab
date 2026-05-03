@@ -3,7 +3,7 @@ phase: P9
 component: kebab-store-sqlite
 task_id: p9-fb-17
 title: "SQLite V004 — chat_sessions / chat_turns"
-status: in_progress
+status: completed
 depends_on: [p9-fb-15]
 unblocks: [p9-fb-18]
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
