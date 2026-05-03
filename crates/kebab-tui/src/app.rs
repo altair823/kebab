@@ -475,6 +475,17 @@ impl App {
             self.library.inner.list_state.select(Some(0));
         }
     }
+
+    /// Test-only: read back the current Library doc filter so tests
+    /// can assert on what `FilterEdit::commit_into` produced after a
+    /// simulated Enter key. Never call this in the render path.
+    ///
+    /// Marked `#[doc(hidden)]` because it is a test seam, not part
+    /// of the official UI API.
+    #[doc(hidden)]
+    pub fn library_filter_for_testing(&self) -> &kebab_core::DocFilter {
+        &self.library.inner.filter
+    }
 }
 
 #[cfg(test)]

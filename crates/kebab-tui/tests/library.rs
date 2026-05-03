@@ -216,6 +216,39 @@ fn handle_key_library_f_opens_filter_overlay_then_enter_refreshes() {
     assert_eq!(o2, KeyOutcome::Refresh);
 }
 
+/// p9-fb-10: filter overlay accepts Hangul tags via key events
+/// and commits them to the doc filter.
+#[test]
+fn filter_overlay_accepts_hangul_tags() {
+    let mut app = app_with_docs(vec![make_doc("a.md", "A", vec![])]);
+    // Open filter overlay.
+    let o1 = kebab_tui::handle_key_library(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
+    );
+    assert_eq!(o1, KeyOutcome::Continue);
+    // Type Hangul into the tags buffer.
+    for ch in "한글".chars() {
+        kebab_tui::handle_key_library(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+        );
+    }
+    // Enter commits.
+    let o2 = kebab_tui::handle_key_library(
+        &mut app,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    );
+    assert_eq!(o2, KeyOutcome::Refresh);
+    // The library filter should now contain "한글" as a tag.
+    let filter = app.library_filter_for_testing();
+    assert!(
+        filter.tags_any.iter().any(|t| t == "한글"),
+        "expected '한글' in tags filter: {:?}",
+        filter.tags_any,
+    );
+}
+
 /// p9-fb-10: Library renders Hangul / CJK titles without overflowing
 /// the title column. Smoke pin — render with a mixed Korean fixture
 /// and confirm no panic + the truncated width fits the column.
