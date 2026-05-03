@@ -265,14 +265,20 @@ pub struct App {
     /// vim) — the actual suspend / spawn / restore happens in the
     /// run loop, where the `TuiTerminal` handle is in scope.
     /// Drained every tick after the key dispatch.
-    pub pending_editor: Option<EditorRequest>,
-    /// p9-fb-09: ratchet incremented every time the run loop should
-    /// force a `terminal.clear()` before the next draw. Bumped after
-    /// `with_external_program` so any leftover screen content from
-    /// the suspended TUI is wiped. Independent of pending_editor —
-    /// any future code path that needs a forced redraw can bump
-    /// this.
-    pub force_redraw: bool,
+    ///
+    /// `pub(crate)` because the enqueue/take invariant ("set by a
+    /// key handler, drained by the next run-loop tick") only holds
+    /// for in-crate callers; external mutation could leave a stale
+    /// request that never gets serviced.
+    pub(crate) pending_editor: Option<EditorRequest>,
+    /// p9-fb-09: when set, the next run-loop draw runs
+    /// `terminal.clear()` first so any leftover screen content from
+    /// a suspension (post-editor, future config-reload, …) is wiped
+    /// before Ratatui's diff renders the new frame. Reset back to
+    /// false after the clear. Independent of `pending_editor` —
+    /// any future code path that needs a forced redraw can flip
+    /// this flag.
+    pub(crate) force_redraw: bool,
 }
 
 /// p9-fb-09: external-program spawn request. Posted by a pane's key
@@ -302,6 +308,15 @@ impl App {
             pending_editor: None,
             force_redraw: false,
         })
+    }
+
+    /// Read-only accessor for the in-flight external-program request.
+    /// Tests and future external observers (e.g. integration smokes)
+    /// use this to assert that a key dispatch enqueued a spawn —
+    /// mutating the slot stays `pub(crate)` to preserve the
+    /// "set-then-drained-on-next-tick" invariant.
+    pub fn pending_editor(&self) -> Option<&EditorRequest> {
+        self.pending_editor.as_ref()
     }
 
     /// Blocking event loop. Returns when the user quits or a fatal

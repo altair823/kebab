@@ -101,32 +101,26 @@ fn resume_tui(terminal: &mut TuiTerminal) -> Result<()> {
 mod tests {
     use std::process::Command;
 
-    /// We can't actually spawn $EDITOR in a unit test (no terminal),
-    /// but we can verify that the helper rejects an unspawnable
-    /// command with a useful error context. The /nonexistent path
-    /// should fail at the OS level (`ENOENT`) and the error chain
-    /// should mention which program failed.
+    /// Sanity check on the OS layer that `with_external_program`
+    /// builds on top of: a missing program path makes `Command::
+    /// status()` fail with `ENOENT`, which the helper wraps with
+    /// `with_context(|| format!("spawn child program: {:?}", ...))`
+    /// so the error chain points at the program name.
     ///
-    /// Skipped under MIRI / sandboxes where `Command::status` may
-    /// behave differently. Kept in `cfg(test)` so it runs on the
-    /// normal CI path.
-    ///
-    /// Note: this exercises the *spawn path* of `with_external_program`
-    /// without touching the TUI terminal — would require a real
-    /// `TuiTerminal` to fully integration-test. The terminal-side
-    /// suspend/restore is verified by the dogfooding loop on the spec.
+    /// We can't construct a `TuiTerminal` in a unit test (no real
+    /// terminal), so the helper end-to-end is verified by the
+    /// dogfooding loop in the spec rather than here. This test
+    /// only pins the OS behavior the helper assumes — if a future
+    /// libc / Rust update changes which `ErrorKind` is returned for
+    /// `ENOENT`, the helper's error message stays meaningful but
+    /// this test catches the platform regression first.
     #[test]
-    fn unspawnable_program_surfaces_program_name_in_error() {
-        // Guard the spawn behind a tiny no-op shim that doesn't need
-        // a terminal: just call `Command::status()` directly to mirror
-        // what the helper does internally.
+    fn command_status_returns_not_found_for_missing_program() {
         let mut cmd = Command::new("/nonexistent/kebab-test-binary-xxx");
         cmd.arg("dummy-arg");
         let result = cmd.status();
         assert!(result.is_err(), "expected ENOENT-like failure");
         let err = result.unwrap_err();
-        // Verify the OS surfaced a "not found" error — the helper
-        // wraps this with a `with_context` adding the program name.
         assert!(
             matches!(
                 err.kind(),

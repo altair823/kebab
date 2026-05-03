@@ -299,15 +299,14 @@ fn g_key_enqueues_pending_editor_request() {
         s.hits = vec![make_hit(1, "notes/x.md", "snippet", line_citation("notes/x.md", 42))];
         s.selected_hit = 0;
     }
-    assert!(app.pending_editor.is_none(), "queue starts empty");
+    assert!(app.pending_editor().is_none(), "queue starts empty");
     let outcome = handle_key_search(
         &mut app,
         KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
     );
     assert_eq!(outcome, KeyOutcome::Continue);
     let req = app
-        .pending_editor
-        .as_ref()
+        .pending_editor()
         .expect("g on a hit must enqueue an EditorRequest");
     match &req.citation {
         Citation::Line { path, start, .. } => {
@@ -330,7 +329,7 @@ fn g_key_with_no_hits_does_not_enqueue() {
         KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
     );
     assert!(
-        app.pending_editor.is_none(),
+        app.pending_editor().is_none(),
         "g with no hits must not enqueue"
     );
 }
