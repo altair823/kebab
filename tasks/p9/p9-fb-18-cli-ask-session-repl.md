@@ -3,7 +3,7 @@ phase: P9
 component: kebab-cli + kebab-app
 task_id: p9-fb-18
 title: "CLI ask --session / --repl"
-status: planned
+status: in_progress
 depends_on: [p9-fb-15, p9-fb-17]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md

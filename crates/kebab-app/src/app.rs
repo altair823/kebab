@@ -254,7 +254,20 @@ impl App {
     /// Run a RAG `ask` against the configured retriever + LLM. Reuses
     /// the memoized embedder / vector / LLM where applicable.
     pub fn ask(&self, query: &str, opts: AskOpts) -> Result<Answer> {
-        let retriever: Arc<dyn Retriever> = match opts.mode {
+        let retriever = self.build_retriever(opts.mode)?;
+        let llm = self.llm()?;
+        let pipeline =
+            RagPipeline::new(self.config.clone(), retriever, llm, self.sqlite.clone());
+        pipeline.ask(query, opts)
+    }
+
+    /// p9-fb-18: shared retriever-stack builder used by [`Self::ask`]
+    /// and [`Self::ask_with_session`]. Lexical mode uses the FTS5
+    /// retriever directly; vector / hybrid require embeddings (and
+    /// surface the same "switch to --mode lexical" error from
+    /// [`Self::require_embeddings`] when disabled).
+    fn build_retriever(&self, mode: SearchMode) -> Result<Arc<dyn Retriever>> {
+        Ok(match mode {
             SearchMode::Lexical => Arc::new(LexicalRetriever::with_settings(
                 self.sqlite.clone(),
                 lexical_index_version(&self.config),
@@ -292,12 +305,129 @@ impl App {
                 )) as Arc<dyn Retriever>;
                 Arc::new(HybridRetriever::new(&self.config, lex, vec_retr))
             }
-        };
+        })
+    }
 
+    /// p9-fb-18: ask under a persistent chat session. Loads the
+    /// session's prior turns (if any), runs the query through
+    /// `RagPipeline::ask_with_history`, then appends the new turn
+    /// + (auto-)creates the session row on first use.
+    ///
+    /// `session_id` is caller-supplied. If the session doesn't
+    /// exist yet, a new `chat_sessions` row is created with title
+    /// derived from the first question (≤40 chars, trimmed and
+    /// NFC-normalized). Subsequent calls with the same
+    /// `session_id` extend the conversation.
+    ///
+    /// The returned `Answer` carries `conversation_id = Some(
+    /// session_id)` and `turn_index = Some(n)` per p9-fb-15. The
+    /// new `chat_turns` row is committed before this method
+    /// returns; on persistence error, the answer is still returned
+    /// (don't lose the user's compute) but the error is logged so
+    /// the operator notices.
+    pub fn ask_with_session(
+        &self,
+        session_id: &str,
+        query: &str,
+        opts: AskOpts,
+    ) -> Result<Answer> {
+        use kebab_core::traits::{ChatSessionRepo, ChatSessionRow, ChatTurnRow};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        // Load (or create) the session header.
+        let now_unix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let existing = self.sqlite.get_session(session_id)?;
+        let prior_turns = match &existing {
+            Some(_) => self.sqlite.list_turns(session_id)?,
+            None => Vec::new(),
+        };
+        let next_index = u32::try_from(prior_turns.len()).unwrap_or(u32::MAX);
+
+        // Build history Vec<Turn> from the persisted rows. Citations
+        // are decoded best-effort — a corrupted citations_json
+        // becomes an empty Vec rather than a panic (history is
+        // advisory, not authoritative).
+        let history: Vec<kebab_core::Turn> = prior_turns
+            .iter()
+            .map(|row| kebab_core::Turn {
+                question: row.question.clone(),
+                answer: row.answer.clone(),
+                citations: serde_json::from_str(&row.citations_json).unwrap_or_default(),
+                created_at: time::OffsetDateTime::from_unix_timestamp(row.created_at)
+                    .unwrap_or(time::OffsetDateTime::UNIX_EPOCH),
+            })
+            .collect();
+
+        // p9-fb-18 R1: shared retriever builder removes the prior
+        // copy of `ask`'s 35-line stack — see [`Self::build_retriever`].
+        let retriever = self.build_retriever(opts.mode)?;
         let llm = self.llm()?;
         let pipeline =
             RagPipeline::new(self.config.clone(), retriever, llm, self.sqlite.clone());
-        pipeline.ask(query, opts)
+        let answer = pipeline.ask_with_history(
+            query,
+            history,
+            session_id.to_string(),
+            next_index,
+            opts,
+        )?;
+
+        // Auto-create the session header on first use. Title from
+        // the first question (≤40 chars after trim).
+        if existing.is_none() {
+            let title = first_question_title(query);
+            let session_row = ChatSessionRow {
+                session_id: session_id.to_string(),
+                created_at: now_unix,
+                updated_at: now_unix,
+                title: Some(title),
+                config_snapshot_json: serde_json::json!({
+                    "prompt_template_version": self.config.rag.prompt_template_version,
+                    "llm.model": self.config.models.llm.model,
+                    "max_context_tokens": self.config.rag.max_context_tokens,
+                })
+                .to_string(),
+            };
+            if let Err(e) = self.sqlite.create_session(&session_row) {
+                tracing::warn!(
+                    target: "kebab-app",
+                    error = %e,
+                    session_id = %session_id,
+                    "ask_with_session: create_session failed; continuing — turn append will surface a more useful error"
+                );
+            }
+        }
+
+        // Append the new turn. Failure is logged but does NOT mask
+        // the answer — the user still gets their response, the
+        // operator sees the persistence error in the warn log.
+        let turn_id = format!(
+            "{:032x}",
+            blake3_truncate(&format!("{session_id}:{next_index}")),
+        );
+        let turn_row = ChatTurnRow {
+            turn_id,
+            session_id: session_id.to_string(),
+            turn_index: next_index,
+            question: query.to_string(),
+            answer: answer.answer.clone(),
+            citations_json: serde_json::to_string(&answer.citations).unwrap_or_else(|_| "[]".to_string()),
+            created_at: now_unix,
+        };
+        if let Err(e) = self.sqlite.append_turn(&turn_row) {
+            tracing::warn!(
+                target: "kebab-app",
+                error = %e,
+                session_id = %session_id,
+                turn_index = next_index,
+                "ask_with_session: append_turn failed; answer returned regardless"
+            );
+        }
+
+        Ok(answer)
     }
 
     /// Returns `true` when the workspace has embeddings turned off
@@ -445,4 +575,74 @@ fn vector_index_version(embedder: &dyn Embedder) -> IndexVersion {
         embedder.model_version().0,
         embedder.dimensions(),
     ))
+}
+
+/// p9-fb-18: derive a chat-session title from the first question.
+/// Trim, NFC, take first ~40 chars. Always non-empty (falls back
+/// to `"untitled"`) — same defensive shape as kebab-normalize's
+/// derive_title.
+fn first_question_title(question: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    let nfc: String = question.trim().nfc().collect();
+    let truncated: String = nfc.chars().take(40).collect();
+    if truncated.is_empty() {
+        "untitled".to_string()
+    } else {
+        truncated
+    }
+}
+
+/// p9-fb-18: 32-hex `turn_id` derived from session_id + turn_index.
+/// blake3 hash truncated to first 16 bytes; format as 32-char lowercase
+/// hex so it slots into the `chat_turns.turn_id` column without
+/// collision concerns under any realistic per-session turn count.
+fn blake3_truncate(input: &str) -> u128 {
+    let hash = blake3::hash(input.as_bytes());
+    let bytes = hash.as_bytes();
+    let mut buf = [0u8; 16];
+    buf.copy_from_slice(&bytes[..16]);
+    u128::from_be_bytes(buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// p9-fb-18: title trims, NFC-normalizes, caps at 40 chars.
+    #[test]
+    fn first_question_title_trims_and_caps() {
+        assert_eq!(first_question_title("  hello  "), "hello");
+        let long = "a".repeat(100);
+        assert_eq!(first_question_title(&long).chars().count(), 40);
+    }
+
+    /// p9-fb-18: empty / whitespace-only question falls back to
+    /// `"untitled"` (never returns empty).
+    #[test]
+    fn first_question_title_falls_back_to_untitled() {
+        assert_eq!(first_question_title(""), "untitled");
+        assert_eq!(first_question_title("   "), "untitled");
+        assert_eq!(first_question_title("\t\n"), "untitled");
+    }
+
+    /// p9-fb-18: korean NFD → NFC.
+    #[test]
+    fn first_question_title_nfc_normalizes_korean() {
+        let nfd = "\u{1100}\u{1161}".to_string(); // 가 (NFD)
+        let title = first_question_title(&nfd);
+        assert_eq!(title, "\u{AC00}", "expected NFC composed form");
+    }
+
+    /// p9-fb-18: blake3_truncate is deterministic and differs across
+    /// distinct inputs.
+    #[test]
+    fn blake3_truncate_deterministic_and_distinct() {
+        let a = blake3_truncate("session-x:0");
+        let b = blake3_truncate("session-x:0");
+        let c = blake3_truncate("session-x:1");
+        let d = blake3_truncate("session-y:0");
+        assert_eq!(a, b, "same input → same hash");
+        assert_ne!(a, c, "different turn_index → different hash");
+        assert_ne!(a, d, "different session_id → different hash");
+    }
 }

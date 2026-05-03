@@ -25,9 +25,10 @@
 --   max_context_tokens that produced the session so a retroactive
 --   answer-quality regression can be re-traced.
 --
--- * `citations_json` carries `Vec<Citation>` so the answer can be
---   redisplayed with the same citation markers a future session
---   sees on resume.
+-- * `citations_json` carries `Vec<AnswerCitation>` (per p9-fb-18) —
+--   each AnswerCitation holds a `Citation` plus `marker`, so the
+--   answer can be redisplayed with the same citation markers a
+--   future session sees on resume.
 --
 -- * `INTEGER` timestamps (unix epoch seconds) — same convention the
 --   rest of the schema uses (P1-7 baselines this).

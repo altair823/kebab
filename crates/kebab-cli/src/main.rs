@@ -124,6 +124,16 @@ enum Cmd {
         /// to another tool that doesn't want trailing metadata.
         #[arg(long)]
         hide_citations: bool,
+
+        /// p9-fb-18: persistent multi-turn chat session id. First call
+        /// auto-creates the session in SQLite (`chat_sessions`), each
+        /// subsequent call with the same id loads prior turns as
+        /// history and appends the new Q/A. Without this flag, ask
+        /// is single-shot (no persistence). The session id is
+        /// caller-supplied — pick anything stable per conversation
+        /// (e.g. `kb-rust-async-2026-05`).
+        #[arg(long, value_name = "ID")]
+        session: Option<String>,
     },
 
     /// Wipe XDG data dirs (and optionally the Lance vector store) so the
@@ -453,6 +463,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             seed,
             show_citations,
             hide_citations,
+            session,
         } => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
             let opts = kebab_app::AskOpts {
@@ -465,14 +476,19 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 // once on completion). The TUI ask pane (P9-3) is what
                 // wires up a real `mpsc::Sender` here.
                 stream_sink: None,
-                // p9-fb-15: CLI single-shot ask. p9-fb-18 adds
-                // `--session` / `--repl` for multi-turn over the same
-                // facade (passes a populated `history`).
+                // p9-fb-18: when `--session` is set, the facade
+                // (`ask_with_session_with_config`) loads prior turns
+                // from SQLite and stuffs them into AskOpts.history
+                // before calling `ask_with_history`. Single-shot path
+                // (no `--session`) keeps the empty defaults.
                 history: Vec::new(),
                 conversation_id: None,
                 turn_index: None,
             };
-            let ans = kebab_app::ask_with_config(cfg, query, opts)?;
+            let ans = match session.as_deref() {
+                Some(sid) => kebab_app::ask_with_session_with_config(cfg, sid, query, opts)?,
+                None => kebab_app::ask_with_config(cfg, query, opts)?,
+            };
             if cli.json {
                 println!("{}", serde_json::to_string(&wire::wire_answer(&ans))?);
             } else {
