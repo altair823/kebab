@@ -89,6 +89,14 @@ pub struct App {
 /// Lexical mode has no embedding identity → empty string in that
 /// slot, harmless because the rest of the key still distinguishes
 /// queries.
+///
+/// **Naming note**: spec p9-fb-19 calls the invalidation counter
+/// `index_version`, but the impl renames it to `corpus_revision` to
+/// avoid confusion with the pre-existing `IndexVersion` newtype
+/// (design §9 — embedding-index identity label, a completely
+/// different concept). The `corpus_revision` row in the §9
+/// versioning table documents the new dimension; HOTFIXES entry
+/// tracks the rename.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct SearchCacheKey {
     pub query_norm: String,
@@ -161,22 +169,35 @@ impl App {
         // *subsequent* identical queries.
         let key = self.build_cache_key(&query)?;
         // Lock the cache long enough to lookup; clone the hit out so
-        // we can drop the lock before returning.
-        if let Ok(mut guard) = cache.lock() {
-            if let Some(hits) = guard.get(&key) {
-                tracing::debug!(
-                    target: "kebab-app",
-                    cache = "hit",
-                    corpus_revision = key.corpus_revision,
-                    "search served from LRU cache"
-                );
-                return Ok(hits.clone());
-            }
+        // we can drop the lock before returning. Mutex poison
+        // recovery: `into_inner()` of a poison error returns the
+        // (still-valid) underlying guard so we can keep using the
+        // cache after a panic in another thread. Log once so the
+        // poison itself is visible — the cache is still functional
+        // but a panic in a previous search is worth knowing about.
+        let mut guard = cache.lock().unwrap_or_else(|e| {
+            tracing::warn!(
+                target: "kebab-app",
+                "search_cache mutex was poisoned; recovering and continuing — \
+                 a previous search-thread panic preceded this call"
+            );
+            e.into_inner()
+        });
+        if let Some(hits) = guard.get(&key) {
+            tracing::debug!(
+                target: "kebab-app",
+                cache = "hit",
+                corpus_revision = key.corpus_revision,
+                "search served from LRU cache"
+            );
+            return Ok(hits.clone());
         }
+        // Drop the lock before the (potentially slow) retriever call
+        // so other in-flight searches can use the cache concurrently.
+        drop(guard);
         let hits = self.search_uncached(query)?;
-        if let Ok(mut guard) = cache.lock() {
-            guard.put(key, hits.clone());
-        }
+        let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        guard.put(key, hits.clone());
         Ok(hits)
     }
 
@@ -375,9 +396,8 @@ impl App {
     /// clear` admin command). No-op when the cache is disabled.
     pub fn clear_search_cache(&self) {
         if let Some(cache) = self.search_cache.as_ref() {
-            if let Ok(mut guard) = cache.lock() {
-                guard.clear();
-            }
+            let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+            guard.clear();
         }
     }
 
