@@ -328,19 +328,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_footer(f: &mut Frame, area: Rect, app: &App) {
-    let hints = match app.focus {
-        Pane::Library => {
-            if app.library.inner.filter_edit.is_some() {
-                "Tab=field  Enter=apply  Esc=cancel"
-            } else {
-                "j/k=move  gg=top  G=bottom  f=filter  /=search  ?=ask  Enter=inspect  r=ingest  q=quit"
-            }
-        }
-        Pane::Search => "type=query  Tab=mode  Enter=search  j/k=move  g=open in $EDITOR  Esc=back",
-        Pane::Ask => "type=question  Enter=submit  e=explain (when input empty)  j/k=scroll (when input empty)  Esc=back",
-        Pane::Inspect => "j/k=scroll  PgUp/PgDn=page scroll  c=collapse/expand sections  Esc/q=back",
-        Pane::Jobs => "Jobs pane not yet implemented — q to return",
-    };
+    let hints = footer_hints(app.focus, app.mode, app.library.inner.filter_edit.is_some());
     let line = Line::from(Span::styled(
         hints,
         app.theme.style(crate::theme::Role::Hint),
@@ -349,6 +337,49 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
         Paragraph::new(line).block(Block::default().borders(Borders::TOP)),
         area,
     );
+}
+
+/// p9-fb-13 follow-up: produce the footer hint text for a given
+/// `(focus, mode, filter_open)` tuple. Pure function — extracted so
+/// integration tests can pin the verb-form fragments per pane×mode
+/// without standing up the full render loop.
+///
+/// Style contract:
+/// - **Verb-form Korean fragments** (e.g. `"위로"` not `"=move"`).
+///   The original `key=action` form was English-only and read like
+///   a dev cheat-sheet, not user help.
+/// - **Mode-aware**: NORMAL shows navigation verbs;
+///   INSERT shows typing verbs + `Esc 로 NORMAL 모드` reminder.
+/// - **Filter overlay** overrides Library hints — short list of the
+///   3 keys that work inside the overlay.
+/// - **Order**: most-frequent verb first; last fragment is always
+///   the way back out (`Esc`/`q`).
+pub fn footer_hints(focus: Pane, mode: crate::app::Mode, filter_open: bool) -> &'static str {
+    use crate::app::Mode::*;
+    match (focus, mode, filter_open) {
+        // Library filter overlay — same on both modes (overlay
+        // captures every key, mode label irrelevant).
+        (Pane::Library, _, true) => "Tab 필드전환  Enter 적용  Esc 취소",
+        // Library Normal: full navigation surface.
+        (Pane::Library, Normal, false) => "↑/k 위로  ↓/j 아래로  gg 맨위  G 맨아래  f 필터  / 검색  ? 질문  Enter 자세히  r 인덱싱  q 종료",
+        // Library Insert: degenerate — nothing types in Library, so
+        // tell the user how to get back out.
+        (Pane::Library, Insert, false) => "Esc 로 NORMAL 모드",
+        // Search Insert: typing the query is the dominant action.
+        (Pane::Search, Insert, _) => "타이핑 검색어  Tab 모드전환  Enter 검색  Esc 로 NORMAL 모드 (j/k 이동  i 인스펙트  g 에디터)",
+        // Search Normal: navigation + commands.
+        (Pane::Search, Normal, _) => "↑/k 위로  ↓/j 아래로  Tab 모드전환  Enter 검색  i 인스펙트  g 에디터  Esc 뒤로",
+        // Ask Insert: typing the question.
+        (Pane::Ask, Insert, _) => "타이핑 질문  Enter 전송  Esc 로 NORMAL 모드 (e 상세  j/k 스크롤)",
+        // Ask Normal: scroll + toggle.
+        (Pane::Ask, Normal, _) => "e 상세설명  ↑/k 위로  ↓/j 아래로  Enter 전송  Ctrl-L 새대화  Esc 뒤로",
+        // Inspect Normal (default): scroll + collapse.
+        (Pane::Inspect, Normal, _) => "↑/k 위로  ↓/j 아래로  PgUp/PgDn 페이지  c 섹션접기  Esc/q 뒤로",
+        // Inspect Insert: degenerate.
+        (Pane::Inspect, Insert, _) => "Esc 로 NORMAL 모드",
+        // Jobs pane: placeholder.
+        (Pane::Jobs, _, _) => "Jobs pane 미구현 — q 로 복귀",
+    }
 }
 
 /// p9-fb-12: global mode toggle interception. Returns `true` when
@@ -427,5 +458,100 @@ pub fn cheatsheet_intercept(app: &mut crate::app::App, key: crossterm::event::Ke
             true
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod footer_hints_tests {
+    use super::*;
+    use crate::app::Mode;
+
+    /// p9-fb-13 follow-up: Library Normal hint includes nav verbs in
+    /// Korean and ends with the quit shortcut.
+    #[test]
+    fn library_normal_hint_uses_korean_verb_fragments() {
+        let h = footer_hints(Pane::Library, Mode::Normal, false);
+        assert!(h.contains("위로"), "expected 위로 verb: {h}");
+        assert!(h.contains("아래로"), "expected 아래로 verb: {h}");
+        assert!(h.contains("필터"), "expected 필터 verb: {h}");
+        assert!(h.ends_with("q 종료"), "expected q 종료 last: {h}");
+    }
+
+    /// p9-fb-13 follow-up: Library filter overlay overrides the
+    /// usual hint with the 3 keys that actually work in the overlay.
+    #[test]
+    fn library_filter_overlay_hint_lists_overlay_keys_only() {
+        let h = footer_hints(Pane::Library, Mode::Normal, true);
+        assert_eq!(h, "Tab 필드전환  Enter 적용  Esc 취소");
+    }
+
+    /// p9-fb-13 follow-up: Insert mode reminds user how to leave —
+    /// this is the most common confusion point per the dogfooding
+    /// feedback.
+    #[test]
+    fn insert_mode_hint_mentions_esc_to_normal() {
+        for pane in [Pane::Library, Pane::Search, Pane::Ask, Pane::Inspect] {
+            let h = footer_hints(pane, Mode::Insert, false);
+            assert!(
+                h.contains("Esc") && h.contains("NORMAL"),
+                "{pane:?} insert hint must mention Esc + NORMAL: {h}"
+            );
+        }
+    }
+
+    /// p9-fb-13 follow-up: Search Insert hint leads with the typing
+    /// verb (the dominant action) and lists the NORMAL-only commands
+    /// in parentheses so the user knows they're gated.
+    #[test]
+    fn search_insert_hint_leads_with_typing_verb() {
+        let h = footer_hints(Pane::Search, Mode::Insert, false);
+        assert!(h.starts_with("타이핑 검색어"), "should lead with 타이핑: {h}");
+        assert!(h.contains("Tab 모드전환"), "expected Tab 모드전환: {h}");
+        assert!(h.contains("Enter 검색"), "expected Enter 검색: {h}");
+    }
+
+    /// p9-fb-13 follow-up: Ask Insert hint leads with typing.
+    #[test]
+    fn ask_insert_hint_leads_with_typing_verb() {
+        let h = footer_hints(Pane::Ask, Mode::Insert, false);
+        assert!(h.starts_with("타이핑 질문"), "should lead with 타이핑: {h}");
+        assert!(h.contains("Enter 전송"), "expected Enter 전송: {h}");
+    }
+
+    /// p9-fb-13 follow-up: Inspect Normal hint covers scroll +
+    /// collapse + back-out.
+    #[test]
+    fn inspect_normal_hint_covers_scroll_collapse_back() {
+        let h = footer_hints(Pane::Inspect, Mode::Normal, false);
+        assert!(h.contains("위로"), "expected 위로 verb: {h}");
+        assert!(h.contains("페이지"), "expected 페이지 verb: {h}");
+        assert!(h.contains("섹션접기"), "expected 섹션접기 verb: {h}");
+        assert!(h.contains("뒤로"), "expected 뒤로 verb: {h}");
+    }
+
+    /// p9-fb-13 follow-up: Search Normal hint enables j/k/i/g as
+    /// commands (no parens — they're first-class in Normal mode).
+    #[test]
+    fn search_normal_hint_lists_commands_directly() {
+        let h = footer_hints(Pane::Search, Mode::Normal, false);
+        assert!(h.contains("위로"), "expected 위로 verb: {h}");
+        assert!(h.contains("Tab 모드전환"), "expected Tab 모드전환: {h}");
+        assert!(h.contains("i 인스펙트"), "expected i 인스펙트: {h}");
+        assert!(h.contains("g 에디터"), "expected g 에디터: {h}");
+    }
+
+    /// p9-fb-13 follow-up: every (pane, mode, filter_open) tuple
+    /// returns a non-empty hint — exhaustive sanity that the match
+    /// covers every arm.
+    #[test]
+    fn every_pane_mode_combo_returns_non_empty_hint() {
+        for pane in [Pane::Library, Pane::Search, Pane::Ask, Pane::Inspect, Pane::Jobs] {
+            for mode in [Mode::Normal, Mode::Insert] {
+                for filter_open in [false, true] {
+                    let h = footer_hints(pane, mode, filter_open);
+                    assert!(!h.is_empty(), "{pane:?}/{mode:?}/filter={filter_open} empty");
+                }
+            }
+        }
     }
 }
