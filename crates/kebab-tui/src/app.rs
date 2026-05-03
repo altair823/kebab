@@ -259,6 +259,29 @@ pub struct App {
     /// or by a future pane's quit key. The run loop drains this on
     /// each tick.
     pub(crate) should_quit: bool,
+    /// p9-fb-09: deferred external-program request. A pane's key
+    /// handler enqueues an `EditorRequest` here when the user wants
+    /// to spawn `$EDITOR` (e.g. Search `g` jumps to a citation in
+    /// vim) — the actual suspend / spawn / restore happens in the
+    /// run loop, where the `TuiTerminal` handle is in scope.
+    /// Drained every tick after the key dispatch.
+    pub pending_editor: Option<EditorRequest>,
+    /// p9-fb-09: ratchet incremented every time the run loop should
+    /// force a `terminal.clear()` before the next draw. Bumped after
+    /// `with_external_program` so any leftover screen content from
+    /// the suspended TUI is wiped. Independent of pending_editor —
+    /// any future code path that needs a forced redraw can bump
+    /// this.
+    pub force_redraw: bool,
+}
+
+/// p9-fb-09: external-program spawn request. Posted by a pane's key
+/// handler, serviced by the run loop on the next tick.
+#[derive(Clone, Debug)]
+pub struct EditorRequest {
+    pub citation: kebab_core::Citation,
+    pub editor_env: String,
+    pub workspace_root: std::path::PathBuf,
 }
 
 impl App {
@@ -276,6 +299,8 @@ impl App {
             ingest_state: None,
             error_overlay: None,
             should_quit: false,
+            pending_editor: None,
+            force_redraw: false,
         })
     }
 

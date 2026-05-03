@@ -287,6 +287,54 @@ fn shift_g_does_not_trigger_editor_jump() {
     assert_eq!(app.search.as_ref().unwrap().input, "G");
 }
 
+/// p9-fb-09 — `g` on a hit enqueues an `EditorRequest` on `App.pending_editor`
+/// rather than spawning the child synchronously. The run loop services the
+/// queue with the `TuiTerminal` handle in scope so the post-resume
+/// `terminal.clear()` can land (preventing the corrupted-redraw bug).
+#[test]
+fn g_key_enqueues_pending_editor_request() {
+    let mut app = fresh_app();
+    {
+        let s = app.search.as_mut().unwrap();
+        s.hits = vec![make_hit(1, "notes/x.md", "snippet", line_citation("notes/x.md", 42))];
+        s.selected_hit = 0;
+    }
+    assert!(app.pending_editor.is_none(), "queue starts empty");
+    let outcome = handle_key_search(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+    );
+    assert_eq!(outcome, KeyOutcome::Continue);
+    let req = app
+        .pending_editor
+        .as_ref()
+        .expect("g on a hit must enqueue an EditorRequest");
+    match &req.citation {
+        Citation::Line { path, start, .. } => {
+            assert_eq!(path.0, "notes/x.md");
+            assert_eq!(*start, 42);
+        }
+        other => panic!("unexpected citation variant: {other:?}"),
+    }
+    // editor_env reads $EDITOR — fall back to "vi" for tests.
+    assert!(!req.editor_env.is_empty(), "editor_env must be populated");
+}
+
+/// p9-fb-09 — `g` with no hits is a no-op; the queue stays empty.
+#[test]
+fn g_key_with_no_hits_does_not_enqueue() {
+    let mut app = fresh_app();
+    // Search slot present, hits empty.
+    let _outcome = handle_key_search(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+    );
+    assert!(
+        app.pending_editor.is_none(),
+        "g with no hits must not enqueue"
+    );
+}
+
 #[test]
 fn no_search_state_returns_to_library() {
     let mut config = Config::defaults();
