@@ -50,6 +50,8 @@ pub fn render_ask(f: &mut Frame, area: Rect, state: &App) {
 }
 
 fn render_input(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::Theme) {
+    const PROMPT: &str = "? ";
+
     let mode_badge = if s.explain { " explain" } else { "" };
     // Distinguish three async states for the operator:
     // - currently streaming (worker still emitting tokens)
@@ -64,7 +66,7 @@ fn render_input(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::T
         ""
     };
     let line = Line::from(vec![
-        Span::styled("? ", theme.style(crate::theme::Role::Heading)),
+        Span::styled(PROMPT, theme.style(crate::theme::Role::Heading)),
         Span::raw(s.input.as_str()),
         Span::styled(mode_badge, theme.style(crate::theme::Role::Warning)),
         Span::styled(busy, theme.style(crate::theme::Role::Hint)),
@@ -72,26 +74,19 @@ fn render_input(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::T
     let block = Block::default()
         .title("ask (Enter=submit  e=explain  Ctrl-L=new conversation  Esc=back)")
         .borders(Borders::ALL);
-    f.render_widget(Paragraph::new(line).block(block), area);
+    let inner = block.inner(area);
+    let paragraph = Paragraph::new(line).block(block);
+    f.render_widget(paragraph, area);
 
-    // p9-fb-10: position the terminal cursor at the end of the typed
-    // input. `area` has Borders::ALL so the inner content row is at
-    // y = area.y + 1, x starts at area.x + 1. The "? " prefix is
-    // 2 display columns; the buffer tracks cursor_col in the same
-    // column units. Clamp at the right inner edge so an overlong
-    // input never pushes the cursor outside the box.
-    // ratatui calls show_cursor + MoveTo whenever cursor_position is
-    // Some (our case here). When a render fn omits set_cursor_position
-    // (Library/Inspect), ratatui calls hide_cursor instead. So this
-    // single call both positions and unhides the caret for the Ask
-    // input column.
-    let prompt_w: u16 = 2; // "? " = 2 display columns
-    let inner_x = area.x + 1;
-    let inner_y = area.y + 1;
-    let inner_right = area.x + area.width.saturating_sub(1);
-    let raw_x = inner_x + prompt_w + s.input.cursor_col() as u16;
-    let cursor_x = raw_x.min(inner_right.saturating_sub(1));
-    f.set_cursor_position((cursor_x, inner_y));
+    // p9-fb-10: ratatui calls show_cursor + MoveTo whenever
+    // cursor_position is Some (our case here). When a render fn
+    // omits set_cursor_position (Library/Inspect), ratatui calls
+    // hide_cursor instead. So this single call both positions and
+    // unhides the caret for the Ask input column.
+    let prompt_w = crate::input::display_width(PROMPT) as u16;
+    let raw_x = inner.x + prompt_w + s.input.cursor_col() as u16;
+    let cursor_x = raw_x.min(inner.x + inner.width.saturating_sub(1));
+    f.set_cursor_position((cursor_x, inner.y));
 }
 
 fn render_answer(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::Theme) {
