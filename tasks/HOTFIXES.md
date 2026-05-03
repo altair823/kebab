@@ -14,6 +14,27 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-03 — p9-fb-21 (post-dogfooding): `i` universal Insert toggle + Search `i`→`o` rebind + F1 prefix
+
+**Spec added**: `tasks/p9/p9-fb-21-tui-insert-key-discoverability.md` (status `completed` 직접). 이전 도그푸딩 사이클 (p9-fb-01..20) 닫은 후 사용자가 다시 TUI 돌려보며 발견:
+
+- Ask Insert→Esc→Normal 후 Insert 로 돌아가는 키 모름 (p9-fb-12 의 mode_intercept 가 Search/Ask 의 `i` 를 fall-through 시킴 — 자동 INSERT 가정).
+- 전반적 키바인딩 안내 부족 (F1 cheatsheet 가 invisible).
+
+**Live binding 변경**:
+
+- `mode_intercept` 의 `(Char('i'), Mode::Normal, _)` arm 이 pane 무관 모두 INSERT flip + intercept consume. 사용자가 어느 pane 에서든 Esc 후 `i` 로 즉시 복귀 가능.
+- Search 의 chunk inspect 키 `i` → `o` (vim "open") rebind. `i` 가 universal Insert toggle 로 자유로워졌기 때문. Inspect 진입 명령은 `o` (대상 hit 의 chunk 를 Inspect pane 에서 "open").
+- 모든 `footer_hints` 항목 (10 개 (pane, mode, filter) 조합) 첫 fragment = `F1 도움말`. F1 cheatsheet binding 의 discoverability 보장.
+- Search/Ask Normal hint 에 `i 입력모드` fragment 추가 — Insert 복귀 경로 명시.
+- cheatsheet popup 의 Global / Search / Ask section 갱신: Global `i` = "every pane", Search 에 `o` row + `i` row 분리, Ask 에 `i` row 추가.
+
+**Spec contract impact**: Search 의 `i` → `o` rebind 은 frozen spec p9-fb-12 의 "Search 의 `j/k/i/g`" 표현과 충돌. p9-fb-12 의 frozen 텍스트는 그대로 두고 본 HOTFIXES 항목이 live binding 의 source of truth. p9-fb-13 footer hint 갱신 + p9-fb-21 의 footer hint 갱신은 동일 fn 에 누적.
+
+**Tests added**: 6 신규 unit (mode intercept Normal/Insert × Search/Ask, Search `o` 명령 3 case, footer F1 prefix exhaustive, Search/Ask Normal `i 입력모드` 명시). 기존 footer hint 테스트 3 건 갱신 (F1 prefix 반영).
+
+**Known limitation (deferred)**: cheatsheet popup body 가 Search + Ask 가 각 +1 row 늘어나면서 Inspect section (마지막) 이 75% height 안에 안 들어갈 수 있음 (TestBackend 120×40 환경 기준). 사용자는 Library/Inspect pane 에서 F1 누르면 Inspect 절 정보 일부 보임. 후속 task: popup scroll 또는 multi-column layout. 현재 스킵 — 도그푸딩 직접 신호 받은 후 우선순위 결정.
+
 ## 2026-05-03 — p9-fb-10 partial: helpers shipped, InputBuffer struct deferred
 
 **Spec amended**: `tasks/p9/p9-fb-10-tui-cjk-input.md` (status flipped

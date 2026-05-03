@@ -65,11 +65,11 @@ fn i_in_normal_on_library_inspect_jobs_flips_to_insert() {
     }
 }
 
-/// p9-fb-12: `i` on Search / Ask falls through (the pane is already
-/// in Insert via Mode::auto_for, so the global `i` interception
-/// would swallow what should be a typed character).
+/// p9-fb-21 (was p9-fb-12): on Search/Ask the auto mode is Insert,
+/// so `i` typed in that state must fall through (would otherwise
+/// swallow a real letter the user is typing).
 #[test]
-fn i_on_search_or_ask_falls_through_to_pane() {
+fn i_on_search_or_ask_in_insert_falls_through_to_pane() {
     for &pane in &[Pane::Search, Pane::Ask] {
         let mut app = fresh_app(pane);
         assert_eq!(app.mode, Mode::Insert, "auto_for({pane:?}) should be Insert");
@@ -77,8 +77,26 @@ fn i_on_search_or_ask_falls_through_to_pane() {
             &mut app,
             KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
         );
-        assert!(!consumed, "i on {pane:?} must fall through to pane");
+        assert!(!consumed, "i on {pane:?}/Insert must fall through to pane");
         assert_eq!(app.mode, Mode::Insert, "mode unchanged");
+    }
+}
+
+/// p9-fb-21: `i` in Normal on Search/Ask DOES intercept — the
+/// dogfooding feedback was that once the user pressed Esc to leave
+/// Insert, no key brought them back. `i` is the universal toggle
+/// now (Search's pre-fb-21 `i`=chunk inspect was rebound to `o`).
+#[test]
+fn i_on_search_or_ask_in_normal_flips_to_insert() {
+    for &pane in &[Pane::Search, Pane::Ask] {
+        let mut app = fresh_app(pane);
+        app.mode = Mode::Normal;
+        let consumed = mode_intercept(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+        );
+        assert!(consumed, "i on {pane:?}/Normal must intercept (p9-fb-21)");
+        assert_eq!(app.mode, Mode::Insert, "mode flipped to Insert (pane: {pane:?})");
     }
 }
 

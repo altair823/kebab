@@ -7,7 +7,7 @@ use kebab_core::{
     RetrievalDetail, SearchHit, SearchMode, WorkspacePath,
 };
 use kebab_tui::{
-    App, KeyOutcome, Pane, SearchState, SearchWorkerMessage, build_jump_command,
+    App, KeyOutcome, Mode, Pane, SearchState, SearchWorkerMessage, build_jump_command,
     handle_key_search, poll_search_worker, render_search, search_debounce_due,
 };
 use ratatui::Terminal;
@@ -571,4 +571,57 @@ fn hangul_typing_in_search_input_advances_cursor_by_two_per_char() {
     );
     assert_eq!(app.search.as_ref().unwrap().input.as_str(), "한");
     assert_eq!(app.search.as_ref().unwrap().input.cursor_col(), 2);
+}
+
+/// p9-fb-21: chunk-inspect was rebound from `i` to `o` so `i`
+/// could become the universal Normal→Insert toggle. Pin the new
+/// `o` key — Normal mode + at least one hit + selected → SwitchPane(Inspect).
+#[test]
+fn o_in_normal_with_hits_enters_inspect() {
+    let mut app = fresh_app();
+    app.focus = Pane::Search;
+    app.mode = Mode::Normal;
+    let s = app.search.as_mut().unwrap();
+    s.hits = vec![make_hit(
+        1,
+        "a.md",
+        "snippet",
+        line_citation("a.md", 1),
+    )];
+    s.selected_hit = 0;
+    let outcome = kebab_tui::handle_key_search(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE),
+    );
+    assert_eq!(outcome, KeyOutcome::SwitchPane(Pane::Inspect));
+}
+
+/// p9-fb-21: `o` with empty hits is a no-op (Continue) — do not
+/// enter Inspect with no target.
+#[test]
+fn o_in_normal_with_empty_hits_is_continue() {
+    let mut app = fresh_app();
+    app.focus = Pane::Search;
+    app.mode = Mode::Normal;
+    let outcome = kebab_tui::handle_key_search(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE),
+    );
+    assert_eq!(outcome, KeyOutcome::Continue);
+}
+
+/// p9-fb-21: in Insert mode, `o` types as a regular char (the
+/// chunk-inspect intercept only fires in Normal). Pin so a future
+/// regression that drops the `is_normal` guard would fail this.
+#[test]
+fn o_in_insert_types_into_input() {
+    let mut app = fresh_app();
+    app.focus = Pane::Search;
+    app.mode = Mode::Insert;
+    let outcome = kebab_tui::handle_key_search(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE),
+    );
+    assert_eq!(outcome, KeyOutcome::Continue);
+    assert_eq!(app.search.as_ref().unwrap().input.as_str(), "o");
 }

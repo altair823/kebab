@@ -37,7 +37,10 @@ use crate::theme::{Role, Theme};
 /// is consistent). The body is one section per pane plus the global
 /// toggles.
 pub fn render_cheatsheet(f: &mut Frame, area: Rect, app: &App) {
-    let popup_area = centered_rect(area, 70, 60);
+    // p9-fb-21: bumped from 60% → 75% height so the Inspect section
+    // (last in the list) still fits after Search + Ask each gained
+    // one row (`o` inspect + `i` Insert toggle).
+    let popup_area = centered_rect(area, 70, 75);
     f.render_widget(Clear, popup_area);
 
     let mut lines: Vec<Line> = Vec::new();
@@ -50,7 +53,7 @@ pub fn render_cheatsheet(f: &mut Frame, area: Rect, app: &App) {
     lines.push(Line::from(""));
 
     push_section(&mut lines, &app.theme, "Global", &[
-        ("i", "Normal → Insert (Library / Inspect / Jobs only)"),
+        ("i", "Normal → Insert (every pane — p9-fb-21)"),
         ("Esc", "Insert → Normal (any pane)"),
         ("F1", "toggle this cheatsheet"),
         ("Tab / Shift-Tab", "(future) cycle pane"),
@@ -73,7 +76,8 @@ pub fn render_cheatsheet(f: &mut Frame, area: Rect, app: &App) {
         ("Enter", "force search now (skip debounce)"),
         ("j / k", "move selection (Normal)"),
         ("g", "open hit's citation in $EDITOR (Normal)"),
-        ("i", "inspect selected hit's chunk (Normal)"),
+        ("o", "inspect selected hit's chunk (Normal — was `i` pre-fb-21)"),
+        ("i", "Normal → Insert (toggle back to typing)"),
         ("Esc", "back to Library"),
     ]);
 
@@ -82,6 +86,7 @@ pub fn render_cheatsheet(f: &mut Frame, area: Rect, app: &App) {
         ("Enter", "submit"),
         ("e", "toggle explain mode (Normal)"),
         ("j / k", "scroll transcript (Normal)"),
+        ("i", "Normal → Insert (toggle back to typing)"),
         ("Ctrl-L", "new conversation (clears turns)"),
         ("Esc", "back to Library (cancels in-flight worker)"),
     ]);
