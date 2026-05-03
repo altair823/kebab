@@ -247,8 +247,14 @@ fn render_ingest_status(f: &mut Frame, area: Rect, app: &App) {
         return;
     };
     let line = crate::ingest_progress::status_line(state);
+    // p9-fb-14: `aborted` is a non-fatal-but-noteworthy state (Ctrl-C
+    // partial commit) — `Role::Warning` (yellow) is the right semantic
+    // signal, plus an explicit BOLD so the abort line still stands
+    // out from the live progress lines around it.
     let style = if state.aborted {
-        app.theme.style(crate::theme::Role::Title)
+        app.theme
+            .style(crate::theme::Role::Warning)
+            .add_modifier(ratatui::style::Modifier::BOLD)
     } else {
         app.theme.style(crate::theme::Role::Body)
     };

@@ -153,12 +153,10 @@ fn push_turn_lines(
     let q_label = format!("Q{}", idx + 1);
     let a_label = format!("A{}", idx + 1);
     out.push(Line::from(vec![
-        Span::styled(
-            q_label,
-            theme
-                .style(crate::theme::Role::Heading)
-                .add_modifier(Modifier::BOLD),
-        ),
+        // `Role::Heading` already includes BOLD in both palettes, so
+        // no need to `add_modifier(BOLD)` here — the redundancy would
+        // imply Heading lacks BOLD elsewhere.
+        Span::styled(q_label, theme.style(crate::theme::Role::Heading)),
         Span::raw(": "),
         Span::raw(question.to_string()),
     ]));

@@ -128,6 +128,10 @@ impl Theme {
     }
 }
 
+/// `Theme::default() == Theme::dark()` — pinned by
+/// `default_palette_is_dark` test. If the default ever flips, both
+/// the test and downstream callers (e.g. integration smokes that
+/// rely on dark contrast) need a coordinated update.
 impl Default for Theme {
     fn default() -> Self {
         Self::dark()
