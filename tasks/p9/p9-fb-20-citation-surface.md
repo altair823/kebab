@@ -3,7 +3,7 @@ phase: P9
 component: kebab-cli + kebab-tui
 task_id: p9-fb-20
 title: "Citation full path + scrollable pane (CLI block + TUI pane + jump)"
-status: in_progress
+status: completed
 depends_on: [p9-fb-09, p9-fb-16]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
