@@ -100,37 +100,45 @@ impl ChatSessionRepo for SqliteStore {
     }
 
     fn append_turn(&self, turn: &ChatTurnRow) -> Result<()> {
-        let conn = self.lock_conn();
-        // Wrap insert + parent updated_at in one transaction so a
-        // crash between the two never leaves a turn under a stale
-        // `updated_at`.
-        let tx_result: Result<()> = (|| {
-            conn.execute(
-                "INSERT INTO chat_turns
-                 (turn_id, session_id, turn_index, question, answer,
-                  citations_json, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
-                params![
-                    turn.turn_id,
-                    turn.session_id,
-                    turn.turn_index,
-                    turn.question,
-                    turn.answer,
-                    turn.citations_json,
-                    turn.created_at,
-                ],
-            )
+        let mut conn = self.lock_conn();
+        // p9-fb-17 R1 fix: real transaction. The pre-fix code called
+        // `conn.execute` twice in auto-commit mode, so a failure in
+        // the second statement (UPDATE chat_sessions.updated_at) would
+        // leave the first (INSERT chat_turns row) committed —
+        // inconsistent state where the turn exists under a stale
+        // session updated_at. `conn.transaction()` opens BEGIN, both
+        // statements share it, `commit()` lands them atomically.
+        let tx = conn
+            .transaction()
             .map_err(StoreError::from)
-            .context("append_turn: insert")?;
-            conn.execute(
-                "UPDATE chat_sessions SET updated_at = ? WHERE session_id = ?",
-                params![turn.created_at, turn.session_id],
-            )
+            .context("append_turn: begin transaction")?;
+        tx.execute(
+            "INSERT INTO chat_turns
+             (turn_id, session_id, turn_index, question, answer,
+              citations_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![
+                turn.turn_id,
+                turn.session_id,
+                turn.turn_index,
+                turn.question,
+                turn.answer,
+                turn.citations_json,
+                turn.created_at,
+            ],
+        )
+        .map_err(StoreError::from)
+        .context("append_turn: insert")?;
+        tx.execute(
+            "UPDATE chat_sessions SET updated_at = ? WHERE session_id = ?",
+            params![turn.created_at, turn.session_id],
+        )
+        .map_err(StoreError::from)
+        .context("append_turn: bump updated_at")?;
+        tx.commit()
             .map_err(StoreError::from)
-            .context("append_turn: bump updated_at")?;
-            Ok(())
-        })();
-        tx_result
+            .context("append_turn: commit")?;
+        Ok(())
     }
 
     fn list_turns(&self, session_id: &str) -> Result<Vec<ChatTurnRow>> {
