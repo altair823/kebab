@@ -177,17 +177,18 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
         return KeyOutcome::SwitchPane(Pane::Library);
     }
 
-    // `g` (editor jump) requires re-borrowing `state` for
-    // workspace_root after dropping the `&mut state.search` borrow.
-    // Handle it as a pre-pass so the rest of the function can use
-    // `state.search.as_mut()` without scope juggling.
-    // `i` (chunk inspect) — pre-pass like `g`. Only fires on plain
-    // press, so typing 'i' in queries like "instance" still reaches
-    // the input buffer (P9-2 SHIFT/none convention).
-    if matches!(
-        (key.code, key.modifiers),
-        (KeyCode::Char('i'), KeyModifiers::NONE)
-    ) {
+    // p9-fb-12 follow-up: `i` (chunk inspect) + `g` (editor jump) are
+    // Normal-mode commands. In Insert they type as characters into
+    // the query buffer (mode-authoritative dispatch — replaces the
+    // pre-fb-12 SHIFT/none heuristic).
+    let is_normal = state.mode == crate::app::Mode::Normal;
+
+    if is_normal
+        && matches!(
+            (key.code, key.modifiers),
+            (KeyCode::Char('i'), KeyModifiers::NONE)
+        )
+    {
         let chunk_id = {
             let s = state.search.as_ref().unwrap();
             if s.hits.is_empty() {
@@ -207,13 +208,12 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
         return KeyOutcome::Continue;
     }
 
-    // `g` only fires the editor jump on plain (no-modifier) press —
-    // SHIFT-G in vim land is "go to bottom" (not implemented here),
-    // and CTRL/ALT chords stay reserved.
-    if matches!(
-        (key.code, key.modifiers),
-        (KeyCode::Char('g'), KeyModifiers::NONE)
-    ) {
+    if is_normal
+        && matches!(
+            (key.code, key.modifiers),
+            (KeyCode::Char('g'), KeyModifiers::NONE)
+        )
+    {
         let (citation, has_hits) = {
             let s = state.search.as_ref().unwrap();
             if s.hits.is_empty() {
@@ -245,6 +245,12 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
 
     let s = state.search.as_mut().unwrap();
 
+    // p9-fb-12 follow-up: mode-authoritative dispatch. The pre-fb-12
+    // `is_typing_mod` heuristic (SHIFT-aware char filter) is gone —
+    // mode now decides whether a Char goes to the input buffer or
+    // becomes a navigation command. `Tab` (mode cycle), `Enter`
+    // (refresh), `Backspace`, arrow keys, Esc work in both modes
+    // because they have no typing ambiguity.
     match (key.code, key.modifiers) {
         (KeyCode::Esc, _) => KeyOutcome::SwitchPane(Pane::Library),
         (KeyCode::Tab, _) => {
@@ -265,27 +271,12 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
                 KeyOutcome::Refresh
             }
         }
-        // `j` / `k` only fire as selection movers when *no* modifier is
-        // held. SHIFT-bearing keypresses (`J`, `K`) are typed input —
-        // letting them through here would corrupt every \"JSON\" /
-        // \"PostgreSQL\" search query. Down / Up arrows still accept
-        // any modifier (no typing collision).
-        (KeyCode::Char('j'), KeyModifiers::NONE) => {
+        (KeyCode::Down, _) => {
             move_selection(s, 1);
             s.preview = None;
             KeyOutcome::Continue
         }
-        (KeyCode::Down, m) if !is_typing_mod(m) => {
-            move_selection(s, 1);
-            s.preview = None;
-            KeyOutcome::Continue
-        }
-        (KeyCode::Char('k'), KeyModifiers::NONE) => {
-            move_selection(s, -1);
-            s.preview = None;
-            KeyOutcome::Continue
-        }
-        (KeyCode::Up, m) if !is_typing_mod(m) => {
+        (KeyCode::Up, _) => {
             move_selection(s, -1);
             s.preview = None;
             KeyOutcome::Continue
@@ -297,14 +288,45 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
             }
             KeyOutcome::Continue
         }
-        (KeyCode::Char(c), _) => {
-            // Treat 'g' separately above; here 'g' would reach this
-            // branch only when `is_typing_mod` triggered — i.e. SHIFT
-            // 'G'. Fold into typing.
+        // p9-fb-12 follow-up: Char dispatch is mode-gated. Normal
+        // mode → j/k navigate; Insert mode → typed into input.
+        // Single arm per key, body branches on mode (clearer than
+        // duplicate-arm + guard).
+        (KeyCode::Char('j'), KeyModifiers::NONE) => {
+            if is_normal {
+                move_selection(s, 1);
+                s.preview = None;
+            } else {
+                s.input.push('j');
+                s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
+            }
+            KeyOutcome::Continue
+        }
+        (KeyCode::Char('k'), KeyModifiers::NONE) => {
+            if is_normal {
+                move_selection(s, -1);
+                s.preview = None;
+            } else {
+                s.input.push('k');
+                s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
+            }
+            KeyOutcome::Continue
+        }
+        (KeyCode::Char(c), m)
+            if !is_normal
+                && !m.contains(KeyModifiers::CONTROL)
+                && !m.contains(KeyModifiers::ALT) =>
+        {
+            // Insert mode: every plain or SHIFT-only Char goes to
+            // input. CTRL/ALT chords stay reserved for future
+            // bindings (and don't currently match any Search
+            // command, so they're a safe fall-through to Continue).
             s.input.push(c);
             s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
             KeyOutcome::Continue
         }
+        // Normal mode + un-handled Char → no-op (no typing in
+        // Normal). Modifier chords always no-op.
         _ => KeyOutcome::Continue,
     }
 }
@@ -315,12 +337,6 @@ fn cycle_mode(m: SearchMode) -> SearchMode {
         SearchMode::Vector => SearchMode::Hybrid,
         SearchMode::Hybrid => SearchMode::Lexical,
     }
-}
-
-fn is_typing_mod(m: KeyModifiers) -> bool {
-    // SHIFT alone is fine for typing capital letters, but CTRL/ALT
-    // means a chord — don't swallow as input.
-    m.contains(KeyModifiers::CONTROL) || m.contains(KeyModifiers::ALT)
 }
 
 fn move_selection(s: &mut SearchState, delta: i32) {

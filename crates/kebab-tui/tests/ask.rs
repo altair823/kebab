@@ -23,6 +23,10 @@ fn fresh_app() -> App {
     config.workspace.root = "/tmp/kebab-tui-ask-tests-noop/workspace".to_string();
     let mut app = App::new(config).expect("App::new");
     app.focus = Pane::Ask;
+    // p9-fb-12 follow-up: mirror the run loop's auto-flip on pane
+    // switch — Search/Ask auto-Insert. Tests that want Normal-mode
+    // navigation behaviour set `app.mode = Mode::Normal` explicitly.
+    app.mode = kebab_tui::Mode::auto_for(Pane::Ask);
     app.ask = Some(AskState::default());
     app
 }
@@ -116,9 +120,62 @@ fn backspace_pops_input() {
     assert_eq!(app.ask.as_ref().unwrap().input, "abc");
 }
 
+/// p9-fb-12 follow-up: `e` types into input in Insert mode (does
+/// NOT toggle explain). Replaces the pre-fb-12 heuristic
+/// "input.is_empty() then toggle else type" with mode-authoritative
+/// dispatch.
 #[test]
-fn e_toggles_explain_when_input_empty() {
+fn e_types_in_insert_mode_does_not_toggle_explain() {
     let mut app = fresh_app();
+    // Insert auto for Ask, but explicit for clarity.
+    app.mode = kebab_tui::Mode::Insert;
+    assert!(!app.ask.as_ref().unwrap().explain);
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+    );
+    let s = app.ask.as_ref().unwrap();
+    assert_eq!(s.input, "e", "e must type in Insert mode");
+    assert!(!s.explain, "explain must NOT toggle in Insert mode");
+}
+
+/// p9-fb-12 follow-up: `j` / `k` are scroll commands in Normal mode.
+/// In Insert they type. Replaces input-empty heuristic.
+#[test]
+fn jk_scroll_in_normal_mode_type_in_insert() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Normal;
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+    );
+    assert_eq!(app.ask.as_ref().unwrap().scroll, 1, "j scrolls down in Normal");
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+    );
+    assert_eq!(app.ask.as_ref().unwrap().scroll, 0, "k scrolls up in Normal");
+    // Now Insert — j/k type.
+    app.mode = kebab_tui::Mode::Insert;
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+    );
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+    );
+    assert_eq!(app.ask.as_ref().unwrap().input, "jk");
+    assert_eq!(app.ask.as_ref().unwrap().scroll, 0, "no scroll in Insert");
+}
+
+/// p9-fb-12 follow-up: `e` toggles explain in Normal mode (was
+/// previously gated on `input.is_empty()` heuristic). Test forces
+/// Normal explicitly to mirror the run-loop flow (user pressed Esc).
+#[test]
+fn e_toggles_explain_in_normal_mode() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Normal;
     assert!(!app.ask.as_ref().unwrap().explain);
     handle_key_ask(
         &mut app,

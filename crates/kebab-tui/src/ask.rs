@@ -341,41 +341,24 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
             spawn_ask_worker(state);
             KeyOutcome::Continue
         }
-        // `e` only as a plain (no-modifier) press — typing 'e' in a
-        // word like "explain" must still reach the input buffer.
-        // The spec lists `e` as the explain-toggle; we apply the same
-        // SHIFT-aware convention as P9-2's `g` jump.
-        (KeyCode::Char('e'), KeyModifiers::NONE) => {
-            // Ambiguity with typing — distinguish via empty input as
-            // a heuristic: when input is empty, `e` toggles; while
-            // typing, `e` reaches the buffer. Vim users will recognise
-            // this "command vs insert" split applied at the keystroke
-            // level.
+        // p9-fb-12 follow-up: `e` / `j` / `k` are mode-gated. Normal
+        // mode → toggle explain / scroll up/down. Insert mode → typed
+        // into input buffer. The pre-fb-12 input-empty heuristic
+        // ("if input.is_empty() then command else type") is gone —
+        // Mode is authoritative.
+        (KeyCode::Char('e'), KeyModifiers::NONE) if state.mode == crate::app::Mode::Normal => {
             let s = state.ask.as_mut().unwrap();
-            if s.input.is_empty() {
-                s.explain = !s.explain;
-                KeyOutcome::Continue
-            } else {
-                s.input.push('e');
-                KeyOutcome::Continue
-            }
-        }
-        (KeyCode::Char('j'), KeyModifiers::NONE) => {
-            let s = state.ask.as_mut().unwrap();
-            if s.input.is_empty() {
-                s.scroll = s.scroll.saturating_add(1);
-            } else {
-                s.input.push('j');
-            }
+            s.explain = !s.explain;
             KeyOutcome::Continue
         }
-        (KeyCode::Char('k'), KeyModifiers::NONE) => {
+        (KeyCode::Char('j'), KeyModifiers::NONE) if state.mode == crate::app::Mode::Normal => {
             let s = state.ask.as_mut().unwrap();
-            if s.input.is_empty() {
-                s.scroll = s.scroll.saturating_sub(1);
-            } else {
-                s.input.push('k');
-            }
+            s.scroll = s.scroll.saturating_add(1);
+            KeyOutcome::Continue
+        }
+        (KeyCode::Char('k'), KeyModifiers::NONE) if state.mode == crate::app::Mode::Normal => {
+            let s = state.ask.as_mut().unwrap();
+            s.scroll = s.scroll.saturating_sub(1);
             KeyOutcome::Continue
         }
         (KeyCode::Backspace, _) => {
@@ -383,11 +366,18 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
             s.input.pop();
             KeyOutcome::Continue
         }
-        (KeyCode::Char(c), _) => {
+        // Insert mode: every non-chord Char (incl. e/j/k) types into
+        // input. CTRL/ALT chords stay reserved.
+        (KeyCode::Char(c), m)
+            if state.mode == crate::app::Mode::Insert
+                && !m.contains(KeyModifiers::CONTROL)
+                && !m.contains(KeyModifiers::ALT) =>
+        {
             let s = state.ask.as_mut().unwrap();
             s.input.push(c);
             KeyOutcome::Continue
         }
+        // Normal mode + un-handled Char → no-op (no typing in Normal).
         _ => KeyOutcome::Continue,
     }
 }

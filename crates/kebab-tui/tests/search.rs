@@ -21,6 +21,11 @@ fn fresh_app() -> App {
     config.workspace.root = "/tmp/kebab-tui-search-tests-noop/workspace".to_string();
     let mut app = App::new(config).expect("App::new");
     app.focus = Pane::Search;
+    // p9-fb-12 follow-up: mirror the run loop's auto-flip — Search
+    // pane auto-Insert. Tests that exercise Normal-mode navigation
+    // (j/k move selection, i / g pre-pass) set Mode::Normal
+    // explicitly.
+    app.mode = kebab_tui::Mode::auto_for(Pane::Search);
     app.search = Some(SearchState::default());
     app
 }
@@ -138,6 +143,10 @@ fn enter_with_empty_query_is_continue() {
 #[test]
 fn j_k_move_selection_within_bounds() {
     let mut app = fresh_app();
+    // p9-fb-12 follow-up: j/k navigate only in Normal mode. Search
+    // pane auto-Insert via fresh_app, flip to Normal explicitly to
+    // exercise the navigation branch.
+    app.mode = kebab_tui::Mode::Normal;
     {
         let s = app.search.as_mut().unwrap();
         s.hits = vec![
@@ -248,6 +257,46 @@ fn empty_state_renders_without_panic() {
         .unwrap();
 }
 
+/// p9-fb-12 follow-up: in Insert mode, plain `j` types into input
+/// (does NOT move selection). Replaces the pre-fb-12 heuristic
+/// "is_typing_mod" with mode-authoritative dispatch.
+#[test]
+fn j_in_insert_types_does_not_move_selection() {
+    let mut app = fresh_app();
+    // Insert is auto for Search, but explicit for clarity.
+    app.mode = kebab_tui::Mode::Insert;
+    {
+        let s = app.search.as_mut().unwrap();
+        s.hits = vec![
+            make_hit(1, "a.md", "snip", line_citation("a.md", 1)),
+            make_hit(2, "b.md", "snip", line_citation("b.md", 1)),
+        ];
+        s.selected_hit = 0;
+    }
+    handle_key_search(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+    );
+    let s = app.search.as_ref().unwrap();
+    assert_eq!(s.input, "j", "j must type in Insert mode");
+    assert_eq!(s.selected_hit, 0, "selection must NOT move in Insert");
+}
+
+/// p9-fb-12 follow-up: in Normal mode, plain Char other than j/k/i/g
+/// is a no-op (no typing in Normal). Pin so a future char binding
+/// addition has to think about Normal-mode behavior.
+#[test]
+fn arbitrary_char_in_normal_mode_is_noop() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Normal;
+    handle_key_search(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE),
+    );
+    let s = app.search.as_ref().unwrap();
+    assert_eq!(s.input, "", "Normal-mode Char must NOT type");
+}
+
 #[test]
 fn shift_j_stays_in_input_does_not_move_selection() {
     // R1 fix: SHIFT-J / SHIFT-K must reach the typing branch so
@@ -295,6 +344,9 @@ fn shift_g_does_not_trigger_editor_jump() {
 #[test]
 fn g_key_enqueues_pending_editor_request() {
     let mut app = fresh_app();
+    // p9-fb-12 follow-up: `g` (editor jump) is a Normal-mode command;
+    // in Insert mode it types as 'g'. Flip explicitly.
+    app.mode = kebab_tui::Mode::Normal;
     {
         let s = app.search.as_mut().unwrap();
         s.hits = vec![make_hit(1, "notes/x.md", "snippet", line_citation("notes/x.md", 42))];
