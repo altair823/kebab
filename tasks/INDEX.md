@@ -83,7 +83,7 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
   - [p9-3 tui-ask](p9/p9-3-tui-ask.md)
   - [p9-4 tui-inspect](p9/p9-4-tui-inspect.md)
   - [p9-5 desktop-tauri](p9/p9-5-desktop-tauri.md)
-  - [p9-dogfooding 피드백 인덱스](p9/p9-dogfooding-feedback.md) — 사용자가 직접 돌려보며 수집한 UX 잡음 → p9-fb-01 ~ 20 으로 분해 완료
+  - [p9-dogfooding 피드백 인덱스](p9/p9-dogfooding-feedback.md) — 사용자가 직접 돌려보며 수집한 UX 잡음 → p9-fb-01 ~ 20 으로 분해 + 구현 **20/20 ✅ (2026-05-03 완료)**
   - [p9-fb-01 ingest progress callback](p9/p9-fb-01-ingest-progress-callback.md)
   - [p9-fb-02 CLI progress display](p9/p9-fb-02-cli-progress-display.md)
   - [p9-fb-03 TUI ingest background](p9/p9-fb-03-tui-ingest-background.md)
