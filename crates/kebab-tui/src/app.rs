@@ -114,7 +114,10 @@ impl Default for LibraryState {
 /// re-exporting field accessors. The pane behavior + render live in
 /// `crate::search`.
 pub struct SearchState {
-    pub input: String,
+    /// p9-fb-10: `InputBuffer` tracks display-column cursor position
+    /// alongside content so wide chars (Hangul, CJK) place the
+    /// terminal cursor in the correct column.
+    pub input: crate::input::InputBuffer,
     pub mode: kebab_core::SearchMode,
     pub hits: Vec<kebab_core::SearchHit>,
     pub selected_hit: usize,
@@ -166,7 +169,7 @@ pub enum SearchWorkerMessage {
 impl Default for SearchState {
     fn default() -> Self {
         Self {
-            input: String::new(),
+            input: crate::input::InputBuffer::new(),
             mode: kebab_core::SearchMode::Hybrid,
             hits: Vec::new(),
             selected_hit: 0,
@@ -196,7 +199,10 @@ impl Default for SearchState {
 /// start a fresh conversation.
 #[derive(Default)]
 pub struct AskState {
-    pub input: String,
+    /// p9-fb-10: `InputBuffer` tracks display-column cursor position
+    /// alongside content so wide chars (Hangul, CJK) place the
+    /// terminal cursor in the correct column.
+    pub input: crate::input::InputBuffer,
     /// Toggled by the `e` key. Re-applied on the next `Enter`.
     pub explain: bool,
     /// True between `Enter` press and worker thread completion.
@@ -468,6 +474,17 @@ impl App {
         } else {
             self.library.inner.list_state.select(Some(0));
         }
+    }
+
+    /// Test-only: read back the current Library doc filter so tests
+    /// can assert on what `FilterEdit::commit_into` produced after a
+    /// simulated Enter key. Never call this in the render path.
+    ///
+    /// Marked `#[doc(hidden)]` because it is a test seam, not part
+    /// of the official UI API.
+    #[doc(hidden)]
+    pub fn library_filter_for_testing(&self) -> &kebab_core::DocFilter {
+        &self.library.inner.filter
     }
 }
 

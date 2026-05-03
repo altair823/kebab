@@ -5,15 +5,6 @@ mod common;
 
 use common::TestEnv;
 
-fn lexical_query(text: &str) -> kebab_core::SearchQuery {
-    kebab_core::SearchQuery {
-        text: text.to_string(),
-        mode: kebab_core::SearchMode::Lexical,
-        k: 10,
-        filters: kebab_core::SearchFilters::default(),
-    }
-}
-
 #[test]
 fn lexical_search_returns_hits_after_ingest() {
     let env = TestEnv::lexical_only();
@@ -22,7 +13,7 @@ fn lexical_search_returns_hits_after_ingest() {
     // "Ownership" appears as a heading + paragraph in intro.md and
     // matches FTS5 default tokenizer easily.
     let hits =
-        kebab_app::search_with_config(env.config.clone(), lexical_query("ownership"))
+        kebab_app::search_with_config(env.config.clone(), common::lexical_query("ownership"))
             .unwrap();
     assert!(!hits.is_empty(), "expected ≥1 hit for 'ownership'");
 
@@ -44,7 +35,7 @@ fn lexical_search_returns_hits_after_ingest() {
 fn lexical_search_empty_query_returns_empty() {
     let env = TestEnv::lexical_only();
     kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
-    let hits = kebab_app::search_with_config(env.config.clone(), lexical_query("   "))
+    let hits = kebab_app::search_with_config(env.config.clone(), common::lexical_query("   "))
         .unwrap();
     assert!(hits.is_empty(), "blank query must short-circuit empty");
 }
@@ -57,9 +48,9 @@ fn cached_search_returns_same_hits_on_repeat() {
     let env = TestEnv::lexical_only();
     kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
     let app = kebab_app::App::open_with_config(env.config.clone()).unwrap();
-    let first = app.search(lexical_query("ownership")).unwrap();
+    let first = app.search(common::lexical_query("ownership")).unwrap();
     assert!(!first.is_empty(), "first call must return ≥1 hit");
-    let second = app.search(lexical_query("ownership")).unwrap();
+    let second = app.search(common::lexical_query("ownership")).unwrap();
     assert_eq!(
         first.len(),
         second.len(),
@@ -79,9 +70,9 @@ fn cache_key_normalization_treats_case_and_whitespace_as_equivalent() {
     let env = TestEnv::lexical_only();
     kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
     let app = kebab_app::App::open_with_config(env.config.clone()).unwrap();
-    let plain = app.search(lexical_query("ownership")).unwrap();
-    let upper = app.search(lexical_query("OWNERSHIP")).unwrap();
-    let padded = app.search(lexical_query("  Ownership  ")).unwrap();
+    let plain = app.search(common::lexical_query("ownership")).unwrap();
+    let upper = app.search(common::lexical_query("OWNERSHIP")).unwrap();
+    let padded = app.search(common::lexical_query("  Ownership  ")).unwrap();
     assert_eq!(plain.len(), upper.len());
     assert_eq!(plain.len(), padded.len());
     // chunk_ids are deterministic — same query class, same set.
@@ -97,11 +88,11 @@ fn search_uncached_returns_same_hits_as_cached() {
     let env = TestEnv::lexical_only();
     kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
     let cached =
-        kebab_app::search_with_config(env.config.clone(), lexical_query("ownership"))
+        kebab_app::search_with_config(env.config.clone(), common::lexical_query("ownership"))
             .unwrap();
     let uncached = kebab_app::search_uncached_with_config(
         env.config.clone(),
-        lexical_query("ownership"),
+        common::lexical_query("ownership"),
     )
     .unwrap();
     assert_eq!(cached.len(), uncached.len());

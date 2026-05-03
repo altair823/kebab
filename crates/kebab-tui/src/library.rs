@@ -63,8 +63,8 @@ impl Default for LibraryStateInner {
 /// while editing, `tab` cycles between fields and `Enter` commits.
 pub(crate) struct FilterEdit {
     pub field: FilterField,
-    pub tags_buf: String,
-    pub lang_buf: String,
+    pub tags_buf: crate::input::InputBuffer,
+    pub lang_buf: crate::input::InputBuffer,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -75,26 +75,25 @@ pub(crate) enum FilterField {
 
 impl FilterEdit {
     pub fn from_filter(filter: &DocFilter) -> Self {
-        Self {
-            field: FilterField::Tags,
-            tags_buf: filter.tags_any.join(","),
-            lang_buf: filter
-                .lang
-                .as_ref()
-                .map(|l| l.0.clone())
-                .unwrap_or_default(),
+        let mut tags_buf = crate::input::InputBuffer::new();
+        tags_buf.push_str(&filter.tags_any.join(","));
+        let mut lang_buf = crate::input::InputBuffer::new();
+        if let Some(lang) = filter.lang.as_ref() {
+            lang_buf.push_str(&lang.0);
         }
+        Self { field: FilterField::Tags, tags_buf, lang_buf }
     }
 
     pub fn commit_into(&self, filter: &mut DocFilter) {
         filter.tags_any = self
             .tags_buf
+            .as_str()
             .split(',')
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string)
             .collect();
-        let trimmed = self.lang_buf.trim();
+        let trimmed = self.lang_buf.as_str().trim();
         filter.lang = if trimmed.is_empty() {
             None
         } else {
@@ -128,6 +127,13 @@ fn filter_overlay_height(state: &App) -> u16 {
     }
 }
 
+/// Single source of truth for the filter overlay row labels — used
+/// both by `line_with_focus` (display) and the cursor-placement
+/// `display_width(...)` math below. Editing one without the other
+/// would silently miscolumn the caret.
+const LABEL_TAGS: &str = "tags_any (csv): ";
+const LABEL_LANG: &str = "lang:           ";
+
 fn render_filter_overlay(f: &mut Frame, area: Rect, edit: &FilterEdit, theme: &crate::theme::Theme) {
     let block = Block::default()
         .title("Filter (Tab=cycle field, Enter=apply, Esc=cancel)")
@@ -136,11 +142,26 @@ fn render_filter_overlay(f: &mut Frame, area: Rect, edit: &FilterEdit, theme: &c
     f.render_widget(block, area);
 
     let lines = vec![
-        line_with_focus("tags_any (csv): ", &edit.tags_buf, edit.field == FilterField::Tags, theme),
-        line_with_focus("lang:           ", &edit.lang_buf, edit.field == FilterField::Lang, theme),
+        line_with_focus(LABEL_TAGS, edit.tags_buf.as_str(), edit.field == FilterField::Tags, theme),
+        line_with_focus(LABEL_LANG, edit.lang_buf.as_str(), edit.field == FilterField::Lang, theme),
     ];
     let para = Paragraph::new(lines);
     f.render_widget(para, inner);
+
+    // p9-fb-10: ratatui calls show_cursor + MoveTo whenever
+    // cursor_position is Some (our case here). When a render fn
+    // omits set_cursor_position (Library/Inspect main view), ratatui
+    // calls hide_cursor instead. So this single call positions the
+    // caret on the focused field of the filter overlay.
+    // place_cursor_x sums in usize (avoiding u16 wrap) and clamps to
+    // the right edge of the inner area.
+    let (label, focused_buf, row_offset) = match edit.field {
+        FilterField::Tags => (LABEL_TAGS, &edit.tags_buf, 0u16),
+        FilterField::Lang => (LABEL_LANG, &edit.lang_buf, 1u16),
+    };
+    let label_w = display_width(label);
+    let cursor_x = crate::input::place_cursor_x(inner.x, inner.width, label_w, focused_buf.cursor_col());
+    f.set_cursor_position((cursor_x, inner.y + row_offset));
 }
 
 fn line_with_focus<'a>(
@@ -345,7 +366,7 @@ fn handle_filter_edit_key(state: &mut App, key: KeyEvent) -> KeyOutcome {
                 FilterField::Tags => &mut edit.tags_buf,
                 FilterField::Lang => &mut edit.lang_buf,
             };
-            buf.pop();
+            buf.pop_char();
             KeyOutcome::Continue
         }
         KeyCode::Char(c) => {
@@ -353,7 +374,7 @@ fn handle_filter_edit_key(state: &mut App, key: KeyEvent) -> KeyOutcome {
                 FilterField::Tags => &mut edit.tags_buf,
                 FilterField::Lang => &mut edit.lang_buf,
             };
-            buf.push(c);
+            buf.push_char(c);
             KeyOutcome::Continue
         }
         _ => KeyOutcome::Continue,

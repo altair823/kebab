@@ -83,7 +83,7 @@ fn typing_appends_to_input_and_marks_dirty() {
         );
     }
     let s = app.search.as_ref().unwrap();
-    assert_eq!(s.input, "hello");
+    assert_eq!(s.input.as_str(), "hello");
     assert!(s.input_dirty_at.is_some());
 }
 
@@ -92,13 +92,14 @@ fn backspace_removes_last_char() {
     let mut app = fresh_app();
     {
         let s = app.search.as_mut().unwrap();
-        s.input = "abc".into();
+        s.input.push_str("abc");
     }
     handle_key_search(
         &mut app,
         KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
     );
-    assert_eq!(app.search.as_ref().unwrap().input, "ab");
+    assert_eq!(app.search.as_ref().unwrap().input.as_str(), "ab");
+    assert_eq!(app.search.as_ref().unwrap().input.cursor_col(), 2);
 }
 
 #[test]
@@ -122,7 +123,10 @@ fn tab_cycles_mode_lex_vec_hybrid() {
 #[test]
 fn enter_with_query_emits_refresh() {
     let mut app = fresh_app();
-    app.search.as_mut().unwrap().input = "rust".into();
+    {
+        let s = app.search.as_mut().unwrap();
+        s.input.push_str("rust");
+    }
     let outcome = handle_key_search(
         &mut app,
         KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
@@ -213,7 +217,7 @@ fn render_search_with_hits_shows_input_and_path() {
     let mut app = fresh_app();
     {
         let s = app.search.as_mut().unwrap();
-        s.input = "rust traits".into();
+        s.input.push_str("rust traits");
         s.mode = SearchMode::Hybrid;
         s.hits = vec![
             make_hit(1, "notes/rust.md", "trait dispatch\nis dynamic", line_citation("notes/rust.md", 12)),
@@ -278,7 +282,7 @@ fn j_in_insert_types_does_not_move_selection() {
         KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
     );
     let s = app.search.as_ref().unwrap();
-    assert_eq!(s.input, "j", "j must type in Insert mode");
+    assert_eq!(s.input.as_str(), "j", "j must type in Insert mode");
     assert_eq!(s.selected_hit, 0, "selection must NOT move in Insert");
 }
 
@@ -294,7 +298,7 @@ fn arbitrary_char_in_normal_mode_is_noop() {
         KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE),
     );
     let s = app.search.as_ref().unwrap();
-    assert_eq!(s.input, "", "Normal-mode Char must NOT type");
+    assert_eq!(s.input.as_str(), "", "Normal-mode Char must NOT type");
 }
 
 #[test]
@@ -317,7 +321,7 @@ fn shift_j_stays_in_input_does_not_move_selection() {
     );
     let s = app.search.as_ref().unwrap();
     assert_eq!(s.selected_hit, 0, "selection must NOT move on SHIFT-J");
-    assert_eq!(s.input, "J", "SHIFT-J must reach the input buffer");
+    assert_eq!(s.input.as_str(), "J", "SHIFT-J must reach the input buffer");
 }
 
 #[test]
@@ -334,7 +338,7 @@ fn shift_g_does_not_trigger_editor_jump() {
         KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
     );
     assert_eq!(outcome, KeyOutcome::Continue);
-    assert_eq!(app.search.as_ref().unwrap().input, "G");
+    assert_eq!(app.search.as_ref().unwrap().input.as_str(), "G");
 }
 
 /// p9-fb-09 — `g` on a hit enqueues an `EditorRequest` on `App.pending_editor`
@@ -467,7 +471,7 @@ fn poll_worker_noop_when_no_rx() {
 #[allow(clippy::field_reassign_with_default)]
 fn search_state_with(input: &str, mode: SearchMode, searching: bool, last_query: Option<(String, SearchMode)>) -> SearchState {
     let mut s = SearchState::default();
-    s.input = input.into();
+    s.input.push_str(input);
     s.mode = mode;
     s.searching = searching;
     s.last_query = last_query;
@@ -542,4 +546,29 @@ fn no_search_state_returns_to_library() {
         KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
     );
     assert_eq!(outcome, KeyOutcome::SwitchPane(Pane::Library));
+}
+
+/// p9-fb-10: typing Hangul into Search input advances cursor by 2
+/// per char and round-trips through the buffer correctly.
+#[test]
+fn hangul_typing_in_search_input_advances_cursor_by_two_per_char() {
+    let mut app = fresh_app();
+    // Switch to search and ensure Insert mode so chars type.
+    app.focus = Pane::Search;
+    app.mode = kebab_tui::Mode::auto_for(Pane::Search);
+    for ch in "한글".chars() {
+        handle_key_search(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+        );
+    }
+    assert_eq!(app.search.as_ref().unwrap().input.as_str(), "한글");
+    assert_eq!(app.search.as_ref().unwrap().input.cursor_col(), 4);
+    // Backspace pops the trailing Hangul char and rewinds 2 cols.
+    handle_key_search(
+        &mut app,
+        KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+    );
+    assert_eq!(app.search.as_ref().unwrap().input.as_str(), "한");
+    assert_eq!(app.search.as_ref().unwrap().input.cursor_col(), 2);
 }

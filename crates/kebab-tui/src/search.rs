@@ -72,15 +72,29 @@ fn render_input_bar(f: &mut Frame, area: Rect, s: &SearchState, theme: &crate::t
         SearchMode::Hybrid => crate::theme::Role::ModeHybrid,
     };
     let searching_hint = if s.searching { "  searching…" } else { "" };
+    // p9-fb-10: compute prompt display width before moving the String
+    // into the Span so we can place the cursor without a second alloc.
+    let prompt = format!("[{mode_label}] ");
+    let prompt_w = crate::input::display_width(&prompt);
     let line = Line::from(vec![
-        Span::styled(format!("[{mode_label}] "), theme.style(mode_role)),
+        Span::styled(prompt, theme.style(mode_role)),
         Span::raw(s.input.as_str()),
         Span::styled(searching_hint, theme.style(crate::theme::Role::Hint)),
     ]);
     let block = Block::default()
         .title("query (Tab=mode  Enter=search  Esc=back)")
         .borders(Borders::ALL);
+    let inner = block.inner(area);
     f.render_widget(Paragraph::new(line).block(block), area);
+    // p9-fb-10: ratatui calls show_cursor + MoveTo whenever
+    // cursor_position is Some (our case here). When a render fn
+    // omits set_cursor_position (Library/Inspect), ratatui calls
+    // hide_cursor instead. So this single call both positions and
+    // unhides the caret for the Search input column.
+    // place_cursor_x sums in usize (avoiding u16 wrap) and clamps to
+    // the right edge of the inner area.
+    let cursor_x = crate::input::place_cursor_x(inner.x, inner.width, prompt_w, s.input.cursor_col());
+    f.set_cursor_position((cursor_x, inner.y));
 }
 
 fn mode_label(m: SearchMode) -> &'static str {
@@ -256,14 +270,14 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
         (KeyCode::Tab, _) => {
             s.mode = cycle_mode(s.mode);
             // Force re-search at the new mode if there's a query.
-            if !s.input.trim().is_empty() {
+            if !s.input.as_str().trim().is_empty() {
                 s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
             }
             KeyOutcome::Continue
         }
         (KeyCode::Enter, _) => {
             // Skip debounce; refresh now if there's anything to query.
-            if s.input.trim().is_empty() {
+            if s.input.as_str().trim().is_empty() {
                 KeyOutcome::Continue
             } else {
                 s.input_dirty_at = None;
@@ -283,7 +297,7 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
         }
         (KeyCode::Backspace, _) => {
             if !s.input.is_empty() {
-                s.input.pop();
+                s.input.pop_char();
                 s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
             }
             KeyOutcome::Continue
@@ -297,7 +311,7 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
                 move_selection(s, 1);
                 s.preview = None;
             } else {
-                s.input.push('j');
+                s.input.push_char('j');
                 s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
             }
             KeyOutcome::Continue
@@ -307,7 +321,7 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
                 move_selection(s, -1);
                 s.preview = None;
             } else {
-                s.input.push('k');
+                s.input.push_char('k');
                 s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
             }
             KeyOutcome::Continue
@@ -321,7 +335,7 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
             // input. CTRL/ALT chords stay reserved for future
             // bindings (and don't currently match any Search
             // command, so they're a safe fall-through to Continue).
-            s.input.push(c);
+            s.input.push_char(c);
             s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
             KeyOutcome::Continue
         }
@@ -455,7 +469,7 @@ pub fn debounce_due(s: &SearchState) -> bool {
     if elapsed < SEARCH_DEBOUNCE {
         return false;
     }
-    let q = s.input.trim();
+    let q = s.input.as_str().trim();
     if q.is_empty() {
         return false;
     }
@@ -464,7 +478,7 @@ pub fn debounce_due(s: &SearchState) -> bool {
     // existing result will land via `poll_worker`.
     if s.searching {
         if let Some((prev_input, prev_mode)) = &s.last_query {
-            if prev_input == &s.input && *prev_mode == s.mode {
+            if prev_input.as_str() == s.input.as_str() && *prev_mode == s.mode {
                 return false;
             }
         }
@@ -472,7 +486,7 @@ pub fn debounce_due(s: &SearchState) -> bool {
     !matches!(
         &s.last_query,
         Some((prev_input, prev_mode))
-            if prev_input == &s.input && *prev_mode == s.mode
+            if prev_input.as_str() == s.input.as_str() && *prev_mode == s.mode
     )
 }
 
@@ -499,8 +513,9 @@ pub(crate) fn fire_search(state: &mut App) -> anyhow::Result<()> {
         s.generation = s.generation.wrapping_add(1);
         s.searching = true;
         s.input_dirty_at = None;
-        s.last_query = Some((s.input.clone(), s.mode));
-        (s.input.clone(), s.mode, s.generation)
+        let q_text = s.input.as_str().to_string();
+        s.last_query = Some((q_text.clone(), s.mode));
+        (q_text, s.mode, s.generation)
     };
 
     let (tx, rx) = std::sync::mpsc::channel();

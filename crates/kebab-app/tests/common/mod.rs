@@ -81,6 +81,19 @@ impl TestEnv {
     }
 }
 
+/// Test helper: build a `SearchQuery` for lexical mode at k=10. Used
+/// by every kebab-app integration test that calls
+/// `kebab_app::search_with_config`. Centralized here so a future
+/// `SearchQuery` field bump only edits one site.
+pub fn lexical_query(text: &str) -> kebab_core::SearchQuery {
+    kebab_core::SearchQuery {
+        text: text.to_string(),
+        mode: kebab_core::SearchMode::Lexical,
+        k: 10,
+        filters: kebab_core::SearchFilters::default(),
+    }
+}
+
 fn copy_fixture_workspace(dest: &Path) {
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
