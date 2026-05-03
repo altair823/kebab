@@ -130,6 +130,16 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
         if event::poll(POLL_INTERVAL)? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    // p9-fb-13: cheatsheet popup toggle takes
+                    // precedence over both mode + pane dispatch.
+                    // F1 toggles open/close. While visible, Esc
+                    // also closes — and the rest of the dispatch
+                    // is skipped so `Esc` doesn't double as
+                    // "Insert→Normal" while the user is reading
+                    // the cheatsheet.
+                    if cheatsheet_intercept(app, key) {
+                        continue;
+                    }
                     // p9-fb-12: global mode toggle. `Esc` from
                     // Insert → Normal is intercepted here so it
                     // works on every pane uniformly. `i` from
@@ -261,6 +271,13 @@ fn render_root(f: &mut Frame, app: &App) {
     if let Some(err) = &app.error_overlay {
         render_error_overlay(f, f.area(), err, &app.theme);
     }
+    // p9-fb-13: cheatsheet sits on top of the error overlay so the
+    // user can summon help even mid-error (the cheatsheet's own
+    // Esc/F1 close still works first; the next key reaches the
+    // error-dismiss path).
+    if app.cheatsheet_visible {
+        crate::cheatsheet::render_cheatsheet(f, f.area(), app);
+    }
 }
 
 fn render_ingest_status(f: &mut Frame, area: Rect, app: &App) {
@@ -369,6 +386,44 @@ pub fn mode_intercept(app: &mut crate::app::App, key: crossterm::event::KeyEvent
         }
         (KeyCode::Char('i'), Mode::Normal, Pane::Library | Pane::Inspect | Pane::Jobs) => {
             app.mode = Mode::Insert;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// p9-fb-13: cheatsheet popup interception. Returns `true` when
+/// consumed. Rules:
+/// - **`F1`** → toggle visibility (open if closed, close if open).
+///   Modifier-bearing variants (Ctrl-F1 etc.) are NOT the trigger.
+/// - **`Esc` while visible** → close. Returning `true` here means
+///   the global `mode_intercept` does NOT also see the Esc, so the
+///   user's "close cheatsheet" action stays a single keystroke
+///   instead of also flipping mode. **Trade-off**: a user in
+///   Insert mode with the cheatsheet open needs a SECOND `Esc` to
+///   flip to Normal. Single-effect-per-keystroke wins over
+///   compound actions.
+/// - Any other key while visible → fall through (so the key reaches
+///   the active pane normally — useful if the user wants to keep
+///   the popup open and still navigate). The popup auto-closes
+///   only via F1 / Esc.
+///
+/// `pub` so integration tests can drive without standing up the
+/// full run loop.
+pub fn cheatsheet_intercept(app: &mut crate::app::App, key: crossterm::event::KeyEvent) -> bool {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    let plain_or_shift =
+        key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT;
+    if !plain_or_shift {
+        return false;
+    }
+    match key.code {
+        KeyCode::F(1) => {
+            app.cheatsheet_visible = !app.cheatsheet_visible;
+            true
+        }
+        KeyCode::Esc if app.cheatsheet_visible => {
+            app.cheatsheet_visible = false;
             true
         }
         _ => false,

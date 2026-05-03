@@ -14,6 +14,7 @@
 
 mod app;
 mod ask;
+mod cheatsheet;
 mod editor;
 mod error_popup;
 mod ingest_progress;
@@ -54,3 +55,7 @@ pub use search::debounce_due as search_debounce_due;
 // tests can pin the i/Esc behavior without standing up the full
 // run loop.
 pub use run::mode_intercept;
+// p9-fb-13: expose the cheatsheet-toggle intercept + render fn
+// for integration tests + future TUI consumers.
+pub use cheatsheet::render_cheatsheet;
+pub use run::cheatsheet_intercept;
