@@ -22,6 +22,7 @@ mod input;
 mod inspect;
 mod library;
 mod markdown;
+mod pager;
 mod run;
 mod search;
 mod terminal;
