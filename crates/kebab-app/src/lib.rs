@@ -186,6 +186,22 @@ fn load_config() -> anyhow::Result<kebab_config::Config> {
 
 // ── ingest ────────────────────────────────────────────────────────────────
 
+/// p9-fb-23: optional per-call ingest controls. Kept as a struct (vs.
+/// a growing positional arg list) so future flags (e.g. `dry_run`,
+/// per-asset `concurrency`) land additively without churning every
+/// caller. Mirrors the `AskOpts` pattern from p9-fb-15.
+#[derive(Default)]
+pub struct IngestOpts {
+    /// Streaming progress sink. `None` suppresses emission entirely.
+    pub progress: Option<std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
+    /// Cooperative cancel token. `None` = uncancellable.
+    pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// p9-fb-23: when `true`, the per-asset early-skip block is bypassed
+    /// — every asset is re-parsed / re-chunked / re-embedded as if the
+    /// DB were empty. Default `false` preserves the auto-skip path.
+    pub force_reingest: bool,
+}
+
 pub fn ingest(scope: SourceScope, summary_only: bool) -> anyhow::Result<IngestReport> {
     let config = load_config()?;
     ingest_with_config(config, scope, summary_only)
@@ -226,12 +242,16 @@ pub fn ingest_with_config_progress(
     ingest_with_config_cancellable(config, scope, summary_only, progress, None)
 }
 
-/// Config + progress + cancel variant (p9-fb-04). The caller injects
-/// an `Arc<AtomicBool>` cancel token; setting it to `true` causes the
-/// ingest loop to break at the next step boundary (asset loop iter
-/// start), emit `IngestEvent::Aborted { counts: <partial> }`, and
-/// return `Ok(IngestReport)` with whatever assets were committed
-/// before cancellation. Per design §10:
+/// Config + opts variant (p9-fb-23). Supersedes the positional
+/// `ingest_with_config_cancellable` fn; callers now pass an
+/// [`IngestOpts`] struct so future knobs (e.g. `force_reingest`,
+/// `dry_run`) land additively without churning every call site.
+///
+/// Existing callers that still pass positional `progress` + `cancel`
+/// should use [`ingest_with_config_cancellable`], which remains as a
+/// thin wrapper that builds `IngestOpts` and forwards here.
+///
+/// Per design §10 (cancellation contract — unchanged from p9-fb-04):
 ///
 /// - The current in-flight asset finishes (rollback would break
 ///   idempotent re-run). Subsequent assets are skipped.
@@ -242,23 +262,25 @@ pub fn ingest_with_config_progress(
 ///   doc_id recipes).
 ///
 /// CLI's `Ctrl-C` SIGINT handler and TUI's `Esc` / `Ctrl-C` both
-/// flip the same `AtomicBool`. Pass `None` to retain pre-p9-fb-04
-/// behaviour (uncancellable).
+/// flip the same `AtomicBool` (via `opts.cancel`).
 #[doc(hidden)]
-pub fn ingest_with_config_cancellable(
+pub fn ingest_with_config_opts(
     config: kebab_config::Config,
     scope: SourceScope,
     summary_only: bool,
-    progress: Option<std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
-    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    opts: IngestOpts,
 ) -> anyhow::Result<IngestReport> {
-    let progress = progress.as_ref();
+    let progress = opts.progress.as_ref();
     let cancelled = || {
-        cancel
+        opts.cancel
             .as_ref()
             .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
             .unwrap_or(false)
     };
+    // p9-fb-23: opts.force_reingest is consumed by Task 7's skip-detection
+    // block. For Task 6 alone, the field is plumbed but unused — silence
+    // the warning until Task 7 wires it.
+    let _ = opts.force_reingest;
     let started_instant = std::time::Instant::now();
 
     let app = App::open_with_config(config)?;
@@ -636,6 +658,35 @@ pub fn ingest_with_config_cancellable(
         duration_ms,
         items: if summary_only { None } else { Some(items) },
     })
+}
+
+/// Config + progress + cancel variant (p9-fb-04). Retained as a thin
+/// wrapper around [`ingest_with_config_opts`] for external callers
+/// (test fixtures, CLI) that pass positional `progress` + `cancel`
+/// arguments. New callers should prefer [`ingest_with_config_opts`]
+/// with an explicit [`IngestOpts`].
+///
+/// CLI's `Ctrl-C` SIGINT handler and TUI's `Esc` / `Ctrl-C` both
+/// flip the `cancel` `AtomicBool`. Pass `None` to retain
+/// pre-p9-fb-04 behaviour (uncancellable).
+#[doc(hidden)]
+pub fn ingest_with_config_cancellable(
+    config: kebab_config::Config,
+    scope: SourceScope,
+    summary_only: bool,
+    progress: Option<std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
+    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> anyhow::Result<IngestReport> {
+    ingest_with_config_opts(
+        config,
+        scope,
+        summary_only,
+        IngestOpts {
+            progress,
+            cancel,
+            force_reingest: false,
+        },
+    )
 }
 
 /// Mint a stable 32-hex-char `run_id` for an `ingest_runs` row.

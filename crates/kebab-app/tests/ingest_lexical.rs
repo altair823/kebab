@@ -219,6 +219,27 @@ fn inspect_chunk_not_found_returns_actionable_error() {
     assert!(msg.contains("not found"), "got: {msg}");
 }
 
+/// p9-fb-23 task 6: `ingest_with_config_opts` with `IngestOpts::default()`
+/// must behave identically to `ingest_with_config` — first ingest reports
+/// all assets as new, no errors, no unchanged.
+#[test]
+fn ingest_with_config_opts_default_matches_legacy_behaviour() {
+    let env = TestEnv::lexical_only();
+    let report = kebab_app::ingest_with_config_opts(
+        env.config.clone(),
+        env.scope(),
+        false,
+        kebab_app::IngestOpts::default(),
+    )
+    .unwrap();
+    assert!(report.new >= 1, "expected at least one new doc: {report:?}");
+    assert_eq!(report.errors, 0, "no errors expected: {report:?}");
+    assert_eq!(
+        report.unchanged, 0,
+        "first ingest cannot have unchanged: {report:?}"
+    );
+}
+
 /// p9-fb-23 task 5: every freshly-ingested markdown doc must carry
 /// `last_chunker_version`. With `provider="none"` (lexical-only),
 /// `last_embedding_version` stays `None`.
