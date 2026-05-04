@@ -80,3 +80,73 @@ fn status_bar_idle_when_no_dynamic_state() {
         "idle marker missing: rendered=\n{rendered}"
     );
 }
+
+#[test]
+fn status_bar_shows_streaming_when_ask_streaming() {
+    let mut app = fresh_app(Pane::Ask);
+    app.ask = Some(kebab_tui::AskState {
+        streaming: true,
+        ..Default::default()
+    });
+    let rendered = render_to_string(&app, 100);
+    assert!(
+        rendered.contains("streaming…"),
+        "streaming marker missing: rendered=\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("idle"),
+        "idle should not appear when streaming: rendered=\n{rendered}"
+    );
+}
+
+#[test]
+fn status_bar_shows_searching_when_search_worker_active() {
+    let mut app = fresh_app(Pane::Search);
+    let mut search_state = kebab_tui::SearchState::default();
+    search_state.searching = true;
+    app.search = Some(search_state);
+    let rendered = render_to_string(&app, 100);
+    assert!(
+        rendered.contains("searching…"),
+        "searching marker missing: rendered=\n{rendered}"
+    );
+}
+
+#[test]
+fn status_bar_shows_ask_conv_id_when_in_ask_with_context() {
+    let mut app = fresh_app(Pane::Ask);
+    let mut ask_state = kebab_tui::AskState::default();
+    ask_state.conversation_id = Some("conv_a3f9b2c1d4e5f6a7b8c9d0e1f2a3b4c5".to_string());
+    ask_state.current_question = Some("test?".to_string());
+    app.ask = Some(ask_state);
+    let rendered = render_to_string(&app, 100);
+    assert!(
+        rendered.contains("conv_a3f9b2c1…"),
+        "8-hex prefix conv id missing: rendered=\n{rendered}"
+    );
+}
+
+#[test]
+fn status_bar_omits_conv_id_when_ask_has_no_context() {
+    let mut app = fresh_app(Pane::Ask);
+    app.ask = Some(kebab_tui::AskState::default());
+    let rendered = render_to_string(&app, 100);
+    assert!(
+        !rendered.contains("conv_"),
+        "conv id should not appear without context: rendered=\n{rendered}"
+    );
+}
+
+#[test]
+fn status_bar_omits_conv_id_outside_ask() {
+    let mut app = fresh_app(Pane::Library);
+    let mut ask_state = kebab_tui::AskState::default();
+    ask_state.conversation_id = Some("conv_a3f9b2c1d4e5f6a7b8c9d0e1f2a3b4c5".to_string());
+    ask_state.current_question = Some("test?".to_string());
+    app.ask = Some(ask_state);
+    let rendered = render_to_string(&app, 100);
+    assert!(
+        !rendered.contains("conv_"),
+        "conv id leaked outside Ask pane: rendered=\n{rendered}"
+    );
+}
