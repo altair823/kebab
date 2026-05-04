@@ -77,7 +77,7 @@ impl FilterEdit {
     /// Borrow the buffer for the currently-focused field. Centralizes
     /// the `match edit.field` pick so the key-handler arms (Backspace
     /// / arrows / Delete / typed Char) don't each re-spell the same
-    /// 3-line dispatch.
+    /// 2-arm dispatch.
     fn active_buf_mut(&mut self) -> &mut crate::input::InputBuffer {
         match self.field {
             FilterField::Tags => &mut self.tags_buf,

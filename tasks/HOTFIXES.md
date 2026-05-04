@@ -33,7 +33,7 @@ git history.
 
 **Spec contract impact**: p9-fb-10 frozen spec 의 "v1 is append-only; mid-string editing... is out of scope" 문구와 충돌. p9-fb-10 의 frozen 텍스트는 그대로 두고 본 HOTFIXES 항목이 InputBuffer 의 live cursor 모델 source of truth. p9-3 frozen spec 에는 follow-tail 동작이 명시되지 않았음 — 본 항목이 추가 동작 기록.
 
-**Tests added**: 11 신규 InputBuffer unit (move_left/right ASCII/Hangul, home/end, mid-string insert, backspace at cursor + at home no-op, delete_after at cursor + at end no-op, mixed-width cursor invariant, take 후 cursor reset), 10 신규 Ask integration (left/right/home/end/Delete on Ask input, Hangul left arrow, follow_tail default, k disengages, Shift-G re-engages, Ctrl-L resets, follow-tail rendering bottom of long transcript). 기존 38 개 InputBuffer + Ask 테스트는 backwards-compat 으로 그대로 통과 (cursor 가 끝에 있을 때 push_char/pop_char 의미 동일).
+**Tests added**: 11 신규 InputBuffer unit (move_left/right ASCII/Hangul, home/end, mid-string insert, backspace at cursor + at home no-op, delete_after at cursor + at end no-op, mixed-width cursor invariant, take 후 cursor reset), 10 신규 Ask integration (left/right/home/end/Delete on Ask input, Hangul left arrow, follow_tail default, k disengages, Shift-G re-engages, Ctrl-L resets, follow-tail rendering bottom of long transcript). 기존 39 개 InputBuffer + Ask 테스트 (input.rs unit 18 + tests/ask.rs 21) 는 backwards-compat 으로 그대로 통과 (cursor 가 끝에 있을 때 push_char/pop_char 의미 동일).
 
 **Known limitation (deferred)**: cheatsheet popup body 가 Search +3 row, Ask +4 row 로 늘어나 75% height 한계가 더 빡빡해짐. p9-fb-21 의 deferred 한계와 같은 후속 task (popup scroll 또는 multi-column layout) 가 점점 더 필요함.
 
