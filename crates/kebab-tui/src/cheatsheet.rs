@@ -90,6 +90,7 @@ pub fn render_cheatsheet(f: &mut Frame, area: Rect, app: &App) {
         ("e", "toggle explain mode (Normal)"),
         ("j / k", "scroll transcript (Normal — disengages auto-tail)"),
         ("Shift-G", "jump to bottom + re-engage auto-tail (p9-fb-22)"),
+        ("PgUp / PgDn", "page-scroll the transcript (p9-fb-24, disengages auto-tail)"),
         ("← / →", "move cursor in input (p9-fb-22)"),
         ("Home / End", "cursor to start / end of input"),
         ("Delete", "remove char at cursor"),
