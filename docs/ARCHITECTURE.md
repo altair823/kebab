@@ -33,24 +33,89 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 
 ## crate 의존성 그래프
 
-```text
-kebab-cli, kebab-tui, kebab-desktop
-   └─> kebab-app
-         ├─> kebab-source-fs
-         ├─> kebab-parse-md / kebab-parse-pdf / kebab-parse-image / kebab-parse-audio
-         │     └─> kebab-parse-types
-         ├─> kebab-normalize
-         │     └─> kebab-parse-types
-         ├─> kebab-chunk
-         ├─> kebab-store-sqlite
-         ├─> kebab-store-vector
-         ├─> kebab-embed-local  (kebab-embed trait crate)
-         ├─> kebab-search
-         ├─> kebab-llm-local   (kebab-llm trait crate)
-         ├─> kebab-rag
-         ├─> kebab-eval
-         └─> kebab-config
-              └─> kebab-core (모두 의존)
+> 그룹 단위 view + 컴포넌트별 상세는 [docs/components/](components/).
+
+```mermaid
+flowchart TB
+    subgraph UI ["UI binary"]
+        cli["kebab-cli"]
+        tui["kebab-tui"]
+        desktop["kebab-desktop<br/>(P9-5)"]
+    end
+    app["kebab-app<br/>(facade)"]
+    subgraph Ingest ["ingest pipeline"]
+        srcfs["kebab-source-fs"]
+        pmd["kebab-parse-md"]
+        ppdf["kebab-parse-pdf"]
+        pimg["kebab-parse-image"]
+        paud["kebab-parse-audio<br/>(P8 보류)"]
+        ptypes["kebab-parse-types"]
+        norm["kebab-normalize"]
+        chunk["kebab-chunk"]
+    end
+    subgraph Persist ["persistence"]
+        sqlite["kebab-store-sqlite"]
+        vector["kebab-store-vector"]
+    end
+    subgraph Adapters ["traits + adapters"]
+        embed["kebab-embed<br/>(trait)"]
+        embedlocal["kebab-embed-local<br/>(fastembed)"]
+        llm["kebab-llm<br/>(trait)"]
+        llmlocal["kebab-llm-local<br/>(Ollama)"]
+        search["kebab-search"]
+        rag["kebab-rag"]
+    end
+    eval["kebab-eval"]
+    config["kebab-config"]
+    core["kebab-core<br/>(domain types)"]
+
+    cli --> app
+    tui --> app
+    desktop --> app
+
+    app --> srcfs
+    app --> pmd
+    app --> ppdf
+    app --> pimg
+    app --> paud
+    app --> norm
+    app --> chunk
+    app --> sqlite
+    app --> vector
+    app --> embedlocal
+    app --> llmlocal
+    app --> search
+    app --> rag
+    app --> eval
+    app --> config
+
+    pmd --> ptypes
+    ppdf --> ptypes
+    pimg --> ptypes
+    paud --> ptypes
+    norm --> ptypes
+    embedlocal --> embed
+    llmlocal --> llm
+    rag --> search
+    rag --> llm
+    rag --> sqlite
+    search --> sqlite
+    search --> vector
+    search --> embed
+    eval --> app
+
+    config --> core
+    embed --> core
+    llm --> core
+    sqlite --> core
+    vector --> core
+    chunk --> core
+    norm --> core
+    ptypes --> core
+    search --> core
+    rag --> core
+    srcfs --> core
+    eval --> core
 ```
 
 UI → store/llm/parse 직접 의존 금지. 모든 user-facing 진입은 `kebab-app` facade 만 통한다 (frozen 설계 §8). `kebab-cli` 가 `--config <path>` flag 를 honor 하려면 `kebab_app::*_with_config(cfg, …)` companion 을 통해 Config 을 명시적으로 thread 하는 패턴 — 자세한 이유는 [tasks/HOTFIXES.md](../tasks/HOTFIXES.md) 의 `--config` 항목.
