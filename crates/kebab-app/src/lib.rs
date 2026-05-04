@@ -347,6 +347,7 @@ pub fn ingest_with_config_cancellable(
     let mut new_count: u32 = 0;
     let mut updated_count: u32 = 0;
     let mut skipped_count: u32 = 0;
+    let mut unchanged_count: u32 = 0;
     let mut error_count: u32 = 0;
     // Aggregate counts surfaced into `ingest_runs` (and tracing). Not
     // exposed on `IngestReport` today — `kebab_core::IngestReport` is a
@@ -444,6 +445,9 @@ pub fn ingest_with_config_cancellable(
             }
             kebab_core::IngestItemKind::Skipped => {
                 skipped_count = skipped_count.saturating_add(1)
+            }
+            kebab_core::IngestItemKind::Unchanged => {
+                unchanged_count = unchanged_count.saturating_add(1)
             }
             kebab_core::IngestItemKind::Error => {
                 error_count = error_count.saturating_add(1)
@@ -585,6 +589,7 @@ pub fn ingest_with_config_cancellable(
         new: new_count,
         updated: updated_count,
         skipped: skipped_count,
+        unchanged: unchanged_count,
         errors: error_count,
         chunks_indexed,
         embeddings_indexed,
@@ -626,6 +631,7 @@ pub fn ingest_with_config_cancellable(
         new: new_count,
         updated: updated_count,
         skipped: skipped_count,
+        unchanged: unchanged_count,
         errors: error_count,
         duration_ms,
         items: if summary_only { None } else { Some(items) },

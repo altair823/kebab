@@ -131,6 +131,9 @@ fn apply_event(state: &mut IngestState, event: IngestEvent) {
                 kebab_core::IngestItemKind::Skipped => {
                     state.counts.skipped = state.counts.skipped.saturating_add(1);
                 }
+                kebab_core::IngestItemKind::Unchanged => {
+                    state.counts.unchanged = state.counts.unchanged.saturating_add(1);
+                }
                 kebab_core::IngestItemKind::Error => {
                     state.counts.errors = state.counts.errors.saturating_add(1);
                 }

@@ -28,6 +28,10 @@ pub struct AggregateCounts {
     pub new: u32,
     pub updated: u32,
     pub skipped: u32,
+    /// p9-fb-23: assets whose checksum + all version inputs matched the
+    /// existing DB record — parse / chunk / embed / vector upsert all
+    /// skipped.
+    pub unchanged: u32,
     pub errors: u32,
     pub chunks_indexed: u32,
     pub embeddings_indexed: u32,
