@@ -14,6 +14,25 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-04 — p9-fb-24 (post-dogfooding): TUI status bar + Library 헤더 + page scroll
+
+**Source feedback**: 사용자 도그푸딩 2026-05-04 — (1) Library 컬럼이 무엇을 뜻하는지 헤더 부재, (2) Ask 트랜스크립트 / Inspect 둘 다 페이지 단위 스크롤 키 필요, (3) 모든 모드에서 항상 떠 있는 상태바 + 키 안내바 (버전 정보 포함) 가 있으면 좋겠다.
+
+**Live binding 변경**:
+
+- bottom 영역을 2 row 로 분할. 윗줄 = status bar (`kebab v<version> │ <pane> │ <docs> docs │ <state>`), 아랫줄 = key hint bar (기존 `footer_hints` 그대로). p9-fb-13 follow-up 의 single-row footer 와 충돌 — frozen spec 텍스트 보존, 본 항목이 live source of truth.
+- ingest progress 의 dedicated row (p9-fb-03) 는 status bar 의 dynamic slot 으로 흡수. priority cascade: streaming → searching → indexing → idle. 시각적 위치 변경, 콘텐츠 동등.
+- `Paragraph::line_count` 등 unstable feature 추가 없음.
+- `crates/kebab-tui/src/pager.rs::PAGE_STEP = 10` 신규. Ask 의 PgUp/PgDn 추가 (mode 무관, `follow_tail = false` flip), Inspect 의 기존 +/-10 hardcode 가 같은 상수 참조로 일원화.
+- `format_doc_header(area_width)` 신규 (kebab-tui/src/library.rs). Library 의 doc list 위에 1-row 헤더 (TITLE / TAGS / UPDATED / CHUNKS, display-width 정렬). Block 의 inner area 를 `Layout` 으로 header (Length 1) + list (Min 0) 로 분할.
+- cheatsheet popup Ask section 에 `PgUp / PgDn` row 추가 (Inspect 는 이미 명시).
+
+**Spec contract impact**: p9-fb-13 follow-up (footer 단행 row) + p9-fb-03 (ingest dedicated row) frozen spec 들과 layout 충돌. frozen 텍스트 보존, 본 HOTFIXES 항목 + spec `tasks/p9/p9-fb-24-tui-affordances.md` + design `docs/superpowers/specs/2026-05-04-p9-fb-24-tui-affordances-design.md` 가 live source of truth.
+
+**Tests added**: 약 21 신규 (status_bar 통합 10 + library 헤더 1 + Ask PgUp/PgDn 3 + Inspect PgUp/PgDn 회귀 2 + format_doc_header 단위 1, 잔여는 cascade branch 별). 기존 695개 워크스페이스 테스트 무수정 통과 (`cargo test --workspace -j 1` 기준 716 passed).
+
+**Known limitation (deferred)**: `PAGE_STEP = 10` 은 viewport-aware 가 아님 — 24 row 작은 터미널에서 한 페이지 > viewport, 80 row 큰 터미널에서 한 페이지 < viewport. 후속 task 에서 viewport-aware 로 업그레이드 가능.
+
 ## 2026-05-04 — p9-fb-22 (post-dogfooding): mid-string cursor editing + Ask follow-tail auto-scroll
 
 **Issues**: Gitea #94 (커서 이슈) — 텍스트 입력 후 커서 이동 불가. Gitea #95 (새 응답 이슈) — 새 응답이 viewport 아래로 추가돼도 자동으로 스크롤이 따라가지 않음. 두 건 모두 사용자 도그푸딩 중 발견.

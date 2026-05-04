@@ -426,11 +426,11 @@ pub fn handle_key_inspect(state: &mut App, key: KeyEvent) -> KeyOutcome {
             KeyOutcome::Continue
         }
         (KeyCode::PageDown, _) => {
-            s.scroll = s.scroll.saturating_add(10);
+            s.scroll = s.scroll.saturating_add(crate::pager::PAGE_STEP);
             KeyOutcome::Continue
         }
         (KeyCode::PageUp, _) => {
-            s.scroll = s.scroll.saturating_sub(10);
+            s.scroll = s.scroll.saturating_sub(crate::pager::PAGE_STEP);
             KeyOutcome::Continue
         }
         (KeyCode::Char('c'), _) => {

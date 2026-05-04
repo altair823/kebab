@@ -232,26 +232,18 @@ fn handle_key_unimplemented_pane(
 }
 
 fn render_root(f: &mut Frame, app: &App) {
-    // p9-fb-03: insert a 1-line status bar above the footer when an
-    // ingest is in flight (or its terminal line is still on hold).
-    let has_ingest = app.ingest_state.is_some();
-    let constraints: Vec<Constraint> = if has_ingest {
-        vec![
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(1), // ingest status bar
-            Constraint::Length(1), // existing footer hints
-        ]
-    } else {
-        vec![
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ]
-    };
+    // p9-fb-24: bottom is always 2 rows — status bar + key hints.
+    // The pre-fb-24 conditional ingest-status row is gone; the
+    // ingest progress text now appears in the status bar's dynamic
+    // slot (see `dynamic_status` priority cascade).
     let outer = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(constraints)
+        .constraints([
+            Constraint::Length(1),  // top header
+            Constraint::Min(1),     // pane content
+            Constraint::Length(1),  // status bar
+            Constraint::Length(1),  // key hint bar
+        ])
         .split(f.area());
     render_header(f, outer[0], app);
     match app.focus {
@@ -259,47 +251,16 @@ fn render_root(f: &mut Frame, app: &App) {
         Pane::Search => render_search(f, outer[1], app),
         Pane::Ask => render_ask(f, outer[1], app),
         Pane::Inspect => render_inspect(f, outer[1], app),
-        // p9-5 Jobs not yet rendered; Library placeholder.
         Pane::Jobs => render_library(f, outer[1], app),
     }
-    if has_ingest {
-        render_ingest_status(f, outer[2], app);
-        render_footer(f, outer[3], app);
-    } else {
-        render_footer(f, outer[2], app);
-    }
+    render_status_bar(f, outer[2], app);
+    render_key_hints(f, outer[3], app);
     if let Some(err) = &app.error_overlay {
         render_error_overlay(f, f.area(), err, &app.theme);
     }
-    // p9-fb-13: cheatsheet sits on top of the error overlay so the
-    // user can summon help even mid-error (the cheatsheet's own
-    // Esc/F1 close still works first; the next key reaches the
-    // error-dismiss path).
     if app.cheatsheet_visible {
         crate::cheatsheet::render_cheatsheet(f, f.area(), app);
     }
-}
-
-fn render_ingest_status(f: &mut Frame, area: Rect, app: &App) {
-    let Some(state) = app.ingest_state.as_ref() else {
-        return;
-    };
-    let line = crate::ingest_progress::status_line(state);
-    // p9-fb-14: `aborted` is a non-fatal-but-noteworthy state (Ctrl-C
-    // partial commit) — `Role::Warning` (yellow) is the right semantic
-    // signal, plus an explicit BOLD so the abort line still stands
-    // out from the live progress lines around it.
-    let style = if state.aborted {
-        app.theme
-            .style(crate::theme::Role::Warning)
-            .add_modifier(ratatui::style::Modifier::BOLD)
-    } else {
-        app.theme.style(crate::theme::Role::Body)
-    };
-    f.render_widget(
-        Paragraph::new(Line::from(Span::styled(line, style))),
-        area,
-    );
 }
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
@@ -327,7 +288,94 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(line), area);
 }
 
-fn render_footer(f: &mut Frame, area: Rect, app: &App) {
+/// p9-fb-24: separator between status bar fragments. Two spaces +
+/// box-drawings light vertical (U+2502) + two spaces. Single source
+/// — the docstring of `render_status_bar` references the rendered
+/// shape, so any change here MUST update that docstring too.
+const STATUS_SEPARATOR: &str = "  │  ";
+
+/// p9-fb-24: always-visible status bar. Layout (left → right):
+///
+/// ```text
+/// kebab v0.1.0  │  <pane>  │  <docs> docs  │  [conv_<8hex>…  │  ]<state>
+/// ```
+///
+/// `<state>` is one of `streaming…` / `searching…` / `indexing N/M (P%)` / `idle`,
+/// chosen via the priority cascade:
+///   1. Ask streaming → `streaming…`
+///   2. Search worker active → `searching…`
+///   3. Ingest worker active (or terminal-line still on hold) → ingest `status_line`
+///   4. fallback → `idle`
+///
+/// `<conv_…>` only appears when `app.focus == Ask` AND the pane has
+/// either an in-flight question or at least one completed turn — the
+/// signal that "this Ask session has context".
+pub fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
+    let pane_label = match app.focus {
+        Pane::Library => "Library",
+        Pane::Search => "Search",
+        Pane::Ask => "Ask",
+        Pane::Inspect => "Inspect",
+        Pane::Jobs => "Jobs",
+    };
+    let doc_count = app.library.inner.docs.len();
+    let dynamic = dynamic_status(app);
+
+    let sep = STATUS_SEPARATOR;
+    let mut line_text = format!(
+        "kebab v{}{sep}{}{sep}{} docs{sep}",
+        env!("CARGO_PKG_VERSION"),
+        pane_label,
+        doc_count,
+    );
+    if let Some(conv) = ask_conv_id_short(app) {
+        line_text.push_str(&conv);
+        line_text.push_str(sep);
+    }
+    line_text.push_str(&dynamic);
+
+    let line = Line::from(Span::styled(
+        line_text,
+        app.theme.style(crate::theme::Role::Hint),
+    ));
+    f.render_widget(Paragraph::new(line), area);
+}
+
+/// Priority-cascade dynamic state for the status bar. See
+/// `render_status_bar` for the priority order.
+fn dynamic_status(app: &App) -> String {
+    if app.ask.as_ref().map(|s| s.streaming).unwrap_or(false) {
+        return "streaming…".to_string();
+    }
+    if app.search.as_ref().map(|s| s.searching).unwrap_or(false) {
+        return "searching…".to_string();
+    }
+    if let Some(state) = app.ingest_state.as_ref() {
+        return crate::ingest_progress::status_line(state);
+    }
+    "idle".to_string()
+}
+
+/// Short form of the Ask `conversation_id` for the status bar
+/// (`conv_<first 8 hex chars>…`). Returns `None` when not in Ask, or
+/// when the Ask pane has no context (no in-flight question and no
+/// completed turns).
+fn ask_conv_id_short(app: &App) -> Option<String> {
+    if app.focus != Pane::Ask {
+        return None;
+    }
+    let s = app.ask.as_ref()?;
+    let has_context = s.current_question.is_some() || !s.turns.is_empty();
+    if !has_context {
+        return None;
+    }
+    let id = s.conversation_id.as_deref()?;
+    let hex = id.strip_prefix("conv_").unwrap_or(id);
+    let head: String = hex.chars().take(8).collect();
+    Some(format!("conv_{head}…"))
+}
+
+fn render_key_hints(f: &mut Frame, area: Rect, app: &App) {
     let hints = footer_hints(app.focus, app.mode, app.library.inner.filter_edit.is_some());
     let line = Line::from(Span::styled(
         hints,
