@@ -507,24 +507,21 @@ fn rows_optional<T>(err: rusqlite::Error) -> rusqlite::Result<Option<T>> {
 }
 
 /// Reconstruct a [`kebab_core::RawAsset`] from one `assets` row.
-///
-/// Column order must match the SELECT in
-/// [`DocumentStore::get_asset_by_workspace_path`]:
-/// `asset_id(0), source_uri(1), workspace_path(2), media_type(3),
-///  byte_len(4), checksum(5), storage_kind(6), storage_path(7),
-///  discovered_at(8)`.
+/// Row mapper for `RawAsset`. Column names are self-documenting; the
+/// SELECT in [`DocumentStore::get_asset_by_workspace_path`] must include
+/// all nine columns by their schema names.
 fn asset_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<kebab_core::RawAsset> {
     use std::path::PathBuf;
 
-    let asset_id: String = row.get(0)?;
-    let source_uri_raw: String = row.get(1)?;
-    let workspace_path_raw: String = row.get(2)?;
-    let media_type_json: String = row.get(3)?;
-    let byte_len: i64 = row.get(4)?;
-    let checksum_raw: String = row.get(5)?;
-    let storage_kind: String = row.get(6)?;
-    let storage_path_raw: String = row.get(7)?;
-    let discovered_at_raw: String = row.get(8)?;
+    let asset_id: String = row.get("asset_id")?;
+    let source_uri_raw: String = row.get("source_uri")?;
+    let workspace_path_raw: String = row.get("workspace_path")?;
+    let media_type_json: String = row.get("media_type")?;
+    let byte_len: i64 = row.get("byte_len")?;
+    let checksum_raw: String = row.get("checksum")?;
+    let storage_kind: String = row.get("storage_kind")?;
+    let storage_path_raw: String = row.get("storage_path")?;
+    let discovered_at_raw: String = row.get("discovered_at")?;
 
     // Parse source_uri: stored as "file://<path>" or "kb://<uri>".
     let source_uri = if let Some(path_str) = source_uri_raw.strip_prefix("file://") {
@@ -558,7 +555,14 @@ fn asset_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<kebab_core::RawAs
         source_uri,
         workspace_path,
         media_type,
-        byte_len: byte_len as u64,
+        byte_len: u64::try_from(byte_len)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
+                // index parameter for named-column path is unused but the
+                // type still requires a number; pass 0 with a clear msg.
+                0,
+                rusqlite::types::Type::Integer,
+                Box::new(e),
+            ))?,
         checksum,
         discovered_at,
         stored,

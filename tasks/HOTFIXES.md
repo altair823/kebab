@@ -31,7 +31,7 @@ git history.
 
 **Spec contract impact**: design §9 versioning cascade 의 명시적 동작 추가 — parser/chunker/embedder version bump 시 다음 ingest 가 자동으로 모든 doc 을 `updated` 로 처리. 기존엔 silently 새 version 으로 overwrite (idempotent UPSERT) 였으나 본 변경으로 explicit refresh + 비용 회피 모두 보장. design §3.x IngestReport / §2.4a IngestEvent 에 `Unchanged` variant 추가 (additive, wire v1 호환).
 
-**Tests added**: 약 10 신규. 기존 ~720 워크스페이스 테스트 무수정 통과.
+**Tests added**: 8 신규 (`crates/kebab-app/tests/incremental_ingest.rs` 2 + `crates/kebab-app/tests/ingest_lexical.rs` 2 + `crates/kebab-store-sqlite/tests/incremental_ingest.rs` 4) + 3 기존 갱신 (`image_pipeline.rs` / `pdf_pipeline.rs` / `ingest_lexical.rs::ingest_idempotent_on_second_run` 의 assertion 이 Updated → Unchanged 로 변경). 기존 ~720 워크스페이스 테스트 무수정 통과.
 
 **Known limitation (deferred)**:
 
