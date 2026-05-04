@@ -62,6 +62,9 @@ pub use run::mode_intercept;
 // for integration tests + future TUI consumers.
 pub use cheatsheet::render_cheatsheet;
 pub use run::cheatsheet_intercept;
+// p9-fb-24: expose the status bar render fn so integration tests can
+// pin its content without standing up the full run loop.
+pub use run::render_status_bar;
 // p9-fb-13 follow-up: expose footer_hints so integration tests can
 // pin the verb-form per (pane, mode) without standing up the run loop.
 pub use run::footer_hints;

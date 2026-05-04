@@ -327,6 +327,87 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(line), area);
 }
 
+/// p9-fb-24: always-visible status bar. Layout (left → right):
+///
+/// ```text
+/// kebab v0.1.0  │  <pane>  │  <docs> docs  │  [conv_<8hex>…  │  ]<state>
+/// ```
+///
+/// `<state>` is one of `streaming…` / `searching…` / `indexing N/M (P%)` / `idle`,
+/// chosen via the priority cascade:
+///   1. Ask streaming → `streaming…`
+///   2. Search worker active → `searching…`
+///   3. Ingest worker active (or terminal-line still on hold) → ingest `status_line`
+///   4. fallback → `idle`
+///
+/// `<conv_…>` only appears when `app.focus == Ask` AND the pane has
+/// either an in-flight question or at least one completed turn — the
+/// signal that "this Ask session has context".
+pub fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
+    let pane_label = match app.focus {
+        Pane::Library => "Library",
+        Pane::Search => "Search",
+        Pane::Ask => "Ask",
+        Pane::Inspect => "Inspect",
+        Pane::Jobs => "Jobs",
+    };
+    let doc_count = app.library.inner.docs.len();
+    let dynamic = dynamic_status(app);
+
+    let sep = "  │  ";
+    let mut line_text = format!(
+        "kebab v{}{sep}{}{sep}{} docs{sep}",
+        env!("CARGO_PKG_VERSION"),
+        pane_label,
+        doc_count,
+    );
+    if let Some(conv) = ask_conv_id_short(app) {
+        line_text.push_str(&conv);
+        line_text.push_str(sep);
+    }
+    line_text.push_str(&dynamic);
+
+    let line = Line::from(Span::styled(
+        line_text,
+        app.theme.style(crate::theme::Role::Hint),
+    ));
+    f.render_widget(Paragraph::new(line), area);
+}
+
+/// Priority-cascade dynamic state for the status bar. See
+/// `render_status_bar` for the priority order.
+fn dynamic_status(app: &App) -> String {
+    if app.ask.as_ref().map(|s| s.streaming).unwrap_or(false) {
+        return "streaming…".to_string();
+    }
+    if app.search.as_ref().map(|s| s.searching).unwrap_or(false) {
+        return "searching…".to_string();
+    }
+    if let Some(state) = app.ingest_state.as_ref() {
+        return crate::ingest_progress::status_line(state);
+    }
+    "idle".to_string()
+}
+
+/// Short form of the Ask `conversation_id` for the status bar
+/// (`conv_<first 8 hex chars>…`). Returns `None` when not in Ask, or
+/// when the Ask pane has no context (no in-flight question and no
+/// completed turns).
+fn ask_conv_id_short(app: &App) -> Option<String> {
+    if app.focus != Pane::Ask {
+        return None;
+    }
+    let s = app.ask.as_ref()?;
+    let has_context = s.current_question.is_some() || !s.turns.is_empty();
+    if !has_context {
+        return None;
+    }
+    let id = s.conversation_id.as_deref()?;
+    let hex = id.strip_prefix("conv_").unwrap_or(id);
+    let head: String = hex.chars().take(8).collect();
+    Some(format!("conv_{head}…"))
+}
+
 fn render_footer(f: &mut Frame, area: Rect, app: &App) {
     let hints = footer_hints(app.focus, app.mode, app.library.inner.filter_edit.is_some());
     let line = Line::from(Span::styled(
