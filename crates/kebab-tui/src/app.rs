@@ -197,7 +197,6 @@ impl Default for SearchState {
 /// on the first submission (timestamp-based — unique per session,
 /// not cryptographic). `Ctrl-L` clears `turns + conversation_id` to
 /// start a fresh conversation.
-#[derive(Default)]
 pub struct AskState {
     /// p9-fb-10: `InputBuffer` tracks display-column cursor position
     /// alongside content so wide chars (Hangul, CJK) place the
@@ -217,8 +216,16 @@ pub struct AskState {
     /// every render frame.
     pub rx: Option<std::sync::mpsc::Receiver<String>>,
     /// Vertical scroll offset for the transcript area when content
-    /// exceeds the viewport.
+    /// exceeds the viewport. Only consulted when `follow_tail` is
+    /// false; otherwise the renderer overrides this with the
+    /// computed bottom offset.
     pub scroll: u16,
+    /// p9-fb-22: when true, the renderer pins the transcript to the
+    /// bottom on every frame (so streaming tokens and freshly-
+    /// completed turns are visible without manual scrolling). Set
+    /// to false the first time the user scrolls up (`k`); restored
+    /// to true by `G`, `Ctrl-L`, and a new submission.
+    pub follow_tail: bool,
     /// Last error from the worker thread (rendered in popup if Some).
     pub last_error: Option<String>,
     /// p9-fb-16: completed turns of the current conversation. Each
@@ -240,6 +247,28 @@ pub struct AskState {
     /// `Turn`; this slot is just the easiest place for the panel
     /// renderer to look.
     pub last_answer: Option<kebab_core::Answer>,
+}
+
+impl Default for AskState {
+    fn default() -> Self {
+        Self {
+            input: crate::input::InputBuffer::default(),
+            explain: false,
+            streaming: false,
+            partial: String::new(),
+            thread: None,
+            rx: None,
+            scroll: 0,
+            // p9-fb-22: default to follow-tail so a freshly opened
+            // Ask pane auto-scrolls when the first answer streams in.
+            follow_tail: true,
+            last_error: None,
+            turns: Vec::new(),
+            current_question: None,
+            conversation_id: None,
+            last_answer: None,
+        }
+    }
 }
 
 

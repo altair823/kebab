@@ -74,6 +74,17 @@ pub(crate) enum FilterField {
 }
 
 impl FilterEdit {
+    /// Borrow the buffer for the currently-focused field. Centralizes
+    /// the `match edit.field` pick so the key-handler arms (Backspace
+    /// / arrows / Delete / typed Char) don't each re-spell the same
+    /// 2-arm dispatch.
+    fn active_buf_mut(&mut self) -> &mut crate::input::InputBuffer {
+        match self.field {
+            FilterField::Tags => &mut self.tags_buf,
+            FilterField::Lang => &mut self.lang_buf,
+        }
+    }
+
     pub fn from_filter(filter: &DocFilter) -> Self {
         let mut tags_buf = crate::input::InputBuffer::new();
         tags_buf.push_str(&filter.tags_any.join(","));
@@ -362,19 +373,34 @@ fn handle_filter_edit_key(state: &mut App, key: KeyEvent) -> KeyOutcome {
             KeyOutcome::Refresh
         }
         KeyCode::Backspace => {
-            let buf = match edit.field {
-                FilterField::Tags => &mut edit.tags_buf,
-                FilterField::Lang => &mut edit.lang_buf,
-            };
-            buf.pop_char();
+            edit.active_buf_mut().pop_char();
+            KeyOutcome::Continue
+        }
+        // p9-fb-22: cursor navigation + Delete inside the active filter
+        // field. Tab still cycles between Tags / Lang fields; arrows
+        // only move within the focused buffer.
+        KeyCode::Left => {
+            edit.active_buf_mut().move_left();
+            KeyOutcome::Continue
+        }
+        KeyCode::Right => {
+            edit.active_buf_mut().move_right();
+            KeyOutcome::Continue
+        }
+        KeyCode::Home => {
+            edit.active_buf_mut().move_home();
+            KeyOutcome::Continue
+        }
+        KeyCode::End => {
+            edit.active_buf_mut().move_end();
+            KeyOutcome::Continue
+        }
+        KeyCode::Delete => {
+            edit.active_buf_mut().delete_after();
             KeyOutcome::Continue
         }
         KeyCode::Char(c) => {
-            let buf = match edit.field {
-                FilterField::Tags => &mut edit.tags_buf,
-                FilterField::Lang => &mut edit.lang_buf,
-            };
-            buf.push_char(c);
+            edit.active_buf_mut().push_char(c);
             KeyOutcome::Continue
         }
         _ => KeyOutcome::Continue,

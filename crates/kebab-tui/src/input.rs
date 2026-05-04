@@ -95,20 +95,26 @@ pub fn truncate_to_display_width(s: &str, max_cols: usize) -> String {
     out
 }
 
-/// Text input buffer that tracks **display column** position, not
-/// char count. Every wide char (Hangul / Kanji / fullwidth) advances
-/// `cursor_col` by 2; every ASCII char by 1. Backspace pops one
-/// char (`String::pop()` is char-aware) and rewinds the cursor by
-/// that char's width.
+/// Text input buffer with mid-string cursor editing. The cursor
+/// position is stored as a byte index into `content` (UTF-8 char
+/// boundary), and the display column is derived on demand by
+/// summing `unicode-width` over the prefix.
 ///
-/// Cursor invariant: `cursor_col == display_width(&content)` —
-/// the cursor sits at the right edge of the typed content. v1
-/// is append-only; mid-string editing (insert at cursor / arrow
-/// key navigation) is out of scope and would relax this invariant.
+/// Wide chars (Hangul / Kanji / fullwidth) count 2 columns; ASCII
+/// counts 1; combining marks 0. The cursor lives **between** chars,
+/// not on them — `cursor_byte == 0` is "before the first char",
+/// `cursor_byte == content.len()` is "after the last char".
+///
+/// `push_char` / `pop_char` operate **at the cursor**, not at the
+/// end. When the cursor is at the end (the freshly-typed state),
+/// behavior matches the pre-fb-22 append-only buffer. When the
+/// cursor is mid-string (after a Left arrow), `push_char` inserts
+/// at that position and `pop_char` deletes the char immediately
+/// before the cursor (Backspace semantics).
 #[derive(Debug, Default, Clone)]
 pub struct InputBuffer {
     content: String,
-    cursor_col: usize,
+    cursor_byte: usize,
 }
 
 impl InputBuffer {
@@ -117,42 +123,96 @@ impl InputBuffer {
         Self::default()
     }
 
-    /// Append a single char and advance cursor by its display width.
-    /// Zero-width chars (combining marks) leave the cursor in place
-    /// but still extend `content`.
+    /// Insert a single char at the cursor and advance the cursor
+    /// past it. Zero-width chars (combining marks) leave the
+    /// display column unchanged but still extend `content`.
     pub fn push_char(&mut self, ch: char) {
-        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
-        self.content.push(ch);
-        self.cursor_col += w;
+        self.content.insert(self.cursor_byte, ch);
+        self.cursor_byte += ch.len_utf8();
     }
 
-    /// Append a `&str` char-by-char. Same width semantics as
-    /// `push_char` per element.
+    /// Insert a `&str` char-by-char at the cursor. Same width
+    /// semantics as `push_char` per element.
     pub fn push_str(&mut self, s: &str) {
         for ch in s.chars() {
             self.push_char(ch);
         }
     }
 
-    /// Remove the trailing char (Backspace) and rewind the cursor
-    /// by that char's display width. No-op on empty input.
+    /// Delete the char immediately before the cursor (Backspace)
+    /// and rewind the cursor onto its byte position. No-op on
+    /// empty input or when the cursor is already at the start.
     pub fn pop_char(&mut self) -> Option<char> {
-        let ch = self.content.pop()?;
-        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
-        self.cursor_col = self.cursor_col.saturating_sub(w);
-        Some(ch)
+        if self.cursor_byte == 0 {
+            return None;
+        }
+        let prev = self.content[..self.cursor_byte]
+            .chars()
+            .next_back()
+            .expect("cursor_byte > 0 implies at least one prior char");
+        let new_byte = self.cursor_byte - prev.len_utf8();
+        self.content.remove(new_byte);
+        self.cursor_byte = new_byte;
+        Some(prev)
+    }
+
+    /// Delete the char at the cursor (Delete key). Cursor stays
+    /// in place. No-op when the cursor is at the end.
+    pub fn delete_after(&mut self) -> Option<char> {
+        if self.cursor_byte >= self.content.len() {
+            return None;
+        }
+        Some(self.content.remove(self.cursor_byte))
+    }
+
+    /// Move the cursor one char to the left (toward index 0).
+    /// Returns true when the cursor moved.
+    pub fn move_left(&mut self) -> bool {
+        if self.cursor_byte == 0 {
+            return false;
+        }
+        let prev = self.content[..self.cursor_byte]
+            .chars()
+            .next_back()
+            .expect("cursor_byte > 0 implies at least one prior char");
+        self.cursor_byte -= prev.len_utf8();
+        true
+    }
+
+    /// Move the cursor one char to the right (toward end of content).
+    /// Returns true when the cursor moved.
+    pub fn move_right(&mut self) -> bool {
+        if self.cursor_byte >= self.content.len() {
+            return false;
+        }
+        let next = self.content[self.cursor_byte..]
+            .chars()
+            .next()
+            .expect("cursor_byte < len implies at least one trailing char");
+        self.cursor_byte += next.len_utf8();
+        true
+    }
+
+    /// Move the cursor to the start of the buffer.
+    pub fn move_home(&mut self) {
+        self.cursor_byte = 0;
+    }
+
+    /// Move the cursor to the end of the buffer.
+    pub fn move_end(&mut self) {
+        self.cursor_byte = self.content.len();
     }
 
     /// Reset to empty.
     pub fn clear(&mut self) {
         self.content.clear();
-        self.cursor_col = 0;
+        self.cursor_byte = 0;
     }
 
     /// Move the typed string out, leaving the buffer empty (cursor 0).
     /// Convenience for "submit" flows that consume the input.
     pub fn take(&mut self) -> String {
-        self.cursor_col = 0;
+        self.cursor_byte = 0;
         std::mem::take(&mut self.content)
     }
 
@@ -161,10 +221,11 @@ impl InputBuffer {
         &self.content
     }
 
-    /// Cursor column (display-width units). Matches
-    /// `display_width(self.as_str())` by construction.
+    /// Cursor column in display-width units — sum of every char's
+    /// `unicode-width` reading from the start of the buffer up to
+    /// (but not including) the cursor.
     pub fn cursor_col(&self) -> usize {
-        self.cursor_col
+        self.content[..self.cursor_byte].width()
     }
 
     /// True when no chars have been typed.
@@ -351,5 +412,142 @@ mod tests {
     #[test]
     fn place_cursor_x_keeps_position_when_within_bounds() {
         assert_eq!(place_cursor_x(10, 20, 2, 5), 17); // 10 + 2 + 5
+    }
+
+    /// p9-fb-22: Left arrow moves cursor back by one char (ASCII).
+    #[test]
+    fn input_buffer_move_left_ascii() {
+        let mut b = InputBuffer::new();
+        b.push_str("abc");
+        assert_eq!(b.cursor_col(), 3);
+        assert!(b.move_left());
+        assert_eq!(b.cursor_col(), 2);
+        assert!(b.move_left());
+        assert_eq!(b.cursor_col(), 1);
+        assert!(b.move_left());
+        assert_eq!(b.cursor_col(), 0);
+        assert!(!b.move_left());
+        assert_eq!(b.cursor_col(), 0);
+    }
+
+    /// p9-fb-22: Left arrow rewinds by full Hangul width (2 cols, 3 bytes).
+    #[test]
+    fn input_buffer_move_left_hangul() {
+        let mut b = InputBuffer::new();
+        b.push_str("러스트");
+        assert_eq!(b.cursor_col(), 6);
+        assert!(b.move_left());
+        assert_eq!(b.cursor_col(), 4);
+        assert_eq!(b.as_str(), "러스트");
+    }
+
+    /// p9-fb-22: Right arrow advances by one char until the end.
+    #[test]
+    fn input_buffer_move_right_until_end() {
+        let mut b = InputBuffer::new();
+        b.push_str("ab");
+        b.move_home();
+        assert_eq!(b.cursor_col(), 0);
+        assert!(b.move_right());
+        assert_eq!(b.cursor_col(), 1);
+        assert!(b.move_right());
+        assert_eq!(b.cursor_col(), 2);
+        assert!(!b.move_right());
+        assert_eq!(b.cursor_col(), 2);
+    }
+
+    /// p9-fb-22: Home / End cursor jumps.
+    #[test]
+    fn input_buffer_move_home_end() {
+        let mut b = InputBuffer::new();
+        b.push_str("hello");
+        b.move_home();
+        assert_eq!(b.cursor_col(), 0);
+        b.move_end();
+        assert_eq!(b.cursor_col(), 5);
+    }
+
+    /// p9-fb-22: typing mid-string inserts at cursor (not append).
+    #[test]
+    fn input_buffer_insert_at_cursor_mid_string() {
+        let mut b = InputBuffer::new();
+        b.push_str("abc");
+        b.move_left();          // cursor between b and c
+        b.move_left();          // cursor between a and b
+        b.push_char('X');       // insert X between a and b
+        assert_eq!(b.as_str(), "aXbc");
+        assert_eq!(b.cursor_col(), 2);
+    }
+
+    /// p9-fb-22: Backspace mid-string removes the char before the cursor.
+    #[test]
+    fn input_buffer_backspace_at_cursor() {
+        let mut b = InputBuffer::new();
+        b.push_str("abcde");
+        b.move_left();          // cursor between d and e
+        b.move_left();          // cursor between c and d
+        b.pop_char();           // delete c
+        assert_eq!(b.as_str(), "abde");
+        assert_eq!(b.cursor_col(), 2);
+    }
+
+    /// p9-fb-22: Backspace at start of buffer is a no-op.
+    #[test]
+    fn input_buffer_backspace_at_home_is_noop() {
+        let mut b = InputBuffer::new();
+        b.push_str("abc");
+        b.move_home();
+        assert!(b.pop_char().is_none());
+        assert_eq!(b.as_str(), "abc");
+        assert_eq!(b.cursor_col(), 0);
+    }
+
+    /// p9-fb-22: Delete key removes the char AT the cursor; cursor stays.
+    #[test]
+    fn input_buffer_delete_after_at_cursor() {
+        let mut b = InputBuffer::new();
+        b.push_str("abc");
+        b.move_home();
+        assert_eq!(b.delete_after(), Some('a'));
+        assert_eq!(b.as_str(), "bc");
+        assert_eq!(b.cursor_col(), 0);
+    }
+
+    /// p9-fb-22: Delete on empty buffer / at end → no-op.
+    #[test]
+    fn input_buffer_delete_after_at_end_is_noop() {
+        let mut b = InputBuffer::new();
+        b.push_str("ab");
+        // cursor at end
+        assert!(b.delete_after().is_none());
+        assert_eq!(b.as_str(), "ab");
+    }
+
+    /// p9-fb-22: cursor_col stays consistent after mixed mid-string edits
+    /// with wide chars.
+    #[test]
+    fn input_buffer_cursor_col_after_mixed_hangul_edits() {
+        let mut b = InputBuffer::new();
+        b.push_str("a한b");      // cursor at end, col = 1 + 2 + 1 = 4
+        assert_eq!(b.cursor_col(), 4);
+        b.move_left();            // before 'b': col = 3
+        assert_eq!(b.cursor_col(), 3);
+        b.move_left();            // before '한': col = 1
+        assert_eq!(b.cursor_col(), 1);
+        b.push_char('글');        // insert 글 → "a글한b", cursor between 글 and 한, col = 1 + 2 = 3
+        assert_eq!(b.as_str(), "a글한b");
+        assert_eq!(b.cursor_col(), 3);
+    }
+
+    /// p9-fb-22: take() resets cursor even when it was mid-string.
+    #[test]
+    fn input_buffer_take_resets_mid_string_cursor() {
+        let mut b = InputBuffer::new();
+        b.push_str("abc");
+        b.move_left();
+        let s = b.take();
+        assert_eq!(s, "abc");
+        assert!(b.is_empty());
+        assert_eq!(b.cursor_col(), 0);
     }
 }

@@ -654,3 +654,176 @@ fn hangul_typing_in_ask_input_advances_cursor_by_two_per_char() {
     assert_eq!(app.ask.as_ref().unwrap().input.as_str(), "한");
     assert_eq!(app.ask.as_ref().unwrap().input.cursor_col(), 2);
 }
+
+// ── p9-fb-22: cursor mid-string editing in Ask input ──────────────────────
+
+/// p9-fb-22 (issue #94): Left arrow rewinds the cursor; subsequent
+/// Char insertion lands at that mid-string position (not at the end).
+#[test]
+fn left_arrow_then_typing_inserts_at_cursor_in_ask() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Insert;
+    for ch in "abc".chars() {
+        handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    let s = app.ask.as_ref().unwrap();
+    assert_eq!(s.input.as_str(), "abXc", "X inserts before c, not at end");
+    assert_eq!(s.input.cursor_col(), 3, "cursor sits between X and c");
+}
+
+/// p9-fb-22 (issue #94): Right arrow at end of input is a no-op
+/// (no overflow, no panic).
+#[test]
+fn right_arrow_at_end_is_noop_in_ask() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Insert;
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    let s = app.ask.as_ref().unwrap();
+    assert_eq!(s.input.cursor_col(), 1);
+}
+
+/// p9-fb-22 (issue #94): Home jumps cursor to the start; End to
+/// the end. Available regardless of mode.
+#[test]
+fn home_end_jump_cursor_in_ask() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Insert;
+    for ch in "hello".chars() {
+        handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+    assert_eq!(app.ask.as_ref().unwrap().input.cursor_col(), 0);
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+    assert_eq!(app.ask.as_ref().unwrap().input.cursor_col(), 5);
+}
+
+/// p9-fb-22 (issue #94): Delete key at the cursor removes the next
+/// char without rewinding the cursor.
+#[test]
+fn delete_key_removes_char_at_cursor_in_ask() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Insert;
+    for ch in "abc".chars() {
+        handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+    let s = app.ask.as_ref().unwrap();
+    assert_eq!(s.input.as_str(), "bc", "Delete removed the leading 'a'");
+    assert_eq!(s.input.cursor_col(), 0, "cursor stayed at column 0");
+}
+
+/// p9-fb-22 (issue #94): Hangul + Left arrow rewinds by 2 display
+/// columns (one wide char), keeping the byte boundary intact.
+#[test]
+fn hangul_left_arrow_rewinds_by_two_cols_in_ask() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Insert;
+    for ch in "한글".chars() {
+        handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    assert_eq!(app.ask.as_ref().unwrap().input.cursor_col(), 4);
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(app.ask.as_ref().unwrap().input.cursor_col(), 2);
+    // Inserting at the new cursor position lands between the two
+    // syllables, proving cursor_col is not just a display annotation.
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    assert_eq!(app.ask.as_ref().unwrap().input.as_str(), "한X글");
+}
+
+// ── p9-fb-22: follow-tail auto-scroll on new transcript content ───────────
+
+/// p9-fb-22 (issue #95): a freshly constructed AskState defaults to
+/// `follow_tail = true` so the first answer streams into view.
+#[test]
+fn ask_state_default_follow_tail_is_true() {
+    let s = AskState::default();
+    assert!(s.follow_tail, "follow_tail is on by default");
+}
+
+/// p9-fb-22 (issue #95): pressing `k` in Normal disengages follow-
+/// tail so the user can review prior turns without the renderer
+/// snapping back to the bottom on the next streamed token.
+#[test]
+fn k_disengages_follow_tail_in_ask() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Normal;
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+    assert!(!app.ask.as_ref().unwrap().follow_tail);
+}
+
+/// p9-fb-22 (issue #95): Shift-G jumps the transcript to the bottom
+/// and re-engages follow-tail so subsequent streaming auto-scrolls
+/// again.
+#[test]
+fn shift_g_re_engages_follow_tail_in_ask() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Normal;
+    {
+        let s = app.ask.as_mut().unwrap();
+        s.follow_tail = false;
+        s.scroll = 7;
+    }
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT));
+    let s = app.ask.as_ref().unwrap();
+    assert!(s.follow_tail, "Shift-G re-engages follow-tail");
+    assert_eq!(s.scroll, 0, "scroll cleared (renderer recomputes)");
+}
+
+/// p9-fb-22 (issue #95): Ctrl-L clears the conversation AND resets
+/// follow_tail to true so the next submission auto-scrolls.
+#[test]
+fn ctrl_l_resets_follow_tail_in_ask() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Normal;
+    app.ask.as_mut().unwrap().follow_tail = false;
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+    assert!(app.ask.as_ref().unwrap().follow_tail);
+}
+
+/// p9-fb-22 (issue #95): when follow_tail is on and the transcript
+/// has many lines, the rendered buffer's last visible line includes
+/// content from the tail of the answer (not the head).
+#[test]
+fn follow_tail_renders_tail_when_transcript_overflows() {
+    let mut app = fresh_app();
+    {
+        let s = app.ask.as_mut().unwrap();
+        // Stuff the transcript with 30 turns so the rendered viewport
+        // (height 12 → ~9 inner rows after borders + bottom split)
+        // can't show them all.
+        for i in 0..30 {
+            s.turns.push(Turn {
+                question: format!("Q{i}"),
+                answer: format!("A{i}-body-text"),
+                citations: Vec::new(),
+                created_at: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+            });
+        }
+        s.follow_tail = true;
+    }
+    let backend = TestBackend::new(60, 20);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| render_ask(f, Rect::new(0, 0, 60, 20), &app))
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let rendered: String = (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    // The very last turn (Q29 / A29) must be visible somewhere in
+    // the buffer — without follow-tail, the renderer would pin to
+    // the top and only the first few turns would show.
+    assert!(
+        rendered.contains("A29-body-text"),
+        "tail of transcript must be visible when follow_tail is on; got:\n{rendered}"
+    );
+}

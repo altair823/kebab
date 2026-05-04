@@ -105,6 +105,7 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
   - [p9-fb-19 search cache](p9/p9-fb-19-search-cache.md)
   - [p9-fb-20 citation surface](p9/p9-fb-20-citation-surface.md)
   - [p9-fb-21 Insert-key + F1 visibility (post-도그푸딩)](p9/p9-fb-21-tui-insert-key-discoverability.md)
+  - [p9-fb-22 cursor mid-string editing + Ask follow-tail (post-도그푸딩)](p9/p9-fb-22-tui-cursor-and-autoscroll.md)
 
 ## Post-merge 핫픽스
 

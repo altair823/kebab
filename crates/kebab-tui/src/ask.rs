@@ -150,10 +150,21 @@ fn render_answer(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::
         return;
     }
 
-    let para = Paragraph::new(lines)
-        .wrap(Wrap { trim: false })
-        .scroll((s.scroll, 0));
-    f.render_widget(para.block(block), area);
+    // p9-fb-22: follow-tail render. Build the paragraph, ask it for
+    // the post-wrap line count at the viewport width (via ratatui's
+    // `unstable-rendered-line-info` feature, pinned to ratatui 0.28
+    // in our Cargo.toml), then pin the scroll offset to
+    // `line_count - inner_height` when `follow_tail` is set.
+    let inner = block.inner(area);
+    let para = Paragraph::new(lines).wrap(Wrap { trim: false });
+    let scroll = if s.follow_tail {
+        let total_lines = para.line_count(inner.width);
+        u16::try_from(total_lines.saturating_sub(inner.height as usize))
+            .unwrap_or(u16::MAX)
+    } else {
+        s.scroll
+    };
+    f.render_widget(para.scroll((scroll, 0)).block(block), area);
 }
 
 fn push_turn_lines(
@@ -312,6 +323,9 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
             s.partial.clear();
             s.current_question = None;
             s.scroll = 0;
+            // p9-fb-22: re-engage follow-tail on Ctrl-L so the next
+            // submission's stream auto-scrolls.
+            s.follow_tail = true;
             // p9-fb-16: detach the in-flight worker so its eventual
             // result does NOT graduate into the new conversation as
             // a stale Turn. JoinHandle Drop on `None` assignment is
@@ -367,18 +381,62 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
             KeyOutcome::Continue
         }
         (KeyCode::Char('j'), KeyModifiers::NONE) if state.mode == crate::app::Mode::Normal => {
+            // p9-fb-22: scrolling down via `j` opts out of follow-
+            // tail. The renderer uses `s.scroll` (not the computed
+            // bottom offset) until the user presses `G` to re-pin.
             let s = state.ask.as_mut().unwrap();
+            s.follow_tail = false;
             s.scroll = s.scroll.saturating_add(1);
             KeyOutcome::Continue
         }
         (KeyCode::Char('k'), KeyModifiers::NONE) if state.mode == crate::app::Mode::Normal => {
+            // p9-fb-22: scrolling up via `k` opts out of follow-tail.
             let s = state.ask.as_mut().unwrap();
+            s.follow_tail = false;
             s.scroll = s.scroll.saturating_sub(1);
+            KeyOutcome::Continue
+        }
+        // p9-fb-22: `G` jumps the transcript to the bottom and
+        // re-engages follow-tail so subsequent streaming auto-
+        // scrolls. Only available in Normal mode (Insert mode
+        // types `G` into the input).
+        (KeyCode::Char('G'), KeyModifiers::SHIFT) if state.mode == crate::app::Mode::Normal => {
+            let s = state.ask.as_mut().unwrap();
+            s.follow_tail = true;
+            s.scroll = 0;
             KeyOutcome::Continue
         }
         (KeyCode::Backspace, _) => {
             let s = state.ask.as_mut().unwrap();
             s.input.pop_char();
+            KeyOutcome::Continue
+        }
+        // p9-fb-22: arrow keys + Home/End + Delete edit at the cursor.
+        // Available in both Normal and Insert mode (no shift to typing
+        // ambiguity — these are physical keys, not Char codes).
+        (KeyCode::Left, _) => {
+            let s = state.ask.as_mut().unwrap();
+            s.input.move_left();
+            KeyOutcome::Continue
+        }
+        (KeyCode::Right, _) => {
+            let s = state.ask.as_mut().unwrap();
+            s.input.move_right();
+            KeyOutcome::Continue
+        }
+        (KeyCode::Home, _) => {
+            let s = state.ask.as_mut().unwrap();
+            s.input.move_home();
+            KeyOutcome::Continue
+        }
+        (KeyCode::End, _) => {
+            let s = state.ask.as_mut().unwrap();
+            s.input.move_end();
+            KeyOutcome::Continue
+        }
+        (KeyCode::Delete, _) => {
+            let s = state.ask.as_mut().unwrap();
+            s.input.delete_after();
             KeyOutcome::Continue
         }
         // Insert mode: every non-chord Char (incl. e/j/k) types into
@@ -409,6 +467,9 @@ fn spawn_ask_worker(state: &mut App) {
     s.last_answer = None;
     s.streaming = true;
     s.scroll = 0;
+    // p9-fb-22: every new submission re-engages follow-tail so the
+    // streaming answer auto-scrolls into view as tokens arrive.
+    s.follow_tail = true;
     s.rx = Some(rx);
     // p9-fb-16: graduate the typed input into the in-flight turn,
     // clear the input box, ensure conversation_id exists, snapshot

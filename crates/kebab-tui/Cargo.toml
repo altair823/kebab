@@ -13,7 +13,11 @@ kebab-config = { path = "../kebab-config" }
 # UI facade rule (design §8): UI crates may only touch `kebab-app`. The
 # search / store / embed / llm / rag layers stay invisible behind it.
 kebab-app    = { path = "../kebab-app" }
-ratatui      = "0.28"
+# p9-fb-22: `unstable-rendered-line-info` exposes
+# `Paragraph::line_count(width)` for the Ask follow-tail scroll
+# math. Pinned ratatui 0.28.x means the unstable surface is fixed
+# until we deliberately bump the dep.
+ratatui      = { version = "0.28", features = ["unstable-rendered-line-info"] }
 crossterm    = "0.28"
 anyhow       = { workspace = true }
 tracing      = { workspace = true }
