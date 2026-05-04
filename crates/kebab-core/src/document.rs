@@ -7,7 +7,7 @@ use crate::asset::WorkspacePath;
 use crate::ids::{AssetId, BlockId, DocumentId};
 use crate::media::Lang;
 use crate::metadata::{Metadata, Provenance};
-use crate::versions::ParserVersion;
+use crate::versions::{ChunkerVersion, EmbeddingVersion, ParserVersion};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CanonicalDocument {
@@ -22,6 +22,15 @@ pub struct CanonicalDocument {
     pub parser_version: ParserVersion,
     pub schema_version: u32,
     pub doc_version: u32,
+    /// p9-fb-23: chunker version active when this document was last
+    /// chunked. `None` for rows ingested before V006 migration; the
+    /// next ingest stamps the current version. Compared against the
+    /// active chunker version for the incremental-ingest skip path.
+    pub last_chunker_version: Option<ChunkerVersion>,
+    /// p9-fb-23: embedding model version active when this document
+    /// was last embedded. `None` if no embedder is configured (skip
+    /// path treats `None == None` as a match — see design doc).
+    pub last_embedding_version: Option<EmbeddingVersion>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

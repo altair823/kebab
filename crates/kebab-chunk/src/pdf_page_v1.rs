@@ -352,6 +352,8 @@ mod tests {
             parser_version,
             schema_version: 1,
             doc_version: 1,
+            last_chunker_version: None,
+            last_embedding_version: None,
         }
     }
 
@@ -515,6 +517,8 @@ mod tests {
             parser_version,
             schema_version: 1,
             doc_version: 1,
+            last_chunker_version: None,
+            last_embedding_version: None,
         };
         let err = PdfPageV1Chunker
             .chunk(&doc, &default_policy(500, 80))

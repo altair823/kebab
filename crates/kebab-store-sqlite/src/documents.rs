@@ -221,6 +221,8 @@ impl kebab_core::DocumentStore for SqliteStore {
             // under that invariant.
             schema_version: row.schema_version as u32,
             doc_version: row.doc_version as u32,
+            last_chunker_version: None,
+            last_embedding_version: None,
         }))
     }
 
