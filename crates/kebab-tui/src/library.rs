@@ -221,6 +221,36 @@ fn render_doc_list(f: &mut Frame, area: Rect, state: &App) {
     f.render_stateful_widget(list, area, &mut list_state);
 }
 
+/// p9-fb-24: render the column-label row that sits directly above
+/// the doc list. Uses the same width math as `format_doc_row` so
+/// the labels line up with their data columns regardless of Hangul
+/// / CJK width drift.
+///
+/// Layout: `TITLE<title_pad>  TAGS<tags_pad>  UPDATED  CHUNKS`.
+/// The title column width matches `area.width.saturating_sub(40).max(20)`
+/// — the same calculation `render_doc_list` uses for `title_w`.
+///
+/// Task 5 wires it into render_doc_list.
+#[allow(dead_code)]
+pub(crate) fn format_doc_header(title_w: usize) -> Line<'static> {
+    let title_label = "TITLE";
+    let tags_label = "TAGS";
+    let title_pad = title_w.saturating_sub(display_width(title_label));
+    let tags_pad = TAGS_COL_W.saturating_sub(display_width(tags_label));
+    let text = format!(
+        "{title_label}{:title_pad$}  {tags_label}{:tags_pad$}  {updated:<10}  {chunks}",
+        "",
+        "",
+        title_label = title_label,
+        tags_label = tags_label,
+        updated = "UPDATED",
+        chunks = "CHUNKS",
+        title_pad = title_pad,
+        tags_pad = tags_pad,
+    );
+    Line::from(text)
+}
+
 /// Format a `DocSummary` row using display-width-aware truncation
 /// and padding. Korean / wide chars contribute 2 columns each.
 pub(crate) fn format_doc_row(d: &DocSummary, title_w: usize) -> String {
@@ -507,5 +537,32 @@ mod tests {
         let row = format_doc_row(&doc("ascii", &["한글"]), 20);
         // title 20 + "  " + tags 12 + "  " + date 10 + "  " + "1" = 49
         assert_eq!(display_width(&row), 49, "row: {row:?}");
+    }
+
+    /// p9-fb-24: column header row uses the same width math as
+    /// `format_doc_row` so labels line up with their data columns.
+    /// The TITLE label sits in the title column, TAGS sits in the
+    /// 12-col TAGS column, UPDATED in the 10-col date column, and
+    /// CHUNKS at the trailing position.
+    #[test]
+    fn format_doc_header_aligns_with_format_doc_row() {
+        let title_w = 30;
+        let header = format_doc_header(title_w);
+        let header_text: String = header
+            .spans
+            .iter()
+            .map(|sp| sp.content.as_ref())
+            .collect();
+        assert!(header_text.contains("TITLE"), "header has TITLE label");
+        assert!(header_text.contains("TAGS"), "header has TAGS label");
+        assert!(header_text.contains("UPDATED"), "header has UPDATED label");
+        assert!(header_text.contains("CHUNKS"), "header has CHUNKS label");
+        let row = format_doc_row(&doc("ascii-title", &["rust"]), title_w);
+        let tags_start_in_row = row.find("rust").expect("row has tags");
+        let tags_start_in_header = header_text.find("TAGS").expect("header has TAGS");
+        assert!(
+            tags_start_in_header <= tags_start_in_row,
+            "TAGS header drifted past row tags: header={tags_start_in_header} row={tags_start_in_row}"
+        );
     }
 }
