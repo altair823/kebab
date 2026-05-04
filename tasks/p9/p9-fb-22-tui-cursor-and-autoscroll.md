@@ -64,9 +64,9 @@ source_feedback: 사용자 도그푸딩 2026-05-04 — Gitea #94 (입력 후 커
 
 ## Tests
 
-- 12 신규 InputBuffer unit (move_left/right ASCII/Hangul, home/end, mid-string insert, backspace at cursor, delete_after, mixed-width cursor invariant, take 후 cursor reset).
-- 6 신규 Ask integration (Left/Right/Home/End/Delete on Ask input, Hangul left arrow, follow_tail default, k disengages, Shift-G re-engages, Ctrl-L resets, follow-tail rendering bottom of long transcript).
-- 기존 30+ 테스트는 그대로 통과 (cursor 가 끝일 때 backwards-compat).
+- 11 신규 InputBuffer unit (move_left/right ASCII/Hangul, home/end, mid-string insert, backspace at cursor + at home no-op, delete_after at cursor + at end no-op, mixed-width cursor invariant, take 후 cursor reset).
+- 10 신규 Ask integration (Left/Right/Home/End/Delete on Ask input, Hangul left arrow, follow_tail default, k disengages, Shift-G re-engages, Ctrl-L resets, follow-tail rendering bottom of long transcript).
+- 기존 38 개 테스트는 그대로 통과 (cursor 가 끝일 때 backwards-compat).
 
 ## Risks / notes
 

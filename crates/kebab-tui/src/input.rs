@@ -234,7 +234,6 @@ impl InputBuffer {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
