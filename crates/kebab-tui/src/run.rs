@@ -232,26 +232,18 @@ fn handle_key_unimplemented_pane(
 }
 
 fn render_root(f: &mut Frame, app: &App) {
-    // p9-fb-03: insert a 1-line status bar above the footer when an
-    // ingest is in flight (or its terminal line is still on hold).
-    let has_ingest = app.ingest_state.is_some();
-    let constraints: Vec<Constraint> = if has_ingest {
-        vec![
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(1), // ingest status bar
-            Constraint::Length(1), // existing footer hints
-        ]
-    } else {
-        vec![
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ]
-    };
+    // p9-fb-24: bottom is always 2 rows — status bar + key hints.
+    // The pre-fb-24 conditional ingest-status row is gone; the
+    // ingest progress text now appears in the status bar's dynamic
+    // slot (see `dynamic_status` priority cascade).
     let outer = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(constraints)
+        .constraints([
+            Constraint::Length(1),  // top header
+            Constraint::Min(1),     // pane content
+            Constraint::Length(1),  // status bar
+            Constraint::Length(1),  // key hint bar
+        ])
         .split(f.area());
     render_header(f, outer[0], app);
     match app.focus {
@@ -259,47 +251,16 @@ fn render_root(f: &mut Frame, app: &App) {
         Pane::Search => render_search(f, outer[1], app),
         Pane::Ask => render_ask(f, outer[1], app),
         Pane::Inspect => render_inspect(f, outer[1], app),
-        // p9-5 Jobs not yet rendered; Library placeholder.
         Pane::Jobs => render_library(f, outer[1], app),
     }
-    if has_ingest {
-        render_ingest_status(f, outer[2], app);
-        render_footer(f, outer[3], app);
-    } else {
-        render_footer(f, outer[2], app);
-    }
+    render_status_bar(f, outer[2], app);
+    render_key_hints(f, outer[3], app);
     if let Some(err) = &app.error_overlay {
         render_error_overlay(f, f.area(), err, &app.theme);
     }
-    // p9-fb-13: cheatsheet sits on top of the error overlay so the
-    // user can summon help even mid-error (the cheatsheet's own
-    // Esc/F1 close still works first; the next key reaches the
-    // error-dismiss path).
     if app.cheatsheet_visible {
         crate::cheatsheet::render_cheatsheet(f, f.area(), app);
     }
-}
-
-fn render_ingest_status(f: &mut Frame, area: Rect, app: &App) {
-    let Some(state) = app.ingest_state.as_ref() else {
-        return;
-    };
-    let line = crate::ingest_progress::status_line(state);
-    // p9-fb-14: `aborted` is a non-fatal-but-noteworthy state (Ctrl-C
-    // partial commit) — `Role::Warning` (yellow) is the right semantic
-    // signal, plus an explicit BOLD so the abort line still stands
-    // out from the live progress lines around it.
-    let style = if state.aborted {
-        app.theme
-            .style(crate::theme::Role::Warning)
-            .add_modifier(ratatui::style::Modifier::BOLD)
-    } else {
-        app.theme.style(crate::theme::Role::Body)
-    };
-    f.render_widget(
-        Paragraph::new(Line::from(Span::styled(line, style))),
-        area,
-    );
 }
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {
@@ -408,7 +369,7 @@ fn ask_conv_id_short(app: &App) -> Option<String> {
     Some(format!("conv_{head}…"))
 }
 
-fn render_footer(f: &mut Frame, area: Rect, app: &App) {
+fn render_key_hints(f: &mut Frame, area: Rect, app: &App) {
     let hints = footer_hints(app.focus, app.mode, app.library.inner.filter_edit.is_some());
     let line = Line::from(Span::styled(
         hints,
