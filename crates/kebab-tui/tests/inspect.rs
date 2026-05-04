@@ -188,6 +188,39 @@ fn page_keys_scroll_by_ten() {
     assert_eq!(app.inspect.as_ref().unwrap().scroll, 0);
 }
 
+/// p9-fb-24 task 2: PageDown advances scroll by `PAGE_STEP` (= 10).
+/// Pins the constant so a future viewport-aware refactor surfaces
+/// here, not silently in user-visible behaviour.
+#[test]
+fn page_down_scrolls_by_ten_in_inspect() {
+    let mut app = fresh_app();
+    let outcome = handle_key_inspect(
+        &mut app,
+        KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE),
+    );
+    assert_eq!(outcome, KeyOutcome::Continue);
+    assert_eq!(app.inspect.as_ref().unwrap().scroll, 10);
+}
+
+/// p9-fb-24 task 2: PageUp rewinds scroll by `PAGE_STEP`, saturating
+/// at 0 (no underflow).
+#[test]
+fn page_up_rewinds_by_ten_saturating_in_inspect() {
+    let mut app = fresh_app();
+    app.inspect.as_mut().unwrap().scroll = 25;
+    handle_key_inspect(
+        &mut app,
+        KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
+    );
+    assert_eq!(app.inspect.as_ref().unwrap().scroll, 15);
+    app.inspect.as_mut().unwrap().scroll = 3;
+    handle_key_inspect(
+        &mut app,
+        KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
+    );
+    assert_eq!(app.inspect.as_ref().unwrap().scroll, 0);
+}
+
 #[test]
 fn c_toggles_collapse_state() {
     let mut app = fresh_app();
