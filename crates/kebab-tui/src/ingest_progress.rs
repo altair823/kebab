@@ -176,21 +176,23 @@ pub fn status_line(state: &IngestState) -> String {
         let secs = elapsed.as_secs();
         if state.aborted {
             return format!(
-                "✗ ingest aborted at {}/{} after {}s (new={} updated={} skipped={} errors={})",
+                "✗ ingest aborted at {}/{} after {}s (new={} updated={} unchanged={} skipped={} errors={})",
                 state.counts.scanned.saturating_sub(state.counts.errors),
                 state.counts.scanned,
                 secs,
                 state.counts.new,
                 state.counts.updated,
+                state.counts.unchanged,
                 state.counts.skipped,
                 state.counts.errors,
             );
         }
         return format!(
-            "✓ ingest: {} docs ({} new, {} updated, {} skipped), {} chunks indexed in {}s",
+            "✓ ingest: {} docs ({} new, {} updated, {} unchanged, {} skipped), {} chunks indexed in {}s",
             state.counts.scanned,
             state.counts.new,
             state.counts.updated,
+            state.counts.unchanged,
             state.counts.skipped,
             state.counts.chunks_indexed,
             secs,
