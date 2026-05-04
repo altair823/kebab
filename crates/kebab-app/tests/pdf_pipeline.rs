@@ -187,10 +187,15 @@ fn ingest_3_page_pdf_produces_one_doc_and_per_page_chunks() {
     }
 }
 
-/// Re-ingest the SAME PDF bytes → identical doc_id, identical chunk_id
-/// set, item kind = Updated. P1 idempotency contract.
+/// Re-ingest the SAME PDF bytes → identical doc_id, item kind =
+/// Unchanged. p9-fb-23 task 7 introduced the early-skip path: when
+/// checksum + parser/chunker/embedding versions all match, the second
+/// run reports `Unchanged` rather than `Updated` and skips parse /
+/// chunk / embed entirely. The pre-p9-fb-23 contract was `Updated`;
+/// the `force_reingest=true` path still exercises that branch (see
+/// `incremental_ingest.rs`).
 #[test]
-fn re_ingest_identical_pdf_produces_updated_with_same_doc_id() {
+fn re_ingest_identical_pdf_produces_unchanged_with_same_doc_id() {
     let env = TestEnv::lexical_only();
     let bytes = build_text_pdf(&[Some("page 1"), Some("page 2")]);
     write_pdf(&env.workspace_root, "stable.pdf", &bytes);
@@ -216,17 +221,8 @@ fn re_ingest_identical_pdf_produces_updated_with_same_doc_id() {
         .into_iter()
         .find(|i| i.doc_path.0.ends_with("stable.pdf"))
         .unwrap();
-    assert_eq!(item2.kind, IngestItemKind::Updated);
+    assert_eq!(item2.kind, IngestItemKind::Unchanged);
     assert_eq!(item2.doc_id, item1.doc_id);
-    // P1 idempotency contract: identical bytes → identical chunk set.
-    // Comparing `chunk_count` as a proxy (full chunk_id set comparison
-    // would need direct sqlite access; the per-chunk #c{char_start}
-    // hash variant in pdf-page-v1 is already tested for stability in
-    // `kebab-chunk::pdf_page_v1::deterministic_chunk_ids_1000`).
-    assert_eq!(
-        item1.chunk_count, item2.chunk_count,
-        "identical bytes must produce identical chunk count"
-    );
 }
 
 /// Edit a PDF (replace bytes) → different blake3 → different asset_id

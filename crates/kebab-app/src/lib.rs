@@ -277,10 +277,7 @@ pub fn ingest_with_config_opts(
             .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
             .unwrap_or(false)
     };
-    // p9-fb-23: opts.force_reingest is consumed by Task 7's skip-detection
-    // block. For Task 6 alone, the field is plumbed but unused — silence
-    // the warning until Task 7 wires it.
-    let _ = opts.force_reingest;
+    let force_reingest = opts.force_reingest;
     let started_instant = std::time::Instant::now();
 
     let app = App::open_with_config(config)?;
@@ -415,6 +412,7 @@ pub fn ingest_with_config_opts(
             vector_store.as_ref(),
             &existing_doc_ids,
             &image_pipeline,
+            force_reingest,
         );
 
         let item = match item {
@@ -716,6 +714,105 @@ struct ImagePipeline<'a> {
     caption_llm: Option<&'a dyn LanguageModel>,
 }
 
+/// p9-fb-23 task 7: incremental-ingest early-skip predicate. Shared
+/// across the markdown / image / PDF per-asset flows. Returns
+/// `Some(IngestItem { kind: Unchanged, .. })` when ALL FOUR conditions
+/// hold (per design §9 cascade rule):
+///
+/// 1. `force_reingest == false` — caller hasn't asked to bypass skip.
+/// 2. The freshly-scanned asset's blake3 checksum equals what the
+///    existing `assets` row stores at the same `workspace_path`.
+/// 3. The doc keyed on `(workspace_path, asset_id, current_parser_version)`
+///    exists. If the parser_version changed, `id_for_doc` produces a
+///    different `doc_id` so the lookup misses → no skip → re-process.
+/// 4. The existing doc's stamped `last_chunker_version` AND
+///    `last_embedding_version` match the values the caller is about
+///    to use (`Some(v) == Some(v)` and `None == None` — see design
+///    doc for the `None == None` rule when no embedder is configured).
+///
+/// Returns `Ok(None)` (proceed with full re-process) when any check
+/// fails or any DB read errors out — the skip path is opportunistic;
+/// a missed skip is correct (just slower), a wrong skip would corrupt
+/// the index.
+fn try_skip_unchanged(
+    app: &App,
+    asset: &RawAsset,
+    current_parser_version: &ParserVersion,
+    current_chunker_version: &ChunkerVersion,
+    current_embedding_version: Option<&kebab_core::EmbeddingVersion>,
+    force_reingest: bool,
+) -> anyhow::Result<Option<kebab_core::IngestItem>> {
+    if force_reingest {
+        return Ok(None);
+    }
+    let existing_asset = match app
+        .sqlite
+        .get_asset_by_workspace_path(&asset.workspace_path)
+    {
+        Ok(Some(a)) => a,
+        Ok(None) => return Ok(None),
+        Err(e) => {
+            tracing::debug!(
+                target: "kebab-app",
+                path = %asset.workspace_path.0,
+                error = %e,
+                "skip-check: get_asset_by_workspace_path failed; falling through to re-process"
+            );
+            return Ok(None);
+        }
+    };
+    if existing_asset.checksum != asset.checksum {
+        return Ok(None);
+    }
+    let candidate_doc_id = kebab_core::id_for_doc(
+        &asset.workspace_path,
+        &asset.asset_id,
+        current_parser_version,
+    );
+    let existing_doc = match app.sqlite.get_document(&candidate_doc_id) {
+        Ok(Some(d)) => d,
+        Ok(None) => return Ok(None),
+        Err(e) => {
+            tracing::debug!(
+                target: "kebab-app",
+                path = %asset.workspace_path.0,
+                error = %e,
+                "skip-check: get_document failed; falling through to re-process"
+            );
+            return Ok(None);
+        }
+    };
+    let chunker_match = existing_doc.last_chunker_version.as_ref()
+        == Some(current_chunker_version);
+    if !chunker_match {
+        return Ok(None);
+    }
+    let embedder_match = existing_doc.last_embedding_version.as_ref()
+        == current_embedding_version;
+    if !embedder_match {
+        return Ok(None);
+    }
+    tracing::debug!(
+        target: "kebab-app::ingest",
+        path = %asset.workspace_path.0,
+        doc_id = %candidate_doc_id.0,
+        "skip-unchanged: checksum + parser/chunker/embedding versions match"
+    );
+    Ok(Some(kebab_core::IngestItem {
+        kind: kebab_core::IngestItemKind::Unchanged,
+        doc_id: Some(candidate_doc_id),
+        doc_path: asset.workspace_path.clone(),
+        asset_id: Some(asset.asset_id.clone()),
+        byte_len: Some(asset.byte_len),
+        block_count: u32::try_from(existing_doc.blocks.len()).ok(),
+        chunk_count: None,
+        parser_version: Some(existing_doc.parser_version.clone()),
+        chunker_version: existing_doc.last_chunker_version.clone(),
+        warnings: Vec::new(),
+        error: None,
+    }))
+}
+
 /// Process a single asset: read bytes, parse, normalize, chunk,
 /// persist, embed. Per-asset failures bubble up to the caller for
 /// labelling as `IngestItemKind::Error` — they do NOT abort the
@@ -730,6 +827,7 @@ fn ingest_one_asset(
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
     image_pipeline: &ImagePipeline<'_>,
+    force_reingest: bool,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     tracing::debug!(
         target: "kebab-app::ingest",
@@ -753,6 +851,7 @@ fn ingest_one_asset(
                 vector_store,
                 existing_doc_ids,
                 image_pipeline,
+                force_reingest,
             );
         }
         MediaType::Pdf => {
@@ -763,6 +862,7 @@ fn ingest_one_asset(
                 embedder,
                 vector_store,
                 existing_doc_ids,
+                force_reingest,
             );
         }
         _ => {
@@ -802,6 +902,23 @@ fn ingest_one_asset(
             });
         }
     };
+
+    // p9-fb-23 task 7: incremental-ingest early-skip. When force_reingest
+    // is false AND the on-disk asset's checksum + parser_version +
+    // last_chunker_version + last_embedding_version all match the existing
+    // DB record, this asset doesn't need to be re-parsed / re-chunked /
+    // re-embedded. Return Unchanged so the caller bumps `aggregate.unchanged`
+    // and the AssetFinished progress event reflects the skip.
+    if let Some(item) = try_skip_unchanged(
+        app,
+        asset,
+        parser_version,
+        &MdHeadingV1Chunker.chunker_version(),
+        embedder.map(|e| e.model_version()).as_ref(),
+        force_reingest,
+    )? {
+        return Ok(item);
+    }
 
     let bytes = std::fs::read(&path)
         .with_context(|| format!("read asset bytes from {}", path.display()))?;
@@ -954,6 +1071,7 @@ fn ingest_one_image_asset(
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
     image_pipeline: &ImagePipeline<'_>,
+    force_reingest: bool,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     let image_extractor = image_pipeline.extractor;
     let ocr_engine = image_pipeline.ocr_engine;
@@ -978,6 +1096,23 @@ fn ingest_one_image_asset(
             });
         }
     };
+    // p9-fb-23 task 7: incremental-ingest early-skip for the image flow.
+    // Image docs use the `image-meta-v1` parser_version + the same
+    // MdHeadingV1Chunker as the markdown flow (single-block doc). The
+    // embedding-version check matches the markdown path: when the
+    // active embedder's model_version equals what was stamped on the
+    // existing doc, the asset is Unchanged.
+    let image_parser_version = ParserVersion(kebab_parse_image::PARSER_VERSION.to_string());
+    if let Some(item) = try_skip_unchanged(
+        app,
+        asset,
+        &image_parser_version,
+        &MdHeadingV1Chunker.chunker_version(),
+        embedder.map(|e| e.model_version()).as_ref(),
+        force_reingest,
+    )? {
+        return Ok(item);
+    }
     let bytes = std::fs::read(&path)
         .with_context(|| format!("read image asset bytes from {}", path.display()))?;
 
@@ -1274,6 +1409,7 @@ fn ingest_one_pdf_asset(
     embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
+    force_reingest: bool,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     let path = match &asset.source_uri {
         SourceUri::File(p) => p.clone(),
@@ -1295,6 +1431,20 @@ fn ingest_one_pdf_asset(
             });
         }
     };
+    // p9-fb-23 task 7: incremental-ingest early-skip for the PDF flow.
+    // PDF docs use `pdf-text-v1` as the parser_version and `PdfPageV1Chunker`
+    // as the chunker — both pinned per-medium today (no config knob).
+    let pdf_parser_version = ParserVersion(kebab_parse_pdf::PARSER_VERSION.to_string());
+    if let Some(item) = try_skip_unchanged(
+        app,
+        asset,
+        &pdf_parser_version,
+        &PdfPageV1Chunker.chunker_version(),
+        embedder.map(|e| e.model_version()).as_ref(),
+        force_reingest,
+    )? {
+        return Ok(item);
+    }
     let bytes = std::fs::read(&path)
         .with_context(|| format!("read PDF asset bytes from {}", path.display()))?;
 

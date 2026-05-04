@@ -52,10 +52,15 @@ fn ingest_idempotent_on_second_run() {
 
     let r2 =
         kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
-    // Same files re-ingested — labelled Updated, not duplicated.
+    // Same files re-ingested — p9-fb-23 task 7 introduced the early-skip
+    // path: when checksum + parser/chunker/embedding versions all match,
+    // the second run reports `Unchanged` rather than `Updated`. Pre-p9-fb-23
+    // returned `Updated` here. The `force_reingest=true` path still returns
+    // `Updated` and is exercised by `incremental_ingest.rs`.
     assert_eq!(r2.scanned, 3, "second scan: {r2:?}");
     assert_eq!(r2.new, 0, "second run new should be 0: {r2:?}");
-    assert_eq!(r2.updated, 3, "second run updated: {r2:?}");
+    assert_eq!(r2.updated, 0, "second run updated: {r2:?}");
+    assert_eq!(r2.unchanged, 3, "second run unchanged: {r2:?}");
 
     // list_docs still has 3 docs (no duplicates).
     let docs = kebab_app::list_docs_with_config(
