@@ -31,6 +31,7 @@ fn fixture_report() -> IngestReport {
         new: 2,
         updated: 1,
         skipped: 0,
+        unchanged: 0,
         errors: 0,
         duration_ms: 187,
         items: Some(vec![

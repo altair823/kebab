@@ -168,6 +168,7 @@ mod tests {
             new: 0,
             updated: 0,
             skipped: 0,
+            unchanged: 0,
             errors: 0,
             duration_ms: 0,
             items: None,
