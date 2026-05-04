@@ -102,9 +102,10 @@ fn status_bar_shows_streaming_when_ask_streaming() {
 #[test]
 fn status_bar_shows_searching_when_search_worker_active() {
     let mut app = fresh_app(Pane::Search);
-    let mut search_state = kebab_tui::SearchState::default();
-    search_state.searching = true;
-    app.search = Some(search_state);
+    app.search = Some(kebab_tui::SearchState {
+        searching: true,
+        ..Default::default()
+    });
     let rendered = render_to_string(&app, 100);
     assert!(
         rendered.contains("searching…"),
@@ -115,10 +116,11 @@ fn status_bar_shows_searching_when_search_worker_active() {
 #[test]
 fn status_bar_shows_ask_conv_id_when_in_ask_with_context() {
     let mut app = fresh_app(Pane::Ask);
-    let mut ask_state = kebab_tui::AskState::default();
-    ask_state.conversation_id = Some("conv_a3f9b2c1d4e5f6a7b8c9d0e1f2a3b4c5".to_string());
-    ask_state.current_question = Some("test?".to_string());
-    app.ask = Some(ask_state);
+    app.ask = Some(kebab_tui::AskState {
+        conversation_id: Some("conv_a3f9b2c1d4e5f6a7b8c9d0e1f2a3b4c5".to_string()),
+        current_question: Some("test?".to_string()),
+        ..Default::default()
+    });
     let rendered = render_to_string(&app, 100);
     assert!(
         rendered.contains("conv_a3f9b2c1…"),
@@ -140,13 +142,49 @@ fn status_bar_omits_conv_id_when_ask_has_no_context() {
 #[test]
 fn status_bar_omits_conv_id_outside_ask() {
     let mut app = fresh_app(Pane::Library);
-    let mut ask_state = kebab_tui::AskState::default();
-    ask_state.conversation_id = Some("conv_a3f9b2c1d4e5f6a7b8c9d0e1f2a3b4c5".to_string());
-    ask_state.current_question = Some("test?".to_string());
-    app.ask = Some(ask_state);
+    app.ask = Some(kebab_tui::AskState {
+        conversation_id: Some("conv_a3f9b2c1d4e5f6a7b8c9d0e1f2a3b4c5".to_string()),
+        current_question: Some("test?".to_string()),
+        ..Default::default()
+    });
     let rendered = render_to_string(&app, 100);
     assert!(
         !rendered.contains("conv_"),
         "conv id leaked outside Ask pane: rendered=\n{rendered}"
+    );
+}
+
+#[test]
+fn status_bar_shows_ingest_progress_in_dynamic_slot() {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+    let mut app = fresh_app(Pane::Library);
+    let (_tx, rx) = std::sync::mpsc::channel();
+    app.ingest_state = Some(kebab_tui::IngestState {
+        rx,
+        counts: kebab_app::AggregateCounts {
+            scanned: 40,
+            ..Default::default()
+        },
+        current_path: Some("notes/foo.md".to_string()),
+        current_idx: 12,
+        started_at: std::time::Instant::now(),
+        terminal_at: None,
+        aborted: false,
+        thread: None,
+        cancel: Arc::new(AtomicBool::new(false)),
+    });
+    let rendered = render_to_string(&app, 200);
+    assert!(
+        rendered.contains("12/40"),
+        "ingest progress fragment missing: rendered=\n{rendered}"
+    );
+    assert!(
+        rendered.contains("30%"),
+        "ingest percentage missing: rendered=\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("idle"),
+        "idle should not appear during ingest: rendered=\n{rendered}"
     );
 }
