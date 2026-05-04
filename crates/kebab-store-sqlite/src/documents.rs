@@ -165,7 +165,8 @@ impl kebab_core::DocumentStore for SqliteStore {
                     doc_id, asset_id, workspace_path, title, lang,
                     source_type, trust_level, parser_version,
                     doc_version, schema_version, metadata_json,
-                    provenance_json, created_at, updated_at
+                    provenance_json, created_at, updated_at,
+                    last_chunker_version, last_embedding_version
                 FROM documents WHERE doc_id = ?",
                 params![id.0],
                 document_row_from_sql,
@@ -221,8 +222,8 @@ impl kebab_core::DocumentStore for SqliteStore {
             // under that invariant.
             schema_version: row.schema_version as u32,
             doc_version: row.doc_version as u32,
-            last_chunker_version: None,
-            last_embedding_version: None,
+            last_chunker_version: row.last_chunker_version.map(kebab_core::ChunkerVersion),
+            last_embedding_version: row.last_embedding_version.map(kebab_core::EmbeddingVersion),
         }))
     }
 
@@ -367,6 +368,8 @@ struct DocumentRow {
     provenance_json: String,
     // source_type / trust_level are loaded back via metadata_json round-trip,
     // so we do not need separate fields here for `get_document`.
+    last_chunker_version: Option<String>,
+    last_embedding_version: Option<String>,
 }
 
 fn document_row_from_sql(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentRow> {
@@ -385,6 +388,10 @@ fn document_row_from_sql(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentRo
         schema_version: row.get(9)?,
         metadata_json: row.get(10)?,
         provenance_json: row.get(11)?,
+        // 12: created_at, 13: updated_at — not stored in DocumentRow
+        // (only needed for list_documents). Columns 14-15 follow.
+        last_chunker_version: row.get(14)?,
+        last_embedding_version: row.get(15)?,
     })
 }
 
@@ -505,24 +512,27 @@ fn upsert_document(
             doc_id, asset_id, workspace_path, title, lang,
             source_type, trust_level, parser_version,
             doc_version, schema_version, metadata_json,
-            provenance_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            provenance_json, created_at, updated_at,
+            last_chunker_version, last_embedding_version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(doc_id) DO UPDATE SET
-            asset_id        = excluded.asset_id,
-            workspace_path  = excluded.workspace_path,
-            title           = excluded.title,
-            lang            = excluded.lang,
-            source_type     = excluded.source_type,
-            trust_level     = excluded.trust_level,
-            parser_version  = excluded.parser_version,
+            asset_id              = excluded.asset_id,
+            workspace_path        = excluded.workspace_path,
+            title                 = excluded.title,
+            lang                  = excluded.lang,
+            source_type           = excluded.source_type,
+            trust_level           = excluded.trust_level,
+            parser_version        = excluded.parser_version,
             -- doc_version: bump on update. excluded.doc_version is the
             -- caller's submitted value; we ignore it and add 1 to the
             -- existing column so each re-ingest cleanly increments.
-            doc_version     = documents.doc_version + 1,
-            schema_version  = excluded.schema_version,
-            metadata_json   = excluded.metadata_json,
-            provenance_json = excluded.provenance_json,
-            updated_at      = excluded.updated_at",
+            doc_version           = documents.doc_version + 1,
+            schema_version        = excluded.schema_version,
+            metadata_json         = excluded.metadata_json,
+            provenance_json       = excluded.provenance_json,
+            updated_at            = excluded.updated_at,
+            last_chunker_version  = excluded.last_chunker_version,
+            last_embedding_version = excluded.last_embedding_version",
         params![
             doc.doc_id.0,
             doc.source_asset_id.0,
@@ -538,6 +548,8 @@ fn upsert_document(
             provenance_json,
             created_at,
             now,
+            doc.last_chunker_version.as_ref().map(|v| v.0.as_str()),
+            doc.last_embedding_version.as_ref().map(|v| v.0.as_str()),
         ],
     )
     .map_err(StoreError::from)?;
