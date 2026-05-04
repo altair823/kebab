@@ -29,7 +29,7 @@ git history.
 
 **Spec contract impact**: p9-fb-13 follow-up (footer 단행 row) + p9-fb-03 (ingest dedicated row) frozen spec 들과 layout 충돌. frozen 텍스트 보존, 본 HOTFIXES 항목 + spec `tasks/p9/p9-fb-24-tui-affordances.md` + design `docs/superpowers/specs/2026-05-04-p9-fb-24-tui-affordances-design.md` 가 live source of truth.
 
-**Tests added**: 약 21 신규 (status_bar 통합 10 + library 헤더 1 + Ask PgUp/PgDn 3 + Inspect PgUp/PgDn 회귀 2 + format_doc_header 단위 1, 잔여는 cascade branch 별). 기존 720+ 워크스페이스 테스트 무수정 통과.
+**Tests added**: 약 21 신규 (status_bar 통합 10 + library 헤더 1 + Ask PgUp/PgDn 3 + Inspect PgUp/PgDn 회귀 2 + format_doc_header 단위 1, 잔여는 cascade branch 별). 기존 695개 워크스페이스 테스트 무수정 통과 (`cargo test --workspace -j 1` 기준 716 passed).
 
 **Known limitation (deferred)**: `PAGE_STEP = 10` 은 viewport-aware 가 아님 — 24 row 작은 터미널에서 한 페이지 > viewport, 80 row 큰 터미널에서 한 페이지 < viewport. 후속 task 에서 viewport-aware 로 업그레이드 가능.
 

@@ -288,6 +288,12 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(line), area);
 }
 
+/// p9-fb-24: separator between status bar fragments. Two spaces +
+/// box-drawings light vertical (U+2502) + two spaces. Single source
+/// — the docstring of `render_status_bar` references the rendered
+/// shape, so any change here MUST update that docstring too.
+const STATUS_SEPARATOR: &str = "  │  ";
+
 /// p9-fb-24: always-visible status bar. Layout (left → right):
 ///
 /// ```text
@@ -315,7 +321,7 @@ pub fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
     let doc_count = app.library.inner.docs.len();
     let dynamic = dynamic_status(app);
 
-    let sep = "  │  ";
+    let sep = STATUS_SEPARATOR;
     let mut line_text = format!(
         "kebab v{}{sep}{}{sep}{} docs{sep}",
         env!("CARGO_PKG_VERSION"),

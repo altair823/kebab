@@ -39,7 +39,7 @@ source_feedback: 사용자 도그푸딩 2026-05-04 — Library 컬럼 의미 부
 - Ask 통합 3 (PgDn / PgUp / PgUp saturating + freeze follow_tail / PgDn from Insert).
 - Inspect 통합 2 (PAGE_STEP regression).
 - format_doc_header 단위 1.
-- 기존 720+ 테스트 무수정 통과.
+- 기존 695개 테스트 무수정 통과 (`cargo test --workspace -j 1` 기준 716 passed).
 
 ## Risks / notes
 

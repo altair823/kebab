@@ -173,24 +173,10 @@ fn j_k_scroll_within_bounds_no_panic() {
     assert_eq!(app.inspect.as_ref().unwrap().scroll, 0);
 }
 
-#[test]
-fn page_keys_scroll_by_ten() {
-    let mut app = fresh_app();
-    handle_key_inspect(
-        &mut app,
-        KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE),
-    );
-    assert_eq!(app.inspect.as_ref().unwrap().scroll, 10);
-    handle_key_inspect(
-        &mut app,
-        KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
-    );
-    assert_eq!(app.inspect.as_ref().unwrap().scroll, 0);
-}
-
 /// p9-fb-24 task 2: PageDown advances scroll by `PAGE_STEP` (= 10).
 /// Pins the constant so a future viewport-aware refactor surfaces
-/// here, not silently in user-visible behaviour.
+/// here, not silently in user-visible behaviour. Replaces the
+/// pre-fb-24 `page_keys_scroll_by_ten` (deleted as duplicate).
 #[test]
 fn page_down_scrolls_by_ten_in_inspect() {
     let mut app = fresh_app();
