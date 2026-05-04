@@ -8,4 +8,10 @@
 //! lives behind this single edit point.
 
 /// Rows scrolled per `PgUp` / `PgDn` keystroke.
+///
+/// `#[allow(dead_code)]` is intentional for the Task 1 commit only —
+/// Task 2 (Inspect refactor) immediately consumes the constant and
+/// removes this attribute. Without it, `cargo clippy -- -D warnings`
+/// rejects this commit alone, breaking the per-task review gate.
+#[allow(dead_code)]
 pub(crate) const PAGE_STEP: u16 = 10;
