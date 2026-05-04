@@ -117,3 +117,32 @@ fn put_then_get_document_roundtrips_none_stamps() {
         "last_embedding_version must be None when not set"
     );
 }
+
+#[test]
+fn get_asset_by_workspace_path_roundtrips() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config()).unwrap();
+    store.run_migrations().unwrap();
+
+    let asset = make_asset();
+    store.put_asset(&asset).unwrap();
+
+    let loaded = store
+        .get_asset_by_workspace_path(&asset.workspace_path)
+        .unwrap()
+        .expect("asset must round-trip");
+
+    assert_eq!(loaded.asset_id, asset.asset_id);
+    assert_eq!(loaded.checksum, asset.checksum);
+    assert_eq!(loaded.byte_len, asset.byte_len);
+}
+
+#[test]
+fn get_asset_by_workspace_path_returns_none_for_unknown() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config()).unwrap();
+    store.run_migrations().unwrap();
+
+    let path = WorkspacePath::new("notes/missing.md".into()).unwrap();
+    assert!(store.get_asset_by_workspace_path(&path).unwrap().is_none());
+}

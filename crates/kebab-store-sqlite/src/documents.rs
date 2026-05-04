@@ -264,6 +264,28 @@ impl kebab_core::DocumentStore for SqliteStore {
         }))
     }
 
+    fn get_asset_by_workspace_path(
+        &self,
+        path: &kebab_core::WorkspacePath,
+    ) -> Result<Option<kebab_core::RawAsset>> {
+        let conn = self.lock_conn();
+        let result = conn.query_row(
+            r#"SELECT
+                asset_id, source_uri, workspace_path, media_type,
+                byte_len, checksum, storage_kind, storage_path,
+                discovered_at
+            FROM assets
+            WHERE workspace_path = ?"#,
+            rusqlite::params![path.0.as_str()],
+            asset_from_row,
+        );
+        match result {
+            Ok(asset) => Ok(Some(asset)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     fn list_documents(
         &self,
         filter: &kebab_core::DocFilter,
@@ -482,6 +504,65 @@ fn rows_optional<T>(err: rusqlite::Error) -> rusqlite::Result<Option<T>> {
         rusqlite::Error::QueryReturnedNoRows => Ok(None),
         e => Err(e),
     }
+}
+
+/// Reconstruct a [`kebab_core::RawAsset`] from one `assets` row.
+///
+/// Column order must match the SELECT in
+/// [`DocumentStore::get_asset_by_workspace_path`]:
+/// `asset_id(0), source_uri(1), workspace_path(2), media_type(3),
+///  byte_len(4), checksum(5), storage_kind(6), storage_path(7),
+///  discovered_at(8)`.
+fn asset_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<kebab_core::RawAsset> {
+    use std::path::PathBuf;
+
+    let asset_id: String = row.get(0)?;
+    let source_uri_raw: String = row.get(1)?;
+    let workspace_path_raw: String = row.get(2)?;
+    let media_type_json: String = row.get(3)?;
+    let byte_len: i64 = row.get(4)?;
+    let checksum_raw: String = row.get(5)?;
+    let storage_kind: String = row.get(6)?;
+    let storage_path_raw: String = row.get(7)?;
+    let discovered_at_raw: String = row.get(8)?;
+
+    // Parse source_uri: stored as "file://<path>" or "kb://<uri>".
+    let source_uri = if let Some(path_str) = source_uri_raw.strip_prefix("file://") {
+        kebab_core::SourceUri::File(PathBuf::from(path_str))
+    } else {
+        kebab_core::SourceUri::Kb(source_uri_raw.clone())
+    };
+
+    let workspace_path = kebab_core::WorkspacePath(workspace_path_raw);
+    let media_type: kebab_core::MediaType = serde_json::from_str(&media_type_json)
+        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e)))?;
+    let checksum = kebab_core::Checksum(checksum_raw.clone());
+    let discovered_at = time::OffsetDateTime::parse(
+        &discovered_at_raw,
+        &time::format_description::well_known::Rfc3339,
+    )
+    .map_err(|e| rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, Box::new(e)))?;
+
+    let storage_path = PathBuf::from(&storage_path_raw);
+    let stored = if storage_kind == "copied" {
+        kebab_core::AssetStorage::Copied { path: storage_path }
+    } else {
+        kebab_core::AssetStorage::Reference {
+            path: storage_path,
+            sha: checksum.clone(),
+        }
+    };
+
+    Ok(kebab_core::RawAsset {
+        asset_id: kebab_core::AssetId(asset_id),
+        source_uri,
+        workspace_path,
+        media_type,
+        byte_len: byte_len as u64,
+        checksum,
+        discovered_at,
+        stored,
+    })
 }
 
 /// UPSERT the documents row and bump `doc_version` on conflict.
