@@ -439,6 +439,24 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
             s.input.delete_after();
             KeyOutcome::Continue
         }
+        // p9-fb-24: PgUp / PgDn page-scroll the transcript by
+        // `pager::PAGE_STEP` rows. Mode-agnostic (physical keys, no
+        // typing ambiguity). Both flip `follow_tail` to false so the
+        // user pinning the view via paging doesn't get yanked back to
+        // the bottom on the next streamed token (same contract as
+        // `j` / `k` from p9-fb-22).
+        (KeyCode::PageDown, _) => {
+            let s = state.ask.as_mut().unwrap();
+            s.follow_tail = false;
+            s.scroll = s.scroll.saturating_add(crate::pager::PAGE_STEP);
+            KeyOutcome::Continue
+        }
+        (KeyCode::PageUp, _) => {
+            let s = state.ask.as_mut().unwrap();
+            s.follow_tail = false;
+            s.scroll = s.scroll.saturating_sub(crate::pager::PAGE_STEP);
+            KeyOutcome::Continue
+        }
         // Insert mode: every non-chord Char (incl. e/j/k) types into
         // input. CTRL/ALT chords stay reserved.
         (KeyCode::Char(c), m)

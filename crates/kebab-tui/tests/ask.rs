@@ -784,6 +784,60 @@ fn ctrl_l_resets_follow_tail_in_ask() {
     assert!(app.ask.as_ref().unwrap().follow_tail);
 }
 
+/// p9-fb-24: PgDn advances Ask scroll by `PAGE_STEP` (= 10) and
+/// disengages follow-tail (matches `j` semantics — manual scroll =
+/// freeze).
+#[test]
+fn page_down_advances_scroll_and_freezes_follow_tail_in_ask() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Normal;
+    let outcome = handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE),
+    );
+    assert_eq!(outcome, KeyOutcome::Continue);
+    let s = app.ask.as_ref().unwrap();
+    assert_eq!(s.scroll, 10, "PgDn shifts scroll by PAGE_STEP");
+    assert!(!s.follow_tail, "PgDn freezes follow_tail like j/k");
+}
+
+/// p9-fb-24: PgUp rewinds Ask scroll by `PAGE_STEP` (saturating at 0)
+/// and disengages follow-tail.
+#[test]
+fn page_up_rewinds_scroll_saturating_and_freezes_follow_tail_in_ask() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Normal;
+    app.ask.as_mut().unwrap().scroll = 25;
+    app.ask.as_mut().unwrap().follow_tail = true;
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
+    );
+    let s = app.ask.as_ref().unwrap();
+    assert_eq!(s.scroll, 15);
+    assert!(!s.follow_tail);
+    app.ask.as_mut().unwrap().scroll = 3;
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
+    );
+    assert_eq!(app.ask.as_ref().unwrap().scroll, 0);
+}
+
+/// p9-fb-24: PgUp / PgDn fire from BOTH Insert and Normal modes
+/// (physical keys, no typing ambiguity — same as Left/Right/Home/End
+/// from p9-fb-22).
+#[test]
+fn page_keys_fire_from_insert_mode_in_ask() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Insert;
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE),
+    );
+    assert_eq!(app.ask.as_ref().unwrap().scroll, 10);
+}
+
 /// p9-fb-22 (issue #95): when follow_tail is on and the transcript
 /// has many lines, the rendered buffer's last visible line includes
 /// content from the tail of the answer (not the head).
