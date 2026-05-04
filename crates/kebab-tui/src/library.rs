@@ -369,6 +369,49 @@ fn handle_filter_edit_key(state: &mut App, key: KeyEvent) -> KeyOutcome {
             buf.pop_char();
             KeyOutcome::Continue
         }
+        // p9-fb-22: cursor navigation + Delete inside the active filter
+        // field. Tab still cycles between Tags / Lang fields; arrows
+        // only move within the focused buffer.
+        KeyCode::Left => {
+            let buf = match edit.field {
+                FilterField::Tags => &mut edit.tags_buf,
+                FilterField::Lang => &mut edit.lang_buf,
+            };
+            buf.move_left();
+            KeyOutcome::Continue
+        }
+        KeyCode::Right => {
+            let buf = match edit.field {
+                FilterField::Tags => &mut edit.tags_buf,
+                FilterField::Lang => &mut edit.lang_buf,
+            };
+            buf.move_right();
+            KeyOutcome::Continue
+        }
+        KeyCode::Home => {
+            let buf = match edit.field {
+                FilterField::Tags => &mut edit.tags_buf,
+                FilterField::Lang => &mut edit.lang_buf,
+            };
+            buf.move_home();
+            KeyOutcome::Continue
+        }
+        KeyCode::End => {
+            let buf = match edit.field {
+                FilterField::Tags => &mut edit.tags_buf,
+                FilterField::Lang => &mut edit.lang_buf,
+            };
+            buf.move_end();
+            KeyOutcome::Continue
+        }
+        KeyCode::Delete => {
+            let buf = match edit.field {
+                FilterField::Tags => &mut edit.tags_buf,
+                FilterField::Lang => &mut edit.lang_buf,
+            };
+            buf.delete_after();
+            KeyOutcome::Continue
+        }
         KeyCode::Char(c) => {
             let buf = match edit.field {
                 FilterField::Tags => &mut edit.tags_buf,

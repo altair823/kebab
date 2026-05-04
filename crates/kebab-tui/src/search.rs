@@ -307,6 +307,34 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
             }
             KeyOutcome::Continue
         }
+        // p9-fb-22: cursor navigation + Delete inside the query
+        // input. Up/Down are reserved for hit list navigation, so
+        // Left/Right are the only horizontal keys; Home/End jump to
+        // the ends. None of these mark the input dirty (the query
+        // string is unchanged), so the debounce timer does not
+        // restart on a pure cursor move.
+        (KeyCode::Left, _) => {
+            s.input.move_left();
+            KeyOutcome::Continue
+        }
+        (KeyCode::Right, _) => {
+            s.input.move_right();
+            KeyOutcome::Continue
+        }
+        (KeyCode::Home, _) => {
+            s.input.move_home();
+            KeyOutcome::Continue
+        }
+        (KeyCode::End, _) => {
+            s.input.move_end();
+            KeyOutcome::Continue
+        }
+        (KeyCode::Delete, _) => {
+            if s.input.delete_after().is_some() {
+                s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
+            }
+            KeyOutcome::Continue
+        }
         // p9-fb-12 follow-up: Char dispatch is mode-gated. Normal
         // mode → j/k navigate; Insert mode → typed into input.
         // Single arm per key, body branches on mode (clearer than

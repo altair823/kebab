@@ -14,6 +14,29 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-04 — p9-fb-22 (post-dogfooding): mid-string cursor editing + Ask follow-tail auto-scroll
+
+**Issues**: Gitea #94 (커서 이슈) — 텍스트 입력 후 커서 이동 불가. Gitea #95 (새 응답 이슈) — 새 응답이 viewport 아래로 추가돼도 자동으로 스크롤이 따라가지 않음. 두 건 모두 사용자 도그푸딩 중 발견.
+
+**Root cause**:
+
+- p9-fb-10 의 `InputBuffer` 가 의도적으로 append-only (cursor invariant: `cursor_col == display_width(content)`). 화살표 / Home / End / Delete 가 어떤 pane 에서도 wired 되어 있지 않아 입력한 텍스트의 중간을 편집할 수 없었다.
+- p9-3 의 Ask 트랜스크립트는 `Paragraph::scroll((s.scroll, 0))` 의 offset 을 위에서부터 카운트한다. 새 답변 도착 시 `s.scroll = 0` 으로 리셋하면 viewport 가 *위쪽* 에 고정되어, 트랜스크립트가 길어지면 새 응답이 시야 밖으로 밀려 사용자가 직접 `j` 로 스크롤해야 했다.
+
+**Live binding 변경**:
+
+- `InputBuffer` cursor 모델을 byte position 기반으로 재구성. `cursor_col` 은 prefix slice 의 `unicode-width` 합으로 derive. 새 메서드: `move_left / move_right / move_home / move_end / delete_after`. `push_char` / `pop_char` 는 cursor 위치에서 동작하도록 의미 변경 (cursor 가 끝에 있을 때 기존 append 동작과 동일 — 호환).
+- Ask / Search / Library filter overlay 세 곳에 `←` / `→` / `Home` / `End` / `Delete` key handler 추가. Search 는 cursor 이동만으로는 input_dirty_at 을 바꾸지 않고, `Delete` 로 실제로 char 가 사라질 때만 debounce 타이머를 reset (커서 이동 ≠ 쿼리 변경).
+- `AskState` 에 `follow_tail: bool` 필드 추가 (default `true`). `render_answer` 가 `follow_tail` 인 동안 매 프레임마다 `Paragraph::line_count(width)` 로 wrapped row 수를 재계산해 스크롤을 `line_count - inner_height` 로 pin. 사용자가 `j` / `k` 누르면 `follow_tail = false` 로 freeze, `Shift-G` 로 다시 활성화. 새 submission 과 `Ctrl-L` 도 follow-tail 을 재활성화.
+- `kebab-tui` 의 `ratatui` dep 에 `unstable-rendered-line-info` feature 활성화 — `Paragraph::line_count` 가 ratatui 0.28 에서 unstable. ratatui 버전 bump 시 본 feature 의 안정 여부 재확인 필요 (현재는 0.28.1 에 pin).
+- cheatsheet popup 의 Search / Ask section 에 화살표 + Home/End + Delete row 추가, Ask section 에 `Shift-G` row 추가.
+
+**Spec contract impact**: p9-fb-10 frozen spec 의 "v1 is append-only; mid-string editing... is out of scope" 문구와 충돌. p9-fb-10 의 frozen 텍스트는 그대로 두고 본 HOTFIXES 항목이 InputBuffer 의 live cursor 모델 source of truth. p9-3 frozen spec 에는 follow-tail 동작이 명시되지 않았음 — 본 항목이 추가 동작 기록.
+
+**Tests added**: 12 신규 InputBuffer unit (move_left/right ASCII/Hangul, home/end, mid-string insert, backspace at cursor, delete_after, mixed-width cursor invariant), 5 신규 Ask integration (left/right/home/end/Delete on Ask input, Hangul left arrow, follow_tail default, k disengages, Shift-G re-engages, Ctrl-L resets, follow-tail rendering bottom of long transcript). 기존 30 개 InputBuffer + Ask 테스트는 backwards-compat 으로 그대로 통과 (cursor 가 끝에 있을 때 push_char/pop_char 의미 동일).
+
+**Known limitation (deferred)**: cheatsheet popup body 가 Search +3 row, Ask +4 row 로 늘어나 75% height 한계가 더 빡빡해짐. p9-fb-21 의 deferred 한계와 같은 후속 task (popup scroll 또는 multi-column layout) 가 점점 더 필요함.
+
 ## 2026-05-03 — p9-fb-21 (post-dogfooding): `i` universal Insert toggle + Search `i`→`o` rebind + F1 prefix
 
 **Spec added**: `tasks/p9/p9-fb-21-tui-insert-key-discoverability.md` (status `completed` 직접). 이전 도그푸딩 사이클 (p9-fb-01..20) 닫은 후 사용자가 다시 TUI 돌려보며 발견:
