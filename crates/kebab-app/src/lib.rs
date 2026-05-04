@@ -781,7 +781,7 @@ fn ingest_one_asset(
         .map(|w| format!("{:?}: {}", w.kind, w.note))
         .collect();
 
-    let canonical = build_canonical_document(
+    let mut canonical = build_canonical_document(
         asset,
         metadata,
         parsed_blocks,
@@ -793,6 +793,13 @@ fn ingest_one_asset(
     let chunks = MdHeadingV1Chunker
         .chunk(&canonical, chunk_policy)
         .context("kb-chunk::MdHeadingV1Chunker::chunk")?;
+
+    // Stamp chunker + embedding versions so Task 7's skip detection has
+    // data on the second run.
+    canonical.last_chunker_version = Some(MdHeadingV1Chunker.chunker_version());
+    if let Some(emb) = embedder {
+        canonical.last_embedding_version = Some(emb.model_version());
+    }
 
     // Persist. Each `put_*` call wraps its own short transaction
     // (per-document tx semantics per design §5.8); composing them is
@@ -1030,6 +1037,12 @@ fn ingest_one_image_asset(
         .context("kb-chunk::MdHeadingV1Chunker::chunk (image)")?;
 
     // 5. Persist + embed — identical sequence to markdown.
+    // Stamp chunker + embedding versions (image uses MdHeadingV1Chunker
+    // for its single-block doc, so we record that version).
+    canonical.last_chunker_version = Some(MdHeadingV1Chunker.chunker_version());
+    if let Some(emb) = embedder {
+        canonical.last_embedding_version = Some(emb.model_version());
+    }
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     app.sqlite
         .put_asset_with_bytes(asset, &bytes)
@@ -1244,7 +1257,7 @@ fn ingest_one_pdf_asset(
         workspace_root: &workspace_root,
         config: &extract_config,
     };
-    let canonical = PdfTextExtractor::new()
+    let mut canonical = PdfTextExtractor::new()
         .extract(&ctx, &bytes)
         .context("kb-parse-pdf::PdfTextExtractor::extract")?;
 
@@ -1256,6 +1269,13 @@ fn ingest_one_pdf_asset(
     let chunks = chunker
         .chunk(&canonical, chunk_policy)
         .context("kb-chunk::PdfPageV1Chunker::chunk")?;
+
+    // Stamp chunker + embedding versions so Task 7's skip detection has
+    // data on the second run.
+    canonical.last_chunker_version = Some(chunker.chunker_version());
+    if let Some(emb) = embedder {
+        canonical.last_embedding_version = Some(emb.model_version());
+    }
 
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     app.sqlite

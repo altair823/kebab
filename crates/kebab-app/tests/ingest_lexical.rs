@@ -218,3 +218,41 @@ fn inspect_chunk_not_found_returns_actionable_error() {
     let msg = format!("{err:#}");
     assert!(msg.contains("not found"), "got: {msg}");
 }
+
+/// p9-fb-23 task 5: every freshly-ingested markdown doc must carry
+/// `last_chunker_version`. With `provider="none"` (lexical-only),
+/// `last_embedding_version` stays `None`.
+#[test]
+fn ingest_stamps_chunker_version_on_document() {
+    let env = TestEnv::lexical_only();
+    let report =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    assert!(report.new >= 1, "expected at least one new doc: {report:?}");
+    assert_eq!(report.errors, 0, "no errors expected: {report:?}");
+
+    let docs = kebab_app::list_docs_with_config(
+        env.config.clone(),
+        kebab_core::DocFilter::default(),
+    )
+    .unwrap();
+    assert!(!docs.is_empty(), "no docs after ingest");
+
+    for doc_entry in &docs {
+        let canonical =
+            kebab_app::inspect_doc_with_config(env.config.clone(), &doc_entry.doc_id)
+                .unwrap();
+        assert!(
+            canonical.last_chunker_version.is_some(),
+            "last_chunker_version must be stamped for doc {}: got {:?}",
+            doc_entry.doc_id.0,
+            canonical.last_chunker_version,
+        );
+        // provider="none" → embedder is None → last_embedding_version stays None.
+        assert!(
+            canonical.last_embedding_version.is_none(),
+            "last_embedding_version must be None when provider=none for doc {}: got {:?}",
+            doc_entry.doc_id.0,
+            canonical.last_embedding_version,
+        );
+    }
+}
