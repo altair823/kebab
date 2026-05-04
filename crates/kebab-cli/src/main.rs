@@ -53,6 +53,14 @@ enum Cmd {
         /// Suppress the per-file `items` list.
         #[arg(long)]
         summary_only: bool,
+
+        /// p9-fb-23: bypass the per-asset early-skip path. Every asset is
+        /// re-parsed, re-chunked, re-embedded, and re-upserted regardless
+        /// of whether the DB already has a record with matching checksum
+        /// and version stamps. Useful after manual schema bumps or when
+        /// the user suspects the corpus is in a stale state.
+        #[arg(long)]
+        force_reingest: bool,
     },
 
     /// Listing subcommands.
@@ -313,6 +321,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
         Cmd::Ingest {
             root,
             summary_only,
+            force_reingest,
         } => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
             let scope = kebab_core::SourceScope {
@@ -337,12 +346,17 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             // *second* Ctrl-C is a hard exit (handled inside `cancel`).
             let cancel_token = cancel::install_sigint_cancel()?;
 
-            let ingest_result = kebab_app::ingest_with_config_cancellable(
+            // p9-fb-23: use IngestOpts so force_reingest threads through
+            // without churning the positional-arg list.
+            let ingest_result = kebab_app::ingest_with_config_opts(
                 cfg,
                 scope,
                 *summary_only,
-                Some(tx),
-                Some(cancel_token),
+                kebab_app::IngestOpts {
+                    progress: Some(tx),
+                    cancel: Some(cancel_token),
+                    force_reingest: *force_reingest,
+                },
             );
 
             // Join the display thread *before* surfacing the ingest
