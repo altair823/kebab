@@ -199,13 +199,29 @@ fn render_doc_list(f: &mut Frame, area: Rect, state: &App) {
         "Library"
     };
     let block = Block::default().title(header_text).borders(Borders::ALL);
+    let block_inner = block.inner(area);
+    f.render_widget(block, area);
 
     if inner.docs.is_empty() {
-        f.render_widget(block, area);
         return;
     }
 
-    let title_w = (area.width as usize).saturating_sub(40).max(20);
+    // p9-fb-24: split the inner area into a 1-row column header on top
+    // and the doc list below. Header reuses the same width math as
+    // `format_doc_row` so labels line up with their data columns.
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(block_inner);
+    let header_area = layout[0];
+    let list_area = layout[1];
+
+    let title_w = (list_area.width as usize).saturating_sub(40).max(20);
+
+    let header_para = Paragraph::new(format_doc_header(title_w))
+        .style(state.theme.style(crate::theme::Role::Heading));
+    f.render_widget(header_para, header_area);
+
     let items: Vec<ListItem> = inner
         .docs
         .iter()
@@ -213,12 +229,11 @@ fn render_doc_list(f: &mut Frame, area: Rect, state: &App) {
         .collect();
 
     let list = List::new(items)
-        .block(block)
         .highlight_style(state.theme.style(crate::theme::Role::Selected))
         .highlight_symbol("> ");
 
     let mut list_state = inner.list_state.clone();
-    f.render_stateful_widget(list, area, &mut list_state);
+    f.render_stateful_widget(list, list_area, &mut list_state);
 }
 
 /// p9-fb-24: render the column-label row that sits directly above
@@ -229,9 +244,6 @@ fn render_doc_list(f: &mut Frame, area: Rect, state: &App) {
 /// Layout: `TITLE<title_pad>  TAGS<tags_pad>  UPDATED  CHUNKS`.
 /// The title column width matches `area.width.saturating_sub(40).max(20)`
 /// — the same calculation `render_doc_list` uses for `title_w`.
-///
-/// Task 5 wires it into render_doc_list.
-#[allow(dead_code)]
 pub(crate) fn format_doc_header(title_w: usize) -> Line<'static> {
     let title_label = "TITLE";
     let tags_label = "TAGS";

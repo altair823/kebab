@@ -286,6 +286,52 @@ fn filter_overlay_render_places_cursor_on_focused_field() {
     );
 }
 
+/// p9-fb-24: rendered Library pane shows the column header row above
+/// the data rows. Header is in `Role::Heading` style; data rows in
+/// the `Role::Body` / `Role::Selected` defaults.
+#[test]
+fn library_renders_column_header_row() {
+    let docs = vec![
+        make_doc("notes/alpha.md", "doc-alpha", vec!["rust"]),
+        make_doc("notes/beta.md", "doc-beta", vec!["docs"]),
+        make_doc("notes/gamma.md", "doc-gamma", vec![]),
+    ];
+    let app = app_with_docs(docs);
+    let backend = TestBackend::new(80, 20);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| {
+            let area = Rect::new(0, 0, 80, 20);
+            render_library(f, area, &app);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let rendered: String = (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        rendered.contains("TITLE")
+            && rendered.contains("TAGS")
+            && rendered.contains("UPDATED")
+            && rendered.contains("CHUNKS"),
+        "header row labels not visible in:\n{rendered}"
+    );
+    let title_line_idx = rendered
+        .lines()
+        .position(|line| line.contains("TITLE"))
+        .expect("TITLE header should be present");
+    let lines_after = rendered.lines().skip(title_line_idx + 1).collect::<Vec<_>>();
+    assert!(
+        lines_after.iter().any(|line| line.contains("doc-")),
+        "no data rows after header:\n{rendered}"
+    );
+}
+
 /// p9-fb-10: Library renders Hangul / CJK titles without overflowing
 /// the title column. Smoke pin — render with a mixed Korean fixture
 /// and confirm no panic + the truncated width fits the column.
