@@ -71,7 +71,7 @@ All `--json` output carries a `schema_version` field (`ingest_report.v1`, `searc
 Workspace `Cargo.toml` 의 `version` 은 binary release 의 정체성. 다음 트리거 중 하나 발생 시 **bump + 새 release 컷**:
 
 - 사용자가 새 바이너리로 **도그푸딩** 또는 **실사용** 을 할 필요가 있다고 명시.
-- breaking schema change (V00X migration / wire schema v1→v2 등) 가 머지된 후 — 이전 릴리즈 binary 가 새 DB 와 호환 안 됨.
+- breaking schema change (V00X migration / wire schema major bump v1→v2 등) 가 머지된 후 — 이전 릴리즈 binary 가 새 DB / 새 wire 와 호환 안 됨. wire 의 additive minor 변경 (예: `IngestReport.unchanged` 같은 필드 추가) 은 backward-compat 이라 본 트리거에 해당 안 됨.
 - frozen design contract 변경 (design §X 갱신) 이 머지된 후.
 
 Bump 자체는 단순 minor / patch 한 줄 수정 (`Cargo.toml` workspace `version`) — 이미 모든 kebab-* crate 가 `version = { workspace = true }` 라 자동 cascade. 동시에 `Cargo.lock` 자동 갱신.
@@ -82,7 +82,7 @@ Release 절차:
 2. release notes 는 사용자 도그푸딩에 영향 가는 surface 변경 위주 — wire schema 추가, CLI flag 신규, TUI 키 변경, V00X migration 등.
 3. 프리-1.0 (`0.x.y`) 단계: minor bump 시 wire schema additive / surface 변경 누적, patch bump 시 bug fix only.
 
-**bump 시점 = release 시점 같은 commit**. 즉 commit `chore: bump version 0.x → 0.y` 직후 같은 commit 에 tag. v0.1.0 (`2319206`) 처럼 bump 없이 tag 만 찍는 패턴은 후속 release 가 대상 commit 을 햇갈리게 함 — pre-release snapshot 은 SHA reference 로 충분.
+**bump 시점 = release 시점 같은 commit**. 즉 commit `chore: bump version 0.x → 0.y` 직후 같은 commit 에 tag. v0.1.0 (`2319206`) 처럼 bump 없이 tag 만 찍는 패턴은 후속 release 가 대상 commit 을 헷갈리게 함 — pre-release snapshot 은 SHA reference 로 충분.
 
 ## Naming + paths
 
