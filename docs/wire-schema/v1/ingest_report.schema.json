@@ -13,7 +13,8 @@
     "skipped",
     "unchanged",
     "errors",
-    "duration_ms"
+    "duration_ms",
+    "skipped_by_extension"
   ],
   "properties": {
     "schema_version": { "const": "ingest_report.v1" },
@@ -29,6 +30,14 @@
     },
     "errors":         { "type": "integer", "minimum": 0 },
     "duration_ms":    { "type": "integer", "minimum": 0 },
+    "skipped_by_extension": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "description": "p9-fb-25: per-extension skip count. Key = lowercase extension without leading dot (e.g. 'docx'). Files without extension key under '<no-ext>'."
+    },
     "items":          { "type": ["array", "null"] }
   }
 }

@@ -22,7 +22,7 @@ use kebab_core::IngestItemKind;
 /// `p9-fb-04`, `Aborted`) events. Mirrors the fields persisted into
 /// `ingest_runs.progress_json` so external tooling can reconstruct the
 /// run's outcome from either side.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AggregateCounts {
     pub scanned: u32,
     pub new: u32,
@@ -35,6 +35,8 @@ pub struct AggregateCounts {
     pub errors: u32,
     pub chunks_indexed: u32,
     pub embeddings_indexed: u32,
+    /// p9-fb-25: per-extension skip count. See [`IngestReport::skipped_by_extension`].
+    pub skipped_by_extension: std::collections::BTreeMap<String, u32>,
 }
 
 /// One streaming progress event. The CLI's `--json` mode serializes this

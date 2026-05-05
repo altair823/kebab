@@ -288,7 +288,7 @@ mod tests {
             chunks_indexed: 50,
             ..Default::default()
         };
-        apply_event(&mut s, IngestEvent::Completed { counts: final_counts });
+        apply_event(&mut s, IngestEvent::Completed { counts: final_counts.clone() });
         assert_eq!(s.counts, final_counts);
         assert!(s.terminal_at.is_some());
         assert!(!s.aborted);

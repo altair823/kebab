@@ -383,6 +383,9 @@ pub fn ingest_with_config_opts(
     // without re-walking the DB.
     let mut chunks_indexed: u32 = 0;
     let mut embeddings_indexed: u32 = 0;
+    // p9-fb-25: per-extension skip count, populated in the Skipped arm below.
+    let skipped_by_extension: std::collections::BTreeMap<String, u32> =
+        std::collections::BTreeMap::new();
     let scanned_count: u32 = u32::try_from(assets.len()).unwrap_or(u32::MAX);
 
     let embed_active = embedder.is_some() && vector_store.is_some();
@@ -621,6 +624,7 @@ pub fn ingest_with_config_opts(
         errors: error_count,
         chunks_indexed,
         embeddings_indexed,
+        skipped_by_extension: skipped_by_extension.clone(),
     };
     let terminal_event = if was_cancelled {
         crate::ingest_progress::IngestEvent::Aborted {
@@ -662,6 +666,7 @@ pub fn ingest_with_config_opts(
         unchanged: unchanged_count,
         errors: error_count,
         duration_ms,
+        skipped_by_extension,
         items: if summary_only { None } else { Some(items) },
     })
 }

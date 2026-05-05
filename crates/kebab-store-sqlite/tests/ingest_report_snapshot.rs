@@ -34,6 +34,7 @@ fn fixture_report() -> IngestReport {
         unchanged: 0,
         errors: 0,
         duration_ms: 187,
+        skipped_by_extension: std::collections::BTreeMap::new(),
         items: Some(vec![
             IngestItem {
                 kind: IngestItemKind::New,
