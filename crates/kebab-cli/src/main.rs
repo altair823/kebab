@@ -326,7 +326,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
             let scope = kebab_core::SourceScope {
                 root: root.clone().unwrap_or_else(|| PathBuf::from(&cfg.workspace.root)),
-                include: cfg.workspace.include.clone(),
+                include: Vec::new(),
                 exclude: cfg.workspace.exclude.clone(),
             };
 

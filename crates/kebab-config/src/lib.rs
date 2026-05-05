@@ -51,7 +51,6 @@ pub struct Config {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceCfg {
     pub root: String,
-    pub include: Vec<String>,
     pub exclude: Vec<String>,
 }
 
@@ -251,7 +250,6 @@ impl Config {
             schema_version: 1,
             workspace: WorkspaceCfg {
                 root: "~/KnowledgeBase".to_string(),
-                include: vec!["**/*.md".to_string()],
                 exclude: vec![
                     ".git/**".to_string(),
                     "node_modules/**".to_string(),
@@ -396,6 +394,29 @@ impl Config {
     /// than the user's `cwd`.
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
         let text = std::fs::read_to_string(path)?;
+
+        // p9-fb-25: probe for the legacy `workspace.include` key — if
+        // present, emit a one-shot deprecation warning. Detection uses
+        // raw `toml::Value` lookup; the warning fires via a process-
+        // level OnceLock so a long-running TUI / CLI run doesn't spam
+        // the log on every Config::load.
+        if let Ok(value) = toml::from_str::<toml::Value>(&text) {
+            if value
+                .get("workspace")
+                .and_then(|v| v.get("include"))
+                .is_some()
+            {
+                static DEPRECATION_FIRED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+                DEPRECATION_FIRED.get_or_init(|| {
+                    tracing::warn!(
+                        target: "kebab-config",
+                        config = %path.display(),
+                        "deprecated config: `workspace.include` 필드는 더 이상 사용되지 않습니다 (p9-fb-25). 처리 가능한 형식 (md / png / jpg / pdf) 은 extractor 가 자동 결정. 다음 버전부터 config 갱신 권장."
+                    );
+                });
+            }
+        }
+
         let mut cfg: Self = toml::from_str(&text)?;
         cfg.source_dir = path.parent().map(Path::to_path_buf);
         Ok(cfg)
@@ -866,6 +887,32 @@ max_context_tokens = 8000
 "#;
         let c: Config = toml::from_str(toml_text).expect("pre-P6 TOML must still parse");
         assert_eq!(c.image, ImageCfg::defaults());
+    }
+
+    /// p9-fb-25: legacy config with `workspace.include = [...]` must
+    /// still deserialize cleanly (silent unknown-field acceptance).
+    #[test]
+    fn legacy_include_field_is_ignored_silently() {
+        let mut cfg = Config::defaults();
+        cfg.workspace.root = "/tmp/kebab-legacy".to_string();
+        let mut toml_text = toml::to_string(&cfg).expect("default round-trips");
+        // Inject a legacy `include = [...]` line into the [workspace] block.
+        toml_text = toml_text.replace(
+            "[workspace]",
+            "[workspace]\ninclude = [\"**/*.md\", \"**/*.txt\"]",
+        );
+        let parsed: Result<Config, _> = toml::from_str(&toml_text);
+        assert!(parsed.is_ok(), "legacy include must not break load: {:?}", parsed.err());
+        let cfg = parsed.unwrap();
+        assert_eq!(cfg.workspace.root, "/tmp/kebab-legacy");
+    }
+
+    /// p9-fb-25: `WorkspaceCfg` must NOT have an `include` field.
+    /// Compile-time proof: exhaustive destructure.
+    #[test]
+    fn workspace_cfg_has_only_root_and_exclude_fields() {
+        let ws = Config::defaults().workspace;
+        let WorkspaceCfg { root: _, exclude: _ } = &ws;
     }
 
     #[test]

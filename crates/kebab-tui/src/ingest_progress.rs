@@ -36,7 +36,7 @@ pub fn start_ingest(app: &mut App) -> anyhow::Result<()> {
     let cfg = app.config.clone();
     let scope = SourceScope {
         root: std::path::PathBuf::from(&cfg.workspace.root),
-        include: cfg.workspace.include.clone(),
+        include: Vec::new(),
         exclude: cfg.workspace.exclude.clone(),
     };
     let (tx, rx) = mpsc::channel::<IngestEvent>();
