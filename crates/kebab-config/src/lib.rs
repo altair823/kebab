@@ -411,7 +411,7 @@ impl Config {
                     tracing::warn!(
                         target: "kebab-config",
                         config = %path.display(),
-                        "deprecated config: `workspace.include` 필드는 더 이상 사용되지 않습니다 (p9-fb-25). 처리 가능한 형식 (md / png / jpg / pdf) 은 extractor 가 자동 결정. 다음 버전부터 config 갱신 권장."
+                        "deprecated config: `workspace.include` 필드는 더 이상 사용되지 않습니다 (p9-fb-25, v0.2.1+). 처리 가능한 형식 (md / png / jpg / pdf) 은 extractor 가 자동 결정. config 에서 이 필드를 제거해도 안전 — 더 이상 enforce 안 됨."
                     );
                 });
             }

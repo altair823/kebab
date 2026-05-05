@@ -61,8 +61,15 @@ pub mod logging;
 pub mod reset;
 
 pub use app::App;
-pub use ingest_progress::{AggregateCounts, IngestEvent};
+pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
 pub use reset::{ResetReport, ResetScope};
+
+/// p9-fb-25: sentinel for files without an extension in
+/// `IngestReport.skipped_by_extension` keys + `IngestItem.warnings`
+/// `unsupported media type: ...` line. Wire schema description
+/// references this literal — changing the sentinel is a wire-
+/// compatibility break.
+pub const NO_EXT_SENTINEL: &str = "<no-ext>";
 
 /// Parser-version label persisted in `documents.parser_version` for
 /// every Markdown file ingested through the `kb-parse-md` pipeline.
@@ -830,7 +837,7 @@ fn try_skip_unchanged(
 
 /// p9-fb-25: extract the lowercase extension (no leading dot) from a
 /// workspace path for use in the `unsupported media type: .X` warning
-/// and `IngestReport.skipped_by_extension` key. Returns `"<no-ext>"`
+/// and `IngestReport.skipped_by_extension` key. Returns [`NO_EXT_SENTINEL`]
 /// for paths with no extension. Always lowercase so `Foo.DOCX` and
 /// `bar.docx` aggregate under the same key.
 fn ext_for_skip_warning(path: &str) -> String {
@@ -838,16 +845,16 @@ fn ext_for_skip_warning(path: &str) -> String {
         .extension()
         .and_then(|s| s.to_str())
         .map(|s| s.to_ascii_lowercase())
-        .unwrap_or_else(|| "<no-ext>".to_string())
+        .unwrap_or_else(|| NO_EXT_SENTINEL.to_string())
 }
 
 /// p9-fb-25: render the `IngestItem.warnings` line for a Skipped
-/// asset. `<no-ext>` sentinel renders without a leading dot;
+/// asset. [`NO_EXT_SENTINEL`] renders without a leading dot;
 /// everything else gets `.ext` form.
 fn unsupported_media_warning(path: &str) -> String {
     let ext = ext_for_skip_warning(path);
-    if ext == "<no-ext>" {
-        "unsupported media type: <no-ext>".to_string()
+    if ext == NO_EXT_SENTINEL {
+        format!("unsupported media type: {NO_EXT_SENTINEL}")
     } else {
         format!("unsupported media type: .{ext}")
     }

@@ -100,6 +100,20 @@ pub fn media_label(media: &kebab_core::MediaType) -> &'static str {
     }
 }
 
+/// p9-fb-25: render `": A docx, B txt"` breakdown after the
+/// `N skipped` count when the map is non-empty. Empty → empty
+/// string (no extra punctuation). desc sort by count, ties broken
+/// by key alphabetic.
+pub fn render_skipped_breakdown(map: &std::collections::BTreeMap<String, u32>) -> String {
+    if map.is_empty() {
+        return String::new();
+    }
+    let mut entries: Vec<_> = map.iter().collect();
+    entries.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+    let parts: Vec<String> = entries.iter().map(|(k, v)| format!("{v} {k}")).collect();
+    format!(": {}", parts.join(", "))
+}
+
 /// Best-effort send into an optional `mpsc::Sender`. A dropped receiver
 /// is silently absorbed — the ingest hot path must not stall on a slow
 /// consumer. Logged at `trace` for diagnostics.
@@ -193,5 +207,20 @@ mod tests {
             IngestEvent::ScanCompleted { total } => assert_eq!(total, 42),
             other => panic!("unexpected event: {other:?}"),
         }
+    }
+
+    #[test]
+    fn render_skipped_breakdown_desc_sort_with_tiebreak() {
+        use std::collections::BTreeMap;
+        let mut m = BTreeMap::new();
+        assert_eq!(render_skipped_breakdown(&m), "");
+        m.insert("txt".to_string(), 1);
+        m.insert("docx".to_string(), 2);
+        m.insert("epub".to_string(), 1);
+        // 2 docx 먼저 (count desc), 그 다음 1 epub / 1 txt 는 alphabetic.
+        assert_eq!(
+            render_skipped_breakdown(&m),
+            ": 2 docx, 1 epub, 1 txt".to_string()
+        );
     }
 }

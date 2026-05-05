@@ -29,7 +29,7 @@ git history.
 
 **Spec contract impact**: design §6.2 의 `workspace.include` 항목 invalidate (frozen 그대로 두고 본 항목 + spec `tasks/p9/p9-fb-25-config-include-removal.md` 가 source of truth). design §3.x `IngestReport` + §2.4a `IngestEvent` 에 새 필드 / 새 warning 의미 추가 (additive).
 
-**Tests added**: 약 5 신규 (kebab-config 단위 2: legacy include 무시 + WorkspaceCfg 필드 destructure / kebab-app 통합 1: skip_reason / kebab-app 통합 1: init_template 헤더 / kebab-tui 단위 2: status_line breakdown 완료/abort). 기존 워크스페이스 테스트 무수정 통과.
+**Tests added**: 5 신규 (kebab-config 단위 2: legacy include 무시 + WorkspaceCfg 필드 destructure / kebab-app 통합 1: skip_reason / kebab-app 통합 1: init_template 헤더 / kebab-tui 단위 2: status_line breakdown 완료/abort) + 1 unit (kebab-app 의 render_skipped_breakdown). 기존 fixture 6 개 mechanical adapter 수정 (`tests/common/mod.rs` SourceScope, `tests/image_pipeline.rs` × 2 + `tests/pdf_pipeline.rs` 의 dead `include.push` 제거, `tests/ingest_report_snapshot.rs` + `kebab-cli/src/wire.rs` literal 에 `BTreeMap::new()` 추가, snapshot JSON 의 `skipped_by_extension` 필드). assertion 의미 변경 없음.
 
 **Known limitation (deferred)**:
 
