@@ -384,7 +384,7 @@ pub fn ingest_with_config_opts(
     let mut chunks_indexed: u32 = 0;
     let mut embeddings_indexed: u32 = 0;
     // p9-fb-25: per-extension skip count, populated in the Skipped arm below.
-    let skipped_by_extension: std::collections::BTreeMap<String, u32> =
+    let mut skipped_by_extension: std::collections::BTreeMap<String, u32> =
         std::collections::BTreeMap::new();
     let scanned_count: u32 = u32::try_from(assets.len()).unwrap_or(u32::MAX);
 
@@ -475,7 +475,9 @@ pub fn ingest_with_config_opts(
                 }
             }
             kebab_core::IngestItemKind::Skipped => {
-                skipped_count = skipped_count.saturating_add(1)
+                skipped_count = skipped_count.saturating_add(1);
+                let ext = ext_for_skip_warning(&item.doc_path.0);
+                *skipped_by_extension.entry(ext).or_insert(0) += 1;
             }
             kebab_core::IngestItemKind::Unchanged => {
                 unchanged_count = unchanged_count.saturating_add(1)
@@ -826,6 +828,31 @@ fn try_skip_unchanged(
     }))
 }
 
+/// p9-fb-25: extract the lowercase extension (no leading dot) from a
+/// workspace path for use in the `unsupported media type: .X` warning
+/// and `IngestReport.skipped_by_extension` key. Returns `"<no-ext>"`
+/// for paths with no extension. Always lowercase so `Foo.DOCX` and
+/// `bar.docx` aggregate under the same key.
+fn ext_for_skip_warning(path: &str) -> String {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_else(|| "<no-ext>".to_string())
+}
+
+/// p9-fb-25: render the `IngestItem.warnings` line for a Skipped
+/// asset. `<no-ext>` sentinel renders without a leading dot;
+/// everything else gets `.ext` form.
+fn unsupported_media_warning(path: &str) -> String {
+    let ext = ext_for_skip_warning(path);
+    if ext == "<no-ext>" {
+        "unsupported media type: <no-ext>".to_string()
+    } else {
+        format!("unsupported media type: .{ext}")
+    }
+}
+
 /// Process a single asset: read bytes, parse, normalize, chunk,
 /// persist, embed. Per-asset failures bubble up to the caller for
 /// labelling as `IngestItemKind::Error` — they do NOT abort the
@@ -889,7 +916,7 @@ fn ingest_one_asset(
                 chunk_count: None,
                 parser_version: None,
                 chunker_version: None,
-                warnings: Vec::new(),
+                warnings: vec![unsupported_media_warning(&asset.workspace_path.0)],
                 error: None,
             });
         }
@@ -908,9 +935,7 @@ fn ingest_one_asset(
                 chunk_count: None,
                 parser_version: None,
                 chunker_version: None,
-                warnings: vec![
-                    "kb:// source URIs are not supported by the fs ingester".into(),
-                ],
+                warnings: vec!["kb:// URI not yet supported".to_string()],
                 error: None,
             });
         }
@@ -1103,7 +1128,7 @@ fn ingest_one_image_asset(
                 parser_version: None,
                 chunker_version: None,
                 warnings: vec![
-                    "kb:// source URIs are not supported by the fs ingester".into(),
+                    "kb:// URI not yet supported".to_string(),
                 ],
                 error: None,
             });
@@ -1438,7 +1463,7 @@ fn ingest_one_pdf_asset(
                 parser_version: None,
                 chunker_version: None,
                 warnings: vec![
-                    "kb:// source URIs are not supported by the fs ingester".into(),
+                    "kb:// URI not yet supported".to_string(),
                 ],
                 error: None,
             });
