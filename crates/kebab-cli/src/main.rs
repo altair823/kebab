@@ -326,8 +326,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
             let scope = kebab_core::SourceScope {
                 root: root.clone().unwrap_or_else(|| PathBuf::from(&cfg.workspace.root)),
-                include: cfg.workspace.include.clone(),
                 exclude: cfg.workspace.exclude.clone(),
+                ..Default::default()
             };
 
             // p9-fb-02: spawn the progress display on a background
@@ -371,12 +371,14 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             if cli.json {
                 println!("{}", serde_json::to_string(&wire::wire_ingest(&report))?);
             } else {
+                let skipped_breakdown = kebab_app::render_skipped_breakdown(&report.skipped_by_extension);
                 println!(
-                    "scanned {}  new {}  updated {}  skipped {}  errors {}  ({} ms)",
+                    "scanned {}  new {}  updated {}  skipped {}{}  errors {}  ({} ms)",
                     report.scanned,
                     report.new,
                     report.updated,
                     report.skipped,
+                    skipped_breakdown,
                     report.errors,
                     report.duration_ms
                 );

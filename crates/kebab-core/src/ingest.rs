@@ -20,6 +20,11 @@ pub struct IngestReport {
     pub unchanged: u32,
     pub errors: u32,
     pub duration_ms: u32,
+    /// p9-fb-25: per-extension skip count. Key = lowercase extension
+    /// without leading dot (e.g. "docx", "txt"); files without an
+    /// extension key under "<no-ext>". `BTreeMap` so the wire JSON
+    /// has stable key order across runs.
+    pub skipped_by_extension: std::collections::BTreeMap<String, u32>,
     /// `None` ↔ wire `items: null` (`--summary-only`).
     pub items: Option<Vec<IngestItem>>,
 }

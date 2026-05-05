@@ -75,8 +75,8 @@ impl TestEnv {
     pub fn scope(&self) -> kebab_core::SourceScope {
         kebab_core::SourceScope {
             root: self.workspace_root.clone(),
-            include: self.config.workspace.include.clone(),
             exclude: self.config.workspace.exclude.clone(),
+            ..Default::default()
         }
     }
 }

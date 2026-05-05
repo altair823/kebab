@@ -33,10 +33,8 @@ fn write_red_png(root: &Path, name: &str) -> std::path::PathBuf {
 
 fn cfg_with_image_pipeline(env: &TestEnv, mock_endpoint: &str) -> Config {
     let mut cfg = env.config.clone();
-    // Ensure image assets are scanned.
-    cfg.workspace
-        .include
-        .push("**/*.png".to_string());
+    // p9-fb-25: workspace.include removed; extension routing is now
+    // handled by extractor matching alone (no config knob).
     cfg.image.ocr.enabled = true;
     cfg.image.ocr.endpoint = Some(mock_endpoint.to_string());
     cfg.image.ocr.model = "vision-mock:1b".to_string();
@@ -261,7 +259,8 @@ async fn image_indexed_with_filename_when_ocr_and_caption_disabled() {
     let env = TestEnv::lexical_only();
     write_red_png(&env.workspace_root, "raw.png");
     let mut cfg = env.config.clone();
-    cfg.workspace.include.push("**/*.png".to_string());
+    // p9-fb-25: workspace.include removed; extension routing is now
+    // handled by extractor matching alone (no config knob).
     cfg.image.ocr.enabled = false;
     cfg.image.caption.enabled = false;
 
@@ -326,7 +325,8 @@ async fn garbage_png_increments_errors_counter_exactly_once() {
     )
     .expect("write garbage fixture");
     let mut cfg = env.config.clone();
-    cfg.workspace.include.push("**/*.png".to_string());
+    // p9-fb-25: workspace.include removed; extension routing is now
+    // handled by extractor matching alone (no config knob).
     cfg.image.ocr.enabled = false;
     cfg.image.caption.enabled = false;
 

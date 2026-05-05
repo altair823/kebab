@@ -171,6 +171,7 @@ mod tests {
             unchanged: 0,
             errors: 0,
             duration_ms: 0,
+            skipped_by_extension: std::collections::BTreeMap::new(),
             items: None,
         };
         let v = wire_ingest(&r);

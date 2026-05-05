@@ -108,6 +108,7 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
   - [p9-fb-22 cursor mid-string editing + Ask follow-tail (post-도그푸딩)](p9/p9-fb-22-tui-cursor-and-autoscroll.md)
   - [p9-fb-23 incremental ingest (post-도그푸딩)](p9/p9-fb-23-incremental-ingest.md)
   - [p9-fb-24 status bar + Library header + page scroll (post-도그푸딩)](p9/p9-fb-24-tui-affordances.md)
+  - [p9-fb-25 config workspace.include 제거 + 지원 형식 가시성 (post-도그푸딩)](p9/p9-fb-25-config-include-removal.md)
 
 ## Post-merge 핫픽스
 

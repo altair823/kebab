@@ -36,8 +36,8 @@ pub fn start_ingest(app: &mut App) -> anyhow::Result<()> {
     let cfg = app.config.clone();
     let scope = SourceScope {
         root: std::path::PathBuf::from(&cfg.workspace.root),
-        include: cfg.workspace.include.clone(),
         exclude: cfg.workspace.exclude.clone(),
+        ..Default::default()
     };
     let (tx, rx) = mpsc::channel::<IngestEvent>();
     let cancel = Arc::new(AtomicBool::new(false));
@@ -175,8 +175,9 @@ pub fn status_line(state: &IngestState) -> String {
         let elapsed = state.started_at.elapsed();
         let secs = elapsed.as_secs();
         if state.aborted {
+            let skipped_breakdown = kebab_app::ingest_progress::render_skipped_breakdown(&state.counts.skipped_by_extension);
             return format!(
-                "✗ ingest aborted at {}/{} after {}s (new={} updated={} unchanged={} skipped={} errors={})",
+                "✗ ingest aborted at {}/{} after {}s (new={} updated={} unchanged={} skipped={}{} errors={})",
                 state.counts.scanned.saturating_sub(state.counts.errors),
                 state.counts.scanned,
                 secs,
@@ -184,16 +185,19 @@ pub fn status_line(state: &IngestState) -> String {
                 state.counts.updated,
                 state.counts.unchanged,
                 state.counts.skipped,
+                skipped_breakdown,
                 state.counts.errors,
             );
         }
+        let skipped_breakdown = kebab_app::ingest_progress::render_skipped_breakdown(&state.counts.skipped_by_extension);
         return format!(
-            "✓ ingest: {} docs ({} new, {} updated, {} unchanged, {} skipped), {} chunks indexed in {}s",
+            "✓ ingest: {} docs ({} new, {} updated, {} unchanged, {} skipped{}), {} chunks indexed in {}s",
             state.counts.scanned,
             state.counts.new,
             state.counts.updated,
             state.counts.unchanged,
             state.counts.skipped,
+            skipped_breakdown,
             state.counts.chunks_indexed,
             secs,
         );
@@ -288,7 +292,7 @@ mod tests {
             chunks_indexed: 50,
             ..Default::default()
         };
-        apply_event(&mut s, IngestEvent::Completed { counts: final_counts });
+        apply_event(&mut s, IngestEvent::Completed { counts: final_counts.clone() });
         assert_eq!(s.counts, final_counts);
         assert!(s.terminal_at.is_some());
         assert!(!s.aborted);
@@ -414,5 +418,45 @@ mod tests {
         app.ingest_state = Some(s);
         // No worker to cancel — already terminated.
         assert!(!cancel_running_ingest(&app));
+    }
+
+    #[test]
+    fn status_line_terminal_includes_skipped_breakdown() {
+        let mut s = fresh_state();
+        let skipped_by_extension = std::collections::BTreeMap::from([
+            ("docx".to_string(), 2u32),
+            ("txt".to_string(), 1u32),
+        ]);
+        let counts = AggregateCounts {
+            scanned: 10,
+            skipped: 3,
+            skipped_by_extension,
+            ..Default::default()
+        };
+        apply_event(&mut s, IngestEvent::Completed { counts });
+        let line = status_line(&s);
+        assert!(
+            line.contains("3 skipped: 2 docx, 1 txt"),
+            "breakdown must appear in: {line}"
+        );
+    }
+
+    #[test]
+    fn status_line_aborted_includes_skipped_breakdown() {
+        let mut s = fresh_state();
+        let skipped_by_extension =
+            std::collections::BTreeMap::from([("pdf".to_string(), 2u32)]);
+        let counts = AggregateCounts {
+            scanned: 5,
+            skipped: 2,
+            skipped_by_extension,
+            ..Default::default()
+        };
+        apply_event(&mut s, IngestEvent::Aborted { counts });
+        let line = status_line(&s);
+        assert!(
+            line.contains("skipped=2: 2 pdf"),
+            "breakdown must appear in: {line}"
+        );
     }
 }

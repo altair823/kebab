@@ -14,6 +14,29 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-05 — p9-fb-25 (post-dogfooding): config workspace.include 제거 + 지원 형식 가시성
+
+**Source feedback**: 사용자 도그푸딩 2026-05-05 — config 의 `workspace.include` + `workspace.exclude` 동시 존재가 case 4 (둘 다 매치 안 함) 의미 모호 + 어차피 처리 가능 형식 (md / png / jpg / pdf) 이 정해져 있으니 사용자에게 명시 필요.
+
+**Live binding 변경**:
+
+- `kebab-config::WorkspaceCfg.include: Vec<String>` 제거. denylist-only 모델. 옛 config 의 `include = [...]` 은 serde 가 silently 무시 + `Config::from_file` 가 단발 `tracing::warn!` 으로 deprecation 안내 (`std::sync::OnceLock` — 같은 process 안에서 한 번만).
+- `kebab-core::IngestItem.warnings` 가 Skipped 시 사유 채움: `"unsupported media type: .{ext}"` (ext 없으면 `"unsupported media type: <no-ext>"`) / `"kb:// URI not yet supported"`.
+- `kebab-core::IngestReport.skipped_by_extension: BTreeMap<String, u32>` + `kebab-app::AggregateCounts.skipped_by_extension` 신규. key = lowercase ext (`docx`, `txt`), no-ext sentinel = `<no-ext>`. wire schema `ingest_report.v1` 에 additive 추가 (v1 호환 유지 — release 트리거 안 됨 per CLAUDE.md release 규약).
+- CLI summary + TUI status_line final / aborted: `5 skipped: 3 docx, 1 txt, 1 epub` 형식. desc 정렬 (count) + ties by key alphabetic + 모두 표시.
+- `kebab-app::init_workspace` 헤더 주석에 지원 형식 명시 (Markdown / 이미지 / PDF + 각 확장자).
+- README `kebab ingest` 설명에 지원 형식 + skip 사유 + breakdown 표시 명시.
+
+**Spec contract impact**: design §6.2 의 `workspace.include` 항목 invalidate (frozen 그대로 두고 본 항목 + spec `tasks/p9/p9-fb-25-config-include-removal.md` 가 source of truth). design §3.x `IngestReport` + §2.4a `IngestEvent` 에 새 필드 / 새 warning 의미 추가 (additive).
+
+**Tests added**: 5 신규 (kebab-config 단위 2: legacy include 무시 + WorkspaceCfg 필드 destructure / kebab-app 통합 1: skip_reason / kebab-app 통합 1: init_template 헤더 / kebab-tui 단위 2: status_line breakdown 완료/abort) + 1 unit (kebab-app 의 render_skipped_breakdown). 기존 fixture 6 개 mechanical adapter 수정 (`tests/common/mod.rs` SourceScope, `tests/image_pipeline.rs` × 2 + `tests/pdf_pipeline.rs` 의 dead `include.push` 제거, `tests/ingest_report_snapshot.rs` + `kebab-cli/src/wire.rs` literal 에 `BTreeMap::new()` 추가, snapshot JSON 의 `skipped_by_extension` 필드). assertion 의미 변경 없음.
+
+**Known limitation (deferred)**:
+
+- `SourceScope.include` (`kebab-core::traits`) 는 그대로 — design §7.1 abstraction 이라 별 spec 으로 다룰 수 있음. 본 PR 은 config 단의 `WorkspaceCfg.include` 만 정리.
+- 새 extractor (txt / docx / epub 등) 도입은 별 spec.
+- `kebab doctor` 가 unsupported 파일 카운트 분석은 후속 task.
+
 ## 2026-05-04 — p9-fb-23 (post-dogfooding): Incremental ingest
 
 **Source feedback**: 사용자 도그푸딩 2026-05-04 — "새 문서들이 폴더에 추가되면 ingest 시 변하지 않은 문서는 다시 ingest 하지 않고 변하거나 새로 추가된 문서만 처리하고 싶어."

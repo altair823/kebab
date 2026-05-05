@@ -61,8 +61,15 @@ pub mod logging;
 pub mod reset;
 
 pub use app::App;
-pub use ingest_progress::{AggregateCounts, IngestEvent};
+pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
 pub use reset::{ResetReport, ResetScope};
+
+/// p9-fb-25: sentinel for files without an extension in
+/// `IngestReport.skipped_by_extension` keys + `IngestItem.warnings`
+/// `unsupported media type: ...` line. Wire schema description
+/// references this literal — changing the sentinel is a wire-
+/// compatibility break.
+pub const NO_EXT_SENTINEL: &str = "<no-ext>";
 
 /// Parser-version label persisted in `documents.parser_version` for
 /// every Markdown file ingested through the `kb-parse-md` pipeline.
@@ -145,6 +152,14 @@ pub fn init_workspace(force: bool) -> anyhow::Result<()> {
 #   • relative paths       (`./notes`, `notes`, `../shared/x`)
 #     — relative paths resolve against the directory of THIS
 #       config file, NOT the user's `cwd` at invocation time.
+#
+# 처리 가능한 형식 (extractor 가 자동 결정 — config 에 명시할 수 없음):
+#   • Markdown: .md
+#   • 이미지:   .png .jpg .jpeg  (OCR + caption)
+#   • PDF:      .pdf
+# 다른 확장자는 ingest 시 자동 skip + warning. 처리 대상 폴더의
+# 일부만 ingest 하고 싶으면 `kebab ingest <path>` 로 root 명시
+# 또는 `.kebabignore` 파일 / 본 `workspace.exclude` 로 denylist.
 #
 # Override individual keys at runtime with `KEBAB_*` env vars
 # (e.g. `KEBAB_WORKSPACE_ROOT=/tmp/test kebab ingest`).
@@ -375,6 +390,9 @@ pub fn ingest_with_config_opts(
     // without re-walking the DB.
     let mut chunks_indexed: u32 = 0;
     let mut embeddings_indexed: u32 = 0;
+    // p9-fb-25: per-extension skip count, populated in the Skipped arm below.
+    let mut skipped_by_extension: std::collections::BTreeMap<String, u32> =
+        std::collections::BTreeMap::new();
     let scanned_count: u32 = u32::try_from(assets.len()).unwrap_or(u32::MAX);
 
     let embed_active = embedder.is_some() && vector_store.is_some();
@@ -464,7 +482,9 @@ pub fn ingest_with_config_opts(
                 }
             }
             kebab_core::IngestItemKind::Skipped => {
-                skipped_count = skipped_count.saturating_add(1)
+                skipped_count = skipped_count.saturating_add(1);
+                let ext = ext_for_skip_warning(&item.doc_path.0);
+                *skipped_by_extension.entry(ext).or_insert(0) += 1;
             }
             kebab_core::IngestItemKind::Unchanged => {
                 unchanged_count = unchanged_count.saturating_add(1)
@@ -613,6 +633,7 @@ pub fn ingest_with_config_opts(
         errors: error_count,
         chunks_indexed,
         embeddings_indexed,
+        skipped_by_extension: skipped_by_extension.clone(),
     };
     let terminal_event = if was_cancelled {
         crate::ingest_progress::IngestEvent::Aborted {
@@ -654,6 +675,7 @@ pub fn ingest_with_config_opts(
         unchanged: unchanged_count,
         errors: error_count,
         duration_ms,
+        skipped_by_extension,
         items: if summary_only { None } else { Some(items) },
     })
 }
@@ -813,6 +835,31 @@ fn try_skip_unchanged(
     }))
 }
 
+/// p9-fb-25: extract the lowercase extension (no leading dot) from a
+/// workspace path for use in the `unsupported media type: .X` warning
+/// and `IngestReport.skipped_by_extension` key. Returns [`NO_EXT_SENTINEL`]
+/// for paths with no extension. Always lowercase so `Foo.DOCX` and
+/// `bar.docx` aggregate under the same key.
+fn ext_for_skip_warning(path: &str) -> String {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_else(|| NO_EXT_SENTINEL.to_string())
+}
+
+/// p9-fb-25: render the `IngestItem.warnings` line for a Skipped
+/// asset. [`NO_EXT_SENTINEL`] renders without a leading dot;
+/// everything else gets `.ext` form.
+fn unsupported_media_warning(path: &str) -> String {
+    let ext = ext_for_skip_warning(path);
+    if ext == NO_EXT_SENTINEL {
+        format!("unsupported media type: {NO_EXT_SENTINEL}")
+    } else {
+        format!("unsupported media type: .{ext}")
+    }
+}
+
 /// Process a single asset: read bytes, parse, normalize, chunk,
 /// persist, embed. Per-asset failures bubble up to the caller for
 /// labelling as `IngestItemKind::Error` — they do NOT abort the
@@ -876,7 +923,7 @@ fn ingest_one_asset(
                 chunk_count: None,
                 parser_version: None,
                 chunker_version: None,
-                warnings: Vec::new(),
+                warnings: vec![unsupported_media_warning(&asset.workspace_path.0)],
                 error: None,
             });
         }
@@ -895,9 +942,7 @@ fn ingest_one_asset(
                 chunk_count: None,
                 parser_version: None,
                 chunker_version: None,
-                warnings: vec![
-                    "kb:// source URIs are not supported by the fs ingester".into(),
-                ],
+                warnings: vec!["kb:// URI not yet supported".to_string()],
                 error: None,
             });
         }
@@ -1090,7 +1135,7 @@ fn ingest_one_image_asset(
                 parser_version: None,
                 chunker_version: None,
                 warnings: vec![
-                    "kb:// source URIs are not supported by the fs ingester".into(),
+                    "kb:// URI not yet supported".to_string(),
                 ],
                 error: None,
             });
@@ -1425,7 +1470,7 @@ fn ingest_one_pdf_asset(
                 parser_version: None,
                 chunker_version: None,
                 warnings: vec![
-                    "kb:// source URIs are not supported by the fs ingester".into(),
+                    "kb:// URI not yet supported".to_string(),
                 ],
                 error: None,
             });
