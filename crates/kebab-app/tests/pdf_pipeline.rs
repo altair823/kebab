@@ -121,7 +121,8 @@ fn write_pdf(root: &Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
 
 fn cfg_with_pdf(env: &TestEnv) -> Config {
     let mut cfg = env.config.clone();
-    cfg.workspace.include.push("**/*.pdf".to_string());
+    // p9-fb-25: workspace.include removed; extension routing is now
+    // handled by extractor matching alone (no config knob).
     // PDF ingest does not need OCR / caption / LM — leave defaults
     // (ocr.enabled=false, caption.enabled=false). The image pipeline
     // construction step skips both adapters.
