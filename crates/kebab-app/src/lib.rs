@@ -186,6 +186,22 @@ fn load_config() -> anyhow::Result<kebab_config::Config> {
 
 // ── ingest ────────────────────────────────────────────────────────────────
 
+/// p9-fb-23: optional per-call ingest controls. Kept as a struct (vs.
+/// a growing positional arg list) so future flags (e.g. `dry_run`,
+/// per-asset `concurrency`) land additively without churning every
+/// caller. Mirrors the `AskOpts` pattern from p9-fb-15.
+#[derive(Default)]
+pub struct IngestOpts {
+    /// Streaming progress sink. `None` suppresses emission entirely.
+    pub progress: Option<std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
+    /// Cooperative cancel token. `None` = uncancellable.
+    pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// p9-fb-23: when `true`, the per-asset early-skip block is bypassed
+    /// — every asset is re-parsed / re-chunked / re-embedded as if the
+    /// DB were empty. Default `false` preserves the auto-skip path.
+    pub force_reingest: bool,
+}
+
 pub fn ingest(scope: SourceScope, summary_only: bool) -> anyhow::Result<IngestReport> {
     let config = load_config()?;
     ingest_with_config(config, scope, summary_only)
@@ -226,12 +242,16 @@ pub fn ingest_with_config_progress(
     ingest_with_config_cancellable(config, scope, summary_only, progress, None)
 }
 
-/// Config + progress + cancel variant (p9-fb-04). The caller injects
-/// an `Arc<AtomicBool>` cancel token; setting it to `true` causes the
-/// ingest loop to break at the next step boundary (asset loop iter
-/// start), emit `IngestEvent::Aborted { counts: <partial> }`, and
-/// return `Ok(IngestReport)` with whatever assets were committed
-/// before cancellation. Per design §10:
+/// Config + opts variant (p9-fb-23). Supersedes the positional
+/// `ingest_with_config_cancellable` fn; callers now pass an
+/// [`IngestOpts`] struct so future knobs (e.g. `force_reingest`,
+/// `dry_run`) land additively without churning every call site.
+///
+/// Existing callers that still pass positional `progress` + `cancel`
+/// should use [`ingest_with_config_cancellable`], which remains as a
+/// thin wrapper that builds `IngestOpts` and forwards here.
+///
+/// Per design §10 (cancellation contract — unchanged from p9-fb-04):
 ///
 /// - The current in-flight asset finishes (rollback would break
 ///   idempotent re-run). Subsequent assets are skipped.
@@ -242,23 +262,22 @@ pub fn ingest_with_config_progress(
 ///   doc_id recipes).
 ///
 /// CLI's `Ctrl-C` SIGINT handler and TUI's `Esc` / `Ctrl-C` both
-/// flip the same `AtomicBool`. Pass `None` to retain pre-p9-fb-04
-/// behaviour (uncancellable).
+/// flip the same `AtomicBool` (via `opts.cancel`).
 #[doc(hidden)]
-pub fn ingest_with_config_cancellable(
+pub fn ingest_with_config_opts(
     config: kebab_config::Config,
     scope: SourceScope,
     summary_only: bool,
-    progress: Option<std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
-    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    opts: IngestOpts,
 ) -> anyhow::Result<IngestReport> {
-    let progress = progress.as_ref();
+    let progress = opts.progress.as_ref();
     let cancelled = || {
-        cancel
+        opts.cancel
             .as_ref()
             .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
             .unwrap_or(false)
     };
+    let force_reingest = opts.force_reingest;
     let started_instant = std::time::Instant::now();
 
     let app = App::open_with_config(config)?;
@@ -347,6 +366,7 @@ pub fn ingest_with_config_cancellable(
     let mut new_count: u32 = 0;
     let mut updated_count: u32 = 0;
     let mut skipped_count: u32 = 0;
+    let mut unchanged_count: u32 = 0;
     let mut error_count: u32 = 0;
     // Aggregate counts surfaced into `ingest_runs` (and tracing). Not
     // exposed on `IngestReport` today — `kebab_core::IngestReport` is a
@@ -392,6 +412,7 @@ pub fn ingest_with_config_cancellable(
             vector_store.as_ref(),
             &existing_doc_ids,
             &image_pipeline,
+            force_reingest,
         );
 
         let item = match item {
@@ -444,6 +465,9 @@ pub fn ingest_with_config_cancellable(
             }
             kebab_core::IngestItemKind::Skipped => {
                 skipped_count = skipped_count.saturating_add(1)
+            }
+            kebab_core::IngestItemKind::Unchanged => {
+                unchanged_count = unchanged_count.saturating_add(1)
             }
             kebab_core::IngestItemKind::Error => {
                 error_count = error_count.saturating_add(1)
@@ -585,6 +609,7 @@ pub fn ingest_with_config_cancellable(
         new: new_count,
         updated: updated_count,
         skipped: skipped_count,
+        unchanged: unchanged_count,
         errors: error_count,
         chunks_indexed,
         embeddings_indexed,
@@ -626,10 +651,40 @@ pub fn ingest_with_config_cancellable(
         new: new_count,
         updated: updated_count,
         skipped: skipped_count,
+        unchanged: unchanged_count,
         errors: error_count,
         duration_ms,
         items: if summary_only { None } else { Some(items) },
     })
+}
+
+/// Config + progress + cancel variant (p9-fb-04). Retained as a thin
+/// wrapper around [`ingest_with_config_opts`] for external callers
+/// (test fixtures, CLI) that pass positional `progress` + `cancel`
+/// arguments. New callers should prefer [`ingest_with_config_opts`]
+/// with an explicit [`IngestOpts`].
+///
+/// CLI's `Ctrl-C` SIGINT handler and TUI's `Esc` / `Ctrl-C` both
+/// flip the `cancel` `AtomicBool`. Pass `None` to retain
+/// pre-p9-fb-04 behaviour (uncancellable).
+#[doc(hidden)]
+pub fn ingest_with_config_cancellable(
+    config: kebab_config::Config,
+    scope: SourceScope,
+    summary_only: bool,
+    progress: Option<std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
+    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> anyhow::Result<IngestReport> {
+    ingest_with_config_opts(
+        config,
+        scope,
+        summary_only,
+        IngestOpts {
+            progress,
+            cancel,
+            force_reingest: false,
+        },
+    )
 }
 
 /// Mint a stable 32-hex-char `run_id` for an `ingest_runs` row.
@@ -659,6 +714,105 @@ struct ImagePipeline<'a> {
     caption_llm: Option<&'a dyn LanguageModel>,
 }
 
+/// p9-fb-23 task 7: incremental-ingest early-skip predicate. Shared
+/// across the markdown / image / PDF per-asset flows. Returns
+/// `Some(IngestItem { kind: Unchanged, .. })` when ALL FOUR conditions
+/// hold (per design §9 cascade rule):
+///
+/// 1. `force_reingest == false` — caller hasn't asked to bypass skip.
+/// 2. The freshly-scanned asset's blake3 checksum equals what the
+///    existing `assets` row stores at the same `workspace_path`.
+/// 3. The doc keyed on `(workspace_path, asset_id, current_parser_version)`
+///    exists. If the parser_version changed, `id_for_doc` produces a
+///    different `doc_id` so the lookup misses → no skip → re-process.
+/// 4. The existing doc's stamped `last_chunker_version` AND
+///    `last_embedding_version` match the values the caller is about
+///    to use (`Some(v) == Some(v)` and `None == None` — see design
+///    doc for the `None == None` rule when no embedder is configured).
+///
+/// Returns `Ok(None)` (proceed with full re-process) when any check
+/// fails or any DB read errors out — the skip path is opportunistic;
+/// a missed skip is correct (just slower), a wrong skip would corrupt
+/// the index.
+fn try_skip_unchanged(
+    app: &App,
+    asset: &RawAsset,
+    current_parser_version: &ParserVersion,
+    current_chunker_version: &ChunkerVersion,
+    current_embedding_version: Option<&kebab_core::EmbeddingVersion>,
+    force_reingest: bool,
+) -> anyhow::Result<Option<kebab_core::IngestItem>> {
+    if force_reingest {
+        return Ok(None);
+    }
+    let existing_asset = match app
+        .sqlite
+        .get_asset_by_workspace_path(&asset.workspace_path)
+    {
+        Ok(Some(a)) => a,
+        Ok(None) => return Ok(None),
+        Err(e) => {
+            tracing::debug!(
+                target: "kebab-app",
+                path = %asset.workspace_path.0,
+                error = %e,
+                "skip-check: get_asset_by_workspace_path failed; falling through to re-process"
+            );
+            return Ok(None);
+        }
+    };
+    if existing_asset.checksum != asset.checksum {
+        return Ok(None);
+    }
+    let candidate_doc_id = kebab_core::id_for_doc(
+        &asset.workspace_path,
+        &asset.asset_id,
+        current_parser_version,
+    );
+    let existing_doc = match app.sqlite.get_document(&candidate_doc_id) {
+        Ok(Some(d)) => d,
+        Ok(None) => return Ok(None),
+        Err(e) => {
+            tracing::debug!(
+                target: "kebab-app",
+                path = %asset.workspace_path.0,
+                error = %e,
+                "skip-check: get_document failed; falling through to re-process"
+            );
+            return Ok(None);
+        }
+    };
+    let chunker_match = existing_doc.last_chunker_version.as_ref()
+        == Some(current_chunker_version);
+    if !chunker_match {
+        return Ok(None);
+    }
+    let embedder_match = existing_doc.last_embedding_version.as_ref()
+        == current_embedding_version;
+    if !embedder_match {
+        return Ok(None);
+    }
+    tracing::debug!(
+        target: "kebab-app::ingest",
+        path = %asset.workspace_path.0,
+        doc_id = %candidate_doc_id.0,
+        "skip-unchanged: checksum + parser/chunker/embedding versions match"
+    );
+    Ok(Some(kebab_core::IngestItem {
+        kind: kebab_core::IngestItemKind::Unchanged,
+        doc_id: Some(candidate_doc_id),
+        doc_path: asset.workspace_path.clone(),
+        asset_id: Some(asset.asset_id.clone()),
+        byte_len: Some(asset.byte_len),
+        block_count: u32::try_from(existing_doc.blocks.len()).ok(),
+        chunk_count: None,
+        parser_version: Some(existing_doc.parser_version.clone()),
+        chunker_version: existing_doc.last_chunker_version.clone(),
+        warnings: Vec::new(),
+        error: None,
+    }))
+}
+
 /// Process a single asset: read bytes, parse, normalize, chunk,
 /// persist, embed. Per-asset failures bubble up to the caller for
 /// labelling as `IngestItemKind::Error` — they do NOT abort the
@@ -673,6 +827,7 @@ fn ingest_one_asset(
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
     image_pipeline: &ImagePipeline<'_>,
+    force_reingest: bool,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     tracing::debug!(
         target: "kebab-app::ingest",
@@ -696,6 +851,7 @@ fn ingest_one_asset(
                 vector_store,
                 existing_doc_ids,
                 image_pipeline,
+                force_reingest,
             );
         }
         MediaType::Pdf => {
@@ -706,6 +862,7 @@ fn ingest_one_asset(
                 embedder,
                 vector_store,
                 existing_doc_ids,
+                force_reingest,
             );
         }
         _ => {
@@ -746,6 +903,23 @@ fn ingest_one_asset(
         }
     };
 
+    // p9-fb-23 task 7: incremental-ingest early-skip. When force_reingest
+    // is false AND the on-disk asset's checksum + parser_version +
+    // last_chunker_version + last_embedding_version all match the existing
+    // DB record, this asset doesn't need to be re-parsed / re-chunked /
+    // re-embedded. Return Unchanged so the caller bumps `aggregate.unchanged`
+    // and the AssetFinished progress event reflects the skip.
+    if let Some(item) = try_skip_unchanged(
+        app,
+        asset,
+        parser_version,
+        &MdHeadingV1Chunker.chunker_version(),
+        embedder.map(|e| e.model_version()).as_ref(),
+        force_reingest,
+    )? {
+        return Ok(item);
+    }
+
     let bytes = std::fs::read(&path)
         .with_context(|| format!("read asset bytes from {}", path.display()))?;
 
@@ -775,7 +949,7 @@ fn ingest_one_asset(
         .map(|w| format!("{:?}: {}", w.kind, w.note))
         .collect();
 
-    let canonical = build_canonical_document(
+    let mut canonical = build_canonical_document(
         asset,
         metadata,
         parsed_blocks,
@@ -787,6 +961,13 @@ fn ingest_one_asset(
     let chunks = MdHeadingV1Chunker
         .chunk(&canonical, chunk_policy)
         .context("kb-chunk::MdHeadingV1Chunker::chunk")?;
+
+    // Stamp chunker + embedding versions so Task 7's skip detection has
+    // data on the second run.
+    canonical.last_chunker_version = Some(MdHeadingV1Chunker.chunker_version());
+    if let Some(emb) = embedder {
+        canonical.last_embedding_version = Some(emb.model_version());
+    }
 
     // Persist. Each `put_*` call wraps its own short transaction
     // (per-document tx semantics per design §5.8); composing them is
@@ -890,6 +1071,7 @@ fn ingest_one_image_asset(
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
     image_pipeline: &ImagePipeline<'_>,
+    force_reingest: bool,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     let image_extractor = image_pipeline.extractor;
     let ocr_engine = image_pipeline.ocr_engine;
@@ -914,6 +1096,23 @@ fn ingest_one_image_asset(
             });
         }
     };
+    // p9-fb-23 task 7: incremental-ingest early-skip for the image flow.
+    // Image docs use the `image-meta-v1` parser_version + the same
+    // MdHeadingV1Chunker as the markdown flow (single-block doc). The
+    // embedding-version check matches the markdown path: when the
+    // active embedder's model_version equals what was stamped on the
+    // existing doc, the asset is Unchanged.
+    let image_parser_version = ParserVersion(kebab_parse_image::PARSER_VERSION.to_string());
+    if let Some(item) = try_skip_unchanged(
+        app,
+        asset,
+        &image_parser_version,
+        &MdHeadingV1Chunker.chunker_version(),
+        embedder.map(|e| e.model_version()).as_ref(),
+        force_reingest,
+    )? {
+        return Ok(item);
+    }
     let bytes = std::fs::read(&path)
         .with_context(|| format!("read image asset bytes from {}", path.display()))?;
 
@@ -1024,6 +1223,12 @@ fn ingest_one_image_asset(
         .context("kb-chunk::MdHeadingV1Chunker::chunk (image)")?;
 
     // 5. Persist + embed — identical sequence to markdown.
+    // Stamp chunker + embedding versions (image uses MdHeadingV1Chunker
+    // for its single-block doc, so we record that version).
+    canonical.last_chunker_version = Some(MdHeadingV1Chunker.chunker_version());
+    if let Some(emb) = embedder {
+        canonical.last_embedding_version = Some(emb.model_version());
+    }
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     app.sqlite
         .put_asset_with_bytes(asset, &bytes)
@@ -1204,6 +1409,7 @@ fn ingest_one_pdf_asset(
     embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
+    force_reingest: bool,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     let path = match &asset.source_uri {
         SourceUri::File(p) => p.clone(),
@@ -1225,6 +1431,20 @@ fn ingest_one_pdf_asset(
             });
         }
     };
+    // p9-fb-23 task 7: incremental-ingest early-skip for the PDF flow.
+    // PDF docs use `pdf-text-v1` as the parser_version and `PdfPageV1Chunker`
+    // as the chunker — both pinned per-medium today (no config knob).
+    let pdf_parser_version = ParserVersion(kebab_parse_pdf::PARSER_VERSION.to_string());
+    if let Some(item) = try_skip_unchanged(
+        app,
+        asset,
+        &pdf_parser_version,
+        &PdfPageV1Chunker.chunker_version(),
+        embedder.map(|e| e.model_version()).as_ref(),
+        force_reingest,
+    )? {
+        return Ok(item);
+    }
     let bytes = std::fs::read(&path)
         .with_context(|| format!("read PDF asset bytes from {}", path.display()))?;
 
@@ -1238,7 +1458,7 @@ fn ingest_one_pdf_asset(
         workspace_root: &workspace_root,
         config: &extract_config,
     };
-    let canonical = PdfTextExtractor::new()
+    let mut canonical = PdfTextExtractor::new()
         .extract(&ctx, &bytes)
         .context("kb-parse-pdf::PdfTextExtractor::extract")?;
 
@@ -1250,6 +1470,13 @@ fn ingest_one_pdf_asset(
     let chunks = chunker
         .chunk(&canonical, chunk_policy)
         .context("kb-chunk::PdfPageV1Chunker::chunk")?;
+
+    // Stamp chunker + embedding versions so Task 7's skip detection has
+    // data on the second run.
+    canonical.last_chunker_version = Some(chunker.chunker_version());
+    if let Some(emb) = embedder {
+        canonical.last_embedding_version = Some(emb.model_version());
+    }
 
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     app.sqlite

@@ -169,6 +169,8 @@ pub fn build_canonical_document(
         parser_version: parser_version.clone(),
         schema_version: 1,
         doc_version: 1,
+        last_chunker_version: None,
+        last_embedding_version: None,
     })
 }
 

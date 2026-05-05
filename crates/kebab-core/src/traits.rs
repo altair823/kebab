@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::asset::RawAsset;
+use crate::asset::{RawAsset, WorkspacePath};
 use crate::chunk::Chunk;
 use crate::document::{Block, CanonicalDocument};
 use crate::ids::{ChunkId, DocumentId};
@@ -156,6 +156,14 @@ pub trait DocumentStore {
     fn get_document(&self, id: &DocumentId) -> anyhow::Result<Option<CanonicalDocument>>;
     fn get_chunk(&self, id: &ChunkId) -> anyhow::Result<Option<Chunk>>;
     fn list_documents(&self, filter: &DocFilter) -> anyhow::Result<Vec<DocSummary>>;
+    /// p9-fb-23: look up an asset row by its workspace path. Used by
+    /// the incremental-ingest skip path to compare the freshly
+    /// computed blake3 checksum against what's already in SQLite. The
+    /// schema enforces a unique workspace_path per asset.
+    fn get_asset_by_workspace_path(
+        &self,
+        path: &WorkspacePath,
+    ) -> anyhow::Result<Option<RawAsset>>;
 }
 
 pub trait VectorStore {

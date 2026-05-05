@@ -216,6 +216,8 @@ impl Extractor for PdfTextExtractor {
             parser_version,
             schema_version: 1,
             doc_version: 1,
+            last_chunker_version: None,
+            last_embedding_version: None,
         })
     }
 }

@@ -165,7 +165,8 @@ impl kebab_core::DocumentStore for SqliteStore {
                     doc_id, asset_id, workspace_path, title, lang,
                     source_type, trust_level, parser_version,
                     doc_version, schema_version, metadata_json,
-                    provenance_json, created_at, updated_at
+                    provenance_json, created_at, updated_at,
+                    last_chunker_version, last_embedding_version
                 FROM documents WHERE doc_id = ?",
                 params![id.0],
                 document_row_from_sql,
@@ -221,6 +222,8 @@ impl kebab_core::DocumentStore for SqliteStore {
             // under that invariant.
             schema_version: row.schema_version as u32,
             doc_version: row.doc_version as u32,
+            last_chunker_version: row.last_chunker_version.map(kebab_core::ChunkerVersion),
+            last_embedding_version: row.last_embedding_version.map(kebab_core::EmbeddingVersion),
         }))
     }
 
@@ -259,6 +262,28 @@ impl kebab_core::DocumentStore for SqliteStore {
             chunker_version: kebab_core::ChunkerVersion(row.chunker_version),
             policy_hash: row.policy_hash,
         }))
+    }
+
+    fn get_asset_by_workspace_path(
+        &self,
+        path: &kebab_core::WorkspacePath,
+    ) -> Result<Option<kebab_core::RawAsset>> {
+        let conn = self.lock_conn();
+        let result = conn.query_row(
+            r#"SELECT
+                asset_id, source_uri, workspace_path, media_type,
+                byte_len, checksum, storage_kind, storage_path,
+                discovered_at
+            FROM assets
+            WHERE workspace_path = ?"#,
+            rusqlite::params![path.0.as_str()],
+            asset_from_row,
+        );
+        match result {
+            Ok(asset) => Ok(Some(asset)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
     }
 
     fn list_documents(
@@ -365,6 +390,8 @@ struct DocumentRow {
     provenance_json: String,
     // source_type / trust_level are loaded back via metadata_json round-trip,
     // so we do not need separate fields here for `get_document`.
+    last_chunker_version: Option<String>,
+    last_embedding_version: Option<String>,
 }
 
 fn document_row_from_sql(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentRow> {
@@ -383,6 +410,10 @@ fn document_row_from_sql(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentRo
         schema_version: row.get(9)?,
         metadata_json: row.get(10)?,
         provenance_json: row.get(11)?,
+        // 12: created_at, 13: updated_at — not stored in DocumentRow
+        // (only needed for list_documents). Columns 14-15 follow.
+        last_chunker_version: row.get(14)?,
+        last_embedding_version: row.get(15)?,
     })
 }
 
@@ -475,6 +506,69 @@ fn rows_optional<T>(err: rusqlite::Error) -> rusqlite::Result<Option<T>> {
     }
 }
 
+/// Reconstruct a [`kebab_core::RawAsset`] from one `assets` row.
+/// Row mapper for `RawAsset`. Column names are self-documenting; the
+/// SELECT in [`DocumentStore::get_asset_by_workspace_path`] must include
+/// all nine columns by their schema names.
+fn asset_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<kebab_core::RawAsset> {
+    use std::path::PathBuf;
+
+    let asset_id: String = row.get("asset_id")?;
+    let source_uri_raw: String = row.get("source_uri")?;
+    let workspace_path_raw: String = row.get("workspace_path")?;
+    let media_type_json: String = row.get("media_type")?;
+    let byte_len: i64 = row.get("byte_len")?;
+    let checksum_raw: String = row.get("checksum")?;
+    let storage_kind: String = row.get("storage_kind")?;
+    let storage_path_raw: String = row.get("storage_path")?;
+    let discovered_at_raw: String = row.get("discovered_at")?;
+
+    // Parse source_uri: stored as "file://<path>" or "kb://<uri>".
+    let source_uri = if let Some(path_str) = source_uri_raw.strip_prefix("file://") {
+        kebab_core::SourceUri::File(PathBuf::from(path_str))
+    } else {
+        kebab_core::SourceUri::Kb(source_uri_raw.clone())
+    };
+
+    let workspace_path = kebab_core::WorkspacePath(workspace_path_raw);
+    let media_type: kebab_core::MediaType = serde_json::from_str(&media_type_json)
+        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e)))?;
+    let checksum = kebab_core::Checksum(checksum_raw.clone());
+    let discovered_at = time::OffsetDateTime::parse(
+        &discovered_at_raw,
+        &time::format_description::well_known::Rfc3339,
+    )
+    .map_err(|e| rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, Box::new(e)))?;
+
+    let storage_path = PathBuf::from(&storage_path_raw);
+    let stored = if storage_kind == "copied" {
+        kebab_core::AssetStorage::Copied { path: storage_path }
+    } else {
+        kebab_core::AssetStorage::Reference {
+            path: storage_path,
+            sha: checksum.clone(),
+        }
+    };
+
+    Ok(kebab_core::RawAsset {
+        asset_id: kebab_core::AssetId(asset_id),
+        source_uri,
+        workspace_path,
+        media_type,
+        byte_len: u64::try_from(byte_len)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
+                // index parameter for named-column path is unused but the
+                // type still requires a number; pass 0 with a clear msg.
+                0,
+                rusqlite::types::Type::Integer,
+                Box::new(e),
+            ))?,
+        checksum,
+        discovered_at,
+        stored,
+    })
+}
+
 /// UPSERT the documents row and bump `doc_version` on conflict.
 fn upsert_document(
     tx: &rusqlite::Transaction<'_>,
@@ -503,24 +597,27 @@ fn upsert_document(
             doc_id, asset_id, workspace_path, title, lang,
             source_type, trust_level, parser_version,
             doc_version, schema_version, metadata_json,
-            provenance_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            provenance_json, created_at, updated_at,
+            last_chunker_version, last_embedding_version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(doc_id) DO UPDATE SET
-            asset_id        = excluded.asset_id,
-            workspace_path  = excluded.workspace_path,
-            title           = excluded.title,
-            lang            = excluded.lang,
-            source_type     = excluded.source_type,
-            trust_level     = excluded.trust_level,
-            parser_version  = excluded.parser_version,
+            asset_id              = excluded.asset_id,
+            workspace_path        = excluded.workspace_path,
+            title                 = excluded.title,
+            lang                  = excluded.lang,
+            source_type           = excluded.source_type,
+            trust_level           = excluded.trust_level,
+            parser_version        = excluded.parser_version,
             -- doc_version: bump on update. excluded.doc_version is the
             -- caller's submitted value; we ignore it and add 1 to the
             -- existing column so each re-ingest cleanly increments.
-            doc_version     = documents.doc_version + 1,
-            schema_version  = excluded.schema_version,
-            metadata_json   = excluded.metadata_json,
-            provenance_json = excluded.provenance_json,
-            updated_at      = excluded.updated_at",
+            doc_version           = documents.doc_version + 1,
+            schema_version        = excluded.schema_version,
+            metadata_json         = excluded.metadata_json,
+            provenance_json       = excluded.provenance_json,
+            updated_at            = excluded.updated_at,
+            last_chunker_version  = excluded.last_chunker_version,
+            last_embedding_version = excluded.last_embedding_version",
         params![
             doc.doc_id.0,
             doc.source_asset_id.0,
@@ -536,6 +633,8 @@ fn upsert_document(
             provenance_json,
             created_at,
             now,
+            doc.last_chunker_version.as_ref().map(|v| v.0.as_str()),
+            doc.last_embedding_version.as_ref().map(|v| v.0.as_str()),
         ],
     )
     .map_err(StoreError::from)?;

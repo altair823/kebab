@@ -131,6 +131,9 @@ fn apply_event(state: &mut IngestState, event: IngestEvent) {
                 kebab_core::IngestItemKind::Skipped => {
                     state.counts.skipped = state.counts.skipped.saturating_add(1);
                 }
+                kebab_core::IngestItemKind::Unchanged => {
+                    state.counts.unchanged = state.counts.unchanged.saturating_add(1);
+                }
                 kebab_core::IngestItemKind::Error => {
                     state.counts.errors = state.counts.errors.saturating_add(1);
                 }
@@ -173,21 +176,23 @@ pub fn status_line(state: &IngestState) -> String {
         let secs = elapsed.as_secs();
         if state.aborted {
             return format!(
-                "✗ ingest aborted at {}/{} after {}s (new={} updated={} skipped={} errors={})",
+                "✗ ingest aborted at {}/{} after {}s (new={} updated={} unchanged={} skipped={} errors={})",
                 state.counts.scanned.saturating_sub(state.counts.errors),
                 state.counts.scanned,
                 secs,
                 state.counts.new,
                 state.counts.updated,
+                state.counts.unchanged,
                 state.counts.skipped,
                 state.counts.errors,
             );
         }
         return format!(
-            "✓ ingest: {} docs ({} new, {} updated, {} skipped), {} chunks indexed in {}s",
+            "✓ ingest: {} docs ({} new, {} updated, {} unchanged, {} skipped), {} chunks indexed in {}s",
             state.counts.scanned,
             state.counts.new,
             state.counts.updated,
+            state.counts.unchanged,
             state.counts.skipped,
             state.counts.chunks_indexed,
             secs,

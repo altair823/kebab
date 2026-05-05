@@ -52,10 +52,15 @@ fn ingest_idempotent_on_second_run() {
 
     let r2 =
         kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
-    // Same files re-ingested — labelled Updated, not duplicated.
+    // Same files re-ingested — p9-fb-23 task 7 introduced the early-skip
+    // path: when checksum + parser/chunker/embedding versions all match,
+    // the second run reports `Unchanged` rather than `Updated`. Pre-p9-fb-23
+    // returned `Updated` here. The `force_reingest=true` path still returns
+    // `Updated` and is exercised by `incremental_ingest.rs`.
     assert_eq!(r2.scanned, 3, "second scan: {r2:?}");
     assert_eq!(r2.new, 0, "second run new should be 0: {r2:?}");
-    assert_eq!(r2.updated, 3, "second run updated: {r2:?}");
+    assert_eq!(r2.updated, 0, "second run updated: {r2:?}");
+    assert_eq!(r2.unchanged, 3, "second run unchanged: {r2:?}");
 
     // list_docs still has 3 docs (no duplicates).
     let docs = kebab_app::list_docs_with_config(
@@ -217,4 +222,63 @@ fn inspect_chunk_not_found_returns_actionable_error() {
         .unwrap_err();
     let msg = format!("{err:#}");
     assert!(msg.contains("not found"), "got: {msg}");
+}
+
+/// p9-fb-23 task 6: `ingest_with_config_opts` with `IngestOpts::default()`
+/// must behave identically to `ingest_with_config` — first ingest reports
+/// all assets as new, no errors, no unchanged.
+#[test]
+fn ingest_with_config_opts_default_matches_legacy_behaviour() {
+    let env = TestEnv::lexical_only();
+    let report = kebab_app::ingest_with_config_opts(
+        env.config.clone(),
+        env.scope(),
+        false,
+        kebab_app::IngestOpts::default(),
+    )
+    .unwrap();
+    assert!(report.new >= 1, "expected at least one new doc: {report:?}");
+    assert_eq!(report.errors, 0, "no errors expected: {report:?}");
+    assert_eq!(
+        report.unchanged, 0,
+        "first ingest cannot have unchanged: {report:?}"
+    );
+}
+
+/// p9-fb-23 task 5: every freshly-ingested markdown doc must carry
+/// `last_chunker_version`. With `provider="none"` (lexical-only),
+/// `last_embedding_version` stays `None`.
+#[test]
+fn ingest_stamps_chunker_version_on_document() {
+    let env = TestEnv::lexical_only();
+    let report =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    assert!(report.new >= 1, "expected at least one new doc: {report:?}");
+    assert_eq!(report.errors, 0, "no errors expected: {report:?}");
+
+    let docs = kebab_app::list_docs_with_config(
+        env.config.clone(),
+        kebab_core::DocFilter::default(),
+    )
+    .unwrap();
+    assert!(!docs.is_empty(), "no docs after ingest");
+
+    for doc_entry in &docs {
+        let canonical =
+            kebab_app::inspect_doc_with_config(env.config.clone(), &doc_entry.doc_id)
+                .unwrap();
+        assert!(
+            canonical.last_chunker_version.is_some(),
+            "last_chunker_version must be stamped for doc {}: got {:?}",
+            doc_entry.doc_id.0,
+            canonical.last_chunker_version,
+        );
+        // provider="none" → embedder is None → last_embedding_version stays None.
+        assert!(
+            canonical.last_embedding_version.is_none(),
+            "last_embedding_version must be None when provider=none for doc {}: got {:?}",
+            doc_entry.doc_id.0,
+            canonical.last_embedding_version,
+        );
+    }
 }

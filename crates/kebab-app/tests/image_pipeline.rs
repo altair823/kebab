@@ -363,10 +363,14 @@ async fn garbage_png_increments_errors_counter_exactly_once() {
 
 // ── 6. Determinism: re-ingest produces identical doc_id / chunk_id ───────
 
-/// Idempotency contract — running the same ingest twice should mark
-/// the asset Updated on the second run with byte-identical IDs.
+/// Idempotency contract — running the same ingest twice keeps the
+/// doc_id stable. p9-fb-23 task 7 introduced the early-skip path for
+/// incremental ingest: when checksum + parser/chunker/embedding versions
+/// all match, the second run reports `Unchanged` rather than `Updated`.
+/// The pre-p9-fb-23 contract was `Updated` — that path is still exercised
+/// by `force_reingest = true` tests in `incremental_ingest.rs`.
 #[tokio::test]
-async fn re_ingest_image_produces_updated_with_same_doc_id() {
+async fn re_ingest_image_produces_unchanged_with_same_doc_id() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/api/generate"))
@@ -416,6 +420,6 @@ async fn re_ingest_image_produces_updated_with_same_doc_id() {
         .iter()
         .find(|i| i.doc_path.0.ends_with("diagram.png"))
         .unwrap();
-    assert_eq!(img2.kind, kebab_core::IngestItemKind::Updated);
+    assert_eq!(img2.kind, kebab_core::IngestItemKind::Unchanged);
     assert_eq!(img2.doc_id.as_ref().unwrap(), &id1);
 }

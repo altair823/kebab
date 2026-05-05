@@ -477,6 +477,8 @@ mod tests {
             parser_version: kebab_core::ParserVersion("test-parser-0".into()),
             schema_version: 1,
             doc_version: 1,
+            last_chunker_version: None,
+            last_embedding_version: None,
         }
     }
 

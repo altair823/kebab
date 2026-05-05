@@ -11,6 +11,7 @@
     "new",
     "updated",
     "skipped",
+    "unchanged",
     "errors",
     "duration_ms"
   ],
@@ -21,6 +22,11 @@
     "new":            { "type": "integer", "minimum": 0 },
     "updated":        { "type": "integer", "minimum": 0 },
     "skipped":        { "type": "integer", "minimum": 0 },
+    "unchanged": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "p9-fb-23: assets whose checksum + parser_version + chunker_version + embedding_version all matched the existing record. Parse / chunk / embed / vector upsert all skipped."
+    },
     "errors":         { "type": "integer", "minimum": 0 },
     "duration_ms":    { "type": "integer", "minimum": 0 },
     "items":          { "type": ["array", "null"] }

@@ -13,7 +13,11 @@ pub struct IngestReport {
     pub scanned: u32,
     pub new: u32,
     pub updated: u32,
+    /// Media-type / source filter (`kb://`, unsupported types).
     pub skipped: u32,
+    /// p9-fb-23: assets whose checksum + all version inputs matched —
+    /// parse / chunk / embed / vector upsert all skipped.
+    pub unchanged: u32,
     pub errors: u32,
     pub duration_ms: u32,
     /// `None` ↔ wire `items: null` (`--summary-only`).
@@ -40,6 +44,12 @@ pub struct IngestItem {
 pub enum IngestItemKind {
     New,
     Updated,
+    /// Media-type filter / kb:// URI / non-supported source — never made
+    /// it into the parse step.
     Skipped,
+    /// p9-fb-23: blake3 checksum + parser_version + chunker_version +
+    /// embedding_version all matched the existing record. Parse / chunk
+    /// / embed / vector upsert all skipped.
+    Unchanged,
     Error,
 }
