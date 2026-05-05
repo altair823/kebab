@@ -4,6 +4,20 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+/// p9-fb-25: render `": A docx, B txt"` breakdown after the
+/// `N skipped` count when the map is non-empty. Empty → empty
+/// string (no extra punctuation). desc sort by count, ties broken
+/// by key alphabetic.
+fn render_skipped_breakdown(map: &std::collections::BTreeMap<String, u32>) -> String {
+    if map.is_empty() {
+        return String::new();
+    }
+    let mut entries: Vec<_> = map.iter().collect();
+    entries.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+    let parts: Vec<String> = entries.iter().map(|(k, v)| format!("{v} {k}")).collect();
+    format!(": {}", parts.join(", "))
+}
+
 use clap::{Parser, Subcommand};
 
 use kebab_app::doctor_signal::{DoctorUnhealthy, NoHitSignal, RefusalSignal};
@@ -371,12 +385,14 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             if cli.json {
                 println!("{}", serde_json::to_string(&wire::wire_ingest(&report))?);
             } else {
+                let skipped_breakdown = render_skipped_breakdown(&report.skipped_by_extension);
                 println!(
-                    "scanned {}  new {}  updated {}  skipped {}  errors {}  ({} ms)",
+                    "scanned {}  new {}  updated {}  skipped {}{}  errors {}  ({} ms)",
                     report.scanned,
                     report.new,
                     report.updated,
                     report.skipped,
+                    skipped_breakdown,
                     report.errors,
                     report.duration_ms
                 );

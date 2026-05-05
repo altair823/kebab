@@ -25,6 +25,18 @@ use kebab_core::SourceScope;
 
 use crate::app::{App, IngestState, TERMINAL_LINE_HOLD_SECS};
 
+/// p9-fb-25: render `": A docx, B txt"` breakdown after the `N skipped`
+/// count when the map is non-empty. desc sort by count, ties by key.
+fn render_skipped_breakdown(map: &std::collections::BTreeMap<String, u32>) -> String {
+    if map.is_empty() {
+        return String::new();
+    }
+    let mut entries: Vec<_> = map.iter().collect();
+    entries.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+    let parts: Vec<String> = entries.iter().map(|(k, v)| format!("{v} {k}")).collect();
+    format!(": {}", parts.join(", "))
+}
+
 /// Already-running guard. Returns `Err` if `app.ingest_state` is
 /// already populated — pressing `r` twice in a row should not spawn
 /// two parallel workers (SQLite is mutexed but Lance writes can race
@@ -175,8 +187,9 @@ pub fn status_line(state: &IngestState) -> String {
         let elapsed = state.started_at.elapsed();
         let secs = elapsed.as_secs();
         if state.aborted {
+            let skipped_breakdown = render_skipped_breakdown(&state.counts.skipped_by_extension);
             return format!(
-                "✗ ingest aborted at {}/{} after {}s (new={} updated={} unchanged={} skipped={} errors={})",
+                "✗ ingest aborted at {}/{} after {}s (new={} updated={} unchanged={} skipped={}{} errors={})",
                 state.counts.scanned.saturating_sub(state.counts.errors),
                 state.counts.scanned,
                 secs,
@@ -184,16 +197,19 @@ pub fn status_line(state: &IngestState) -> String {
                 state.counts.updated,
                 state.counts.unchanged,
                 state.counts.skipped,
+                skipped_breakdown,
                 state.counts.errors,
             );
         }
+        let skipped_breakdown = render_skipped_breakdown(&state.counts.skipped_by_extension);
         return format!(
-            "✓ ingest: {} docs ({} new, {} updated, {} unchanged, {} skipped), {} chunks indexed in {}s",
+            "✓ ingest: {} docs ({} new, {} updated, {} unchanged, {} skipped{}), {} chunks indexed in {}s",
             state.counts.scanned,
             state.counts.new,
             state.counts.updated,
             state.counts.unchanged,
             state.counts.skipped,
+            skipped_breakdown,
             state.counts.chunks_indexed,
             secs,
         );
@@ -414,5 +430,45 @@ mod tests {
         app.ingest_state = Some(s);
         // No worker to cancel — already terminated.
         assert!(!cancel_running_ingest(&app));
+    }
+
+    #[test]
+    fn status_line_terminal_includes_skipped_breakdown() {
+        let mut s = fresh_state();
+        let skipped_by_extension = std::collections::BTreeMap::from([
+            ("docx".to_string(), 2u32),
+            ("txt".to_string(), 1u32),
+        ]);
+        let counts = AggregateCounts {
+            scanned: 10,
+            skipped: 3,
+            skipped_by_extension,
+            ..Default::default()
+        };
+        apply_event(&mut s, IngestEvent::Completed { counts });
+        let line = status_line(&s);
+        assert!(
+            line.contains("3 skipped: 2 docx, 1 txt"),
+            "breakdown must appear in: {line}"
+        );
+    }
+
+    #[test]
+    fn status_line_aborted_includes_skipped_breakdown() {
+        let mut s = fresh_state();
+        let skipped_by_extension =
+            std::collections::BTreeMap::from([("pdf".to_string(), 2u32)]);
+        let counts = AggregateCounts {
+            scanned: 5,
+            skipped: 2,
+            skipped_by_extension,
+            ..Default::default()
+        };
+        apply_event(&mut s, IngestEvent::Aborted { counts });
+        let line = status_line(&s);
+        assert!(
+            line.contains("skipped=2: 2 pdf"),
+            "breakdown must appear in: {line}"
+        );
     }
 }
