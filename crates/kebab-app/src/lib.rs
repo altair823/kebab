@@ -146,6 +146,14 @@ pub fn init_workspace(force: bool) -> anyhow::Result<()> {
 #     — relative paths resolve against the directory of THIS
 #       config file, NOT the user's `cwd` at invocation time.
 #
+# 처리 가능한 형식 (extractor 가 자동 결정 — config 에 명시할 수 없음):
+#   • Markdown: .md
+#   • 이미지:   .png .jpg .jpeg  (OCR + caption)
+#   • PDF:      .pdf
+# 다른 확장자는 ingest 시 자동 skip + warning. 처리 대상 폴더의
+# 일부만 ingest 하고 싶으면 `kebab ingest <path>` 로 root 명시
+# 또는 `.kebabignore` 파일 / 본 `workspace.exclude` 로 denylist.
+#
 # Override individual keys at runtime with `KEBAB_*` env vars
 # (e.g. `KEBAB_WORKSPACE_ROOT=/tmp/test kebab ingest`).
 \n";
