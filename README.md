@@ -42,7 +42,7 @@ cargo install --git https://gitea.altair823.xyz/altair823-org/kebab.git --bin ke
 # 첫 실행 — XDG 경로에 데이터 디렉토리 + config.toml 생성
 kebab init
 
-# config 손보고 — `[workspace] include` 에 *.md / *.png / *.pdf 등 추가, 모델 endpoint 등
+# config 손보고 — workspace.root, 모델 endpoint 등 설정 (지원 형식은 md / png / jpg / pdf 로 고정)
 ${EDITOR:-vi} ~/.config/kebab/config.toml
 
 # 색인 (Markdown / 이미지 / PDF 모두 한 번에)
@@ -70,7 +70,7 @@ kebab doctor
 | 명령 | 동작 |
 |------|------|
 | `kebab init` | XDG 경로에 데이터 디렉토리 + config.toml 생성 |
-| `kebab ingest [<path>]` | Markdown / 이미지 / PDF 색인 (idempotent). TTY 에서는 stderr 진행 바, non-TTY (CI / pipe) 는 stderr 한 줄씩, `--json` 은 stdout 에 `ingest_progress.v1` 라인 streaming 후 마지막에 `ingest_report.v1`. Ctrl-C 한 번이면 현재 asset 마무리 후 abort (부분 commit 보존, idempotent re-run), 두 번째 Ctrl-C 는 hard exit. Markdown title 이 frontmatter 에 없어도 첫 H1 → H2 → 첫 paragraph 80 자 → 파일명 순으로 자동 채움 (parser_version `md-frontmatter-v2`) — 기존 색인된 doc 도 다음 ingest 에서 새 title 로 갱신. **Incremental** (p9-fb-23): 두 번째 이후의 ingest 는 변하지 않은 doc (blake3 + parser/chunker/embedder version 모두 동일) 의 parse/chunk/embed/vector upsert 를 자동 스킵. final summary 에 `N unchanged` 카운트 표시. `--force-reingest` 로 skip 무시 강제 재처리. |
+| `kebab ingest [<path>]` | Markdown / 이미지 / PDF 색인 (idempotent). TTY 에서는 stderr 진행 바, non-TTY (CI / pipe) 는 stderr 한 줄씩, `--json` 은 stdout 에 `ingest_progress.v1` 라인 streaming 후 마지막에 `ingest_report.v1`. Ctrl-C 한 번이면 현재 asset 마무리 후 abort (부분 commit 보존, idempotent re-run), 두 번째 Ctrl-C 는 hard exit. Markdown title 이 frontmatter 에 없어도 첫 H1 → H2 → 첫 paragraph 80 자 → 파일명 순으로 자동 채움 (parser_version `md-frontmatter-v2`) — 기존 색인된 doc 도 다음 ingest 에서 새 title 로 갱신. **Incremental** (p9-fb-23): 두 번째 이후의 ingest 는 변하지 않은 doc (blake3 + parser/chunker/embedder version 모두 동일) 의 parse/chunk/embed/vector upsert 를 자동 스킵. final summary 에 `N unchanged` 카운트 표시. `--force-reingest` 로 skip 무시 강제 재처리. **지원 형식** (extractor 자동 결정 — config 에 명시 불가): Markdown (`.md`), 이미지 (`.png` / `.jpg` / `.jpeg`, OCR + caption), PDF (`.pdf`). 다른 확장자는 자동 skip — `IngestItem.warnings` 에 사유 (`"unsupported media type: .docx"` 등), `IngestReport.skipped_by_extension` 에 카운트 분류, CLI / TUI summary 에 breakdown 표시. |
 | `kebab search --mode {lexical,vector,hybrid} "<query>" [--no-cache]` | 검색. hybrid는 RRF fusion, citation 포함. 같은 process 안에서 동일 query (NFKC + trim + lowercase 정규화) 반복 시 in-process LRU 캐시 hit (capacity = `[search] cache_capacity`, default 256). `--no-cache` 로 강제 bypass — 디버깅용. ingest commit 발생 시 `kv['corpus_revision']` bump 으로 모든 entry 자동 stale |
 | `kebab list docs` | 색인된 문서 목록 |
 | `kebab inspect doc <id>` / `kebab inspect chunk <id>` | raw record 보기 |
@@ -145,7 +145,7 @@ flowchart TB
 
 ## Configuration
 
-- `~/.config/kebab/config.toml` — `kebab init` 가 XDG 경로에 생성. `[workspace] include`, `[storage]`, `[chunking]`, `[models.embedding]`, `[models.llm]`, `[image.ocr]`, `[image.caption]`, `[search]`, `[rag]`, `[ui]` 절. `[ui] theme = "dark" | "light"` 로 TUI 팔레트 선택 (default `"dark"`, 알 수 없는 값은 dark fallback).
+- `~/.config/kebab/config.toml` — `kebab init` 가 XDG 경로에 생성. `[workspace]` (root, exclude — include 필드는 제거됨, 지원 형식은 자동 결정), `[storage]`, `[chunking]`, `[models.embedding]`, `[models.llm]`, `[image.ocr]`, `[image.caption]`, `[search]`, `[rag]`, `[ui]` 절. `[ui] theme = "dark" | "light"` 로 TUI 팔레트 선택 (default `"dark"`, 알 수 없는 값은 dark fallback). 옛 config 의 `workspace.include = [...]` 은 silently 무시 + 단발 deprecation warning (p9-fb-25).
 - `--config <path>` flag — 임시 워크스페이스 / 격리 테스트 시 사용. CLI / TUI 모두 honor.
 - `KEBAB_*` env — 일부 키 override (`KEBAB_RAG_SCORE_GATE`, `KEBAB_EVAL_GOLDEN`, `KEBAB_COMMIT_HASH` 등).
 - XDG layout: `~/.config/kebab/`, `~/.local/share/kebab/`, `~/.cache/kebab/`, `~/.local/state/kebab/`.
