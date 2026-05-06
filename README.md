@@ -157,7 +157,8 @@ config 예시는 [docs/SMOKE.md](docs/SMOKE.md) 의 `/tmp/kebab-smoke/config.tom
 
 `--json` 출력 + frozen wire schema v1 가 stable contract. 통합 옵션:
 
-- **Claude Code / Codex skill** — `kebab search --json` / `kebab ask --json` 호출하는 ~50줄 wrapper. multi-turn 은 `kebab ask --session <id> --json` 으로 영속 — wrapper 가 conversation id 관리하면 외부 agent 도 `--repl` 없이 stateful 대화 가능 (p9-fb-18).
+- **Claude Code skill** — repo 의 [`integrations/claude-code/`](integrations/claude-code/) 가 ship-ready skill. `cp -r integrations/claude-code/kebab ~/.claude/skills/` 한 번이면 새 Claude Code 세션부터 자동 trigger (내부 시스템 / 위키 lookup / 사내 runbook 질문). multi-turn 은 `kebab ask --session <id> --json` 으로 영속 — skill 이 conversation id 관리하면 외부 agent 도 `--repl` 없이 stateful 대화 가능 (p9-fb-18).
+- **Codex / 기타 agent host** — `--json` + frozen wire schema v1 가 stable contract. 동일 패턴으로 ~50줄 wrapper 작성 가능. `integrations/<host>/` 에 추가 PR 환영.
 - **MCP server** — stdio JSON-RPC 로 `kebab-app` facade 1:1 노출.
 - **HTTP wrapper** — `kebab serve --bind 127.0.0.1:7711` (P+, local-only 가치 신중).
 
