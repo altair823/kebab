@@ -62,6 +62,8 @@ Read the relevant task spec's deps section before adding an import. New crates i
 
 All `--json` output carries a `schema_version` field (`ingest_report.v1`, `search_hit.v1`, `answer.v1`, `doctor.v1`, …). Schemas live in `docs/wire-schema/v1/`. The wire shape is the contract for external integrations (Claude Code skills, MCP, etc.); breaking it requires a `*.v2` major bump and parallel-running both for one phase.
 
+In-tree integration packages live under `integrations/<host>/` — currently `integrations/claude-code/kebab/` (a Claude Code skill that calls `kebab search --json` / `kebab ask --json`). Any wire schema major bump (v1→v2) MUST update each shipped integration in the same PR, same as the version-cascade rule below. Per-user trigger keywords (team / system / acronym) belong in the user's local copy of the skill, not in the repo-shipped frontmatter — keep `integrations/claude-code/kebab/SKILL.md`'s `description` generic.
+
 ## Versioning cascade
 
 `parser_version` / `chunker_version` / `embedding_version` / `prompt_template_version` / `index_version` follow the cascade rule in design §9. Changing any of these invalidates downstream records (chunks, embeddings, eval runs, …). When changing a version: either ship a re-process job or treat it as a breaking schema bump. The eval runner snapshots all five into `eval_runs.config_snapshot_json`.
