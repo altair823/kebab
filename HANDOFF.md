@@ -79,6 +79,17 @@ P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 
 P9-2/3/4 는 P9-1 의 parallel-safety contract (sub-state slot 패턴) 덕에 병렬 진행 가능 — 같은 `App` 손대지 않음.
 
+### P9 dogfooding 백로그 (fb-26 ~ fb-42) — 4 minor release 분할
+
+2026-05-06 도그푸딩 누적 피드백 + "AI agent 가 kebab 을 쓰게 한다" 궁극 목표용 surface 확장. 17 항목 모두 **status: open + brainstorm 선행 필요**. 각 spec 상단 banner 명시. cascade 영향 / 분량 고려해 한 minor 에 묶지 않고 4 분할. 2026-05-06 renumber — **번호 = release 순서**:
+
+- **0.3.0 — agent foundation**: fb-26 (log), fb-27 (introspection/error wire), fb-28 (readonly/quiet), fb-29 (daemon), fb-30 (MCP), fb-31 (single-file ingest). agent 통합 MVP.
+- **0.4.0 — agent surface refinement (additive)**: fb-32 (stale), fb-33 (streaming), fb-34 (budget), fb-35 (verbatim fetch), fb-36 (filters), fb-37 (trace/stats).
+- **0.5.0 — RAG quality (cascade 동반)**: fb-38 (score semantics), fb-39 (precision tuning, embedding_version cascade + V00X), fb-40 (fact-grounded, prompt_template_version cascade).
+- **0.6.0 또는 P+**: fb-41 (multi-hop, XL), fb-42 (bulk/rerank, Nice).
+
+각 fb spec frontmatter 의 `target_version` 필드가 source of truth. INDEX.md 의 release subheader 도 동일 grouping.
+
 ## 검증된 운영 동작 (release binary, fastembed enabled)
 
 P7-3 머지 직후 25 시나리오 smoke 통과 — markdown + image + PDF 5 자산 워크스페이스에서 doctor / ingest / list / inspect / search (lex/vec/hybrid) / re-ingest / byte-edit re-ingest / corrupt PDF / RAG ask + page citation 모두. 자세한 시나리오 표는 conversation 기록 참조; 워크스페이스에 직접 돌려보는 절차는 [docs/SMOKE.md](docs/SMOKE.md).

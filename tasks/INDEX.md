@@ -109,6 +109,32 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
   - [p9-fb-23 incremental ingest (post-도그푸딩)](p9/p9-fb-23-incremental-ingest.md)
   - [p9-fb-24 status bar + Library header + page scroll (post-도그푸딩)](p9/p9-fb-24-tui-affordances.md)
   - [p9-fb-25 config workspace.include 제거 + 지원 형식 가시성 (post-도그푸딩)](p9/p9-fb-25-config-include-removal.md)
+  - **⏳ fb-26 ~ fb-42: 백로그 only — 미구현 + brainstorm 선행 필요.** spec 작성 시 [superpowers:brainstorming](../docs/superpowers/) 부터 시작. status: open. 다른 세션에서 이 그룹 손대기 전 사용자 확인 필요. **번호 = release 순서** — 작은 번호일수록 먼저 작업 (2026-05-06 renumber).
+
+    ### 🎯 0.3.0 — agent foundation (MCP + daemon + introspection)
+    - [p9-fb-26 ingest 로그 출력 일관성](p9/p9-fb-26-ingest-log-consistency.md) — ⏳ 미구현, brainstorm 필요
+    - [p9-fb-27 introspection + structured error wire](p9/p9-fb-27-introspection-and-error-wire.md) — ⏳ 미구현, brainstorm 필요
+    - [p9-fb-28 agent invocation flags (--readonly / --quiet)](p9/p9-fb-28-agent-invocation-flags.md) — ⏳ 미구현, brainstorm 필요
+    - [p9-fb-29 HTTP daemon (`kebab serve`)](p9/p9-fb-29-http-daemon.md) — ⏳ 미구현, brainstorm 필요
+    - [p9-fb-30 MCP server](p9/p9-fb-30-mcp-server.md) — ⏳ 미구현, brainstorm 필요 (depends_on 27, 29)
+    - [p9-fb-31 single-file / stdin ingest](p9/p9-fb-31-single-file-stdin-ingest.md) — ⏳ 미구현, brainstorm 필요
+
+    ### 🎯 0.4.0 — agent surface refinement (additive only)
+    - [p9-fb-32 stale doc indicator](p9/p9-fb-32-stale-doc-indicator.md) — ⏳ 미구현, brainstorm 필요
+    - [p9-fb-33 streaming ask (ndjson delta)](p9/p9-fb-33-streaming-ask.md) — ⏳ 미구현, brainstorm 필요
+    - [p9-fb-34 output budget controls](p9/p9-fb-34-output-budget-controls.md) — ⏳ 미구현, brainstorm 필요
+    - [p9-fb-35 verbatim fetch](p9/p9-fb-35-verbatim-fetch.md) — ⏳ 미구현, brainstorm 필요
+    - [p9-fb-36 search filter args](p9/p9-fb-36-search-filters.md) — ⏳ 미구현, brainstorm 필요
+    - [p9-fb-37 trace + stats](p9/p9-fb-37-trace-and-stats.md) — ⏳ 미구현, brainstorm 필요 (depends_on 27)
+
+    ### 🎯 0.5.0 — RAG quality (cascade 동반: V00X + reindex)
+    - [p9-fb-38 score semantics](p9/p9-fb-38-score-semantics.md) — ⏳ 미구현, brainstorm 필요
+    - [p9-fb-39 retrieval precision 튜닝](p9/p9-fb-39-retrieval-precision-tuning.md) — ⏳ 미구현, brainstorm 필요 (embedding_version cascade)
+    - [p9-fb-40 fact-grounded answer](p9/p9-fb-40-fact-grounded-answer.md) — ⏳ 미구현, brainstorm 필요 (prompt_template_version cascade)
+
+    ### 🎯 0.6.0 또는 P+ — reasoning
+    - [p9-fb-41 multi-hop reasoning](p9/p9-fb-41-multi-hop-reasoning.md) — ⏳ 미구현, brainstorm 필요 (XL, eval 인프라 선행)
+    - [p9-fb-42 bulk multi-query + re-rank hint](p9/p9-fb-42-bulk-multi-query-rerank.md) — ⏳ 미구현, brainstorm 필요 (Nice)
 
 ## Post-merge 핫픽스
 
