@@ -3558,6 +3558,8 @@ dependencies = [
  "kebab-core",
  "kebab-eval",
  "kebab-tui",
+ "reqwest",
+ "serde",
  "serde_json",
  "tempfile",
  "time",

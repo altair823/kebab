@@ -9,6 +9,7 @@ use clap::{Parser, Subcommand};
 use kebab_app::doctor_signal::{DoctorUnhealthy, NoHitSignal, RefusalSignal};
 
 mod cancel;
+mod error_classify;
 mod progress;
 mod wire;
 
