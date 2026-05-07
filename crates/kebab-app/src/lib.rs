@@ -58,6 +58,7 @@ mod app;
 pub mod doctor_signal;
 pub mod error_signal;
 pub mod error_wire;
+pub mod external;
 pub mod ingest_progress;
 pub mod logging;
 pub mod reset;
