@@ -1,4 +1,4 @@
-//! `kb` — command-line interface. Each subcommand maps 1:1 to a `kb-app`
+//! `kebab` — command-line interface. Each subcommand maps 1:1 to a `kebab-app`
 //! function. Exit codes per design §10.
 
 use std::path::PathBuf;
@@ -659,7 +659,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     );
                 }
                 if !confirm_destructive(scope, &paths, bytes)? {
-                    eprintln!("aborted.");
+                    if !cli.quiet {
+                        eprintln!("aborted.");
+                    }
                     return Ok(());
                 }
             }

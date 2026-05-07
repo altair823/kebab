@@ -64,6 +64,22 @@ fn readonly_flag_blocks_ingest_file() {
 }
 
 #[test]
+fn readonly_flag_blocks_ingest_stdin() {
+    let (tmp, _ws) = fixture_workspace();
+    let out = Command::new(kebab_bin())
+        .args(["--readonly", "ingest-stdin", "--title", "test"])
+        .env("KEBAB_READONLY", "1")
+        .envs(xdg_envs(tmp.path()))
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+
+    assert_eq!(out.status.code(), Some(1), "expected exit 1");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("readonly mode"), "stderr: {stderr}");
+}
+
+#[test]
 fn readonly_flag_blocks_reset() {
     let (tmp, _ws) = fixture_workspace();
     let out = Command::new(kebab_bin())
