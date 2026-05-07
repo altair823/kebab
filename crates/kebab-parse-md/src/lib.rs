@@ -19,3 +19,10 @@ pub mod frontmatter;
 
 pub use blocks::parse_blocks;
 pub use frontmatter::{BodyHints, FrontmatterSpan, parse_frontmatter};
+
+/// Parser-version label for Markdown files ingested through this crate.
+/// Re-exported so `kebab-app::schema_with_config` can embed it in
+/// `SchemaV1.models.parser_version` without duplicating the literal.
+///
+/// Kept in sync with `KEBAB_PARSE_MD_VERSION` in `kebab-app/src/lib.rs`.
+pub const PARSER_VERSION: &str = "md-frontmatter-v2";

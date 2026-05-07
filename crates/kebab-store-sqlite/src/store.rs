@@ -591,6 +591,61 @@ pub(crate) fn upsert_asset_row(
     Ok(())
 }
 
+/// p9-fb-27: aggregate counts for `SchemaV1.stats` block.
+///
+/// Returned by [`SqliteStore::count_summary`] and consumed by
+/// `kebab-app::schema_with_config` to populate the `stats` sub-object of the
+/// `schema.v1` wire record.
+#[derive(Debug, Clone)]
+pub struct CountSummary {
+    pub doc_count: u64,
+    pub chunk_count: u64,
+    pub asset_count: u64,
+    /// ISO-8601 timestamp of the most-recently updated document row, or
+    /// `None` when the store is empty.
+    pub last_ingest_at: Option<String>,
+}
+
+impl SqliteStore {
+    /// Return aggregate counts from the three primary tables plus the
+    /// most-recent `documents.updated_at` timestamp.
+    ///
+    /// Uses `read_conn()` (no mutations) — mirrors the pattern used by
+    /// [`Self::corpus_revision`].
+    pub fn count_summary(&self) -> anyhow::Result<CountSummary> {
+        let conn = self.read_conn();
+
+        let doc_count: u64 = conn
+            .query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))
+            .context("count documents")?;
+
+        let chunk_count: u64 = conn
+            .query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get(0))
+            .context("count chunks")?;
+
+        let asset_count: u64 = conn
+            .query_row("SELECT COUNT(*) FROM assets", [], |r| r.get(0))
+            .context("count assets")?;
+
+        let last_ingest_at: Option<String> = conn
+            .query_row(
+                "SELECT MAX(updated_at) FROM documents",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .context("max updated_at")?
+            .flatten();
+
+        Ok(CountSummary {
+            doc_count,
+            chunk_count,
+            asset_count,
+            last_ingest_at,
+        })
+    }
+}
+
 /// Apply the design §5 / task-spec pragmas. Called once per connection.
 /// Note: WAL is persistent (the journal-mode setting is sticky in the DB
 /// header) but `foreign_keys`, `synchronous`, and `temp_store` are
@@ -603,5 +658,29 @@ fn apply_pragmas(conn: &Connection) -> Result<()> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "temp_store", "MEMORY")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open_fresh_store() -> (tempfile::TempDir, SqliteStore) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = kebab_config::Config::defaults();
+        cfg.storage.data_dir = dir.path().to_string_lossy().into_owned();
+        let store = SqliteStore::open(&cfg).unwrap();
+        store.run_migrations().unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn count_summary_zero_on_fresh_store() {
+        let (_dir, store) = open_fresh_store();
+        let s = store.count_summary().unwrap();
+        assert_eq!(s.doc_count, 0);
+        assert_eq!(s.chunk_count, 0);
+        assert_eq!(s.asset_count, 0);
+        assert!(s.last_ingest_at.is_none());
+    }
 }
 

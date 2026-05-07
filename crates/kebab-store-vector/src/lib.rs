@@ -28,4 +28,4 @@ mod arrow_batch;
 mod paths;
 mod store;
 
-pub use store::LanceVectorStore;
+pub use store::{INDEX_VERSION_STR, LanceVectorStore};

@@ -44,6 +44,12 @@ const INDEX_KIND: &str = "flat";
 /// `v1` so re-runs produce stable IDs.
 const INDEX_VERSION: &str = "v1";
 
+/// Public view of [`INDEX_VERSION`] for `kebab-app::schema_with_config`.
+/// The value is the same string — exposed as `pub const` so the schema
+/// facade can embed it in `SchemaV1.models.index_version` without
+/// reaching into a private constant.
+pub const INDEX_VERSION_STR: &str = INDEX_VERSION;
+
 /// Lance VectorStore.
 ///
 /// Holds a single `lancedb::Connection` opened against
