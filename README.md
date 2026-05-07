@@ -166,9 +166,11 @@ config 예시는 [docs/SMOKE.md](docs/SMOKE.md) 의 `/tmp/kebab-smoke/config.tom
 - **MCP server** — stdio JSON-RPC 로 `kebab-app` facade 1:1 노출. `kebab mcp` 참조.
 - **HTTP wrapper** — `kebab serve --bind 127.0.0.1:7711` (P+, local-only 가치 신중).
 
-## MCP 사용 (Claude Code 예시)
+## MCP 사용
 
-`~/.claude/mcp.json` (또는 host 의 동등 위치):
+`kebab mcp` 가 stdio MCP server. 6 tool: `search` / `ask` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`.
+
+Claude Code 빠른 등록 (`~/.claude/mcp.json` 또는 host 동등 위치):
 
 ```json
 {
@@ -181,7 +183,7 @@ config 예시는 [docs/SMOKE.md](docs/SMOKE.md) 의 `/tmp/kebab-smoke/config.tom
 }
 ```
 
-Claude Code 가 session 시작 시 `kebab mcp` 를 spawn — process 가 session 동안 살아 있어 SQLite / Lance / fastembed 가 hot. 6 tool: `search` (lexical/vector/hybrid 검색), `ask` (RAG 답변, optional `session_id` for multi-turn + optional `mode` override), `schema` (capability 조회), `doctor` (health check), `ingest_file` (단일 파일 KB 저장), `ingest_stdin` (markdown 본문 + title/source_uri 로 KB 저장). 모든 tool 의 결과는 wire schema v1 JSON 으로 text content 안에 직렬화 — agent 가 parse 후 사용. tool dispatch 실패 (잘못된 config / 미초기화 KB 등) 는 `isError: true` + error.v1 content; refusal / no-hit / unhealthy 는 정상 응답 (semantic flag 으로 분기).
+자세한 사용법 (Cursor / OpenAI Agents / Copilot CLI config, per-tool 입출력 예시, troubleshooting, multi-turn ask + session 관리, performance / security) — **[docs/mcp-usage.md](docs/mcp-usage.md)** 참조.
 
 ## 비-목표
 

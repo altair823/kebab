@@ -90,6 +90,8 @@ Claude Code spawns `kebab mcp` at session start; the process stays alive across 
 
 If your host doesn't support MCP, the CLI subprocess pattern (`kebab search --json` / `kebab ask --json`) above continues to work.
 
+For per-tool input/output examples, error code reference, multi-turn ask + session management, and host config beyond Claude Code (Cursor / OpenAI Agents / Copilot CLI), see [docs/mcp-usage.md](../../../docs/mcp-usage.md) in the kebab repo.
+
 ## Recipe D — agent fetched a web doc, save to KB
 
 When you've fetched a markdown article (e.g. via WebFetch) that the user might query later:
