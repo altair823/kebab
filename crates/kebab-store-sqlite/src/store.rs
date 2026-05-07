@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 use crate::error::StoreError;
 use crate::schema;
@@ -25,6 +25,10 @@ use crate::schema;
 #[error("not indexed: expected={expected}, found={found:?}")]
 pub struct NotIndexed {
     pub expected: String,
+    /// When the DB file exists but the schema is incompatible, this holds
+    /// the highest applied migration version string (e.g. `"V005"`).
+    /// `None` means the file was absent entirely (current Task 3 behavior;
+    /// schema-mismatch wrapping is a deferred follow-up).
     pub found: Option<String>,
 }
 
@@ -71,21 +75,27 @@ pub struct SqliteStore {
 }
 
 impl SqliteStore {
-    /// Open an existing SQLite DB at the path derived from `config`. Unlike
-    /// `open`, this does NOT create the file — if it is missing, returns a
-    /// [`NotIndexed`] signal suitable for `error.v1` translation.
+    /// Open an existing SQLite DB at `path`.
+    ///
+    /// Unlike [`Self::open`], this does NOT create the file — if it is
+    /// missing, returns a [`NotIndexed`] signal suitable for `error.v1`
+    /// translation. Stores returned by this method are intended for read-only
+    /// introspection (`schema_with_config`); use [`Self::open`] for any path
+    /// that calls `put_asset_with_bytes`.
     ///
     /// **Does not run migrations** — call [`Self::run_migrations`] next if
     /// you need the schema initialised.
     pub fn open_existing(path: &std::path::Path) -> anyhow::Result<Self> {
-        if !path.exists() {
-            return Err(anyhow::Error::new(NotIndexed {
+        let conn = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_URI,
+        )
+        .map_err(|_| {
+            anyhow::Error::new(NotIndexed {
                 expected: path.to_string_lossy().to_string(),
                 found: None,
-            }));
-        }
-        let conn = rusqlite::Connection::open(path)
-            .with_context(|| format!("open sqlite at {}", path.display()))?;
+            })
+        })?;
         apply_pragmas(&conn)?;
 
         let data_dir = path
