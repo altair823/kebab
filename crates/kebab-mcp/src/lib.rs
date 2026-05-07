@@ -65,6 +65,11 @@ impl ServerHandler for KebabHandler {
                 "Full-text / vector / hybrid search over the knowledge base. Returns search_hit.v1 array.",
                 schema_for_type::<tools::search::SearchInput>(),
             ),
+            Tool::new(
+                "ask",
+                "RAG question answering over the knowledge base. Returns answer.v1 JSON. Pass session_id for multi-turn context.",
+                schema_for_type::<tools::ask::AskInput>(),
+            ),
         ]))
     }
 
@@ -92,6 +97,17 @@ impl ServerHandler for KebabHandler {
                         }
                     };
                 Ok(tools::search::handle(&self.state, input))
+            }
+            "ask" => {
+                let args = request.arguments.unwrap_or_default();
+                let input: tools::ask::AskInput =
+                    match serde_json::from_value(serde_json::Value::Object(args)) {
+                        Ok(i) => i,
+                        Err(e) => {
+                            return Ok(error::to_tool_error(&anyhow::Error::from(e)));
+                        }
+                    };
+                Ok(tools::ask::handle(&self.state, input))
             }
             _other => Err(ErrorData::method_not_found::<
                 rmcp::model::CallToolRequestMethod,
