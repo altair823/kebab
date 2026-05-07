@@ -94,6 +94,7 @@ Release 절차:
 - XDG paths: `~/.config/kebab/`, `~/.local/share/kebab/`, `~/.cache/kebab/`, `~/.local/state/kebab/`.
 - SQLite filename: `kebab.sqlite` (under `data_dir`).
 - Workspace ignore: `.kebabignore` (per directory).
+- `_external/` (under `workspace.root`): single-file / stdin ingest 가 외부 file 을 deterministic 명명 (`<blake3-12>.<ext>`) 으로 copy. 첫 생성 시 `.kebabignore` 자동 append.
 
 The migration from the old `kb` name lives in commits `911fb49 / f1a448d / f9714aa`. If you spot a leftover `kb` reference, treat it as a leftover and fix it (the rename PR sweep covered crates/, docs/, tasks/, README, design doc, fixtures — but workspace root `Cargo.toml` comments needed a follow-up; assume similar misses are possible).
 

@@ -1206,6 +1206,12 @@ hint     edit ~/.config/kebab/config.toml then `kebab ingest ~/KnowledgeBase`
 - 항상 POSIX path 정규화 후 DB 저장. `to_posix` 단일 함수.
 - 심볼릭 링크: 1차 follow + 무한루프 detect (`canonicalize` 후 set 추적).
 
+### 6.7 `_external/` subdirectory (fb-31)
+
+`<workspace.root>/_external/` 가 single-file / stdin ingest 의 destination. 명명: `<blake3-12>.<ext>` (12-char hex prefix of content hash + 원래 extension). deterministic — 동일 content 재 ingest 면 idempotent.
+
+첫 생성 시 `<workspace.root>/.kebabignore` 에 `_external/` line 자동 append — 향후 `kebab ingest` 전체 walk 가 이 디렉토리 재 walk 안 함 (re-ingestion 무한 루프 방지).
+
 ---
 
 ## 7. Trait contracts (kebab-core)

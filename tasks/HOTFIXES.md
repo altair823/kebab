@@ -14,6 +14,39 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-07 — p9-fb-31 (post-dogfooding): single-file / stdin ingest
+
+**Source feedback**: 사용자 도그푸딩 2026-05-06 — agent (Claude Code via MCP, fb-30) 가 web fetch 한 markdown / 단일 외부 file 을 KB 에 저장하려면 `kebab ingest` 전체 walk 재실행 비효율. agent 메모리상 string contents 도 stdin ingest 가능해야.
+
+**Live binding 변경**:
+
+- 신규 subcommand `kebab ingest-file <path>` — 단일 file ingest, workspace 외부 path 가능.
+- 신규 subcommand `kebab ingest-stdin --title <T> [--source-uri <URI>]` — stdin 의 markdown 본문 ingest, v1 markdown only.
+- 신규 MCP tool `ingest_file` + `ingest_stdin` — fb-30 v1 read-only 정책 변경, 첫 mutation surface 도입 (의도된 진화). tools/list 4 → 6.
+- 외부 file 저장 정책: `<workspace.root>/_external/<blake3-12>.<ext>` 로 copy. deterministic 명명 → idempotent. `_external/` 첫 생성 시 `.kebabignore` 자동 append (walk 무한 루프 방지).
+- `.kebabignore` 매치 시 stderr warn (`warn: <path> matches .kebabignore patterns; proceeding (explicit ingest bypasses ignore)`) 후 진행. `--force-ignore` flag 불필요 — explicit ingest 가 default bypass intent.
+- stdin frontmatter 처리: 본문이 `---` 으로 시작하면 error (`use kebab ingest-file`); 그 외 frontmatter block prepend (title + 옵션 source_uri, YAML 더블쿼트 escape).
+- `kebab-app::external` 신규 모듈 — `ensure_external_dir`, `ensure_kebabignore_entry`, `copy_to_external`, `inject_frontmatter` helper. kebab-cli + kebab-mcp 둘 다 facade 통해 호출.
+- `kebab-app::ingest_file_with_config` + `ingest_stdin_with_config` 신규 facade fn.
+
+**Spec contract impact**: design §6 에 `_external/` subdirectory 절 추가 (실제 §6.7 — 기존 §6 sub-section 이 6.6 까지 채워져 있어 §6.7 로 부착됨; spec stub 의 §6.3 명시는 deviation).
+
+**Tests added**: kebab-app external::tests (14: dir / kebabignore append / copy / inject_frontmatter / yaml_quote), kebab-app integration (3 + 3: ingest_file + ingest_stdin), kebab-cli integration (2: cli_ingest_file + cli_ingest_stdin spawn-based), kebab-mcp integration (1 + 2: tools_call_ingest_file + tools_call_ingest_stdin), tools_list assertion update (4 → 6).
+
+**Known limitation (deferred)**:
+
+- PDF / image stdin — binary stream + base64 처리 v2.
+- `--title` + `--source-uri` 외 metadata field (tags, language, custom kv) — v2.
+- 자동 dedup by source_uri — content hash 기반 dedup 만 (incremental ingest). URI lookup 별 task.
+- Storage quota / TTL — agent 무한 ingest 시 KB 비대 우려. monitor + 별 task.
+- frontmatter merge (stdin 이 이미 frontmatter 보유 시 머지) — v1 은 error.
+- MCP `ingest_file` 의 multi-file batch 입력 — v1 single path. 여러 file 호출은 agent 가 N 회.
+
+**Amends**:
+- design §6 (`_external/` subdirectory subsection 추가, §6.7 위치).
+- spec `tasks/p9/p9-fb-31-single-file-stdin-ingest.md` (status `open` → `completed`).
+- spec stub 의 §6.3 명시 → 실제 §6.7 (기존 §6 구조 우선).
+
 ## 2026-05-07 — p9-fb-30 (post-dogfooding): MCP server (stdio) — agent integration MVP
 
 **Source feedback**: 사용자 도그푸딩 2026-05-06 — Claude Code 같은 AI agent 가 kebab CLI 를 사용하는 것이 궁극 목표. 현재 surface 는 Claude Code 전용 skill (subprocess wrapper) 만 — host 무관 표준 통신 없음. fb-29 HTTP daemon 은 single-user local-first 환경 대비 비대로 deferred (2026-05-07), fb-30 stdio MCP 가 동일 사용자 가치 (agent integration + session 동안 hot cache) 를 daemon 복잡도 없이 제공.
