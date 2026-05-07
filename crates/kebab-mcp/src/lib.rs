@@ -23,6 +23,35 @@ pub mod state;
 pub mod tools;
 pub use state::KebabAppState;
 
+/// Build the canonical list of tools exposed by the MCP server.
+///
+/// Extracted from [`ServerHandler::list_tools`] so it can be called
+/// directly in tests without constructing a `RequestContext`.
+pub fn build_tools_vec() -> Vec<Tool> {
+    vec![
+        Tool::new(
+            "schema",
+            "Introspection — wire schemas, capabilities, model versions, index stats.",
+            schema_for_empty_input(),
+        ),
+        Tool::new(
+            "doctor",
+            "Health check — verifies config, storage, models, and Ollama connectivity.",
+            schema_for_empty_input(),
+        ),
+        Tool::new(
+            "search",
+            "Full-text / vector / hybrid search over the knowledge base. Returns search_hit.v1 array.",
+            schema_for_type::<tools::search::SearchInput>(),
+        ),
+        Tool::new(
+            "ask",
+            "RAG question answering over the knowledge base. Returns answer.v1 JSON. Pass session_id for multi-turn context.",
+            schema_for_type::<tools::ask::AskInput>(),
+        ),
+    ]
+}
+
 #[derive(Clone)]
 pub struct KebabHandler {
     state: KebabAppState,
@@ -49,28 +78,7 @@ impl ServerHandler for KebabHandler {
         _request: Option<rmcp::model::PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult::with_all_items(vec![
-            Tool::new(
-                "schema",
-                "Introspection — wire schemas, capabilities, model versions, index stats.",
-                schema_for_empty_input(),
-            ),
-            Tool::new(
-                "doctor",
-                "Health check — verifies config, storage, models, and Ollama connectivity.",
-                schema_for_empty_input(),
-            ),
-            Tool::new(
-                "search",
-                "Full-text / vector / hybrid search over the knowledge base. Returns search_hit.v1 array.",
-                schema_for_type::<tools::search::SearchInput>(),
-            ),
-            Tool::new(
-                "ask",
-                "RAG question answering over the knowledge base. Returns answer.v1 JSON. Pass session_id for multi-turn context.",
-                schema_for_type::<tools::ask::AskInput>(),
-            ),
-        ]))
+        Ok(ListToolsResult::with_all_items(build_tools_vec()))
     }
 
     async fn call_tool(
