@@ -101,18 +101,19 @@ impl ProgressDisplay {
     /// (`ScanStarted` < everything else) guarantees it is `Some` by
     /// the time later events arrive.
     fn handle_human(&mut self, event: &IngestEvent, tty: bool, quiet: bool) -> anyhow::Result<()> {
-        let _ = quiet; // used in Task 3; suppress unused warning for now
         match event {
             IngestEvent::ScanStarted { root } => {
                 let bar = ProgressBar::new_spinner().with_message(format!("scanning {root}"));
-                bar.set_draw_target(if tty {
+                bar.set_draw_target(if tty && !quiet {
                     ProgressDrawTarget::stderr()
                 } else {
                     ProgressDrawTarget::hidden()
                 });
-                bar.enable_steady_tick(std::time::Duration::from_millis(100));
+                if tty && !quiet {
+                    bar.enable_steady_tick(std::time::Duration::from_millis(100));
+                }
                 self.bar = Some(bar);
-                if !tty {
+                if !tty && !quiet {
                     let mut err = std::io::stderr().lock();
                     let _ = writeln!(err, "ingest: scanning {root}…");
                 }
@@ -131,7 +132,7 @@ impl ProgressDisplay {
                     );
                     bar.set_message("");
                 }
-                if !tty {
+                if !tty && !quiet {
                     let mut err = std::io::stderr().lock();
                     let _ = writeln!(err, "ingest: scan complete ({total} assets)");
                 }
@@ -145,7 +146,7 @@ impl ProgressDisplay {
                 if let Some(bar) = self.bar.as_ref() {
                     bar.set_message(format!("{media} {path}"));
                 }
-                if !tty {
+                if !tty && !quiet {
                     let mut err = std::io::stderr().lock();
                     let _ = writeln!(err, "ingest: {idx}/{total} {media} {path}");
                 }
@@ -159,7 +160,9 @@ impl ProgressDisplay {
                 if let Some(bar) = self.bar.take() {
                     bar.finish_and_clear();
                 }
-                if !tty {
+                // Always emit summary in both TTY and non-TTY (unless quiet).
+                // Bug fix: previously TTY had no summary line after bar.finish_and_clear().
+                if !quiet {
                     let mut err = std::io::stderr().lock();
                     let _ = writeln!(
                         err,
@@ -180,16 +183,20 @@ impl ProgressDisplay {
                         counts.scanned
                     ));
                 }
-                let mut err = std::io::stderr().lock();
-                let _ = writeln!(
-                    err,
-                    "ingest: aborted (scanned={} new={} updated={} skipped={} errors={})",
-                    counts.scanned,
-                    counts.new,
-                    counts.updated,
-                    counts.skipped,
-                    counts.errors,
-                );
+                // Bug fix: was unconditional (fired in TTY too).
+                // In TTY, bar.abandon_with_message already prints the final state.
+                if !tty && !quiet {
+                    let mut err = std::io::stderr().lock();
+                    let _ = writeln!(
+                        err,
+                        "ingest: aborted (scanned={} new={} updated={} skipped={} errors={})",
+                        counts.scanned,
+                        counts.new,
+                        counts.updated,
+                        counts.skipped,
+                        counts.errors,
+                    );
+                }
             }
         }
         Ok(())
