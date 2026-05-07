@@ -3,7 +3,7 @@ phase: P9
 component: kebab-cli + kebab-app
 task_id: p9-fb-28
 title: "Agent invocation flags (--readonly + --quiet)"
-status: open
+status: merged
 target_version: 0.3.0
 depends_on: []
 unblocks: []

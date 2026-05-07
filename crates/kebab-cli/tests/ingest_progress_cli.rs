@@ -162,3 +162,32 @@ fn ingest_json_progress_lines_carry_kind_and_ts() {
     assert!(saw_scan_started, "missing scan_started event");
     assert!(saw_completed, "missing completed event");
 }
+
+#[test]
+fn kebab_progress_plain_env_emits_append_lines() {
+    // KEBAB_PROGRESS=plain forces non-TTY branch even in TTY-emulated envs.
+    // In subprocess tests there's no TTY anyway, so this primarily verifies
+    // the env var is accepted and the non-TTY path still works.
+    let (tmp, ws) = fixture_workspace();
+    let out = Command::new(kebab_bin())
+        .args(["ingest", "--root", ws.to_str().unwrap()])
+        .env("KEBAB_PROGRESS", "plain")
+        .envs(xdg_envs(tmp.path()))
+        .output()
+        .unwrap();
+
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("ingest: scanning"),
+        "expected 'ingest: scanning' in stderr, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("ingest: complete"),
+        "expected 'ingest: complete' in stderr, got: {stderr}"
+    );
+}

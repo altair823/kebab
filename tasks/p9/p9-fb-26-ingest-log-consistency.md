@@ -3,7 +3,7 @@ phase: P9
 component: kebab-cli
 task_id: p9-fb-26
 title: "Ingest 로그 출력 일관성 (in-place vs 새 줄 혼재)"
-status: open
+status: merged
 target_version: 0.3.0
 depends_on: [p9-fb-02]
 unblocks: []

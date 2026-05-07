@@ -32,7 +32,7 @@ kebab-mcp    = { path = "../kebab-mcp" }
 anyhow       = { workspace = true }
 serde        = { workspace = true }
 serde_json   = { workspace = true }
-clap         = { version = "4", features = ["derive"] }
+clap         = { version = "4", features = ["derive", "env"] }
 # p9-fb-02: ingest progress UI.
 # - TTY 사람 모드: indicatif spinner + bar (stderr).
 # - --json 모드 / non-TTY: indicatif 끄고 raw line emit.

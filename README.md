@@ -86,6 +86,8 @@ kebab doctor
 
 모든 명령에 `--json` 플래그. 출력은 frozen wire schema v1 (`schema_version` 항상 포함, 예: `ingest_report.v1`, `ingest_progress.v1`, `search_hit.v1`, `answer.v1`, `doctor.v1`, `reset_report.v1`, `schema.v1`). `--json` 모드에서 fatal error 는 stderr 에 `error.v1` ndjson 으로 emit (exit code 0/1/2/3 unchanged).
 
+글로벌 플래그: `--readonly` (또는 `KEBAB_READONLY=1`) — 모든 write-path 명령 (`ingest` / `ingest-file` / `ingest-stdin` / `reset`) 을 비활성화, exit 1. `--quiet` — 진행 바 / hint 등 human-readable stderr 억제 (exit code / stdout 출력은 그대로). `KEBAB_PROGRESS=plain` — TTY 가 없는 환경에서도 진행 상황을 plain-text 한 줄씩 stderr 로 출력 (spinner 대신).
+
 ## 논리 아키텍처
 
 ```mermaid
