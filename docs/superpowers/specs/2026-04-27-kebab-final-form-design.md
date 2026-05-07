@@ -1426,6 +1426,23 @@ $ kebab doctor
 1 check failed.
 ```
 
+### 10.1 Capability matrix + introspection (fb-27)
+
+`kebab schema [--json]` 가 binary 의 capability set 을 노출한다.
+`schema.v1` wire schema 가 `wire.schemas` (지원 wire id 목록), `capabilities`
+(bool flag, 미래 surface 의 placeholder 도 항상 포함), `models` (cascade
+version 6축), `stats` (doc/chunk/asset count + last_ingest_at) 를 한 호출로 반환한다.
+
+`error.v1` wire schema 가 `--json` 모드에서 fatal error 를 stderr ndjson 으로
+emit. code 7개 initial set: `config_invalid` / `not_indexed` /
+`model_unreachable` / `model_not_pulled` / `timeout` / `io_error` /
+`generic`. exit code 0/1/2/3 unchanged — `error.v1.code` 가 fine-grained
+agent 분기 source. 자세한 details shape per code 는
+[docs/wire-schema/v1/error.schema.json](../../wire-schema/v1/error.schema.json).
+HOTFIXES 의 `2026-05-07 — p9-fb-27` 항목이 details shape 의
+interim deviation (IoFailure / OpTimeout 신규 typed signal 도입 전까지의
+transitional 형태) 의 source of truth.
+
 ---
 
 ## 11. 동결 범위 / 변경 정책
