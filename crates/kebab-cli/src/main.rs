@@ -281,10 +281,18 @@ fn main() -> ExitCode {
             // Refusals at exit code 1 print to stdout (already done by the
             // caller); errors go to stderr.
             if code != 1 {
-                eprintln!("error: {e}");
-                if cli.verbose {
-                    for cause in e.chain().skip(1) {
-                        eprintln!("  caused by: {cause}");
+                if cli.json {
+                    let v1 = error_classify::classify(&e, cli.verbose);
+                    let v = wire::wire_error_v1(&v1);
+                    eprintln!("{}", serde_json::to_string(&v).unwrap_or_else(|_| {
+                        "{\"schema_version\":\"error.v1\",\"code\":\"generic\",\"message\":\"serialize failed\"}".to_string()
+                    }));
+                } else {
+                    eprintln!("error: {e}");
+                    if cli.verbose {
+                        for cause in e.chain().skip(1) {
+                            eprintln!("  caused by: {cause}");
+                        }
                     }
                 }
             }
