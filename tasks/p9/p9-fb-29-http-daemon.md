@@ -3,10 +3,10 @@ phase: P9
 component: kebab-cli + new crate (kebab-server)
 task_id: p9-fb-29
 title: "HTTP daemon (`kebab serve`) — subprocess overhead 제거"
-status: open
-target_version: 0.3.0
+status: deferred
+target_version: P+
 depends_on: []
-unblocks: [p9-fb-30]
+unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§7 RAG, §10 UX]
 source_feedback: 사용자 도그푸딩 2026-05-06 — agent loop 가 kebab CLI 를 반복 호출 시 subprocess fork + Lance/SQLite cold start 비용 누적. local HTTP daemon 이 latency 해결.
@@ -14,7 +14,12 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — agent loop 가 kebab CLI 
 
 # p9-fb-29 — HTTP daemon (`kebab serve`)
 
-> ⏳ **백로그 only — 미구현.** 본 spec 은 도그푸딩 피드백 skeleton. 구현 착수 전 [superpowers:brainstorming](../../docs/superpowers/) 으로 설계 단계 선행 필요. bind / auth / endpoint scheme / lifecycle (auto-start vs explicit) brainstorm 후 확정.
+> 🚫 **Deferred (2026-05-07 brainstorm).** fb-30 stdio MCP 가 동일 사용자 가치 (agent integration + session 동안 hot cache) 를 daemon 복잡도 (PID file / port lock / single-instance / lifecycle UX / loopback security) 없이 제공. single-user local-first 환경에서 HTTP transport 가치 미미 (cold start 의 dominant cost = fastembed model load 는 stdio MCP subprocess 가 session 동안 보유 시 동일하게 회피, ask 는 Ollama 추론 latency 가 dominant 라 daemon 효과 제한적). 본 task 는 다음 trigger 시 재개:
+> - browser agent / remote multi-host 시나리오 등장 (현재 사용자 패턴 외).
+> - TUI ↔ CLI 다중 인스턴스 state sharing 요구.
+> - fb-30 MCP HTTP-SSE transport 옵션 도입 검토.
+>
+> fb-30 의 prerequisite 였던 본 task 는 fb-30 stdio-only 결정으로 의존 제거. 본 spec 은 brainstorm 결정의 기록 보존용.
 
 ## 증상 / 동기
 

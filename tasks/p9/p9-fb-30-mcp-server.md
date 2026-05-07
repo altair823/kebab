@@ -5,7 +5,7 @@ task_id: p9-fb-30
 title: "MCP server — agent host 무관 protocol surface"
 status: open
 target_version: 0.3.0
-depends_on: [p9-fb-27, p9-fb-29]
+depends_on: [p9-fb-27]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
 contract_sections: [§7 RAG, §10 UX, externalAI 통합 절]
@@ -32,7 +32,7 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — Claude Code 같은 AI age
 
 ## 후속 작업 — brainstorm 필요 항목
 
-- transport: stdio default, http (fb-29 daemon) 위에 SSE 옵션.
+- transport: stdio only (default + sole). fb-29 HTTP daemon 은 deferred — HTTP-SSE 옵션은 browser agent / remote 시나리오 demand 발생 시 fb-29 와 함께 재개.
 - tool 이름 / 인자 스키마 — wire schema v1 재사용 가능?
 - authentication — local-only 면 무인증, daemon 위면 token.
 - 새 crate `kebab-mcp` 위치 / 의존성 boundary (kebab-app facade 만 import).
@@ -41,4 +41,4 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — Claude Code 같은 AI age
 
 - MCP spec 진화 중 — 버전 lock 명시 필요.
 - skill 과 surface 중복 — 사용자 혼란 방지 README 안내.
-- fb-29 (daemon) 선행 또는 동시 — daemon 모드 위에 MCP HTTP 변형 가능.
+- fb-29 deferral 결과 — MCP transport 는 stdio 단일. HTTP 변형은 future task.
