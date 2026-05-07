@@ -5,7 +5,9 @@ description: Local knowledge base + RAG over the user's pre-indexed documents (w
 
 # kebab — local KB / RAG access
 
-`kebab` is a CLI installed at `~/.cargo/bin/kebab` (binary name: `kebab`). It indexes the user's personal documents and exposes them via lexical / vector / hybrid search and a local-LLM RAG answer. All output speaks frozen wire schema v1 — every JSON record carries a `schema_version` field.
+`kebab` indexes the user's personal documents and exposes them via lexical / vector / hybrid search and a local-LLM RAG answer. All output speaks frozen wire schema v1 — every JSON record carries a `schema_version` field.
+
+Two surfaces ship: an **MCP server** (`kebab mcp`, preferred — process stays hot across calls) and a **CLI** (`~/.cargo/bin/kebab`, fallback for hosts without MCP).
 
 ## When to invoke
 
@@ -24,56 +26,62 @@ Trigger when the user's question matches **any** of:
 
 User-specific trigger keywords (team names, system names, internal acronyms) belong in a per-user override of this SKILL.md, not in this repo-shipped version.
 
-## Two surfaces, pick the right one
+## MCP tools (preferred)
 
-### `kebab search` — when you need the source
+When `kebab` is registered as an MCP server (see `~/.claude/mcp.json` example below), six tools are exposed as `mcp__kebab__<name>`:
+
+| tool | purpose | mutation |
+|------|---------|----------|
+| `mcp__kebab__search` | corpus search → `search_hit.v1[]` | no |
+| `mcp__kebab__ask` | RAG answer → `answer.v1` | no |
+| `mcp__kebab__schema` | capability discovery → `schema.v1` | no |
+| `mcp__kebab__doctor` | health check → `doctor.v1` | no |
+| `mcp__kebab__ingest_file` | save single file → `ingest_report.v1` | yes |
+| `mcp__kebab__ingest_stdin` | save markdown blob → `ingest_report.v1` | yes |
+
+Mutation tools require explicit user intent — never auto-invoke.
+
+### `mcp__kebab__search` — when you need the source
 
 Use when the user wants to **find** a doc, or when you (the model) need raw chunks to reason from before answering.
 
-```bash
-kebab search "<query>" --mode hybrid --json
+Input:
+```json
+{ "query": "<query>", "mode": "hybrid", "k": 10 }
 ```
 
-- `--mode hybrid` is the default-correct choice. Use `vector` for semantic-only ("docs about X concept"), `lexical` for exact strings ("the literal flag `--foo-bar`").
-- Output is a JSON array of `search_hit.v1` objects. Key fields: `rank`, `score`, `doc_path`, `heading_path[]`, `section_label`, `snippet`, `citation` (has line range / page), `chunk_id`.
+- `mode = "hybrid"` is the default-correct choice. Use `"vector"` for semantic-only ("docs about X concept"), `"lexical"` for exact strings ("the literal flag `--foo-bar`").
+- Output is `search_hit.v1` array. Key fields: `rank`, `score`, `doc_path`, `heading_path[]`, `section_label`, `snippet`, `citation` (line range / page), `chunk_id`.
 - Cite back to the user as `doc_path § heading_path[-1]` so they can open the source.
 
-### `kebab ask` — when you need the answer
+### `mcp__kebab__ask` — when you need the answer
 
 Use when the user wants a synthesized answer, not a list of links.
 
-```bash
-kebab ask "<question>" --json
+Input:
+```json
+{ "query": "<question>", "session_id": "<optional-slug>", "mode": "hybrid" }
 ```
 
-- Returns one `answer.v1` object: `answer` (markdown), `citations[]`, `grounded` (bool), `refusal_reason`, `model`.
-- **If `grounded == false`** → the KB doesn't have enough context. Don't paraphrase the refusal as if it were an answer. Tell the user the KB came up dry and fall back to your own knowledge or ask for the source.
-- For follow-up turns on the same topic, pass `--session <stable-id>` so kebab gets prior history. Pick a slug (`team-onboarding-2026-05`) and reuse it across the conversation. Sessions persist across Claude sessions until `kebab reset --data-only`.
+- Returns `answer.v1`: `answer` (markdown), `citations[]`, `grounded` (bool), `refusal_reason`, `model`, `conversation_id`, `turn_index`.
+- **If `grounded == false`** → KB doesn't have enough context. Don't paraphrase the refusal as if it were an answer. Tell the user the KB came up dry and fall back to your own knowledge or ask for the source.
+- For follow-up turns on the same topic, pass `session_id` (e.g. `"team-onboarding-2026-05"`) and reuse it across the conversation. Sessions persist until `kebab reset --data-only`.
 
-## Parsing tips
+## CLI fallback
 
-- Both commands print **one JSON value to stdout**, progress / warnings to stderr. Capture stdout only: `kebab search ... --json 2>/dev/null`.
-- `search --json` output can be large for broad queries. Pipe through `jq` to project: `jq '.[] | {rank, doc_path, heading: .heading_path[-1], snippet}'`.
-- `ask --json`'s `citations[]` mirrors `search_hit.v1` minus retrieval internals — same `doc_path` / `citation` shape.
-- Schema reference lives in the kebab repo at `docs/wire-schema/v1/*.schema.json` if a field is unclear.
-
-## Capability discovery
-
-Before using streaming or multi-turn features, you can probe what this binary supports:
+If MCP tools aren't in scope (host without MCP support, or `mcp.json` not configured), call the CLI via Bash:
 
 ```bash
-kebab schema --json
+kebab search "<query>" --mode hybrid --json 2>/dev/null
+kebab ask "<question>" --json 2>/dev/null
+kebab ask "<question>" --session <stable-id> --json 2>/dev/null
 ```
 
-Returns a `schema.v1` object with: `wire.schemas` (supported wire ids), `capabilities` (bool flags — e.g. `streaming_ask`, `rag_multi_turn`), `models` (version cascade 6-axis), and `stats` (doc/chunk/asset count + last_ingest_at). Gate streaming / session flows on `capabilities.streaming_ask` / `capabilities.rag_multi_turn` being `true`. This call is cheap (no LLM) and can be run once per session.
+Same wire shapes as MCP. CLI pays cold start (~1-2s) per call — prefer MCP when available.
 
-## Quick health check
+## MCP host config
 
-If a call fails or returns suspicious output, run `kebab doctor` first — it surfaces config-load / data-dir / Ollama-reachability problems in one line each. Don't silently retry on errors; report the doctor output.
-
-## MCP server (recommended over CLI subprocess wrapping)
-
-Since v0.3.1, `kebab` exposes an MCP (Model Context Protocol) stdio server. Configure once in `~/.claude/mcp.json`:
+Register `kebab mcp` once in your host's MCP config. For Claude Code, edit `~/.claude/mcp.json`:
 
 ```json
 {
@@ -86,49 +94,62 @@ Since v0.3.1, `kebab` exposes an MCP (Model Context Protocol) stdio server. Conf
 }
 ```
 
-Claude Code spawns `kebab mcp` at session start; the process stays alive across all tool calls so SQLite / Lance / fastembed are hot after the first call. 6 tools available: `search` / `ask` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`. Same wire shapes as the CLI `--json` mode — see `Two surfaces, pick the right one` above for the same guidance.
+Claude Code spawns `kebab mcp` at session start; the process stays alive across all tool calls so SQLite / Lance / fastembed are hot after the first call (~1-2s cold, sub-100ms thereafter). For Cursor / OpenAI Agents / Copilot CLI host examples plus per-tool input/output reference, see [docs/mcp-usage.md](../../../docs/mcp-usage.md) in the kebab repo.
 
-If your host doesn't support MCP, the CLI subprocess pattern (`kebab search --json` / `kebab ask --json`) above continues to work.
+## Parsing tips
 
-For per-tool input/output examples, error code reference, multi-turn ask + session management, and host config beyond Claude Code (Cursor / OpenAI Agents / Copilot CLI), see [docs/mcp-usage.md](../../../docs/mcp-usage.md) in the kebab repo.
+- MCP tools return JSON content blocks; CLI prints **one JSON value to stdout**, progress / warnings to stderr. Capture stdout only: `kebab search ... --json 2>/dev/null`.
+- `search` output can be large for broad queries. Project relevant fields when summarizing — for CLI: `jq '.[] | {rank, doc_path, heading: .heading_path[-1], snippet}'`.
+- `ask`'s `citations[]` mirrors `search_hit.v1` minus retrieval internals — same `doc_path` / `citation` shape.
+- Schema reference lives in the kebab repo at `docs/wire-schema/v1/*.schema.json` if a field is unclear.
 
-## Recipe D — agent fetched a web doc, save to KB
+## Capability discovery
 
-When you've fetched a markdown article (e.g. via WebFetch) that the user might query later:
+Before using streaming or multi-turn features, probe what this binary supports — call `mcp__kebab__schema` (or CLI `kebab schema --json`):
 
-1. Call MCP tool `ingest_stdin` with:
-   - `content`: the markdown body
-   - `title`: a stable title (article H1 or page title)
-   - `source_uri`: the URL you fetched from
+Returns `schema.v1`: `wire.schemas` (supported wire ids), `capabilities` (bool flags — e.g. `streaming_ask`, `rag_multi_turn`), `models` (version cascade 6-axis), `stats` (doc/chunk/asset count + last_ingest_at). Gate streaming / session flows on `capabilities.streaming_ask` / `capabilities.rag_multi_turn` being `true`. Cheap call (no LLM), once per session.
 
-The doc lands in `<workspace.root>/_external/<hash>.md` and is indexed for `search` / `ask` immediately. Subsequent calls with identical content are no-ops (incremental ingest detects unchanged hash).
+## Quick health check
 
-Don't loop ingest the same article — content-hash dedup makes it safe but wastes embedding cost.
-
-For files already on disk that the user references, prefer `ingest_file` with the path — kebab handles the copy + dedup.
+If a call fails or returns suspicious output, call `mcp__kebab__doctor` (or CLI `kebab doctor`) first — it surfaces config-load / data-dir / Ollama-reachability problems in one line each. Don't silently retry on errors; report the doctor output.
 
 ## Workflow recipes
 
 **Recipe A — user asks an internal-context question, you want grounded answer:**
 
-1. `kebab ask "<question>" --json`
-2. If `grounded`, cite `citations[].doc_path` in your reply and quote the user's `answer` (translate / condense as needed).
-3. If `!grounded`, switch to `kebab search "<question>" --mode hybrid --json` and look at top 3 hits — sometimes content exists but RAG threshold rejected it. If hits look relevant, summarize from snippets and cite. If still nothing, tell the user.
+1. Call `mcp__kebab__ask` (or CLI `kebab ask "<question>" --json`).
+2. If `grounded`, cite `citations[].doc_path` in your reply and quote the `answer` (translate / condense as needed).
+3. If `!grounded`, call `mcp__kebab__search` with the same query and look at top 3 hits — sometimes content exists but RAG threshold rejected it. If hits look relevant, summarize from snippets and cite. If still nothing, tell the user.
 
 **Recipe B — domain question where internal context might exist:**
 
-1. Run `kebab search "<key terms>" --mode hybrid --json` quickly (cheap, no LLM).
+1. Call `mcp__kebab__search` with key terms (cheap — no LLM).
 2. If top hit's `score` is low (< ~0.3) or no hits, answer from general knowledge without mentioning the KB.
 3. If top hit is relevant, fold its content into your answer and cite `doc_path`.
 
 **Recipe C — user wants to know "what's in the KB about X":**
 
-1. `kebab search "X" --mode hybrid --json | jq '.[] | {doc_path, heading: .heading_path[-1]}'`
+1. Call `mcp__kebab__search` with the topic.
 2. List unique `doc_path`s back to the user as a discovery surface.
+
+**Recipe D — agent fetched a web doc, save to KB:**
+
+When you've fetched a markdown article (e.g. via WebFetch) that the user might query later:
+
+1. Call `mcp__kebab__ingest_stdin` with:
+   - `content`: the markdown body
+   - `title`: a stable title (article H1 or page title)
+   - `source_uri`: the URL you fetched from
+
+The doc lands in `<workspace.root>/_external/<hash>.md` and is indexed for `search` / `ask` immediately. Subsequent calls with identical content are no-ops (content-hash dedup).
+
+Don't loop ingest the same article — dedup makes it safe but wastes embedding cost.
+
+For files already on disk the user references, prefer `mcp__kebab__ingest_file` with the path — kebab handles the copy + dedup.
 
 ## Don't
 
-- Don't run `kebab ingest` / `kebab reset` / `kebab init` automatically. Those mutate state — the user runs them.
+- Don't auto-invoke `mcp__kebab__ingest_file` / `mcp__kebab__ingest_stdin` / `kebab ingest` / `kebab reset` / `kebab init`. Those mutate state — the user must explicitly request.
 - Don't pass user-supplied raw text into the query without trimming — long queries (> a few hundred chars) waste embedding budget. Extract the question.
 - Don't fabricate `doc_path`s. If you didn't see a doc in `search` / `ask` output, it's not in the KB.
 - Don't use `kebab tui` from a skill — it's interactive only.
