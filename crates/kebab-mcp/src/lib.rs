@@ -96,7 +96,15 @@ impl ServerHandler for KebabHandler {
                             return Ok(error::to_tool_error(&anyhow::Error::from(e)));
                         }
                     };
-                Ok(tools::search::handle(&self.state, input))
+                let state = self.state.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    tools::search::handle(&state, input)
+                })
+                .await
+                .map_err(|e| {
+                    ErrorData::internal_error(e.to_string(), None)
+                })?;
+                Ok(result)
             }
             "ask" => {
                 let args = request.arguments.unwrap_or_default();
@@ -107,7 +115,15 @@ impl ServerHandler for KebabHandler {
                             return Ok(error::to_tool_error(&anyhow::Error::from(e)));
                         }
                     };
-                Ok(tools::ask::handle(&self.state, input))
+                let state = self.state.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    tools::ask::handle(&state, input)
+                })
+                .await
+                .map_err(|e| {
+                    ErrorData::internal_error(e.to_string(), None)
+                })?;
+                Ok(result)
             }
             _other => Err(ErrorData::method_not_found::<
                 rmcp::model::CallToolRequestMethod,

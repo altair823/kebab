@@ -1,6 +1,6 @@
 //! `ask` tool — wraps `kebab_app::ask_with_config` (single-shot) or
 //! `kebab_app::ask_with_session_with_config` when `session_id` is provided.
-//! Input: { query, session_id? }. Output: answer.v1 JSON.
+//! Input: { query, session_id?, mode? }. Output: answer.v1 JSON.
 //!
 //! `Answer` (kebab-core) does NOT carry a `schema_version` field; we tag
 //! it inline here, matching the pattern from `search.rs`.
@@ -18,18 +18,20 @@ pub struct AskInput {
     pub query: String,
     /// Optional session id for multi-turn RAG context.
     pub session_id: Option<String>,
+    /// Optional retrieval mode override ("lexical" / "vector" / "hybrid"). Default "hybrid".
+    pub mode: Option<String>,
 }
 
 pub fn handle(state: &KebabAppState, input: AskInput) -> CallToolResult {
-    // Default to Lexical mode — the MCP server is typically called by
-    // agent hosts that may not have an embedding provider configured.
-    // Hybrid/vector retrieval would hard-error when embeddings are
-    // disabled; lexical FTS is always available and covers the common
-    // RAG case well.
+    let mode = match input.mode.as_deref() {
+        Some("lexical") => kebab_core::SearchMode::Lexical,
+        Some("vector") => kebab_core::SearchMode::Vector,
+        _ => kebab_core::SearchMode::Hybrid, // default + "hybrid" + unknown
+    };
     let opts = kebab_app::AskOpts {
         k: 10,
         explain: false,
-        mode: kebab_core::SearchMode::Lexical,
+        mode,
         temperature: None,
         seed: None,
         stream_sink: None,
