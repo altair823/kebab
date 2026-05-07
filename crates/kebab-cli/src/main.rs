@@ -150,7 +150,7 @@ enum Cmd {
         /// history and appends the new Q/A. Without this flag, ask
         /// is single-shot (no persistence). The session id is
         /// caller-supplied — pick anything stable per conversation
-        /// (e.g. `kb-rust-async-2026-05`).
+        /// (e.g. `kebab-rust-async-2026-05`).
         #[arg(long, value_name = "ID")]
         session: Option<String>,
     },
@@ -315,7 +315,7 @@ fn main() -> ExitCode {
         kebab_app::logging::LogLevel::Default
     };
     // Fail-soft: if logging init errors (e.g. XDG state dir is read-only),
-    // proceed without a guard rather than crashing — `kb` is still usable.
+    // proceed without a guard rather than crashing — `kebab` is still usable.
     let _log_guard = kebab_app::logging::init(level).ok();
     if cli.readonly && is_mutating(&cli.command) {
         let msg = "kebab: readonly mode — mutating commands are disabled";
@@ -390,7 +390,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 );
                 println!("created  {}", kebab_config::Config::xdg_data_dir().display());
                 println!("created  {}", kebab_config::Config::xdg_state_dir().display());
-                println!("hint     edit the config above, then `kb ingest`");
+                println!("hint     edit the config above, then `kebab ingest`");
             }
             Ok(())
         }
