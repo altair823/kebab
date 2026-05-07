@@ -9,7 +9,6 @@ use clap::{Parser, Subcommand};
 use kebab_app::doctor_signal::{DoctorUnhealthy, NoHitSignal, RefusalSignal};
 
 mod cancel;
-mod error_classify;
 mod progress;
 mod wire;
 
@@ -282,7 +281,7 @@ fn main() -> ExitCode {
             // caller); errors go to stderr.
             if code != 1 {
                 if cli.json {
-                    let v1 = error_classify::classify(&e, cli.verbose);
+                    let v1 = kebab_app::classify(&e, cli.verbose);
                     let v = wire::wire_error_v1(&v1);
                     eprintln!("{}", serde_json::to_string(&v).unwrap_or_else(|_| {
                         "{\"schema_version\":\"error.v1\",\"code\":\"generic\",\"message\":\"serialize failed\"}".to_string()

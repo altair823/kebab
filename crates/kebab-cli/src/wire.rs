@@ -152,12 +152,12 @@ pub fn wire_schema(s: &kebab_app::SchemaV1) -> Value {
     tag_object(v, kebab_app::SCHEMA_V1_ID)
 }
 
-/// Wrap an [`crate::error_classify::ErrorV1`] as `error.v1`.
+/// Wrap an [`kebab_app::ErrorV1`] as `error.v1`.
 ///
 /// Uses the simple `tag_object` pattern because `ErrorV1` is a
-/// kebab-cli-local type that does NOT carry `schema_version` itself
+/// type that does NOT carry `schema_version` itself
 /// (kebab-core convention).
-pub fn wire_error_v1(e: &crate::error_classify::ErrorV1) -> Value {
+pub fn wire_error_v1(e: &kebab_app::ErrorV1) -> Value {
     let v = serde_json::to_value(e).expect("ErrorV1 serializes");
     tag_object(v, "error.v1")
 }
@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn error_wrapper_tags_schema_version_and_emits_code() {
-        use crate::error_classify::ErrorV1;
+        use kebab_app::ErrorV1;
         let err = ErrorV1 {
             code: "config_invalid".to_string(),
             message: "bad config".to_string(),

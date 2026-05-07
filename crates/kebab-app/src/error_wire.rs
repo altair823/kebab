@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use kebab_app::error_signal::{ConfigInvalid, LlmError, NotIndexed};
+use crate::error_signal::{ConfigInvalid, LlmError, NotIndexed};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorV1 {
