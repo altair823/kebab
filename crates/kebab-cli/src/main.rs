@@ -744,7 +744,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
 }
 
 fn print_schema_text(s: &kebab_app::SchemaV1) {
-    println!("kebab v{}\n", s.kebab_version);
+    println!("kebab v{}", s.kebab_version);
+    println!();
 
     println!("wire schemas");
     println!("  {}", s.wire.schemas.join(", "));

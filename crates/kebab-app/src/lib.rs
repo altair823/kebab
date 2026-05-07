@@ -65,7 +65,7 @@ pub mod schema;
 pub use app::App;
 pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
 pub use reset::{ResetReport, ResetScope};
-pub use schema::{Capabilities, Models, SchemaV1, Stats, WireBlock, schema_with_config};
+pub use schema::{Capabilities, Models, SCHEMA_V1_ID, SchemaV1, Stats, WireBlock, schema_with_config};
 
 /// p9-fb-25: sentinel for files without an extension in
 /// `IngestReport.skipped_by_extension` keys + `IngestItem.warnings`

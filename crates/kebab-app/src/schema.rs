@@ -54,6 +54,10 @@ pub struct Stats {
 
 const KEBAB_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Wire schema id for [`SchemaV1`]. Single source of truth — `kebab-cli`
+/// re-uses this via `kebab_app::schema::SCHEMA_V1_ID` when wrapping.
+pub const SCHEMA_V1_ID: &str = "schema.v1";
+
 // Authoritative list of wire schemas this binary emits. Keep in sync with
 // `docs/wire-schema/v1/*.schema.json` and `kebab-cli::wire::wire_*` helpers.
 const WIRE_SCHEMAS: &[&str] = &[
@@ -83,7 +87,7 @@ pub fn schema_with_config(cfg: &Config) -> anyhow::Result<SchemaV1> {
     let stats = collect_stats(&store)?;
     let models = collect_models(cfg, &store);
     Ok(SchemaV1 {
-        schema_version: "schema.v1".to_string(),
+        schema_version: SCHEMA_V1_ID.to_string(),
         kebab_version: KEBAB_VERSION.to_string(),
         wire: WireBlock {
             schemas: WIRE_SCHEMAS.iter().map(|s| (*s).to_string()).collect(),
@@ -131,6 +135,9 @@ fn collect_stats(store: &kebab_store_sqlite::SqliteStore) -> anyhow::Result<Stat
 
 fn collect_models(cfg: &Config, store: &kebab_store_sqlite::SqliteStore) -> Models {
     Models {
+        // markdown parser only — pdf-page-v1 (P7) / image extractors (P6)
+        // maintain their own versions; surface those when SchemaV1.models
+        // becomes a multi-medium map (P+).
         parser_version: kebab_parse_md::PARSER_VERSION.to_string(),
         chunker_version: cfg.chunking.chunker_version.clone(),
         // EmbeddingModelCfg uses `.model` (not `.id`) — adapt from plan.

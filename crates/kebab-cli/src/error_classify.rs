@@ -133,9 +133,13 @@ mod tests {
     #[test]
     fn llm_unreachable_classifies_to_model_unreachable() {
         // We cannot construct a reqwest::Error from scratch (private constructor).
-        // Use a real network call with a guaranteed-unroutable endpoint:
+        // Approach: send a real request to a guaranteed-unroutable endpoint
+        // (port 1 is reserved + connect-refused on all conformant TCP stacks).
+        // 500ms timeout chosen as headroom over 50ms baseline — heavily loaded
+        // CI may hit timeout race instead of connect-refused, but either way
+        // the resulting LlmError::Unreachable maps to "model_unreachable".
         let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_millis(50))
+            .timeout(std::time::Duration::from_millis(500))
             .build().unwrap();
         let err = client.get("http://127.0.0.1:1").send().unwrap_err();
         let llm = LlmError::Unreachable {

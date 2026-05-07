@@ -144,12 +144,12 @@ pub fn wire_schema(s: &kebab_app::SchemaV1) -> Value {
     if let Value::Object(ref map) = v {
         if matches!(
             map.get("schema_version"),
-            Some(Value::String(s)) if s == "schema.v1"
+            Some(Value::String(s)) if s == kebab_app::SCHEMA_V1_ID
         ) {
             return v;
         }
     }
-    tag_object(v, "schema.v1")
+    tag_object(v, kebab_app::SCHEMA_V1_ID)
 }
 
 /// Wrap an [`crate::error_classify::ErrorV1`] as `error.v1`.

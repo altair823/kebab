@@ -46,6 +46,7 @@ git history.
 - `LlmError::Stream` / `Malformed` 가 `code: "generic"` fallback — 후속 task 에서 `stream_aborted` / `malformed_response` 같은 dedicated code 도입 검토 (design §10.1 future-extensions 절 참조).
 - `not_indexed.details` 가 `{ expected, found }` 만 emit (spec literal 의 `{ data_dir, expected, found }` 아님 — `expected` 가 full DB path 라 data_dir 은 caller 에서 derive 해야 함, NotIndexed signal 자체는 path 한 개만 carry).
 - README 의 wire schema 목록과 CLAUDE.md 의 wire schema 목록이 fb-27 머지 시점에 약간 일치 안 함 (CLAUDE.md 가 `eval_run.v1`/`eval_compare.v1`/`list_docs.v1` 포함, 실제 docs/wire-schema/v1/ 에 해당 파일 없음). 별 follow-up 에서 doc / 실제 wire 동기화 sweep 진행.
+- `SqliteStore::open_existing` 가 `SQLITE_OPEN_READ_WRITE` 로 열고 doc 으로만 "callers should not issue mutations" 명시 — 컴파일러 enforcement 없음. 후속 PR 에서 `apply_pragmas` 의 WAL 라인을 분리한 `apply_read_pragmas` + `SQLITE_OPEN_READ_ONLY` 변형 도입 검토 (WAL mode 는 DB 헤더에 영속이라 RO 도 동작 가능).
 
 **Amends**:
 - design §10 (capability matrix subsection 추가).
