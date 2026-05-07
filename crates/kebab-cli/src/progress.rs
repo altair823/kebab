@@ -144,6 +144,11 @@ impl ProgressDisplay {
                 media,
             } => {
                 if let Some(bar) = self.bar.as_ref() {
+                    // Advance position to N-1 (completed so far) and set the
+                    // current-asset message in one atomic update, so TTY mode
+                    // produces exactly one bar frame per file instead of two
+                    // (AssetStarted + AssetFinished each triggered a redraw).
+                    bar.set_position(u64::from(idx.saturating_sub(1)));
                     bar.set_message(format!("{media} {path}"));
                 }
                 if !tty && !quiet {
@@ -151,10 +156,10 @@ impl ProgressDisplay {
                     let _ = writeln!(err, "ingest: {idx}/{total} {media} {path}");
                 }
             }
-            IngestEvent::AssetFinished { idx, .. } => {
-                if let Some(bar) = self.bar.as_ref() {
-                    bar.set_position(u64::from(*idx));
-                }
+            IngestEvent::AssetFinished { .. } => {
+                // Position is advanced in AssetStarted; bar.finish_and_clear()
+                // in Completed handles the final state. No per-asset bar update
+                // here avoids the duplicate-frame artifact in TTY scrollback.
             }
             IngestEvent::Completed { counts } => {
                 if let Some(bar) = self.bar.take() {
