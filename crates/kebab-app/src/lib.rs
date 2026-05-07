@@ -56,6 +56,7 @@ use kebab_source_fs::FsSourceConnector;
 
 mod app;
 pub mod doctor_signal;
+pub mod error_signal;
 pub mod ingest_progress;
 pub mod logging;
 pub mod reset;
