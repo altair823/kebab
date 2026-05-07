@@ -1945,6 +1945,35 @@ pub fn ingest_file_with_config(
     ingest_with_config_opts(config, scope, /* summary_only = */ false, opts)
 }
 
+/// Stdin ingest (p9-fb-31, v1 markdown only). Prepends a YAML
+/// frontmatter block (`title` + optional `source_uri`) to `body`,
+/// writes the wrapped markdown to `_external/<hash12>.md`, and runs
+/// `ingest_file_with_config` on the resulting file.
+///
+/// Errors if `body` already starts with `---` (the user should call
+/// `ingest_file_with_config` directly for files that already carry
+/// frontmatter).
+pub fn ingest_stdin_with_config(
+    config: kebab_config::Config,
+    body: &str,
+    title: &str,
+    source_uri: Option<&str>,
+) -> anyhow::Result<IngestReport> {
+    let wrapped = crate::external::inject_frontmatter(body, title, source_uri)?;
+
+    let workspace_root = config.resolve_workspace_root();
+    let external_dir = crate::external::ensure_external_dir(&workspace_root)?;
+    crate::external::ensure_kebabignore_entry(&workspace_root)?;
+
+    let dest = crate::external::copy_to_external(
+        &external_dir,
+        wrapped.as_bytes(),
+        "md",
+    )?;
+
+    ingest_file_with_config(config, &dest)
+}
+
 /// Returns true if `source_path` matches any `.kebabignore` pattern
 /// rooted at `workspace_root`. Used by `ingest_file_with_config` to
 /// emit a stderr warn before bypassing the ignore.
