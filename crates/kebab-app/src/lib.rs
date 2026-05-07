@@ -1953,6 +1953,7 @@ pub fn ingest_file_with_config(
 /// Errors if `body` already starts with `---` (the user should call
 /// `ingest_file_with_config` directly for files that already carry
 /// frontmatter).
+#[doc(hidden)]
 pub fn ingest_stdin_with_config(
     config: kebab_config::Config,
     body: &str,

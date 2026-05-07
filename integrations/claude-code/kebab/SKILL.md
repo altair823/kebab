@@ -73,7 +73,7 @@ If a call fails or returns suspicious output, run `kebab doctor` first — it su
 
 ## MCP server (recommended over CLI subprocess wrapping)
 
-Since v0.4.0, `kebab` exposes an MCP (Model Context Protocol) stdio server. Configure once in `~/.claude/mcp.json`:
+Since v0.3.1, `kebab` exposes an MCP (Model Context Protocol) stdio server. Configure once in `~/.claude/mcp.json`:
 
 ```json
 {
