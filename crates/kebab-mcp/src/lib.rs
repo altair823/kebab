@@ -7,7 +7,7 @@
 use anyhow::Result;
 
 use rmcp::ServerHandler;
-use rmcp::handler::server::common::schema_for_empty_input;
+use rmcp::handler::server::common::{schema_for_empty_input, schema_for_type};
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, Implementation, ListToolsResult, ServerCapabilities,
     ServerInfo, Tool,
@@ -60,6 +60,11 @@ impl ServerHandler for KebabHandler {
                 "Health check — verifies config, storage, models, and Ollama connectivity.",
                 schema_for_empty_input(),
             ),
+            Tool::new(
+                "search",
+                "Full-text / vector / hybrid search over the knowledge base. Returns search_hit.v1 array.",
+                schema_for_type::<tools::search::SearchInput>(),
+            ),
         ]))
     }
 
@@ -76,6 +81,17 @@ impl ServerHandler for KebabHandler {
             "doctor" => {
                 let input = tools::doctor::DoctorInput::default();
                 Ok(tools::doctor::handle(&self.state, input))
+            }
+            "search" => {
+                let args = request.arguments.unwrap_or_default();
+                let input: tools::search::SearchInput =
+                    match serde_json::from_value(serde_json::Value::Object(args)) {
+                        Ok(i) => i,
+                        Err(e) => {
+                            return Ok(error::to_tool_error(&anyhow::Error::from(e)));
+                        }
+                    };
+                Ok(tools::search::handle(&self.state, input))
             }
             _other => Err(ErrorData::method_not_found::<
                 rmcp::model::CallToolRequestMethod,

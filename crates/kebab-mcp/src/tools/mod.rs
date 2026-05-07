@@ -2,5 +2,5 @@
 
 pub mod schema;
 pub mod doctor;
-// pub mod search;   // wired in Plan Task 6
+pub mod search;
 // pub mod ask;      // wired in Plan Task 7
