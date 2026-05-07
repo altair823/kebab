@@ -16,6 +16,18 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::error::StoreError;
 use crate::schema;
 
+/// Signal: SQLite database file does not exist, or schema_version does
+/// not match the binary's expectation.
+///
+/// Distinct from generic I/O / SQL errors so kebab-cli can surface
+/// `code: "not_indexed"` with a hint to run `kebab init` / `kebab ingest`.
+#[derive(Debug, thiserror::Error)]
+#[error("not indexed: expected={expected}, found={found:?}")]
+pub struct NotIndexed {
+    pub expected: String,
+    pub found: Option<String>,
+}
+
 /// Monotonic counter used to namespace per-process temp file names so
 /// concurrent `put_asset_with_bytes` calls in the same millisecond cannot
 /// collide on `<final>.tmp.<pid>.<n>`.
@@ -59,6 +71,41 @@ pub struct SqliteStore {
 }
 
 impl SqliteStore {
+    /// Open an existing SQLite DB at the path derived from `config`. Unlike
+    /// `open`, this does NOT create the file — if it is missing, returns a
+    /// [`NotIndexed`] signal suitable for `error.v1` translation.
+    ///
+    /// **Does not run migrations** — call [`Self::run_migrations`] next if
+    /// you need the schema initialised.
+    pub fn open_existing(path: &std::path::Path) -> anyhow::Result<Self> {
+        if !path.exists() {
+            return Err(anyhow::Error::new(NotIndexed {
+                expected: path.to_string_lossy().to_string(),
+                found: None,
+            }));
+        }
+        let conn = rusqlite::Connection::open(path)
+            .with_context(|| format!("open sqlite at {}", path.display()))?;
+        apply_pragmas(&conn)?;
+
+        let data_dir = path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf();
+
+        tracing::debug!(
+            target: "kebab-store-sqlite",
+            db = %path.display(),
+            "opened existing sqlite store"
+        );
+
+        Ok(Self {
+            data_dir,
+            copy_threshold_bytes: 0,
+            conn: Mutex::new(conn),
+        })
+    }
+
     /// Open (or create) the SQLite file under `config.storage.data_dir`,
     /// apply pragmas (foreign_keys / WAL / synchronous=NORMAL /
     /// temp_store=MEMORY), and create parent directories as needed.
