@@ -144,12 +144,19 @@ impl ProgressDisplay {
                 media,
             } => {
                 if let Some(bar) = self.bar.as_ref() {
-                    // Advance position to N-1 (completed so far) and set the
-                    // current-asset message in one atomic update, so TTY mode
-                    // produces exactly one bar frame per file instead of two
-                    // (AssetStarted + AssetFinished each triggered a redraw).
-                    bar.set_position(u64::from(idx.saturating_sub(1)));
+                    // Suppress draws during the two updates so only one frame
+                    // lands in the TTY scrollback per file. set_position() and
+                    // set_message() each call update_and_draw() independently —
+                    // hiding the draw target collapses them into a single tick().
+                    bar.set_draw_target(ProgressDrawTarget::hidden());
                     bar.set_message(format!("{media} {path}"));
+                    bar.set_position(u64::from(idx.saturating_sub(1)));
+                    bar.set_draw_target(if tty && !quiet {
+                        ProgressDrawTarget::stderr()
+                    } else {
+                        ProgressDrawTarget::hidden()
+                    });
+                    bar.tick();
                 }
                 if !tty && !quiet {
                     let mut err = std::io::stderr().lock();
