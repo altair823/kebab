@@ -58,6 +58,10 @@ fn schema_report_reflects_freshly_ingested_kb() {
     );
     assert!(schema.capabilities.json_mode);
     assert!(!schema.capabilities.streaming_ask);
+    assert!(
+        schema.capabilities.mcp_server,
+        "mcp_server should be true after fb-30",
+    );
     assert_eq!(
         schema.stats.doc_count, 2,
         "expected 2 docs (a.md + b.md): {:?}",

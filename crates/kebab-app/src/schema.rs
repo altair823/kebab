@@ -108,7 +108,7 @@ fn capabilities_snapshot() -> Capabilities {
         incremental_ingest: true,
         streaming_ask: false,
         http_daemon: false,
-        mcp_server: false,
+        mcp_server: true,
         single_file_ingest: false,
     }
 }
