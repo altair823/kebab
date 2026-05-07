@@ -3491,7 +3491,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-app"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3532,7 +3532,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-chunk"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3547,7 +3547,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-cli"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3567,7 +3567,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-config"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -3582,7 +3582,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-core"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3596,7 +3596,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-embed"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3610,7 +3610,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-embed-local"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "fastembed",
@@ -3623,7 +3623,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-eval"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "kebab-app",
@@ -3642,7 +3642,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-llm"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "kebab-core",
@@ -3651,7 +3651,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-llm-local"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "kebab-config",
@@ -3668,7 +3668,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-normalize"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "kebab-core",
@@ -3683,7 +3683,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-parse-image"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -3707,7 +3707,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-parse-md"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "kebab-core",
@@ -3724,7 +3724,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-parse-pdf"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3737,7 +3737,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-parse-types"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "kebab-core",
  "serde",
@@ -3745,7 +3745,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-rag"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3766,7 +3766,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-search"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "globset",
@@ -3784,7 +3784,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-source-fs"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3801,7 +3801,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-store-sqlite"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3822,7 +3822,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-store-vector"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "arrow",
@@ -3846,7 +3846,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-tui"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "crossterm",
