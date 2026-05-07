@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 
 use kebab_app::doctor_signal::{DoctorUnhealthy, NoHitSignal, RefusalSignal};
@@ -199,6 +200,17 @@ enum Cmd {
     IngestFile {
         /// File path to ingest.
         path: std::path::PathBuf,
+    },
+
+    /// Ingest markdown content from stdin. v1 markdown only.
+    /// Frontmatter (title + source_uri) is auto-injected.
+    IngestStdin {
+        /// Title — required, written to frontmatter.
+        #[arg(long)]
+        title: String,
+        /// Source URI — optional, written to frontmatter when present.
+        #[arg(long)]
+        source_uri: Option<String>,
     },
 }
 
@@ -761,6 +773,32 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             } else {
                 println!(
                     "ingest-file: scanned={} new={} updated={} unchanged={} skipped={} errors={}",
+                    report.scanned, report.new, report.updated,
+                    report.unchanged, report.skipped, report.errors
+                );
+            }
+            Ok(())
+        }
+
+        Cmd::IngestStdin { title, source_uri } => {
+            use std::io::Read;
+            let mut body = String::new();
+            std::io::stdin()
+                .read_to_string(&mut body)
+                .context("kebab ingest-stdin: read stdin")?;
+            let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+            let report = kebab_app::ingest_stdin_with_config(
+                cfg,
+                &body,
+                title,
+                source_uri.as_deref(),
+            )?;
+            if cli.json {
+                let v = wire::wire_ingest(&report);
+                println!("{}", serde_json::to_string(&v)?);
+            } else {
+                println!(
+                    "ingest-stdin: scanned={} new={} updated={} unchanged={} skipped={} errors={}",
                     report.scanned, report.new, report.updated,
                     report.unchanged, report.skipped, report.errors
                 );
