@@ -14,6 +14,45 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-07 — p9-fb-30 (post-dogfooding): MCP server (stdio) — agent integration MVP
+
+**Source feedback**: 사용자 도그푸딩 2026-05-06 — Claude Code 같은 AI agent 가 kebab CLI 를 사용하는 것이 궁극 목표. 현재 surface 는 Claude Code 전용 skill (subprocess wrapper) 만 — host 무관 표준 통신 없음. fb-29 HTTP daemon 은 single-user local-first 환경 대비 비대로 deferred (2026-05-07), fb-30 stdio MCP 가 동일 사용자 가치 (agent integration + session 동안 hot cache) 를 daemon 복잡도 없이 제공.
+
+**Live binding 변경**:
+
+- 신규 subcommand `kebab mcp` — stdio JSON-RPC server, `--config <path>` honor.
+- 신규 crate `kebab-mcp` (lib only) — `serve_stdio(Config, Option<PathBuf>)` entry. UI crate 카테고리 (kebab-cli + kebab-tui + kebab-mcp 가 facade 룰 동일 적용 — `kebab-app` facade 만 import).
+- Tool surface v1 (read-only 4): `search` (lexical/vector/hybrid 검색, default Hybrid), `ask` (RAG 답변, default mode Hybrid, optional `session_id` for multi-turn + optional `mode` override), `schema` (introspection), `doctor` (health check). `ingest_*` / `fetch` / `list_docs` / `inspect_chunk` 는 fb-31 / fb-35 / 후속 task 머지 시 추가.
+- Resources / Prompts / Sampling — 모두 미선언 (tools-only v1).
+- Output: 모든 tool 이 wire schema v1 JSON 을 MCP `text` content block 으로 직렬화. CLI `--json` 모드와 동일 wire — single source.
+- Error mapping: tool dispatch `Err(e)` 만 `isError: true` + error.v1 content. Refusal (`grounded: false`) / no-hit (empty array) / unhealthy (`ok: false`) 는 모두 정상 응답 — agent 가 wire payload semantic flag 으로 분기.
+- `kebab-app::error_wire` 신규 — fb-27 의 `kebab-cli::error_classify` 코드 그대로 promotion (struct + classify + classify_llm + 7 unit test). kebab-cli + kebab-mcp 둘 다 동일 모듈 사용. reqwest dev-dep 도 함께 이동. 부수 변경: `ErrorV1` 에 `schema_version: String` 필드 추가 — kebab-mcp 의 직접 serialize 경로에서도 wire 정합 (kebab-cli 의 `wire_error_v1` 의 `tag_object` 는 idempotent 로 작동, 동작 무영향).
+- `kebab-app::Capabilities::mcp_server`: `false` → `true`. `schema_report` 통합 테스트 + `cli_schema` 통합 테스트 assertion 갱신.
+- Initialize handshake: `protocolVersion = "2025-03-26"` (rmcp 1.6 default), `capabilities.tools = { listChanged: false }`, `serverInfo = { name: "kebab", version: <CARGO_PKG_VERSION> }`.
+- `KebabAppState` 가 `(Config, Option<PathBuf>)` carry — `kebab_app::doctor_with_config_path` 는 `Option<&Path>` 만 받기 때문 (`doctor_with_config(&Config)` 미존재). path 없으면 `None` (XDG default 동작).
+- `tokio::task::spawn_blocking` wrap on `call_tool` arms for `ask` + `search` — `OllamaLanguageModel` 의 `reqwest::blocking::Client::build()` 가 내부적으로 tokio runtime create+drop 하므로 async 안에서 panic. spawn_blocking 으로 우회. schema / doctor 는 cheap reads 라 wrap 불필요.
+- `tools/list` 의 list construction 을 `pub fn build_tools_vec()` 로 추출 — rmcp 1.6 가 in-memory test transport 미노출이라 spawn 없이 unit-level 검증 위함.
+
+**Spec contract impact**: design §10 에 §10.2 MCP transport 절 추가.
+
+**Tests added**: kebab-mcp integration (5: tools_call_search / tools_call_ask / tools_call_schema / tools_call_doctor / tools_list / error_mapping + initialize), kebab-cli integration (1: cli_mcp_smoke spawn + initialize + tools/list round-trip). 약 8 신규 테스트.
+
+**Known limitation (deferred)**:
+
+- HTTP-SSE transport — fb-29 P+ deferral 따라 stdio 단일. browser agent / remote 시나리오 등장 시 재개.
+- Resources (`kebab://chunk/<id>` URI) — fb-35 verbatim fetch 와 함께 v2.
+- Prompts — RAG 자체 prompt template 내장으로 사용자 가치 약함, defer.
+- Streaming `ask` — fb-33 streaming ask 와 함께.
+- `ingest_*` / `fetch` / `list_docs` / `inspect_chunk` tools — 후속 task 별로 추가.
+- Server-scope state caching — 현재 매 tool call 마다 store open. 첫 call 시 `KebabAppState` 에 `OnceLock<SqliteStore>` 도입 검토 (post-merge 후속 PR).
+- rmcp SDK API 호환성 — 1.6 채택, 미래 major bump 시 별 task.
+- Manual `tools/list` + `tools/call` dispatch 채택 — rmcp 1.6 의 `#[tool_router]` 매크로보다 명시적, 디버깅 쉬움. 하지만 새 tool 추가 시 두 곳 (list_tools 의 vec + call_tool 의 match) 동시 갱신 필요. 후속 task 가 5개 이상 tool 추가하면 매크로 도입 재검토.
+
+**Amends**:
+- design §10 (MCP transport subsection 추가).
+- spec `tasks/p9/p9-fb-30-mcp-server.md` (status `open` → `completed`).
+- spec stub 의 `transport: stdio default + http (fb-29 daemon) 위에 SSE 옵션` → 실제 채택 stdio 단일 (fb-29 deferral 결과, 2026-05-07 commit `2e8de14` 의 spec 갱신과 일관).
+
 ## 2026-05-07 — p9-fb-27 (post-dogfooding): introspection (`kebab schema`) + structured error wire
 
 **Source feedback**: 사용자 도그푸딩 2026-05-06 — agent 가 kebab 인스턴스의 wire 버전 / 기능 / 모델 / 인덱스 통계 introspect 못 함; error 가 stderr text 라 substring 분기 필요.
