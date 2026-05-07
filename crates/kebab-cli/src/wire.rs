@@ -264,6 +264,7 @@ mod tests {
     fn error_wrapper_tags_schema_version_and_emits_code() {
         use kebab_app::ErrorV1;
         let err = ErrorV1 {
+            schema_version: "error.v1".to_string(),
             code: "config_invalid".to_string(),
             message: "bad config".to_string(),
             details: serde_json::json!({"path": "/tmp/x"}),
