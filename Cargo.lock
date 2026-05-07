@@ -3558,6 +3558,8 @@ dependencies = [
  "kebab-core",
  "kebab-eval",
  "kebab-tui",
+ "reqwest",
+ "serde",
  "serde_json",
  "tempfile",
  "time",
@@ -3572,6 +3574,8 @@ dependencies = [
  "kebab-core",
  "serde",
  "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
  "toml",
  "tracing",
 ]

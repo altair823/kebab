@@ -28,6 +28,7 @@ kebab-eval = { path = "../kebab-eval" }
 # launches it.
 kebab-tui    = { path = "../kebab-tui" }
 anyhow       = { workspace = true }
+serde        = { workspace = true }
 serde_json   = { workspace = true }
 clap         = { version = "4", features = ["derive"] }
 # p9-fb-02: ingest progress UI.
@@ -43,3 +44,6 @@ ctrlc        = "3"
 
 [dev-dependencies]
 tempfile     = { workspace = true }
+# llm_unreachable_classifies_to_model_unreachable test needs a real
+# reqwest::Error (private constructor) — built from a connect-refused call.
+reqwest      = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }

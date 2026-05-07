@@ -57,6 +57,16 @@ kebab ask "<question>" --json
 - `ask --json`'s `citations[]` mirrors `search_hit.v1` minus retrieval internals — same `doc_path` / `citation` shape.
 - Schema reference lives in the kebab repo at `docs/wire-schema/v1/*.schema.json` if a field is unclear.
 
+## Capability discovery
+
+Before using streaming or multi-turn features, you can probe what this binary supports:
+
+```bash
+kebab schema --json
+```
+
+Returns a `schema.v1` object with: `wire.schemas` (supported wire ids), `capabilities` (bool flags — e.g. `streaming_ask`, `rag_multi_turn`), `models` (version cascade 6-axis), and `stats` (doc/chunk/asset count + last_ingest_at). Gate streaming / session flows on `capabilities.streaming_ask` / `capabilities.rag_multi_turn` being `true`. This call is cheap (no LLM) and can be run once per session.
+
 ## Quick health check
 
 If a call fails or returns suspicious output, run `kebab doctor` first — it surfaces config-load / data-dir / Ollama-reachability problems in one line each. Don't silently retry on errors; report the doctor output.

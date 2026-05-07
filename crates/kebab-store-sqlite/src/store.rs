@@ -11,10 +11,26 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 use crate::error::StoreError;
 use crate::schema;
+
+/// Signal: SQLite database file does not exist, or schema_version does
+/// not match the binary's expectation.
+///
+/// Distinct from generic I/O / SQL errors so kebab-cli can surface
+/// `code: "not_indexed"` with a hint to run `kebab init` / `kebab ingest`.
+#[derive(Debug, thiserror::Error)]
+#[error("not indexed: expected={expected}, found={found:?}")]
+pub struct NotIndexed {
+    pub expected: String,
+    /// When the DB file exists but the schema is incompatible, this holds
+    /// the highest applied migration version string (e.g. `"V005"`).
+    /// `None` means the file was absent entirely (current Task 3 behavior;
+    /// schema-mismatch wrapping is a deferred follow-up).
+    pub found: Option<String>,
+}
 
 /// Monotonic counter used to namespace per-process temp file names so
 /// concurrent `put_asset_with_bytes` calls in the same millisecond cannot
@@ -59,6 +75,47 @@ pub struct SqliteStore {
 }
 
 impl SqliteStore {
+    /// Open an existing SQLite DB at `path`.
+    ///
+    /// Unlike [`Self::open`], this does NOT create the file — if it is
+    /// missing, returns a [`NotIndexed`] signal suitable for `error.v1`
+    /// translation. Opens read-write to support WAL pragmas; callers should
+    /// not issue mutations through this connection — use [`Self::open`] for
+    /// ingest paths.
+    ///
+    /// **Does not run migrations** — call [`Self::run_migrations`] next if
+    /// you need the schema initialised.
+    pub fn open_existing(path: &std::path::Path) -> anyhow::Result<Self> {
+        let conn = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_URI,
+        )
+        .map_err(|_| {
+            anyhow::Error::new(NotIndexed {
+                expected: path.to_string_lossy().to_string(),
+                found: None,
+            })
+        })?;
+        apply_pragmas(&conn)?;
+
+        let data_dir = path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf();
+
+        tracing::debug!(
+            target: "kebab-store-sqlite",
+            db = %path.display(),
+            "opened existing sqlite store"
+        );
+
+        Ok(Self {
+            data_dir,
+            copy_threshold_bytes: 0,
+            conn: Mutex::new(conn),
+        })
+    }
+
     /// Open (or create) the SQLite file under `config.storage.data_dir`,
     /// apply pragmas (foreign_keys / WAL / synchronous=NORMAL /
     /// temp_store=MEMORY), and create parent directories as needed.
@@ -534,6 +591,61 @@ pub(crate) fn upsert_asset_row(
     Ok(())
 }
 
+/// p9-fb-27: aggregate counts for `SchemaV1.stats` block.
+///
+/// Returned by [`SqliteStore::count_summary`] and consumed by
+/// `kebab-app::schema_with_config` to populate the `stats` sub-object of the
+/// `schema.v1` wire record.
+#[derive(Debug, Clone)]
+pub struct CountSummary {
+    pub doc_count: u64,
+    pub chunk_count: u64,
+    pub asset_count: u64,
+    /// ISO-8601 timestamp of the most-recently updated document row, or
+    /// `None` when the store is empty.
+    pub last_ingest_at: Option<String>,
+}
+
+impl SqliteStore {
+    /// Return aggregate counts from the three primary tables plus the
+    /// most-recent `documents.updated_at` timestamp.
+    ///
+    /// Uses `read_conn()` (no mutations) — mirrors the pattern used by
+    /// [`Self::corpus_revision`].
+    pub fn count_summary(&self) -> anyhow::Result<CountSummary> {
+        let conn = self.read_conn();
+
+        let doc_count: u64 = conn
+            .query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))
+            .context("count documents")?;
+
+        let chunk_count: u64 = conn
+            .query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get(0))
+            .context("count chunks")?;
+
+        let asset_count: u64 = conn
+            .query_row("SELECT COUNT(*) FROM assets", [], |r| r.get(0))
+            .context("count assets")?;
+
+        let last_ingest_at: Option<String> = conn
+            .query_row(
+                "SELECT MAX(updated_at) FROM documents",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .context("max updated_at")?
+            .flatten();
+
+        Ok(CountSummary {
+            doc_count,
+            chunk_count,
+            asset_count,
+            last_ingest_at,
+        })
+    }
+}
+
 /// Apply the design §5 / task-spec pragmas. Called once per connection.
 /// Note: WAL is persistent (the journal-mode setting is sticky in the DB
 /// header) but `foreign_keys`, `synchronous`, and `temp_store` are
@@ -546,5 +658,29 @@ fn apply_pragmas(conn: &Connection) -> Result<()> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "temp_store", "MEMORY")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open_fresh_store() -> (tempfile::TempDir, SqliteStore) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = kebab_config::Config::defaults();
+        cfg.storage.data_dir = dir.path().to_string_lossy().into_owned();
+        let store = SqliteStore::open(&cfg).unwrap();
+        store.run_migrations().unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn count_summary_zero_on_fresh_store() {
+        let (_dir, store) = open_fresh_store();
+        let s = store.count_summary().unwrap();
+        assert_eq!(s.doc_count, 0);
+        assert_eq!(s.chunk_count, 0);
+        assert_eq!(s.asset_count, 0);
+        assert!(s.last_ingest_at.is_none());
+    }
 }
 

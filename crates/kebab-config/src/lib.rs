@@ -11,6 +11,19 @@ use serde::{Deserialize, Serialize};
 mod paths;
 pub use paths::{expand_path, expand_path_with_base};
 
+/// Signal: `Config::from_file` / `Config::load` failed due to missing path,
+/// I/O failure, TOML parse failure, or post-parse validation failure.
+///
+/// Wrapped into `anyhow::Error` at the API boundary so callers that need
+/// structured details (e.g. kebab-cli's `error_classify`) can
+/// `downcast_ref::<ConfigInvalid>()` for the wire record.
+#[derive(Debug, thiserror::Error)]
+#[error("config invalid at {path}: {cause}")]
+pub struct ConfigInvalid {
+    pub path: PathBuf,
+    pub cause: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub schema_version: u32,
@@ -393,7 +406,12 @@ impl Config {
     /// values resolve against the config file's directory rather
     /// than the user's `cwd`.
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
-        let text = std::fs::read_to_string(path)?;
+        let text = std::fs::read_to_string(path).map_err(|e| {
+            anyhow::Error::new(ConfigInvalid {
+                path: path.to_path_buf(),
+                cause: format!("read_failed: {e}"),
+            })
+        })?;
 
         // p9-fb-25: probe for the legacy `workspace.include` key — if
         // present, emit a one-shot deprecation warning. Detection uses
@@ -417,7 +435,12 @@ impl Config {
             }
         }
 
-        let mut cfg: Self = toml::from_str(&text)?;
+        let mut cfg: Self = toml::from_str(&text).map_err(|e| {
+            anyhow::Error::new(ConfigInvalid {
+                path: path.to_path_buf(),
+                cause: format!("parse_failed: {e}"),
+            })
+        })?;
         cfg.source_dir = path.parent().map(Path::to_path_buf);
         Ok(cfg)
     }
@@ -932,5 +955,33 @@ max_context_tokens = 8000
                 None => std::env::remove_var("XDG_CONFIG_HOME"),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod fb27_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn config_invalid_carries_path_and_cause() {
+        let nonexistent = PathBuf::from("/this/path/should/not/exist/kebab.toml");
+        let err = Config::from_file(&nonexistent).unwrap_err();
+        let signal = err.downcast_ref::<ConfigInvalid>()
+            .expect("from_file error should downcast to ConfigInvalid");
+        assert_eq!(signal.path, nonexistent);
+        assert!(!signal.cause.is_empty(), "cause should be non-empty");
+    }
+
+    #[test]
+    fn config_invalid_on_malformed_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("bad.toml");
+        std::fs::write(&p, "this is not [valid toml").unwrap();
+        let err = Config::from_file(&p).unwrap_err();
+        let signal = err.downcast_ref::<ConfigInvalid>()
+            .expect("malformed TOML should downcast to ConfigInvalid");
+        assert_eq!(signal.path, p);
+        assert!(!signal.cause.is_empty(), "cause should be non-empty");
     }
 }

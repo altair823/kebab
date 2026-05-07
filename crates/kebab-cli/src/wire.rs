@@ -133,6 +133,35 @@ pub fn wire_ingest_progress(
     Ok(tag_object(v, "ingest_progress.v1"))
 }
 
+/// Wrap a [`kebab_app::SchemaV1`] as `schema.v1`.
+///
+/// Uses the idempotent re-tag pattern (mirrors `wire_doctor`) because
+/// `SchemaV1` already carries `schema_version: "schema.v1"` as a struct
+/// field. The re-tag is a defensive no-op when the field is present; it
+/// stamps the correct version if a future refactor ever drops the field.
+pub fn wire_schema(s: &kebab_app::SchemaV1) -> Value {
+    let v = serde_json::to_value(s).expect("SchemaV1 serializes");
+    if let Value::Object(ref map) = v {
+        if matches!(
+            map.get("schema_version"),
+            Some(Value::String(s)) if s == kebab_app::SCHEMA_V1_ID
+        ) {
+            return v;
+        }
+    }
+    tag_object(v, kebab_app::SCHEMA_V1_ID)
+}
+
+/// Wrap an [`crate::error_classify::ErrorV1`] as `error.v1`.
+///
+/// Uses the simple `tag_object` pattern because `ErrorV1` is a
+/// kebab-cli-local type that does NOT carry `schema_version` itself
+/// (kebab-core convention).
+pub fn wire_error_v1(e: &crate::error_classify::ErrorV1) -> Value {
+    let v = serde_json::to_value(e).expect("ErrorV1 serializes");
+    tag_object(v, "error.v1")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,6 +227,51 @@ mod tests {
         let v = Value::Object(serde_json::Map::new());
         let tagged = tag_object(v, "x.v1");
         assert_eq!(schema_of(&tagged), Some("x.v1"));
+    }
+
+    #[test]
+    fn schema_wrapper_tags_schema_version() {
+        use kebab_app::{Capabilities, Models, SchemaV1, Stats, WireBlock};
+        let schema = SchemaV1 {
+            schema_version: "schema.v1".to_string(),
+            kebab_version: "0.2.1".to_string(),
+            wire: WireBlock { schemas: vec!["answer.v1".to_string()] },
+            capabilities: Capabilities {
+                json_mode: true, ingest_progress: true, ingest_cancellation: true,
+                rag_multi_turn: true, search_cache: true, incremental_ingest: true,
+                streaming_ask: false, http_daemon: false, mcp_server: false,
+                single_file_ingest: false,
+            },
+            models: Models {
+                parser_version: "x".to_string(),
+                chunker_version: "y".to_string(),
+                embedding_version: "z".to_string(),
+                prompt_template_version: "w".to_string(),
+                index_version: "v".to_string(),
+                corpus_revision: 7,
+            },
+            stats: Stats {
+                doc_count: 1, chunk_count: 2, asset_count: 1,
+                last_ingest_at: None,
+            },
+        };
+        let v = wire_schema(&schema);
+        assert_eq!(schema_of(&v), Some("schema.v1"));
+        assert_eq!(v.get("kebab_version").and_then(Value::as_str), Some("0.2.1"));
+    }
+
+    #[test]
+    fn error_wrapper_tags_schema_version_and_emits_code() {
+        use crate::error_classify::ErrorV1;
+        let err = ErrorV1 {
+            code: "config_invalid".to_string(),
+            message: "bad config".to_string(),
+            details: serde_json::json!({"path": "/tmp/x"}),
+            hint: Some("check the path".to_string()),
+        };
+        let v = wire_error_v1(&err);
+        assert_eq!(schema_of(&v), Some("error.v1"));
+        assert_eq!(v.get("code").and_then(Value::as_str), Some("config_invalid"));
     }
 
     #[test]

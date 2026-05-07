@@ -9,6 +9,7 @@ use clap::{Parser, Subcommand};
 use kebab_app::doctor_signal::{DoctorUnhealthy, NoHitSignal, RefusalSignal};
 
 mod cancel;
+mod error_classify;
 mod progress;
 mod wire;
 
@@ -176,6 +177,9 @@ enum Cmd {
     /// Health check.
     Doctor,
 
+    /// Print introspection report (wire schemas, capabilities, model versions, stats).
+    Schema,
+
     /// Launch the Ratatui shell (P9-1 — Library pane only; search /
     /// ask / inspect panes land with p9-2 / p9-3 / p9-4).
     Tui,
@@ -277,10 +281,18 @@ fn main() -> ExitCode {
             // Refusals at exit code 1 print to stdout (already done by the
             // caller); errors go to stderr.
             if code != 1 {
-                eprintln!("error: {e}");
-                if cli.verbose {
-                    for cause in e.chain().skip(1) {
-                        eprintln!("  caused by: {cause}");
+                if cli.json {
+                    let v1 = error_classify::classify(&e, cli.verbose);
+                    let v = wire::wire_error_v1(&v1);
+                    eprintln!("{}", serde_json::to_string(&v).unwrap_or_else(|_| {
+                        "{\"schema_version\":\"error.v1\",\"code\":\"generic\",\"message\":\"serialize failed\"}".to_string()
+                    }));
+                } else {
+                    eprintln!("error: {e}");
+                    if cli.verbose {
+                        for cause in e.chain().skip(1) {
+                            eprintln!("  caused by: {cause}");
+                        }
                     }
                 }
             }
@@ -603,6 +615,18 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             Ok(())
         }
 
+        Cmd::Schema => {
+            let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+            let report = kebab_app::schema_with_config(&cfg)?;
+            if cli.json {
+                let v = wire::wire_schema(&report);
+                println!("{}", serde_json::to_string(&v)?);
+            } else {
+                print_schema_text(&report);
+            }
+            Ok(())
+        }
+
         Cmd::Doctor => {
             let report = kebab_app::doctor_with_config_path(cli.config.as_deref())?;
             if cli.json {
@@ -717,6 +741,50 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             }
         },
     }
+}
+
+fn print_schema_text(s: &kebab_app::SchemaV1) {
+    println!("kebab v{}", s.kebab_version);
+    println!();
+
+    println!("wire schemas");
+    println!("  {}", s.wire.schemas.join(", "));
+    println!();
+
+    println!("capabilities");
+    let caps = [
+        ("json_mode", s.capabilities.json_mode),
+        ("ingest_progress", s.capabilities.ingest_progress),
+        ("ingest_cancellation", s.capabilities.ingest_cancellation),
+        ("rag_multi_turn", s.capabilities.rag_multi_turn),
+        ("search_cache", s.capabilities.search_cache),
+        ("incremental_ingest", s.capabilities.incremental_ingest),
+        ("streaming_ask", s.capabilities.streaming_ask),
+        ("http_daemon", s.capabilities.http_daemon),
+        ("mcp_server", s.capabilities.mcp_server),
+        ("single_file_ingest", s.capabilities.single_file_ingest),
+    ];
+    for (name, on) in caps {
+        let mark = if on { "✓" } else { "✗" };
+        println!("  {mark} {name}");
+    }
+    println!();
+
+    println!("models");
+    println!("  parser_version          {}", s.models.parser_version);
+    println!("  chunker_version         {}", s.models.chunker_version);
+    println!("  embedding_version       {}", s.models.embedding_version);
+    println!("  prompt_template_version {}", s.models.prompt_template_version);
+    println!("  index_version           {}", s.models.index_version);
+    println!("  corpus_revision         {}", s.models.corpus_revision);
+    println!();
+
+    println!("stats");
+    println!("  doc_count               {}", s.stats.doc_count);
+    println!("  chunk_count             {}", s.stats.chunk_count);
+    println!("  asset_count             {}", s.stats.asset_count);
+    let last = s.stats.last_ingest_at.as_deref().unwrap_or("(never)");
+    println!("  last_ingest_at          {last}");
 }
 
 /// Minimal stdin/stdout confirm prompt for destructive ops. No new dep —

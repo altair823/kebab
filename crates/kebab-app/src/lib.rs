@@ -56,13 +56,16 @@ use kebab_source_fs::FsSourceConnector;
 
 mod app;
 pub mod doctor_signal;
+pub mod error_signal;
 pub mod ingest_progress;
 pub mod logging;
 pub mod reset;
+pub mod schema;
 
 pub use app::App;
 pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
 pub use reset::{ResetReport, ResetScope};
+pub use schema::{Capabilities, Models, SCHEMA_V1_ID, SchemaV1, Stats, WireBlock, schema_with_config};
 
 /// p9-fb-25: sentinel for files without an extension in
 /// `IngestReport.skipped_by_extension` keys + `IngestItem.warnings`
@@ -70,21 +73,6 @@ pub use reset::{ResetReport, ResetScope};
 /// references this literal — changing the sentinel is a wire-
 /// compatibility break.
 pub const NO_EXT_SENTINEL: &str = "<no-ext>";
-
-/// Parser-version label persisted in `documents.parser_version` for
-/// every Markdown file ingested through the `kb-parse-md` pipeline.
-/// Kept in lock-step with the literal used in the `kb-store-sqlite`
-/// idempotency / round-trip tests so the version label written by the
-/// app and the one used in cross-crate fixtures match.
-///
-/// p9-fb-07 bumped this from `pulldown-cmark-0.x` to `md-frontmatter-v2`
-/// because `kebab-normalize::derive_title` now applies a fallback chain
-/// (frontmatter → H1 → H2 → first paragraph → file stem) when the
-/// frontmatter title is blank. The bump invalidates `doc_id` for every
-/// pre-existing Markdown document, so a re-ingest is required for the
-/// new titles to land — this is the documented cascade behavior per
-/// design §9.
-const KEBAB_PARSE_MD_VERSION: &str = "md-frontmatter-v2";
 
 /// Caller-supplied knobs for one [`ask`] invocation.
 ///
@@ -330,7 +318,7 @@ pub fn ingest_with_config_opts(
             .context("kb-app::ingest: ensure Lance table")?;
     }
 
-    let parser_version = ParserVersion(KEBAB_PARSE_MD_VERSION.to_string());
+    let parser_version = ParserVersion(kebab_parse_md::PARSER_VERSION.to_string());
     let chunk_policy = chunk_policy_from_config(&app.config);
 
     // P6-4: build OCR / caption adapters once per ingest invocation,
