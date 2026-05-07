@@ -67,4 +67,9 @@ async fn schema_tool_returns_schema_v1_json() {
         Some("schema.v1"),
         "unexpected schema_version in: {v}"
     );
+    assert_eq!(
+        v.get("capabilities").and_then(|c| c.get("mcp_server")).and_then(|b| b.as_bool()),
+        Some(true),
+        "mcp_server capability flag should be true after fb-30",
+    );
 }

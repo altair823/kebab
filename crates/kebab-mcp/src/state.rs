@@ -11,11 +11,8 @@ use kebab_config::Config;
 #[derive(Clone)]
 pub struct KebabAppState {
     pub config: Arc<Config>,
-    /// Original config file path passed via `--config <path>`, if any.
-    /// Forwarded to `kebab_app::doctor_with_config_path` so the doctor
-    /// report reflects the same config file the server was started with.
-    /// Plan Task 10 (Cmd::Mcp wiring) will pass the actual path; all
-    /// existing callers pass `None` which falls back to the XDG default.
+    /// `--config <path>` from CLI when present, else `None` (XDG default
+    /// fallback applies in `doctor_with_config_path`).
     pub config_path: Option<PathBuf>,
 }
 

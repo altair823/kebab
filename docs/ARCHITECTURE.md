@@ -40,6 +40,7 @@ flowchart TB
     subgraph UI ["UI binary"]
         cli["kebab-cli"]
         tui["kebab-tui"]
+        mcp["kebab-mcp<br/>(P9-FB-30)"]
         desktop["kebab-desktop<br/>(P9-5)"]
     end
     app["kebab-app<br/>(facade)"]
@@ -71,6 +72,7 @@ flowchart TB
 
     cli --> app
     tui --> app
+    mcp --> app
     desktop --> app
 
     app --> srcfs
@@ -168,6 +170,7 @@ kebab/
 │   ├── kebab-parse-pdf/                               # lopdf per-page text extractor (P7-1)
 │   ├── kebab-app/                                     # facade (P0 시그니처 + P3-5/P6-4/P7-3 본체)
 │   ├── kebab-tui/                                     # Ratatui shell + Library 패널 (P9-1)
+│   ├── kebab-mcp/                                     # stdio MCP server — tools: search, ask, doctor (P9-FB-30)
 │   └── kebab-cli/                                     # binary (P0 → 핫픽스로 --config flag wiring 강화)
 ├── migrations/                                     # SQLite refinery V001/V002/V003
 └── fixtures/                                       # 테스트 fixture 트리
