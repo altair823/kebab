@@ -393,6 +393,25 @@ impl Config {
                 if p.exists() {
                     Self::from_file(&p)?
                 } else {
+                    // macOS migration: if the new XDG path is absent but the
+                    // old ~/Library/Application Support/kebab/config.toml exists,
+                    // copy it to the new location so the user doesn't lose settings.
+                    if let Some(legacy) = Self::macos_legacy_config_path() {
+                        if legacy.exists() && !p.exists() {
+                            if let Some(parent) = p.parent() {
+                                let _ = std::fs::create_dir_all(parent);
+                            }
+                            if std::fs::copy(&legacy, &p).is_ok() {
+                                eprintln!(
+                                    "kebab: migrated config {} → {}",
+                                    legacy.display(),
+                                    p.display()
+                                );
+                                return Self::from_file(&p)
+                                    .map(|c| c.apply_env(&std::env::vars().collect()));
+                            }
+                        }
+                    }
                     Self::defaults()
                 }
             }
@@ -634,8 +653,11 @@ impl Config {
                 return PathBuf::from(custom).join("kebab").join("config.toml");
             }
         }
-        match dirs::config_dir() {
-            Some(d) => d.join("kebab").join("config.toml"),
+        // Always use XDG-standard ~/.config regardless of platform.
+        // macOS dirs::config_dir() returns ~/Library/Application Support which
+        // collides with data_dir() — DataOnly reset would delete config too.
+        match dirs::home_dir() {
+            Some(h) => h.join(".config").join("kebab").join("config.toml"),
             None => PathBuf::from("./kebab/config.toml"),
         }
     }
@@ -647,8 +669,9 @@ impl Config {
                 return PathBuf::from(custom).join("kebab");
             }
         }
-        match dirs::data_dir() {
-            Some(d) => d.join("kebab"),
+        // Always use XDG-standard ~/.local/share regardless of platform.
+        match dirs::home_dir() {
+            Some(h) => h.join(".local").join("share").join("kebab"),
             None => PathBuf::from("./kebab-data"),
         }
     }
@@ -660,8 +683,9 @@ impl Config {
                 return PathBuf::from(custom).join("kebab");
             }
         }
-        match dirs::cache_dir() {
-            Some(d) => d.join("kebab"),
+        // Always use XDG-standard ~/.cache regardless of platform.
+        match dirs::home_dir() {
+            Some(h) => h.join(".cache").join("kebab"),
             None => PathBuf::from("./kebab-cache"),
         }
     }
@@ -679,6 +703,25 @@ impl Config {
             return home.join(".local").join("state").join("kebab");
         }
         PathBuf::from("./kebab-state")
+    }
+
+    /// macOS legacy config path: `~/Library/Application Support/kebab/config.toml`.
+    /// Returns `None` on non-macOS or when home dir is unavailable.
+    /// Used for one-time migration to the XDG-standard location.
+    fn macos_legacy_config_path() -> Option<PathBuf> {
+        #[cfg(target_os = "macos")]
+        {
+            dirs::home_dir().map(|h| {
+                h.join("Library")
+                    .join("Application Support")
+                    .join("kebab")
+                    .join("config.toml")
+            })
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
     }
 }
 

@@ -14,6 +14,20 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-07 (2)
+
+### macOS XDG path collision: `data_dir` == `config_dir` → DataOnly reset deletes config
+
+- **File**: `crates/kebab-config/src/lib.rs`
+- **Root cause**: `dirs` crate 가 macOS 에서 `config_dir()` 과 `data_dir()` 모두 `~/Library/Application Support/` 반환. `ResetScope::DataOnly` 가 `data_dir` 을 삭제하면 config 파일까지 함께 삭제됨.
+- **Fix**: `xdg_config_path`, `xdg_data_dir`, `xdg_cache_dir` 의 `dirs` fallback 제거 → `$HOME/.config`, `$HOME/.local/share`, `$HOME/.cache` 직접 사용 (XDG 표준, 플랫폼 무관).
+- **Migration**: `Config::load(None)` 에서 새 경로 없고 macOS legacy (`~/Library/Application Support/kebab/config.toml`) 있으면 자동 copy + stderr 안내.
+- **New paths** (macOS):
+  - config: `~/.config/kebab/config.toml` (was `~/Library/Application Support/kebab/config.toml`)
+  - data: `~/.local/share/kebab/` (was `~/Library/Application Support/kebab/`)
+  - cache: `~/.cache/kebab/` (was `~/Library/Caches/kebab/`)
+  - state: `~/.local/state/kebab/` (unchanged)
+
 ## 2026-05-07
 
 ### fb-26: ingest 로그 `Aborted` 무조건 writeln + `Completed` TTY 요약 없음
