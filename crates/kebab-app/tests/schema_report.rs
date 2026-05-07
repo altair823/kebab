@@ -68,6 +68,16 @@ fn schema_report_reflects_freshly_ingested_kb() {
         "last_ingest_at must be set after ingest: {:?}",
         schema.stats
     );
+    assert!(
+        schema.stats.chunk_count >= 2,
+        "expected ≥2 chunks (a.md + b.md): {:?}",
+        schema.stats
+    );
+    assert_eq!(
+        schema.stats.asset_count, 2,
+        "expected 2 assets (a.md + b.md): {:?}",
+        schema.stats
+    );
 }
 
 #[test]
