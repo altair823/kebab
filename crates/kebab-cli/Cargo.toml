@@ -27,6 +27,8 @@ kebab-eval = { path = "../kebab-eval" }
 # enforces the §8 boundary in its own Cargo.toml; kb-cli just
 # launches it.
 kebab-tui    = { path = "../kebab-tui" }
+# p9-fb-30: MCP stdio server. `Cmd::Mcp` delegates entirely to this crate.
+kebab-mcp    = { path = "../kebab-mcp" }
 anyhow       = { workspace = true }
 serde        = { workspace = true }
 serde_json   = { workspace = true }

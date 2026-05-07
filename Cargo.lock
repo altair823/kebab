@@ -3592,6 +3592,7 @@ dependencies = [
  "kebab-config",
  "kebab-core",
  "kebab-eval",
+ "kebab-mcp",
  "kebab-tui",
  "serde",
  "serde_json",

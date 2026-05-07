@@ -4,6 +4,8 @@
 //!
 //! See spec `docs/superpowers/specs/2026-05-07-p9-fb-30-mcp-server-design.md`.
 
+use std::path::PathBuf;
+
 use anyhow::Result;
 
 use rmcp::ServerHandler;
@@ -142,16 +144,21 @@ impl ServerHandler for KebabHandler {
 
 /// Run the MCP server on stdio JSON-RPC. Blocks until the client closes
 /// the stream (typically when the agent host exits).
-pub fn serve_stdio(cfg: Config) -> Result<()> {
+///
+/// `config_path` is the path passed via `--config <path>`, if any.
+/// It is forwarded to `KebabAppState` so the doctor tool can honour the
+/// same config file the server was started with (falls back to XDG default
+/// when `None`).
+pub fn serve_stdio(cfg: Config, config_path: Option<PathBuf>) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    runtime.block_on(serve_stdio_async(cfg))
+    runtime.block_on(serve_stdio_async(cfg, config_path))
 }
 
-async fn serve_stdio_async(cfg: Config) -> Result<()> {
+async fn serve_stdio_async(cfg: Config, config_path: Option<PathBuf>) -> Result<()> {
     tracing::info!("kebab-mcp: starting stdio server");
-    let state = KebabAppState::new(cfg, None); // Plan Task 10 will thread the actual path
+    let state = KebabAppState::new(cfg, config_path);
     let handler = KebabHandler::new(state);
     let service = handler.serve(stdio()).await?;
     service.waiting().await?;

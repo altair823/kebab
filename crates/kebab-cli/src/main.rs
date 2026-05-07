@@ -188,6 +188,11 @@ enum Cmd {
         #[command(subcommand)]
         what: EvalWhat,
     },
+
+    /// Run the MCP (Model Context Protocol) stdio server. Used by
+    /// agent hosts (Claude Code / Cursor / OpenAI Agents) to call kebab
+    /// tools (search / ask / schema / doctor).
+    Mcp,
 }
 
 #[derive(Subcommand, Debug)]
@@ -739,6 +744,11 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 Ok(())
             }
         },
+
+        Cmd::Mcp => {
+            let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+            kebab_mcp::serve_stdio(cfg, cli.config.clone())
+        }
     }
 }
 
