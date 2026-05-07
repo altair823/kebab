@@ -1,6 +1,6 @@
-//! MCP (Model Context Protocol) server over stdio. Exposes 4 read-only
-//! tools (`search` / `ask` / `schema` / `doctor`) backed by `kebab-app`
-//! facade methods. Used by `kebab-cli`'s `Cmd::Mcp` arm.
+//! MCP (Model Context Protocol) server over stdio. Exposes 6 tools
+//! (`search` / `ask` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`)
+//! backed by `kebab-app` facade methods. Used by `kebab-cli`'s `Cmd::Mcp` arm.
 //!
 //! See spec `docs/superpowers/specs/2026-05-07-p9-fb-30-mcp-server-design.md`.
 
@@ -50,6 +50,16 @@ pub fn build_tools_vec() -> Vec<Tool> {
             "ask",
             "RAG question answering over the knowledge base. Returns answer.v1 JSON. Pass session_id for multi-turn context.",
             schema_for_type::<tools::ask::AskInput>(),
+        ),
+        Tool::new(
+            "ingest_file",
+            "Ingest a single file (path) into the knowledge base. Workspace external paths allowed — bytes are copied into _external/.",
+            schema_for_type::<tools::ingest_file::IngestFileInput>(),
+        ),
+        Tool::new(
+            "ingest_stdin",
+            "Ingest markdown content into the knowledge base. v1 markdown only. Frontmatter (title + source_uri) auto-injected.",
+            schema_for_type::<tools::ingest_stdin::IngestStdinInput>(),
         ),
     ]
 }
@@ -130,6 +140,20 @@ impl ServerHandler for KebabHandler {
                 let args = request.arguments.unwrap_or_default();
                 self.spawn_tool(args, |state, input| {
                     tools::ask::handle(&state, input)
+                })
+                .await
+            }
+            "ingest_file" => {
+                let args = request.arguments.unwrap_or_default();
+                self.spawn_tool(args, |state, input| {
+                    tools::ingest_file::handle(&state, input)
+                })
+                .await
+            }
+            "ingest_stdin" => {
+                let args = request.arguments.unwrap_or_default();
+                self.spawn_tool(args, |state, input| {
+                    tools::ingest_stdin::handle(&state, input)
                 })
                 .await
             }
