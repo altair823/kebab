@@ -39,18 +39,22 @@ pub enum ProgressMode {
     Json,
     /// stdout reserved for the final report; stderr gets an indicatif
     /// `ProgressBar` (TTY) or one short line per event (non-TTY).
-    Human { tty: bool },
+    Human { tty: bool, quiet: bool },
 }
 
 impl ProgressMode {
     /// Pick the right mode from caller flags.
-    pub fn from_flags(json: bool) -> Self {
+    ///
+    /// - `json`: `--json` flag — takes priority, returns `Json`.
+    /// - `quiet`: `--quiet` flag — suppresses human-readable stderr when `Human`.
+    /// - `plain_env`: `KEBAB_PROGRESS=plain` — forces `tty=false` even in a TTY,
+    ///   for CI environments that emulate a TTY with a pty wrapper.
+    pub fn from_flags(json: bool, quiet: bool, plain_env: bool) -> Self {
         if json {
             Self::Json
         } else {
-            Self::Human {
-                tty: std::io::stderr().is_terminal(),
-            }
+            let tty = !plain_env && std::io::stderr().is_terminal();
+            Self::Human { tty, quiet }
         }
     }
 }
@@ -83,7 +87,7 @@ impl ProgressDisplay {
     fn handle(&mut self, event: &IngestEvent) -> anyhow::Result<()> {
         match self.mode {
             ProgressMode::Json => emit_json(event),
-            ProgressMode::Human { tty } => self.handle_human(event, tty),
+            ProgressMode::Human { tty, quiet } => self.handle_human(event, tty, quiet),
         }
     }
 
@@ -96,7 +100,8 @@ impl ProgressDisplay {
     /// `ScanStarted` arm and §2.4a's ordering invariant
     /// (`ScanStarted` < everything else) guarantees it is `Some` by
     /// the time later events arrive.
-    fn handle_human(&mut self, event: &IngestEvent, tty: bool) -> anyhow::Result<()> {
+    fn handle_human(&mut self, event: &IngestEvent, tty: bool, quiet: bool) -> anyhow::Result<()> {
+        let _ = quiet; // used in Task 3; suppress unused warning for now
         match event {
             IngestEvent::ScanStarted { root } => {
                 let bar = ProgressBar::new_spinner().with_message(format!("scanning {root}"));
@@ -216,17 +221,32 @@ mod tests {
 
     #[test]
     fn from_flags_json_takes_priority_over_tty() {
-        // --json forces Json regardless of TTY state.
-        assert_eq!(ProgressMode::from_flags(true), ProgressMode::Json);
+        assert_eq!(ProgressMode::from_flags(true, false, false), ProgressMode::Json);
     }
 
     #[test]
     fn from_flags_human_reflects_stderr_tty() {
         // We can't synthesize a TTY in tests, but we can assert the
         // shape — mode is Human { tty: <something> } when --json=false.
-        match ProgressMode::from_flags(false) {
+        match ProgressMode::from_flags(false, false, false) {
             ProgressMode::Human { .. } => {}
             other => panic!("expected Human mode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn from_flags_quiet_sets_quiet_field() {
+        match ProgressMode::from_flags(false, true, false) {
+            ProgressMode::Human { quiet: true, .. } => {}
+            other => panic!("expected Human{{quiet:true}}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn from_flags_plain_env_forces_tty_false() {
+        match ProgressMode::from_flags(false, false, true) {
+            ProgressMode::Human { tty: false, .. } => {}
+            other => panic!("expected Human{{tty:false}}, got {other:?}"),
         }
     }
 

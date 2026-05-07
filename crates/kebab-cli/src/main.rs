@@ -370,7 +370,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             // the channel and emits per-step events into it. When the
             // call returns, the `Sender` drops and the display thread
             // sees `recv()` return Err — exits cleanly.
-            let mode = progress::ProgressMode::from_flags(cli.json);
+            let mode = progress::ProgressMode::from_flags(cli.json, false, false);
             let (tx, rx) = std::sync::mpsc::channel::<kebab_app::IngestEvent>();
             let display_handle = std::thread::spawn(move || {
                 progress::ProgressDisplay::new(mode).run(rx)
