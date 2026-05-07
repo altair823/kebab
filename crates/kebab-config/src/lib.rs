@@ -409,7 +409,7 @@ impl Config {
         let text = std::fs::read_to_string(path).map_err(|e| {
             anyhow::Error::new(ConfigInvalid {
                 path: path.to_path_buf(),
-                cause: format!("read failed: {e}"),
+                cause: format!("read_failed: {e}"),
             })
         })?;
 
@@ -438,7 +438,7 @@ impl Config {
         let mut cfg: Self = toml::from_str(&text).map_err(|e| {
             anyhow::Error::new(ConfigInvalid {
                 path: path.to_path_buf(),
-                cause: format!("parse failed: {e}"),
+                cause: format!("parse_failed: {e}"),
             })
         })?;
         cfg.source_dir = path.parent().map(Path::to_path_buf);
@@ -982,5 +982,6 @@ mod fb27_tests {
         let signal = err.downcast_ref::<ConfigInvalid>()
             .expect("malformed TOML should downcast to ConfigInvalid");
         assert_eq!(signal.path, p);
+        assert!(!signal.cause.is_empty(), "cause should be non-empty");
     }
 }
