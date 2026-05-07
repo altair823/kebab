@@ -80,7 +80,9 @@ kebab doctor
 | `kebab reset [--all / --data-only / --vector-only / --config-only] [--yes]` | XDG 데이터 wipe. **Irreversible.** TTY 면 confirm prompt, 아니면 `--yes` 필수. `--vector-only` 는 SQLite `embedding_records` 도 함께 truncate (orphan 방지) |
 | `kebab eval run / compare` | golden query 회귀 측정 |
 | `kebab schema [--json]` | introspection — wire schemas / capabilities / models / stats 한 번에. `--json` 은 `schema.v1` wire; 사람 모드는 서식 출력. |
-| `kebab mcp` | MCP (Model Context Protocol) stdio server. agent host (Claude Code / Cursor / OpenAI Agents) 가 spawn 하여 tool 호출 (`search` / `ask` / `schema` / `doctor`). `--config` honor. |
+| `kebab ingest-file <path>` | 단일 파일 ingest (workspace 외부 가능). 바이트는 `<workspace.root>/_external/<hash12>.<ext>` 로 copy. `.kebabignore` 매치 시 stderr warn 후 진행 (explicit ingest 가 bypass intent). |
+| `kebab ingest-stdin --title <T> [--source-uri <URI>]` | stdin 의 markdown 본문 ingest. frontmatter (title + source_uri) 자동 prepend. v1 markdown only. |
+| `kebab mcp` | MCP (Model Context Protocol) stdio server. agent host (Claude Code / Cursor / OpenAI Agents) 가 spawn 하여 tool 호출 (`search` / `ask` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`). `--config` honor. |
 
 모든 명령에 `--json` 플래그. 출력은 frozen wire schema v1 (`schema_version` 항상 포함, 예: `ingest_report.v1`, `ingest_progress.v1`, `search_hit.v1`, `answer.v1`, `doctor.v1`, `reset_report.v1`, `schema.v1`). `--json` 모드에서 fatal error 는 stderr 에 `error.v1` ndjson 으로 emit (exit code 0/1/2/3 unchanged).
 
@@ -179,7 +181,7 @@ config 예시는 [docs/SMOKE.md](docs/SMOKE.md) 의 `/tmp/kebab-smoke/config.tom
 }
 ```
 
-Claude Code 가 session 시작 시 `kebab mcp` 를 spawn — process 가 session 동안 살아 있어 SQLite / Lance / fastembed 가 hot. 4 tool: `search` (lexical/vector/hybrid 검색), `ask` (RAG 답변, optional `session_id` for multi-turn + optional `mode` override), `schema` (capability 조회), `doctor` (health check). 모든 tool 의 결과는 wire schema v1 JSON 으로 text content 안에 직렬화 — agent 가 parse 후 사용. tool dispatch 실패 (잘못된 config / 미초기화 KB 등) 는 `isError: true` + error.v1 content; refusal / no-hit / unhealthy 는 정상 응답 (semantic flag 으로 분기).
+Claude Code 가 session 시작 시 `kebab mcp` 를 spawn — process 가 session 동안 살아 있어 SQLite / Lance / fastembed 가 hot. 6 tool: `search` (lexical/vector/hybrid 검색), `ask` (RAG 답변, optional `session_id` for multi-turn + optional `mode` override), `schema` (capability 조회), `doctor` (health check), `ingest_file` (단일 파일 KB 저장), `ingest_stdin` (markdown 본문 + title/source_uri 로 KB 저장). 모든 tool 의 결과는 wire schema v1 JSON 으로 text content 안에 직렬화 — agent 가 parse 후 사용. tool dispatch 실패 (잘못된 config / 미초기화 KB 등) 는 `isError: true` + error.v1 content; refusal / no-hit / unhealthy 는 정상 응답 (semantic flag 으로 분기).
 
 ## 비-목표
 

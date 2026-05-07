@@ -86,9 +86,24 @@ Since v0.4.0, `kebab` exposes an MCP (Model Context Protocol) stdio server. Conf
 }
 ```
 
-Claude Code spawns `kebab mcp` at session start; the process stays alive across all tool calls so SQLite / Lance / fastembed are hot after the first call. 4 tools available: `search` / `ask` / `schema` / `doctor`. Same wire shapes as the CLI `--json` mode — see `Two surfaces, pick the right one` above for the same guidance.
+Claude Code spawns `kebab mcp` at session start; the process stays alive across all tool calls so SQLite / Lance / fastembed are hot after the first call. 6 tools available: `search` / `ask` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`. Same wire shapes as the CLI `--json` mode — see `Two surfaces, pick the right one` above for the same guidance.
 
 If your host doesn't support MCP, the CLI subprocess pattern (`kebab search --json` / `kebab ask --json`) above continues to work.
+
+## Recipe D — agent fetched a web doc, save to KB
+
+When you've fetched a markdown article (e.g. via WebFetch) that the user might query later:
+
+1. Call MCP tool `ingest_stdin` with:
+   - `content`: the markdown body
+   - `title`: a stable title (article H1 or page title)
+   - `source_uri`: the URL you fetched from
+
+The doc lands in `<workspace.root>/_external/<hash>.md` and is indexed for `search` / `ask` immediately. Subsequent calls with identical content are no-ops (incremental ingest detects unchanged hash).
+
+Don't loop ingest the same article — content-hash dedup makes it safe but wastes embedding cost.
+
+For files already on disk that the user references, prefer `ingest_file` with the path — kebab handles the copy + dedup.
 
 ## Workflow recipes
 
