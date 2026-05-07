@@ -193,6 +193,13 @@ enum Cmd {
     /// agent hosts (Claude Code / Cursor / OpenAI Agents) to call kebab
     /// tools (search / ask / schema / doctor).
     Mcp,
+
+    /// Ingest a single file (workspace external paths allowed).
+    /// Bytes are copied into `<workspace.root>/_external/<hash>.<ext>`.
+    IngestFile {
+        /// File path to ingest.
+        path: std::path::PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -744,6 +751,22 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 Ok(())
             }
         },
+
+        Cmd::IngestFile { path } => {
+            let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+            let report = kebab_app::ingest_file_with_config(cfg, path)?;
+            if cli.json {
+                let v = wire::wire_ingest(&report);
+                println!("{}", serde_json::to_string(&v)?);
+            } else {
+                println!(
+                    "ingest-file: scanned={} new={} updated={} unchanged={} skipped={} errors={}",
+                    report.scanned, report.new, report.updated,
+                    report.unchanged, report.skipped, report.errors
+                );
+            }
+            Ok(())
+        }
 
         Cmd::Mcp => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
