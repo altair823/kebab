@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kebab.local/wire-schema/v1/error.schema.json",
+  "title": "error.v1",
+  "description": "Structured fatal error emitted on stderr in --json mode. The `details` shape varies per `code`; consumers should branch on `code` and treat `details` as best-effort context.",
+  "type": "object",
+  "required": ["schema_version", "code", "message", "details"],
+  "properties": {
+    "schema_version": { "const": "error.v1" },
+    "code": {
+      "type": "string",
+      "enum": [
+        "config_invalid",
+        "not_indexed",
+        "model_unreachable",
+        "model_not_pulled",
+        "timeout",
+        "io_error",
+        "generic"
+      ]
+    },
+    "message": { "type": "string" },
+    "details": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Per-code free-form context. config_invalid: { path, cause }. not_indexed: { expected, found }. model_unreachable: { endpoint, source }. model_not_pulled: { model }. timeout: { source }. io_error: { kind }. generic: { chain (when --verbose) }."
+    },
+    "hint": {
+      "anyOf": [
+        { "type": "string" },
+        { "type": "null" }
+      ]
+    }
+  }
+}
