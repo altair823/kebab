@@ -49,6 +49,9 @@ lru                  = { workspace = true }
 # `" foo "` collapse to one entry. Same crate kebab-normalize +
 # kebab-core already use, no version drift.
 unicode-normalization = "0.1"
+# p9-fb-31: GitignoreBuilder for .kebabignore matching in ingest_file_with_config.
+# Same version as kebab-source-fs (0.4) to avoid duplicate dep versions.
+ignore               = "0.4"
 
 [dev-dependencies]
 rusqlite             = { workspace = true }

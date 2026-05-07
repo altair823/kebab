@@ -1875,3 +1875,99 @@ pub fn doctor_with_config_path(config_path: Option<&std::path::Path>) -> anyhow:
 pub fn doctor() -> anyhow::Result<DoctorReport> {
     doctor_with_config_path(None)
 }
+
+/// Single-file ingest (p9-fb-31). Copies the file to
+/// `<workspace.root>/_external/<blake3-12>.<ext>` and runs the
+/// per-medium ingest pipeline on that single asset. Returns an
+/// `IngestReport` with `scanned: 1` (and either `new: 1` or
+/// `unchanged: 1` depending on whether the content hash + version
+/// cascade match an existing doc — incremental ingest from p9-fb-23).
+///
+/// `path` may point inside or outside the workspace.
+///
+/// `.kebabignore` patterns matching `path` are bypassed with a stderr
+/// `warn:` line — explicit ingest is intent.
+#[doc(hidden)]
+pub fn ingest_file_with_config(
+    config: kebab_config::Config,
+    path: &std::path::Path,
+) -> anyhow::Result<IngestReport> {
+    if !path.exists() {
+        anyhow::bail!("ingest-file: source path does not exist: {}", path.display());
+    }
+    if !path.is_file() {
+        anyhow::bail!("ingest-file: not a regular file: {}", path.display());
+    }
+
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .ok_or_else(|| anyhow::anyhow!("ingest-file: source has no extension: {}", path.display()))?;
+
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("ingest-file: read source {}", path.display()))?;
+
+    let workspace_root = config.resolve_workspace_root();
+
+    // .kebabignore check — warn but continue.
+    let ignore_match = check_kebabignore_match(&workspace_root, path);
+    if ignore_match {
+        eprintln!(
+            "warn: {} matches .kebabignore patterns; proceeding (explicit ingest bypasses ignore)",
+            path.display()
+        );
+    }
+
+    // Set up _external/ dir + auto-ignore line.
+    let external_dir = crate::external::ensure_external_dir(&workspace_root)
+        .context("ingest-file: ensure _external/ dir")?;
+    crate::external::ensure_kebabignore_entry(&workspace_root)
+        .context("ingest-file: append _external/ to .kebabignore")?;
+
+    // Copy bytes to _external/<hash>.<ext>.
+    let dest = crate::external::copy_to_external(&external_dir, &bytes, ext)
+        .context("ingest-file: copy to _external")?;
+
+    // Build a SourceScope that targets _external/ with include filter
+    // restricting walk to the single dest filename.
+    let filename = dest
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("ingest-file: dest has no filename"))?
+        .to_string_lossy()
+        .into_owned();
+    let scope = kebab_core::SourceScope {
+        root: external_dir.clone(),
+        include: vec![filename],
+        exclude: config.workspace.exclude.clone(),
+    };
+
+    let opts = IngestOpts::default();
+    ingest_with_config_opts(config, scope, /* summary_only = */ false, opts)
+}
+
+/// Returns true if `source_path` matches any `.kebabignore` pattern
+/// rooted at `workspace_root`. Used by `ingest_file_with_config` to
+/// emit a stderr warn before bypassing the ignore.
+fn check_kebabignore_match(workspace_root: &std::path::Path, source_path: &std::path::Path) -> bool {
+    let kebabignore = workspace_root.join(".kebabignore");
+    if !kebabignore.exists() {
+        return false;
+    }
+    let text = match std::fs::read_to_string(&kebabignore) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let mut builder = ignore::gitignore::GitignoreBuilder::new(workspace_root);
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let _ = builder.add_line(None, line);
+    }
+    let matcher = match builder.build() {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    matcher.matched(source_path, source_path.is_dir()).is_ignore()
+}
