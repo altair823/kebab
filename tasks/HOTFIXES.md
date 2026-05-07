@@ -14,6 +14,43 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-07 — p9-fb-27 (post-dogfooding): introspection (`kebab schema`) + structured error wire
+
+**Source feedback**: 사용자 도그푸딩 2026-05-06 — agent 가 kebab 인스턴스의 wire 버전 / 기능 / 모델 / 인덱스 통계 introspect 못 함; error 가 stderr text 라 substring 분기 필요.
+
+**Live binding 변경**:
+
+- 신규 명령 `kebab schema [--json]` — text / `schema.v1` JSON. `--config <path>` honor.
+- 신규 wire `schema.v1` — `kebab_version` (`env!("CARGO_PKG_VERSION")`) / `wire.schemas` / `capabilities` (10 bool, 4 미래 surface 포함) / `models` (parser/chunker/embedding/prompt_template/index/corpus_revision 6축) / `stats` (doc/chunk/asset count + last_ingest_at). `SchemaV1` 가 자체 `schema_version: "schema.v1"` 필드 carry — `wire_doctor` 와 동일 idempotent re-tag pattern.
+- 신규 wire `error.v1` — `--json` 모드에서 fatal error 가 stderr ndjson 으로 emit. 비 `--json` 은 기존 stderr text 유지.
+- error code 7개 initial set: `config_invalid` (`ConfigInvalid` signal in kebab-config, `cause` prefix `read_failed:` / `parse_failed:` underscore-slugged for stable agent matching) / `not_indexed` (`NotIndexed` in kebab-store-sqlite, `SqliteStore::open_existing` API 신규 — `OpenFlags::SQLITE_OPEN_READ_WRITE | SQLITE_OPEN_URI` 로 silent CREATE 방지) / `model_unreachable` (`LlmError::Unreachable`) / `model_not_pulled` (`LlmError::ModelNotPulled`) / `timeout` (`LlmError::Timeout`) / `io_error` (`std::io::Error` chain detection) / `generic` (catch-all, verbose 시 `details.chain` 채움).
+- exit code 0/1/2/3 unchanged — `RefusalSignal` / `NoHitSignal` / `DoctorUnhealthy` 만 보고 1/1/3 결정. 신규 5 typed signal 모두 fall-through → 2.
+- `kebab-app::error_signal` 모듈 신규 — `doctor_signal` 의 3 signal 과 신규 typed error 들 한 곳에서 re-export.
+- `kebab-store-sqlite::SqliteStore::count_summary` 메서드 신규 — `schema.v1.stats` block backing.
+- `kebab_parse_md::PARSER_VERSION` + `kebab_store_vector::INDEX_VERSION_STR` `pub const` 노출 — kebab-app 의 `Models` block 이 single source of truth (cascade 규약 충족).
+
+**Spec contract impact**: design §10 에 §10.1 capability matrix subsection 추가 — `schema.v1` / `error.v1` wire 명시.
+
+**Tests added**: kebab-config fb27_tests (2: ConfigInvalid downcast / malformed TOML), kebab-store-sqlite (3: NotIndexed signal + open_existing no-create regression + count_summary zero state), kebab-cli error_classify::tests (7: 7 code 분류 + verbose chain), kebab-cli wire::tests (2: schema.v1 / error.v1 round-trip), kebab-app schema_report integration (2: ingested KB stats + empty KB), kebab-cli cli_schema integration (2: --json + text), kebab-cli cli_error_wire integration (2: --json error.v1 + legacy text). 약 20 신규 테스트.
+
+**Known limitation (deferred — interim wire shape)**:
+
+- `error.v1.details` shape per code 가 frozen design literal 과 일부 일탈 — 신규 typed signal 도입 deferred 라 발생:
+  - `io_error.details` = `{ "kind": "<ErrorKind debug string>" }` (spec literal 의 `{ path, op }` 아님 — `IoFailure` typed signal 추가 시 정정).
+  - `timeout.details` = `{ "source": "<error display>" }` (spec literal 의 `{ operation, elapsed_ms, deadline_ms }` 아님 — `OpTimeout` typed signal + per-callsite stamping 추가 시 정정).
+  - `model_unreachable.details` = `{ endpoint, source }` (spec literal 의 `{ endpoint, operation }` — `LlmError::Unreachable` 가 `operation` field 없음).
+  - `model_not_pulled.details` = `{ model }` (spec literal 의 `{ model, endpoint, operation }` — `LlmError::ModelNotPulled` 가 model id 만 carry).
+  - JSON Schema literal `docs/wire-schema/v1/error.schema.json` 의 `details` block 은 `additionalProperties: true` + `required: []` 로 permissive — 실제 emit shape 반영. 후속 task 가 typed signal 추가 시 schema 의 description 갱신.
+- `Config::load(Some(/nonexistent))` 가 silent default fallback — agent 가 `--config /wrong` 으로 호출 시 `config_invalid` 가 아닌 default config 적용 + 후속 명령이 default 동작. fb-28 (`--readonly`/`--quiet`) 또는 별 follow-up 에서 `--config` strict mode 도입 검토 필요.
+- `Config::from_file` 의 schema-mismatch (DB 마이그레이션 버전 안 맞음) 는 `NotIndexed.found = None` 으로만 보고 — `_refinery_schema_history` 의 max version 을 read 하는 후속 PR 에서 `found: Some("V005")` 같은 정확한 값 채움.
+- `LlmError::Stream` / `Malformed` 가 `code: "generic"` fallback — 후속 task 에서 `stream_aborted` / `malformed_response` 같은 dedicated code 도입 검토 (design §10.1 future-extensions 절 참조).
+- README 의 wire schema 목록과 CLAUDE.md 의 wire schema 목록이 fb-27 머지 시점에 약간 일치 안 함 (CLAUDE.md 가 `eval_run.v1`/`eval_compare.v1`/`list_docs.v1` 포함, 실제 docs/wire-schema/v1/ 에 해당 파일 없음). 별 follow-up 에서 doc / 실제 wire 동기화 sweep 진행.
+
+**Amends**:
+- design §10 (capability matrix subsection 추가).
+- spec `tasks/p9/p9-fb-27-introspection-and-error-wire.md` (status `open` → `completed`).
+- spec stub 의 `Goal (skeleton)` 의 6 exit code (`0/1/2/3/4/5`) 제안 → 실제 채택 0/1/2/3 only.
+
 ## 2026-05-05 — p9-fb-25 (post-dogfooding): config workspace.include 제거 + 지원 형식 가시성
 
 **Source feedback**: 사용자 도그푸딩 2026-05-05 — config 의 `workspace.include` + `workspace.exclude` 동시 존재가 case 4 (둘 다 매치 안 함) 의미 모호 + 어차피 처리 가능 형식 (md / png / jpg / pdf) 이 정해져 있으니 사용자에게 명시 필요.

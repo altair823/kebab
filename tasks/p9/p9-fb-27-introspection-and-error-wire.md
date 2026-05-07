@@ -3,7 +3,7 @@ phase: P9
 component: kebab-cli + kebab-app + wire-schema
 task_id: p9-fb-27
 title: "Introspection (`kebab schema`) + structured error wire"
-status: open
+status: completed
 target_version: 0.3.0
 depends_on: []
 unblocks: [p9-fb-30]
@@ -14,7 +14,7 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — agent 가 kebab 인스턴
 
 # p9-fb-27 — Introspection + structured error wire
 
-> ⏳ **백로그 only — 미구현.** 본 spec 은 도그푸딩 피드백 skeleton. 구현 착수 전 [superpowers:brainstorming](../../docs/superpowers/) 으로 설계 단계 선행 필요. capability matrix 정의 / error code enumerate / exit code 매핑 brainstorm 후 확정.
+> ✅ **구현 완료.** 본 spec 은 구현 시점의 frozen 상태. post-merge deviation (특히 `error.v1.details` 의 interim shape) 은 [HOTFIXES.md](../HOTFIXES.md) 의 `2026-05-07 — p9-fb-27` 항목 참조 — live source of truth.
 
 ## 증상 / 동기
 
