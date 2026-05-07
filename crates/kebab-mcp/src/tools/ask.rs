@@ -50,7 +50,10 @@ pub fn handle(state: &KebabAppState, input: AskInput) -> CallToolResult {
         Ok(answer) => {
             // `Answer` does not carry `schema_version`; tag inline (idempotent
             // via entry().or_insert_with in case a future version adds it).
-            let mut v = serde_json::to_value(&answer).unwrap_or_default();
+            let mut v = match serde_json::to_value(&answer) {
+                Ok(v) => v,
+                Err(e) => return to_tool_error(&anyhow::anyhow!("answer serialize failed: {e}")),
+            };
             if let serde_json::Value::Object(ref mut map) = v {
                 map.entry("schema_version".to_string())
                     .or_insert_with(|| serde_json::Value::String("answer.v1".to_string()));

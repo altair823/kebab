@@ -67,6 +67,28 @@ impl KebabHandler {
     pub fn state(&self) -> &KebabAppState {
         &self.state
     }
+
+    /// Spawn a tool handler on the blocking pool. Used by tools that
+    /// transitively touch reqwest::blocking::Client (search, ask) — calling
+    /// from the async dispatch directly panics inside the runtime.
+    async fn spawn_tool<I, F>(
+        &self,
+        args: serde_json::Map<String, serde_json::Value>,
+        handle: F,
+    ) -> Result<CallToolResult, ErrorData>
+    where
+        I: serde::de::DeserializeOwned + Send + 'static,
+        F: FnOnce(KebabAppState, I) -> CallToolResult + Send + 'static,
+    {
+        let input: I = match serde_json::from_value(serde_json::Value::Object(args)) {
+            Ok(i) => i,
+            Err(e) => return Ok(error::to_tool_error(&anyhow::Error::from(e))),
+        };
+        let state = self.state.clone();
+        tokio::task::spawn_blocking(move || handle(state, input))
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))
+    }
 }
 
 impl ServerHandler for KebabHandler {
@@ -99,41 +121,17 @@ impl ServerHandler for KebabHandler {
             }
             "search" => {
                 let args = request.arguments.unwrap_or_default();
-                let input: tools::search::SearchInput =
-                    match serde_json::from_value(serde_json::Value::Object(args)) {
-                        Ok(i) => i,
-                        Err(e) => {
-                            return Ok(error::to_tool_error(&anyhow::Error::from(e)));
-                        }
-                    };
-                let state = self.state.clone();
-                let result = tokio::task::spawn_blocking(move || {
+                self.spawn_tool(args, |state, input| {
                     tools::search::handle(&state, input)
                 })
                 .await
-                .map_err(|e| {
-                    ErrorData::internal_error(e.to_string(), None)
-                })?;
-                Ok(result)
             }
             "ask" => {
                 let args = request.arguments.unwrap_or_default();
-                let input: tools::ask::AskInput =
-                    match serde_json::from_value(serde_json::Value::Object(args)) {
-                        Ok(i) => i,
-                        Err(e) => {
-                            return Ok(error::to_tool_error(&anyhow::Error::from(e)));
-                        }
-                    };
-                let state = self.state.clone();
-                let result = tokio::task::spawn_blocking(move || {
+                self.spawn_tool(args, |state, input| {
                     tools::ask::handle(&state, input)
                 })
                 .await
-                .map_err(|e| {
-                    ErrorData::internal_error(e.to_string(), None)
-                })?;
-                Ok(result)
             }
             _other => Err(ErrorData::method_not_found::<
                 rmcp::model::CallToolRequestMethod,

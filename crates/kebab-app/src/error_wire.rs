@@ -11,6 +11,10 @@ use serde_json::{Value, json};
 
 use crate::error_signal::{ConfigInvalid, LlmError, NotIndexed};
 
+/// Wire schema id for [`ErrorV1`]. Single source of truth — kebab-cli
+/// + kebab-mcp use this via `kebab_app::ERROR_V1_ID`.
+pub const ERROR_V1_ID: &str = "error.v1";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorV1 {
     pub schema_version: String,
@@ -23,7 +27,7 @@ pub struct ErrorV1 {
 pub fn classify(err: &anyhow::Error, verbose: bool) -> ErrorV1 {
     if let Some(s) = err.downcast_ref::<ConfigInvalid>() {
         return ErrorV1 {
-            schema_version: "error.v1".to_string(),
+            schema_version: ERROR_V1_ID.to_string(),
             code: "config_invalid".to_string(),
             message: s.to_string(),
             details: json!({
@@ -35,7 +39,7 @@ pub fn classify(err: &anyhow::Error, verbose: bool) -> ErrorV1 {
     }
     if let Some(s) = err.downcast_ref::<NotIndexed>() {
         return ErrorV1 {
-            schema_version: "error.v1".to_string(),
+            schema_version: ERROR_V1_ID.to_string(),
             code: "not_indexed".to_string(),
             message: s.to_string(),
             details: json!({
@@ -50,7 +54,7 @@ pub fn classify(err: &anyhow::Error, verbose: bool) -> ErrorV1 {
     }
     if let Some(io) = err.downcast_ref::<std::io::Error>() {
         return ErrorV1 {
-            schema_version: "error.v1".to_string(),
+            schema_version: ERROR_V1_ID.to_string(),
             code: "io_error".to_string(),
             message: io.to_string(),
             details: json!({"kind": format!("{:?}", io.kind())}),
@@ -63,7 +67,7 @@ pub fn classify(err: &anyhow::Error, verbose: bool) -> ErrorV1 {
         details = json!({"chain": chain});
     }
     ErrorV1 {
-        schema_version: "error.v1".to_string(),
+        schema_version: ERROR_V1_ID.to_string(),
         code: "generic".to_string(),
         message: err.to_string(),
         details,
@@ -74,7 +78,7 @@ pub fn classify(err: &anyhow::Error, verbose: bool) -> ErrorV1 {
 fn classify_llm(s: &LlmError) -> ErrorV1 {
     match s {
         LlmError::Unreachable { endpoint, source } => ErrorV1 {
-            schema_version: "error.v1".to_string(),
+            schema_version: ERROR_V1_ID.to_string(),
             code: "model_unreachable".to_string(),
             message: format!("ollama unreachable at {endpoint}"),
             details: json!({
@@ -84,28 +88,28 @@ fn classify_llm(s: &LlmError) -> ErrorV1 {
             hint: Some(format!("ensure `ollama serve` is reachable at {endpoint}")),
         },
         LlmError::ModelNotPulled(model) => ErrorV1 {
-            schema_version: "error.v1".to_string(),
+            schema_version: ERROR_V1_ID.to_string(),
             code: "model_not_pulled".to_string(),
             message: format!("ollama model `{model}` is not pulled"),
             details: json!({"model": model}),
             hint: Some(format!("run `ollama pull {model}`")),
         },
         LlmError::Timeout(e) => ErrorV1 {
-            schema_version: "error.v1".to_string(),
+            schema_version: ERROR_V1_ID.to_string(),
             code: "timeout".to_string(),
             message: format!("ollama timeout: {e}"),
             details: json!({"source": e.to_string()}),
             hint: Some("increase timeout or check Ollama load".to_string()),
         },
         LlmError::Stream(body) => ErrorV1 {
-            schema_version: "error.v1".to_string(),
+            schema_version: ERROR_V1_ID.to_string(),
             code: "generic".to_string(),
             message: format!("ollama HTTP error: {body}"),
             details: json!({"body": body}),
             hint: None,
         },
         LlmError::Malformed(line) => ErrorV1 {
-            schema_version: "error.v1".to_string(),
+            schema_version: ERROR_V1_ID.to_string(),
             code: "generic".to_string(),
             message: format!("malformed response line: {line}"),
             details: json!({"line": line}),

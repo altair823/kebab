@@ -66,7 +66,7 @@ pub mod schema;
 pub use app::App;
 pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
 pub use reset::{ResetReport, ResetScope};
-pub use error_wire::{ErrorV1, classify};
+pub use error_wire::{ERROR_V1_ID, ErrorV1, classify};
 pub use schema::{Capabilities, Models, SCHEMA_V1_ID, SchemaV1, Stats, WireBlock, schema_with_config};
 
 /// p9-fb-25: sentinel for files without an extension in

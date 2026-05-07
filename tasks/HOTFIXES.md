@@ -47,6 +47,7 @@ git history.
 - Server-scope state caching — 현재 매 tool call 마다 store open. 첫 call 시 `KebabAppState` 에 `OnceLock<SqliteStore>` 도입 검토 (post-merge 후속 PR).
 - rmcp SDK API 호환성 — 1.6 채택, 미래 major bump 시 별 task.
 - Manual `tools/list` + `tools/call` dispatch 채택 — rmcp 1.6 의 `#[tool_router]` 매크로보다 명시적, 디버깅 쉬움. 하지만 새 tool 추가 시 두 곳 (list_tools 의 vec + call_tool 의 match) 동시 갱신 필요. 후속 task 가 5개 이상 tool 추가하면 매크로 도입 재검토.
+- `AskOpts` 가 `Default` 미도입 — kebab-cli + kebab-tui + kebab-mcp 의 모든 호출 site 가 9 field 를 명시적으로 초기화. 새 field 추가 시 모든 site 동시 갱신 필요. `impl Default for AskOpts` 또는 builder 패턴 도입은 별 PR.
 
 **Amends**:
 - design §10 (MCP transport subsection 추가).
