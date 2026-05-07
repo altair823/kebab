@@ -32,6 +32,16 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
+    /// Disable all write-path subcommands (also: KEBAB_READONLY=1 env var).
+    #[arg(long, global = true, env = "KEBAB_READONLY",
+          value_parser = parse_bool_env)]
+    readonly: bool,
+
+    /// Suppress all human-readable stderr output: progress lines, hints.
+    /// Implied by `--json`.
+    #[arg(long, global = true)]
+    quiet: bool,
+
     #[command(subcommand)]
     command: Cmd,
 }
@@ -285,6 +295,16 @@ impl From<ModeFlag> for kebab_core::SearchMode {
     }
 }
 
+/// Parse boolean env var accepting "1", "true", "yes", "on" (case-insensitive)
+/// as truthy; "0", "false", "no", "off" as falsy. Used for `KEBAB_READONLY`.
+fn parse_bool_env(s: &str) -> Result<bool, String> {
+    match s.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        other => Err(format!("expected 1/0/true/false/yes/no/on/off, got {other:?}")),
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let level = if cli.debug {
@@ -297,6 +317,28 @@ fn main() -> ExitCode {
     // Fail-soft: if logging init errors (e.g. XDG state dir is read-only),
     // proceed without a guard rather than crashing — `kb` is still usable.
     let _log_guard = kebab_app::logging::init(level).ok();
+    if cli.readonly && is_mutating(&cli.command) {
+        let msg = "kebab: readonly mode — mutating commands are disabled";
+        if cli.json {
+            let v1 = kebab_app::ErrorV1 {
+                schema_version: kebab_app::ERROR_V1_ID.to_string(),
+                code: "readonly_mode".to_string(),
+                message: msg.to_string(),
+                details: serde_json::json!({}),
+                hint: Some(
+                    "remove --readonly (or unset KEBAB_READONLY) to allow writes".to_string(),
+                ),
+            };
+            let v = wire::wire_error_v1(&v1);
+            eprintln!(
+                "{}",
+                serde_json::to_string(&v).unwrap_or_else(|_| msg.to_string())
+            );
+        } else {
+            eprintln!("{msg}");
+        }
+        return ExitCode::from(1);
+    }
     match run(&cli) {
         Ok(()) => ExitCode::from(0),
         Err(e) => {
@@ -370,7 +412,10 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             // the channel and emits per-step events into it. When the
             // call returns, the `Sender` drops and the display thread
             // sees `recv()` return Err — exits cleanly.
-            let mode = progress::ProgressMode::from_flags(cli.json, false, false);
+            let plain_env = std::env::var("KEBAB_PROGRESS")
+                .map(|v| v.eq_ignore_ascii_case("plain"))
+                .unwrap_or(false);
+            let mode = progress::ProgressMode::from_flags(cli.json, cli.quiet, plain_env);
             let (tx, rx) = std::sync::mpsc::channel::<kebab_app::IngestEvent>();
             let display_handle = std::thread::spawn(move || {
                 progress::ProgressDisplay::new(mode).run(rx)
@@ -855,6 +900,13 @@ fn print_schema_text(s: &kebab_app::SchemaV1) {
     println!("  asset_count             {}", s.stats.asset_count);
     let last = s.stats.last_ingest_at.as_deref().unwrap_or("(never)");
     println!("  last_ingest_at          {last}");
+}
+
+fn is_mutating(cmd: &Cmd) -> bool {
+    matches!(
+        cmd,
+        Cmd::Ingest { .. } | Cmd::IngestFile { .. } | Cmd::IngestStdin { .. } | Cmd::Reset { .. }
+    )
 }
 
 /// Minimal stdin/stdout confirm prompt for destructive ops. No new dep —
