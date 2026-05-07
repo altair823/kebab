@@ -87,3 +87,25 @@ fn ingest_file_errors_on_missing_path() {
     let err = kebab_app::ingest_file_with_config(cfg, &nonexistent).unwrap_err();
     assert!(err.to_string().contains("does not exist"), "{err}");
 }
+
+#[test]
+fn ingest_file_errors_on_unsupported_extension() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = dir.path().join("notes");
+    let data = dir.path().join("data");
+    fs::create_dir_all(&workspace).unwrap();
+    fs::create_dir_all(&data).unwrap();
+
+    let mut cfg = Config::defaults();
+    cfg.workspace.root = workspace.to_string_lossy().into_owned();
+    cfg.storage.data_dir = data.to_string_lossy().into_owned();
+    cfg.models.embedding.provider = "none".to_string();
+    cfg.models.embedding.dimensions = 0;
+
+    let docx = dir.path().join("doc.docx");
+    fs::write(&docx, b"fake docx bytes").unwrap();
+
+    let err = kebab_app::ingest_file_with_config(cfg, &docx).unwrap_err();
+    assert!(err.to_string().contains("unsupported extension"), "{err}");
+    assert!(err.to_string().contains(".docx") || err.to_string().contains("docx"), "{err}");
+}

@@ -78,12 +78,17 @@ pub fn copy_to_external(
 /// markdown string. Errors if `body` already starts with `---` (the user
 /// should use `ingest_file_with_config` for files that already carry
 /// frontmatter).
+///
+/// Internal `yaml_quote` always uses double-quoted YAML form with backslash
+/// escapes for `"` / `\` / control chars — agent-supplied titles with
+/// special characters are safe.
 pub fn inject_frontmatter(
     body: &str,
     title: &str,
     source_uri: Option<&str>,
 ) -> Result<String> {
-    if body.trim_start().starts_with("---\n") || body.trim_start().starts_with("---\r\n") {
+    let head = body.trim_start();
+    if head.starts_with("---\n") || head.starts_with("---\r\n") || head.starts_with("---\r") {
         anyhow::bail!(
             "stdin already has frontmatter; use `kebab ingest-file` for files with metadata"
         );

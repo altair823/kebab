@@ -1899,10 +1899,19 @@ pub fn ingest_file_with_config(
         anyhow::bail!("ingest-file: not a regular file: {}", path.display());
     }
 
-    let ext = path
+    let ext_raw = path
         .extension()
         .and_then(|e| e.to_str())
         .ok_or_else(|| anyhow::anyhow!("ingest-file: source has no extension: {}", path.display()))?;
+    let ext = ext_raw.to_lowercase();
+
+    const SUPPORTED_EXTS: &[&str] = &["md", "pdf", "png", "jpg", "jpeg"];
+    if !SUPPORTED_EXTS.contains(&ext.as_str()) {
+        anyhow::bail!(
+            "ingest-file: unsupported extension `.{}` (supported: {:?})",
+            ext, SUPPORTED_EXTS
+        );
+    }
 
     let bytes = std::fs::read(path)
         .with_context(|| format!("ingest-file: read source {}", path.display()))?;
@@ -1925,7 +1934,7 @@ pub fn ingest_file_with_config(
         .context("ingest-file: append _external/ to .kebabignore")?;
 
     // Copy bytes to _external/<hash>.<ext>.
-    let dest = crate::external::copy_to_external(&external_dir, &bytes, ext)
+    let dest = crate::external::copy_to_external(&external_dir, &bytes, &ext)
         .context("ingest-file: copy to _external")?;
 
     // Build a SourceScope that targets _external/ with include filter
@@ -1963,6 +1972,11 @@ pub fn ingest_stdin_with_config(
     let wrapped = crate::external::inject_frontmatter(body, title, source_uri)?;
 
     let workspace_root = config.resolve_workspace_root();
+    // Note: ensure_external_dir + ensure_kebabignore_entry + copy_to_external
+    // are called here AND inside ingest_file_with_config. All three are
+    // idempotent; the redundancy is intentional — keeping stdin's wrapped
+    // bytes accessible by `ingest_file_with_config` requires the dest path
+    // to exist. The ~ms double-stat overhead is negligible at v1 scale.
     let external_dir = crate::external::ensure_external_dir(&workspace_root)?;
     crate::external::ensure_kebabignore_entry(&workspace_root)?;
 
