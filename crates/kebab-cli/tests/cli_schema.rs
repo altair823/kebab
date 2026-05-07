@@ -92,8 +92,8 @@ fn cli_schema_json_emits_schema_v1() {
     );
     assert_eq!(
         caps.get("mcp_server").and_then(|b| b.as_bool()),
-        Some(false),
-        "capabilities.mcp_server must be false (not yet shipped)"
+        Some(true),
+        "capabilities.mcp_server must be true (fb-30)"
     );
 }
 

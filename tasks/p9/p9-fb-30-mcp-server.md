@@ -3,7 +3,7 @@ phase: P9
 component: integrations + new crate (kebab-mcp)
 task_id: p9-fb-30
 title: "MCP server — agent host 무관 protocol surface"
-status: open
+status: completed
 target_version: 0.3.0
 depends_on: [p9-fb-27]
 unblocks: []
@@ -14,7 +14,7 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — Claude Code 같은 AI age
 
 # p9-fb-30 — MCP server
 
-> ⏳ **백로그 only — 미구현.** 본 spec 은 도그푸딩 피드백 skeleton. 구현 착수 전 [superpowers:brainstorming](../../docs/superpowers/) 으로 설계 단계 선행 필요. transport 선택 (stdio / socket) / tool surface 범위 / authentication / resources vs tools 매핑 brainstorm 후 확정.
+> ✅ **구현 완료.** 본 spec 은 구현 시점의 frozen 상태. post-merge deviation (특히 `error.v1` 에 schema_version 필드 추가, ask/search spawn_blocking, manual dispatch 채택) 은 [HOTFIXES.md](../HOTFIXES.md) 의 `2026-05-07 — p9-fb-30` 항목 참조 — live source of truth.
 
 ## 증상 / 동기
 

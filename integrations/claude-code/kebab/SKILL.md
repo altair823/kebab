@@ -71,6 +71,25 @@ Returns a `schema.v1` object with: `wire.schemas` (supported wire ids), `capabil
 
 If a call fails or returns suspicious output, run `kebab doctor` first — it surfaces config-load / data-dir / Ollama-reachability problems in one line each. Don't silently retry on errors; report the doctor output.
 
+## MCP server (recommended over CLI subprocess wrapping)
+
+Since v0.4.0, `kebab` exposes an MCP (Model Context Protocol) stdio server. Configure once in `~/.claude/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "kebab": {
+      "command": "kebab",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Claude Code spawns `kebab mcp` at session start; the process stays alive across all tool calls so SQLite / Lance / fastembed are hot after the first call. 4 tools available: `search` / `ask` / `schema` / `doctor`. Same wire shapes as the CLI `--json` mode — see `Two surfaces, pick the right one` above for the same guidance.
+
+If your host doesn't support MCP, the CLI subprocess pattern (`kebab search --json` / `kebab ask --json`) above continues to work.
+
 ## Workflow recipes
 
 **Recipe A — user asks an internal-context question, you want grounded answer:**
