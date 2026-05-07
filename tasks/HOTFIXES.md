@@ -14,6 +14,25 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-07
+
+### fb-26: ingest 로그 `Aborted` 무조건 writeln + `Completed` TTY 요약 없음
+
+- **File**: `crates/kebab-cli/src/progress.rs`
+- `Aborted` 핸들러가 TTY 모드에서도 무조건 `writeln!` 하여 `bar.abandon_with_message` 아래에 중복 출력 발생. Fixed: `if !tty && !quiet` 로 가드.
+- `Completed` TTY 경로가 `bar.finish_and_clear()` 호출 후 요약 라인 없음. Fixed: `!quiet` 일 때 항상 `ingest: complete (...)` writeln 출력.
+- `KEBAB_PROGRESS=plain` env override 추가 — CI pty wrapper 에서 TTY 감지 강제 제거.
+- `ProgressMode::Human` 에 `quiet: bool` 필드 추가; `--quiet` flag 전체 progress stderr 억제.
+
+### fb-28: `--readonly` / `--quiet` 전역 flag + `readonly_mode` error code
+
+- **File**: `crates/kebab-cli/src/main.rs`
+- `--readonly` (또는 `KEBAB_READONLY=1`) — mutating subcommand (`ingest`, `ingest-file`, `ingest-stdin`, `reset`) 차단. exit code 1.
+- `--json --readonly` — stderr 로 `error.v1` 신규 code: `"readonly_mode"` emit.
+- `--quiet` — 모든 human-readable stderr (progress, hint) 억제; error 는 여전히 stderr 도달.
+- `--json` 자동 quiet 함축 (명시적 현재).
+- `error.v1` code: `"readonly_mode"` main() guard block 에서 직접 construction (classify() 경로 아님).
+
 ## 2026-05-07 — p9-fb-31 (post-dogfooding): single-file / stdin ingest
 
 **Source feedback**: 사용자 도그푸딩 2026-05-06 — agent (Claude Code via MCP, fb-30) 가 web fetch 한 markdown / 단일 외부 file 을 KB 에 저장하려면 `kebab ingest` 전체 walk 재실행 비효율. agent 메모리상 string contents 도 stdin ingest 가능해야.

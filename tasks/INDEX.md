@@ -112,9 +112,9 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
   - **⏳ fb-26 ~ fb-42: 백로그 only — 미구현 + brainstorm 선행 필요.** spec 작성 시 [superpowers:brainstorming](../docs/superpowers/) 부터 시작. status: open. 다른 세션에서 이 그룹 손대기 전 사용자 확인 필요. **번호 = release 순서** — 작은 번호일수록 먼저 작업 (2026-05-06 renumber).
 
     ### 🎯 0.3.0+ — agent foundation (MCP + introspection)
-    - [p9-fb-26 ingest 로그 출력 일관성](p9/p9-fb-26-ingest-log-consistency.md) — ⏳ 미구현, brainstorm 필요
+    - [p9-fb-26 ingest 로그 출력 일관성](p9/p9-fb-26-ingest-log-consistency.md) — ✅ 머지 (2026-05-07)
     - [p9-fb-27 introspection + structured error wire](p9/p9-fb-27-introspection-and-error-wire.md) — ✅ 머지 + v0.3.0 cut (2026-05-07)
-    - [p9-fb-28 agent invocation flags (--readonly / --quiet)](p9/p9-fb-28-agent-invocation-flags.md) — ⏳ 미구현, brainstorm 필요
+    - [p9-fb-28 agent invocation flags (--readonly / --quiet)](p9/p9-fb-28-agent-invocation-flags.md) — ✅ 머지 (2026-05-07)
     - [p9-fb-29 HTTP daemon (`kebab serve`)](p9/p9-fb-29-http-daemon.md) — 🚫 deferred (2026-05-07) — fb-30 stdio MCP 가 동일 가치 제공, daemon 복잡도 회피. P+ 재개 trigger 는 spec 참조.
     - [p9-fb-30 MCP server](p9/p9-fb-30-mcp-server.md) — ⏳ 미구현, brainstorm 필요 (depends_on 27 ✅, stdio-only)
     - [p9-fb-31 single-file / stdin ingest](p9/p9-fb-31-single-file-stdin-ingest.md) — ⏳ 미구현, brainstorm 필요
