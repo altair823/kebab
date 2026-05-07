@@ -49,11 +49,18 @@ impl ServerHandler for KebabHandler {
         _request: Option<rmcp::model::PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult::with_all_items(vec![Tool::new(
-            "schema",
-            "Introspection — wire schemas, capabilities, model versions, index stats.",
-            schema_for_empty_input(),
-        )]))
+        Ok(ListToolsResult::with_all_items(vec![
+            Tool::new(
+                "schema",
+                "Introspection — wire schemas, capabilities, model versions, index stats.",
+                schema_for_empty_input(),
+            ),
+            Tool::new(
+                "doctor",
+                "Health check — verifies config, storage, models, and Ollama connectivity.",
+                schema_for_empty_input(),
+            ),
+        ]))
     }
 
     async fn call_tool(
@@ -65,6 +72,10 @@ impl ServerHandler for KebabHandler {
             "schema" => {
                 let input = tools::schema::SchemaInput::default();
                 Ok(tools::schema::handle(&self.state, input))
+            }
+            "doctor" => {
+                let input = tools::doctor::DoctorInput::default();
+                Ok(tools::doctor::handle(&self.state, input))
             }
             _other => Err(ErrorData::method_not_found::<
                 rmcp::model::CallToolRequestMethod,
@@ -84,7 +95,7 @@ pub fn serve_stdio(cfg: Config) -> Result<()> {
 
 async fn serve_stdio_async(cfg: Config) -> Result<()> {
     tracing::info!("kebab-mcp: starting stdio server");
-    let state = KebabAppState::new(cfg);
+    let state = KebabAppState::new(cfg, None); // Plan Task 10 will thread the actual path
     let handler = KebabHandler::new(state);
     let service = handler.serve(stdio()).await?;
     service.waiting().await?;

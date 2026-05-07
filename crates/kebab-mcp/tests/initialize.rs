@@ -9,7 +9,7 @@ use rmcp::ServerHandler;
 #[tokio::test]
 async fn initialize_returns_kebab_server_info() {
     let cfg = Config::defaults();
-    let state = KebabAppState::new(cfg);
+    let state = KebabAppState::new(cfg, None);
     let handler = KebabHandler::new(state);
 
     let info = handler.get_info();
