@@ -7,13 +7,20 @@
 use anyhow::Result;
 
 use rmcp::ServerHandler;
-use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
-use rmcp::service::ServiceExt;
+use rmcp::handler::server::common::schema_for_empty_input;
+use rmcp::model::{
+    CallToolRequestParams, CallToolResult, Implementation, ListToolsResult, ServerCapabilities,
+    ServerInfo, Tool,
+};
+use rmcp::service::{RequestContext, ServiceExt};
 use rmcp::transport::stdio;
+use rmcp::{ErrorData, RoleServer};
 
 use kebab_config::Config;
 
+pub mod error;
 pub mod state;
+pub mod tools;
 pub use state::KebabAppState;
 
 #[derive(Clone)]
@@ -35,6 +42,34 @@ impl ServerHandler for KebabHandler {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("kebab", env!("CARGO_PKG_VERSION")))
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        Ok(ListToolsResult::with_all_items(vec![Tool::new(
+            "schema",
+            "Introspection — wire schemas, capabilities, model versions, index stats.",
+            schema_for_empty_input(),
+        )]))
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        match request.name.as_ref() {
+            "schema" => {
+                let input = tools::schema::SchemaInput::default();
+                Ok(tools::schema::handle(&self.state, input))
+            }
+            _other => Err(ErrorData::method_not_found::<
+                rmcp::model::CallToolRequestMethod,
+            >()),
+        }
     }
 }
 
