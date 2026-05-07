@@ -54,6 +54,8 @@ pub struct Stats {
 
 const KEBAB_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+// Authoritative list of wire schemas this binary emits. Keep in sync with
+// `docs/wire-schema/v1/*.schema.json` and `kebab-cli::wire::wire_*` helpers.
 const WIRE_SCHEMAS: &[&str] = &[
     "answer.v1",
     "search_hit.v1",

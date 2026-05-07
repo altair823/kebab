@@ -79,9 +79,9 @@ impl SqliteStore {
     ///
     /// Unlike [`Self::open`], this does NOT create the file — if it is
     /// missing, returns a [`NotIndexed`] signal suitable for `error.v1`
-    /// translation. Stores returned by this method are intended for read-only
-    /// introspection (`schema_with_config`); use [`Self::open`] for any path
-    /// that calls `put_asset_with_bytes`.
+    /// translation. Opens read-write to support WAL pragmas; callers should
+    /// not issue mutations through this connection — use [`Self::open`] for
+    /// ingest paths.
     ///
     /// **Does not run migrations** — call [`Self::run_migrations`] next if
     /// you need the schema initialised.
