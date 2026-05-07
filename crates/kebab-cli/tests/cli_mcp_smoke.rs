@@ -66,8 +66,8 @@ fn cli_mcp_initialize_then_tools_list() {
         .expect("tools/list result.tools must be an array");
     assert_eq!(
         tools.len(),
-        4,
-        "expected 4 tools (schema, doctor, search, ask), got {}: {list}",
+        6,
+        "expected 6 tools (schema, doctor, search, ask, ingest_file, ingest_stdin), got {}: {list}",
         tools.len()
     );
 
