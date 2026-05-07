@@ -44,6 +44,7 @@ git history.
 - `Config::load(Some(/nonexistent))` 가 silent default fallback — agent 가 `--config /wrong` 으로 호출 시 `config_invalid` 가 아닌 default config 적용 + 후속 명령이 default 동작. fb-28 (`--readonly`/`--quiet`) 또는 별 follow-up 에서 `--config` strict mode 도입 검토 필요.
 - `Config::from_file` 의 schema-mismatch (DB 마이그레이션 버전 안 맞음) 는 `NotIndexed.found = None` 으로만 보고 — `_refinery_schema_history` 의 max version 을 read 하는 후속 PR 에서 `found: Some("V005")` 같은 정확한 값 채움.
 - `LlmError::Stream` / `Malformed` 가 `code: "generic"` fallback — 후속 task 에서 `stream_aborted` / `malformed_response` 같은 dedicated code 도입 검토 (design §10.1 future-extensions 절 참조).
+- `not_indexed.details` 가 `{ expected, found }` 만 emit (spec literal 의 `{ data_dir, expected, found }` 아님 — `expected` 가 full DB path 라 data_dir 은 caller 에서 derive 해야 함, NotIndexed signal 자체는 path 한 개만 carry).
 - README 의 wire schema 목록과 CLAUDE.md 의 wire schema 목록이 fb-27 머지 시점에 약간 일치 안 함 (CLAUDE.md 가 `eval_run.v1`/`eval_compare.v1`/`list_docs.v1` 포함, 실제 docs/wire-schema/v1/ 에 해당 파일 없음). 별 follow-up 에서 doc / 실제 wire 동기화 sweep 진행.
 
 **Amends**:

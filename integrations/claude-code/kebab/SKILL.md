@@ -65,7 +65,7 @@ Before using streaming or multi-turn features, you can probe what this binary su
 kebab schema --json
 ```
 
-Returns a `schema.v1` object with: `wire.schemas` (supported wire ids), `capabilities` (bool flags — e.g. `multi_turn`, `streaming_ingest`), `models` (version cascade 6-axis), and `stats` (doc/chunk/asset count + last_ingest_at). Gate streaming / session flows on `capabilities.streaming_ingest` / `capabilities.multi_turn` being `true`. This call is cheap (no LLM) and can be run once per session.
+Returns a `schema.v1` object with: `wire.schemas` (supported wire ids), `capabilities` (bool flags — e.g. `streaming_ask`, `rag_multi_turn`), `models` (version cascade 6-axis), and `stats` (doc/chunk/asset count + last_ingest_at). Gate streaming / session flows on `capabilities.streaming_ask` / `capabilities.rag_multi_turn` being `true`. This call is cheap (no LLM) and can be run once per session.
 
 ## Quick health check
 
