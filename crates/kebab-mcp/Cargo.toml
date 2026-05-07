@@ -1,0 +1,27 @@
+[package]
+name        = "kebab-mcp"
+edition     = { workspace = true }
+rust-version = { workspace = true }
+license     = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
+
+[dependencies]
+rmcp        = { workspace = true }
+# rt-multi-thread + io-util + io-std extend the workspace tokio entry
+# (which only declares rt + macros) for the blocking stdio MCP transport.
+tokio       = { workspace = true, features = ["rt-multi-thread", "macros", "io-util", "io-std"] }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+anyhow      = { workspace = true }
+tracing     = { workspace = true }
+# schemars 1.x matches rmcp 1.6's ^1.0 requirement (verified via crates.io
+# /dependencies endpoint — rmcp declares optional schemars = "^1.0").
+schemars    = "1"
+
+kebab-app    = { path = "../kebab-app" }
+kebab-config = { path = "../kebab-config" }
+kebab-core   = { path = "../kebab-core" }
+
+[dev-dependencies]
+tempfile = { workspace = true }

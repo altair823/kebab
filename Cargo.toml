@@ -22,6 +22,7 @@ members = [
     "crates/kebab-parse-image",
     "crates/kebab-parse-pdf",
     "crates/kebab-tui",
+    "crates/kebab-mcp",
 ]
 
 [workspace.package]
@@ -71,6 +72,10 @@ futures      = "0.3"
 # pass; pulled into the workspace deps so future crates can share the
 # same major.
 regex        = "1"
+# MCP (Model Context Protocol) SDK. server + macros + transport-io provide
+# stdio JSON-RPC transport for `kebab-mcp` (p9-fb-30). schemars feature
+# exposes the derive macro used by tool input schemas.
+rmcp         = { version = "1.6", default-features = false, features = ["server", "macros", "transport-io", "schemars"] }
 # Dev-only HTTP mock server for kebab-llm-local Ollama adapter tests. Requires
 # a tokio runtime to host its mock server (the runtime adapter crate stays
 # sync via reqwest::blocking — wiremock is dev-only there).
