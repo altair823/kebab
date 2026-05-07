@@ -80,6 +80,7 @@ kebab doctor
 | `kebab reset [--all / --data-only / --vector-only / --config-only] [--yes]` | XDG 데이터 wipe. **Irreversible.** TTY 면 confirm prompt, 아니면 `--yes` 필수. `--vector-only` 는 SQLite `embedding_records` 도 함께 truncate (orphan 방지) |
 | `kebab eval run / compare` | golden query 회귀 측정 |
 | `kebab schema [--json]` | introspection — wire schemas / capabilities / models / stats 한 번에. `--json` 은 `schema.v1` wire; 사람 모드는 서식 출력. |
+| `kebab mcp` | MCP (Model Context Protocol) stdio server. agent host (Claude Code / Cursor / OpenAI Agents) 가 spawn 하여 tool 호출 (`search` / `ask` / `schema` / `doctor`). `--config` honor. |
 
 모든 명령에 `--json` 플래그. 출력은 frozen wire schema v1 (`schema_version` 항상 포함, 예: `ingest_report.v1`, `ingest_progress.v1`, `search_hit.v1`, `answer.v1`, `doctor.v1`, `reset_report.v1`, `schema.v1`). `--json` 모드에서 fatal error 는 stderr 에 `error.v1` ndjson 으로 emit (exit code 0/1/2/3 unchanged).
 
@@ -160,8 +161,25 @@ config 예시는 [docs/SMOKE.md](docs/SMOKE.md) 의 `/tmp/kebab-smoke/config.tom
 
 - **Claude Code skill** — repo 의 [`integrations/claude-code/`](integrations/claude-code/) 가 ship-ready skill. `cp -r integrations/claude-code/kebab ~/.claude/skills/` 한 번이면 새 Claude Code 세션부터 자동 trigger (내부 시스템 / 위키 lookup / 사내 runbook 질문). multi-turn 은 `kebab ask --session <id> --json` 으로 영속 — skill 이 conversation id 관리하면 외부 agent 도 `--repl` 없이 stateful 대화 가능 (p9-fb-18).
 - **Codex / 기타 agent host** — `--json` + frozen wire schema v1 가 stable contract. 동일 패턴으로 ~50줄 wrapper 작성 가능. `integrations/<host>/` 에 추가 PR 환영.
-- **MCP server** — stdio JSON-RPC 로 `kebab-app` facade 1:1 노출.
+- **MCP server** — stdio JSON-RPC 로 `kebab-app` facade 1:1 노출. `kebab mcp` 참조.
 - **HTTP wrapper** — `kebab serve --bind 127.0.0.1:7711` (P+, local-only 가치 신중).
+
+## MCP 사용 (Claude Code 예시)
+
+`~/.claude/mcp.json` (또는 host 의 동등 위치):
+
+```json
+{
+  "mcpServers": {
+    "kebab": {
+      "command": "kebab",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Claude Code 가 session 시작 시 `kebab mcp` 를 spawn — process 가 session 동안 살아 있어 SQLite / Lance / fastembed 가 hot. 4 tool: `search` (lexical/vector/hybrid 검색), `ask` (RAG 답변, optional `session_id` for multi-turn + optional `mode` override), `schema` (capability 조회), `doctor` (health check). 모든 tool 의 결과는 wire schema v1 JSON 으로 text content 안에 직렬화 — agent 가 parse 후 사용. tool dispatch 실패 (잘못된 config / 미초기화 KB 등) 는 `isError: true` + error.v1 content; refusal / no-hit / unhealthy 는 정상 응답 (semantic flag 으로 분기).
 
 ## 비-목표
 

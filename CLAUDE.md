@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Single-user local-first knowledge base + RAG. Rust 2024 workspace, ~20 crates, single binary (`kebab`). All inference is local (Ollama + fastembed + whisper.cpp).
+Single-user local-first knowledge base + RAG. Rust 2024 workspace, ~21 crates, single binary (`kebab`). All inference is local (Ollama + fastembed + whisper.cpp).
 
 The repo's documentation is split by audience — don't duplicate across them:
 
@@ -54,7 +54,7 @@ Each task spec lists `Allowed dependencies` and `Forbidden dependencies` per des
 
 - `kebab-core` MUST NOT depend on any other `kebab-*` crate. Domain types only.
 - `kebab-eval`'s `metrics` and `compare` modules MUST NOT import retrieval / embedding / LLM crates directly. The runner is allowed to use `kebab-app`'s facade (P5-1 inheritance — see deviations in that task spec).
-- UI crates (`kebab-cli`, future `kebab-tui`, `kebab-desktop`) MUST NOT import `kebab-store-*` / `kebab-llm-*` / `kebab-parse-*` directly — only `kebab-app`.
+- UI crates (`kebab-cli`, `kebab-mcp`, `kebab-tui`, future `kebab-desktop`) MUST NOT import `kebab-store-*` / `kebab-llm-*` / `kebab-parse-*` directly — only `kebab-app`.
 
 Read the relevant task spec's deps section before adding an import. New crates inherit the same boundary rules.
 

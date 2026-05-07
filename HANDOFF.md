@@ -31,6 +31,7 @@ P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 
 머지 후 발견된 모든 deviation / hotfix 의 dated 로그는 [tasks/HOTFIXES.md](tasks/HOTFIXES.md). 본 요약은 \"누군가가 인수받을 때 알아두면 시간을 많이 절약하는\" 항목만:
 
+- **2026-05-07 P9 post-도그푸딩 (p9-fb-30)** — `kebab mcp` 신규 subcommand + new crate `kebab-mcp` (lib only) — stdio JSON-RPC server. 4 read-only tool (`search` / `ask` / `schema` / `doctor`) 가 `kebab-app` facade 위에 build. rmcp 1.6 SDK 채택, manual `tools/list` + `tools/call` dispatch (rmcp 의 `#[tool_router]` 매크로 대신). `error_classify` 모듈을 `kebab-cli` → `kebab-app::error_wire` 로 promotion (UI crate 끼리 import 회피, facade 룰 준수). `ErrorV1` 에 `schema_version: String` 필드 추가 — kebab-mcp 의 직접 serialize 경로에서도 wire 정합. `KebabAppState` 가 `(Config, Option<PathBuf>)` carry — doctor tool 의 path-aware behavior 위해. ask + search arm 의 `tokio::task::spawn_blocking` wrap — `OllamaLanguageModel` 의 reqwest blocking client 가 async 안에서 panic 회피. capability flag `mcp_server` `false` → `true`. agent integration MVP 완성 — Claude Code / Cursor / OpenAI Agents 등 host-agnostic 사용 가능. spec: `tasks/p9/p9-fb-30-mcp-server.md`. design: `docs/superpowers/specs/2026-05-07-p9-fb-30-mcp-server-design.md`.
 - **P3-5 / P4-3 `--config` 누락** — `kebab-cli` 가 `--config <path>` 를 honor 하려면 `kebab_app::*_with_config` companion 을 호출해야 함. 두 번 같은 모양으로 회귀했음.
 - **P6-2 OCR 기본 엔진** — spec literal 의 Tesseract 가 시스템 dep 부담으로 거부됨, Ollama vision LM 으로 대체. `OcrEngine` trait 그대로라 future swap 가능.
 - **P6-3 caption** — `GenerateRequest.images` 필드를 `kebab-core::LanguageModel` trait 에 신설. 기존 caller 모두 `images: Vec::new()` 로 마이그레이션.

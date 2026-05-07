@@ -1443,6 +1443,17 @@ HOTFIXES 의 `2026-05-07 — p9-fb-27` 항목이 details shape 의
 interim deviation (IoFailure / OpTimeout 신규 typed signal 도입 전까지의
 transitional 형태) 의 source of truth.
 
+### 10.2 MCP server transport (fb-30)
+
+`kebab mcp` 가 stdio JSON-RPC server. Rust SDK = `rmcp 1.6`. Tool surface
+v1: `search` / `ask` / `schema` / `doctor` (4 read-only). Resources /
+Prompts / Sampling 미선언. Output 은 wire schema v1 JSON 을 MCP `text`
+content block 으로 직렬화. Tool dispatch 실패는 `isError: true` + error.v1
+content; refusal / no-hit / unhealthy 는 정상 응답 (semantic flag 으로
+agent 가 분기). HTTP-SSE transport 는 fb-29 deferral 따라 P+. classify
+모듈은 `kebab-app::error_wire` 에 single source — kebab-cli + kebab-mcp
+공유.
+
 ---
 
 ## 11. 동결 범위 / 변경 정책
