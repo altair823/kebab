@@ -614,26 +614,12 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 // `근거:` header.
                 let print_citations = *show_citations && !*hide_citations;
                 if print_citations && !ans.citations.is_empty() {
-                    println!();
-                    println!("근거:");
-                    for (idx, c) in ans.citations.iter().enumerate() {
-                        let marker = c
-                            .marker
-                            .clone()
-                            .unwrap_or_else(|| format!("{}", idx + 1));
-                        println!("  [{}] {}", marker, c.citation.to_uri());
-                    }
-                    // p9-fb-20: retrieval 메타는 citation 별 점수가
-                    // AnswerCitation 에 없는 (`top_score` 만 retrieval-
-                    // 전체 max) 한계상 한 줄로 분리. per-citation score
-                    // 노출은 facade + AnswerCitation 의 미래 확장 후.
-                    println!(
-                        "(retrieval: top_score={:.2}, k={}, used={}/{})",
-                        ans.retrieval.top_score,
-                        ans.retrieval.k,
-                        ans.retrieval.chunks_used,
-                        ans.retrieval.chunks_returned,
-                    );
+                    // p9-fb-32: yellow `[stale]` prefix on TTY (mirrors
+                    // the search renderer's pattern in `Cmd::Search`).
+                    use std::io::IsTerminal;
+                    let color = std::io::stdout().is_terminal();
+                    let mut out = std::io::stdout().lock();
+                    render_ask_plain_citations(&mut out, &ans, color)?;
                 }
             }
             // Refusal → exit 1.
@@ -878,6 +864,54 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
     }
 }
 
+/// p9-fb-32: render the plain (non-JSON) citation block for `kebab ask`.
+/// Mirrors the `Cmd::Search` plain renderer's `[stale]` convention —
+/// yellow ANSI on TTY, plain text otherwise. Detection uses stdlib
+/// `IsTerminal` at the call site; this function takes the resolved
+/// `color` boolean so tests can pin both branches deterministically.
+///
+/// Skipping the empty / no-citation path is the caller's responsibility
+/// (matches the original inline guard at the call site).
+fn render_ask_plain_citations(
+    w: &mut impl std::io::Write,
+    ans: &kebab_core::Answer,
+    color: bool,
+) -> std::io::Result<()> {
+    writeln!(w)?;
+    writeln!(w, "근거:")?;
+    for (idx, c) in ans.citations.iter().enumerate() {
+        let marker = c
+            .marker
+            .clone()
+            .unwrap_or_else(|| format!("{}", idx + 1));
+        // p9-fb-32: `[stale]` prefix on the URI for citations whose
+        // `stale: true`. Yellow on TTY, plain otherwise — mirrors the
+        // search-plain renderer in `Cmd::Search`.
+        let stale_tag = if c.stale {
+            if color {
+                "\x1b[33m[stale]\x1b[0m "
+            } else {
+                "[stale] "
+            }
+        } else {
+            ""
+        };
+        writeln!(w, "  [{}] {}{}", marker, stale_tag, c.citation.to_uri())?;
+    }
+    // p9-fb-20: retrieval 메타는 citation 별 점수가 AnswerCitation 에
+    // 없는 (`top_score` 만 retrieval-전체 max) 한계상 한 줄로 분리.
+    // per-citation score 노출은 facade + AnswerCitation 의 미래 확장 후.
+    writeln!(
+        w,
+        "(retrieval: top_score={:.2}, k={}, used={}/{})",
+        ans.retrieval.top_score,
+        ans.retrieval.k,
+        ans.retrieval.chunks_used,
+        ans.retrieval.chunks_returned,
+    )?;
+    Ok(())
+}
+
 fn print_schema_text(s: &kebab_app::SchemaV1) {
     println!("kebab v{}", s.kebab_version);
     println!();
@@ -953,5 +987,109 @@ fn confirm_destructive(
     std::io::stdin().read_line(&mut line)?;
     let s = line.trim().to_ascii_lowercase();
     Ok(matches!(s.as_str(), "y" | "yes"))
+}
+
+#[cfg(test)]
+mod tests {
+    //! p9-fb-32: unit tests for `render_ask_plain_citations`. The
+    //! integration end-to-end (`tests/wire_ask_stale.rs`) is gated on
+    //! a real Ollama, so we cover the renderer's `[stale]` logic here
+    //! against a synthetic `Answer` instead.
+    use super::*;
+    use kebab_core::{
+        Answer, AnswerCitation, AnswerRetrievalSummary, Citation, ModelRef,
+        PromptTemplateVersion, SearchMode, TokenUsage, TraceId, WorkspacePath,
+    };
+    use time::OffsetDateTime;
+
+    fn mk_answer(citations: Vec<AnswerCitation>) -> Answer {
+        Answer {
+            answer: "ans".into(),
+            citations,
+            grounded: true,
+            refusal_reason: None,
+            model: ModelRef {
+                id: "test".into(),
+                provider: "test".into(),
+                dimensions: None,
+            },
+            embedding: None,
+            prompt_template_version: PromptTemplateVersion("rag-v1".into()),
+            retrieval: AnswerRetrievalSummary {
+                trace_id: TraceId("ret_test".into()),
+                mode: SearchMode::Lexical,
+                k: 5,
+                score_gate: 0.30,
+                top_score: 0.80,
+                chunks_returned: 1,
+                chunks_used: 1,
+            },
+            usage: TokenUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                latency_ms: 0,
+            },
+            created_at: OffsetDateTime::now_utc(),
+            conversation_id: None,
+            turn_index: None,
+        }
+    }
+
+    fn mk_citation(path: &str, stale: bool) -> AnswerCitation {
+        AnswerCitation {
+            marker: Some("1".into()),
+            citation: Citation::Line {
+                path: WorkspacePath::new(path.into()).unwrap(),
+                start: 1,
+                end: 1,
+                section: None,
+            },
+            indexed_at: OffsetDateTime::now_utc(),
+            stale,
+        }
+    }
+
+    #[test]
+    fn plain_marks_stale_citation_no_color() {
+        let ans = mk_answer(vec![mk_citation("a.md", true)]);
+        let mut buf = Vec::new();
+        render_ask_plain_citations(&mut buf, &ans, false).unwrap();
+        let out = String::from_utf8(buf).unwrap();
+        assert!(
+            out.contains("[stale]"),
+            "expected `[stale]` marker in plain output, got:\n{out}"
+        );
+        // No ANSI when color = false.
+        assert!(
+            !out.contains("\x1b["),
+            "unexpected ANSI escape in non-color output:\n{out}"
+        );
+    }
+
+    #[test]
+    fn plain_marks_stale_citation_color_uses_yellow_ansi() {
+        let ans = mk_answer(vec![mk_citation("a.md", true)]);
+        let mut buf = Vec::new();
+        render_ask_plain_citations(&mut buf, &ans, true).unwrap();
+        let out = String::from_utf8(buf).unwrap();
+        // Yellow ANSI + reset around the `[stale]` token, mirroring the
+        // search-plain renderer in `Cmd::Search`.
+        assert!(
+            out.contains("\x1b[33m[stale]\x1b[0m"),
+            "expected yellow [stale] ANSI sequence in color output, got:\n{out:?}"
+        );
+    }
+
+    #[test]
+    fn plain_no_stale_tag_for_fresh_citation() {
+        let ans = mk_answer(vec![mk_citation("a.md", false)]);
+        let mut buf = Vec::new();
+        render_ask_plain_citations(&mut buf, &ans, true).unwrap();
+        let out = String::from_utf8(buf).unwrap();
+        assert!(
+            !out.contains("[stale]"),
+            "unexpected `[stale]` marker for fresh citation:\n{out}"
+        );
+    }
 }
 
