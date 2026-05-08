@@ -190,7 +190,21 @@ impl App {
                 corpus_revision = key.corpus_revision,
                 "search served from LRU cache"
             );
-            return Ok(hits.clone());
+            // p9-fb-32: re-stamp staleness on every cache hit. The cache
+            // entry was stamped at insert time against an older `now`
+            // and an older threshold; if either has shifted (config
+            // reload, time passing) the cached `stale: false` may now
+            // be wrong. Re-stamping is cheap (per-hit comparison) and
+            // avoids invalidating the cache on threshold changes.
+            let mut hits = hits.clone();
+            drop(guard);
+            let now = time::OffsetDateTime::now_utc();
+            crate::staleness::mark_stale_in_place(
+                &mut hits,
+                now,
+                self.config.search.stale_threshold_days,
+            );
+            return Ok(hits);
         }
         // Drop the lock before the (potentially slow) retriever call
         // so other in-flight searches can use the cache concurrently.
@@ -205,14 +219,14 @@ impl App {
     /// Used by `--no-cache` CLI invocations and by `search` itself
     /// on cache miss. Identical behavior to the pre-fb-19 `search`.
     pub fn search_uncached(&self, query: SearchQuery) -> Result<Vec<SearchHit>> {
-        match query.mode {
+        let mut hits = match query.mode {
             SearchMode::Lexical => {
                 let lex = LexicalRetriever::with_settings(
                     self.sqlite.clone(),
                     lexical_index_version(&self.config),
                     self.config.search.snippet_chars,
                 );
-                lex.search(&query)
+                lex.search(&query)?
             }
             SearchMode::Vector => {
                 let (emb, vec_store) = self.require_embeddings()?;
@@ -226,7 +240,7 @@ impl App {
                     vec_iv,
                     self.config.search.snippet_chars,
                 );
-                retr.search(&query)
+                retr.search(&query)?
             }
             SearchMode::Hybrid => {
                 let lex = Arc::new(LexicalRetriever::with_settings(
@@ -246,9 +260,18 @@ impl App {
                     self.config.search.snippet_chars,
                 )) as Arc<dyn Retriever>;
                 let hybrid = HybridRetriever::new(&self.config, lex, vec_retr);
-                hybrid.search(&query)
+                hybrid.search(&query)?
             }
-        }
+        };
+        // p9-fb-32: stamp staleness against the freshest possible `now`
+        // and the current threshold. Cheap (per-hit comparison).
+        let now = time::OffsetDateTime::now_utc();
+        crate::staleness::mark_stale_in_place(
+            &mut hits,
+            now,
+            self.config.search.stale_threshold_days,
+        );
+        Ok(hits)
     }
 
     /// Run a RAG `ask` against the configured retriever + LLM. Reuses

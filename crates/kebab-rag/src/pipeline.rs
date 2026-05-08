@@ -343,6 +343,10 @@ impl RagPipeline {
                 // `AnswerCitation.marker` strips the `#`.
                 marker: Some(format!("[{n}]")),
                 citation: c.clone(),
+                // p9-fb-32: placeholder — Task 7 owns wiring real
+                // indexed_at / stale here from the underlying SearchHit.
+                indexed_at: time::OffsetDateTime::UNIX_EPOCH,
+                stale: false,
             })
             .collect();
 
@@ -560,6 +564,11 @@ impl RagPipeline {
             .map(|h| AnswerCitation {
                 marker: None,
                 citation: h.citation.clone(),
+                // p9-fb-32: forward staleness from the underlying
+                // `SearchHit` directly — this is the score-gate refusal
+                // path which doesn't go through `pack_context`.
+                indexed_at: h.indexed_at,
+                stale: h.stale,
             })
             .collect();
         let chunks_returned = u32::try_from(hits.len()).unwrap_or(u32::MAX);
