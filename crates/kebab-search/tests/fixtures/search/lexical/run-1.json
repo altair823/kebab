@@ -16,6 +16,7 @@
       "Snap"
     ],
     "index_version": "v1.0",
+    "indexed_at": "2024-01-01T00:00:00Z",
     "rank": 1,
     "retrieval": {
       "fusion_score": 1.4490997273242101e-6,
@@ -26,7 +27,8 @@
       "vector_score": null
     },
     "section_label": "Snap",
-    "snippet": "alpha alpha"
+    "snippet": "alpha alpha",
+    "stale": false
   },
   {
     "chunk_id": "c1000000000000000000000000000000",
@@ -45,6 +47,7 @@
       "Snap"
     ],
     "index_version": "v1.0",
+    "indexed_at": "2024-01-01T00:00:00Z",
     "rank": 2,
     "retrieval": {
       "fusion_score": 9.641424867368187e-7,
@@ -55,6 +58,7 @@
       "vector_score": null
     },
     "section_label": "Snap",
-    "snippet": "alpha bravo charlie"
+    "snippet": "alpha bravo charlie",
+    "stale": false
   }
 ]

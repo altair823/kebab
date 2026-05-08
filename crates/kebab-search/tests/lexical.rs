@@ -613,6 +613,73 @@ fn lexical_index_version_is_returned_unchanged() {
 }
 
 #[test]
+fn search_hit_carries_indexed_at_from_documents_updated_at() {
+    // p9-fb-32: SearchHit.indexed_at must be populated from
+    // documents.updated_at via the JOIN. We seed documents with
+    // updated_at=now (RFC3339) and assert the parsed OffsetDateTime
+    // round-trips within ±60s of wall-clock now.
+    use time::OffsetDateTime;
+    use time::format_description::well_known::Rfc3339;
+
+    let env = Env::new();
+    let conn = env.raw_conn();
+    // The `insert_document` helper hard-codes updated_at='2024-01-01...';
+    // override that here so the assertion against `now` is meaningful.
+    let now = OffsetDateTime::now_utc();
+    let now_rfc = now.format(&Rfc3339).expect("format now as rfc3339");
+    let doc_id = id32("d");
+    let asset_id = format!("{:0>32}", "d");
+    conn.execute(
+        "INSERT OR IGNORE INTO assets (
+            asset_id, source_uri, workspace_path, media_type, byte_len,
+            checksum, storage_kind, storage_path, discovered_at
+        ) VALUES (?, 'file:///x', 'a.md', '\"markdown\"', 0,
+                  'd0', 'reference', '/x', '2024-01-01T00:00:00Z')",
+        rusqlite::params![asset_id],
+    )
+    .expect("insert asset");
+    conn.execute(
+        "INSERT INTO documents (
+            doc_id, asset_id, workspace_path, title, lang,
+            source_type, trust_level, parser_version,
+            doc_version, schema_version, metadata_json,
+            provenance_json, created_at, updated_at
+        ) VALUES (?, ?, 'a.md', 'T', 'en', 'markdown', 'primary', 'pv1', 1, 1,
+                  '{}', '{\"events\":[]}',
+                  ?, ?)",
+        rusqlite::params![doc_id, asset_id, now_rfc, now_rfc],
+    )
+    .expect("insert document");
+    insert_chunk(
+        &conn,
+        &id32("c1"),
+        &doc_id,
+        "body about apples",
+        &["T"],
+        None,
+        r#"[{"kind":"line","start":1,"end":1}]"#,
+        "v1",
+    );
+    drop(conn);
+
+    let r = env.retriever();
+    let hits = r
+        .search(&SearchQuery {
+            text: "apples".to_string(),
+            mode: SearchMode::Lexical,
+            k: 5,
+            filters: SearchFilters::default(),
+        })
+        .expect("search");
+    let hit = hits.first().expect("at least one hit");
+    let now2 = OffsetDateTime::now_utc();
+    let delta = (now2 - hit.indexed_at).whole_seconds().abs();
+    assert!(delta < 60, "indexed_at within ±60s of now, got {delta}s");
+    // stale is a placeholder set by the retriever; the App layer overwrites.
+    assert!(!hit.stale, "lexical retriever must default stale=false");
+}
+
+#[test]
 fn lexical_snapshot_run_1() {
     // Pinned snapshot. A small, deterministic corpus; the JSON shape of
     // `Vec<SearchHit>` for a fixed query is checked verbatim against

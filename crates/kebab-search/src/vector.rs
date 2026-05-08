@@ -308,6 +308,10 @@ fn build_hit(
         index_version: index_version.clone(),
         embedding_model: Some(model_id.clone()),
         chunker_version: ChunkerVersion(meta.chunker_version.clone()),
+        // p9-fb-32: Task 5 will hydrate from documents.updated_at; this
+        // stub keeps the lib compiling after Task 1 added the field.
+        indexed_at: time::OffsetDateTime::UNIX_EPOCH,
+        stale: false,
     })
 }
 
