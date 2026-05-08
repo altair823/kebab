@@ -151,7 +151,7 @@ flowchart TB
 
 ## Configuration
 
-- `~/.config/kebab/config.toml` — `kebab init` 가 XDG 경로에 생성. `[workspace]` (root, exclude — include 필드는 제거됨, 지원 형식은 자동 결정), `[storage]`, `[chunking]`, `[models.embedding]`, `[models.llm]`, `[image.ocr]`, `[image.caption]`, `[search]`, `[rag]`, `[ui]` 절. `[ui] theme = "dark" | "light"` 로 TUI 팔레트 선택 (default `"dark"`, 알 수 없는 값은 dark fallback). 옛 config 의 `workspace.include = [...]` 은 silently 무시 + 단발 deprecation warning (p9-fb-25).
+- `~/.config/kebab/config.toml` — `kebab init` 가 XDG 경로에 생성. `[workspace]` (root, exclude — include 필드는 제거됨, 지원 형식은 자동 결정), `[storage]`, `[chunking]`, `[models.embedding]`, `[models.llm]`, `[image.ocr]`, `[image.caption]`, `[search]`, `[rag]`, `[ui]` 절. `[ui] theme = "dark" | "light"` 로 TUI 팔레트 선택 (default `"dark"`, 알 수 없는 값은 dark fallback). `[search] stale_threshold_days = 30` (p9-fb-32) — search hit / RAG citation 의 `stale` 플래그 기준 (default 30 일, `0` 으로 비활성화). 옛 config 의 `workspace.include = [...]` 은 silently 무시 + 단발 deprecation warning (p9-fb-25).
 - `--config <path>` flag — 임시 워크스페이스 / 격리 테스트 시 사용. CLI / TUI 모두 honor.
 - `KEBAB_*` env — 일부 키 override (`KEBAB_RAG_SCORE_GATE`, `KEBAB_EVAL_GOLDEN`, `KEBAB_COMMIT_HASH` 등).
 - XDG layout: `~/.config/kebab/`, `~/.local/share/kebab/`, `~/.cache/kebab/`, `~/.local/state/kebab/`.

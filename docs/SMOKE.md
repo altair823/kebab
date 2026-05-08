@@ -103,6 +103,7 @@ hybrid_fusion = "rrf"
 rrf_k = 60
 snippet_chars = 220
 cache_capacity = 256                 # p9-fb-19 — in-process LRU cap; 0 disables, default 256
+stale_threshold_days = 30            # p9-fb-32 — 0 = disable. Marks hits/citations whose source doc was last reindexed > N days ago.
 
 [rag]
 prompt_template_version = "rag-v1"
@@ -132,6 +133,14 @@ KB inspect chunk <chunk_id>                        # 8. raw chunk 보기
 KB ask "이 KB 안에서 ..." --mode hybrid --k 5     # 9. RAG 답변 (Ollama 필요)
 KB --json ask "..." --mode hybrid                  # 10. 기계 친화 출력 검증
 ```
+
+### Stale doc indicator
+
+Each search hit and RAG citation carries `indexed_at` (RFC3339 of the doc's last
+re-process) and `stale` (computed against `[search] stale_threshold_days`).
+A 30-day default flags docs that haven't been touched in a month — the
+intent is to nudge a reingest before relying on the snapshot. Set to `0`
+to disable.
 
 ## P6-4 이미지 ingestion 옵션
 

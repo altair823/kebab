@@ -3,7 +3,7 @@ phase: P9
 component: kebab-app + kebab-tui + kebab-cli
 task_id: p9-fb-32
 title: "Stale doc indicator (ingest 시점 대비 X 일 임계 알림)"
-status: open
+status: completed
 target_version: 0.4.0
 depends_on: []
 unblocks: []
@@ -14,7 +14,8 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — Claude Code 가 kebab CLI
 
 # p9-fb-32 — Stale doc indicator
 
-> ⏳ **백로그 only — 미구현.** 본 spec 은 도그푸딩 피드백 skeleton. 구현 착수 전 [superpowers:brainstorming](../../docs/superpowers/) 으로 설계 단계 선행 필요. stale threshold 정책 / "stale" 정의 (ingest 시점 vs file mtime) / wire schema 필드 위치 brainstorm 후 확정.
+상세 설계: `docs/superpowers/specs/2026-05-08-p9-fb-32-stale-doc-indicator-design.md`.
+구현 계획: `docs/superpowers/plans/2026-05-09-p9-fb-32-stale-doc-indicator.md`.
 
 ## 증상 / 동기
 
