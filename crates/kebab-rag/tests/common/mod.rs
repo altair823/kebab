@@ -143,6 +143,9 @@ pub fn mk_hit(
         index_version: IndexVersion("test-iv".to_string()),
         embedding_model: None,
         chunker_version: ChunkerVersion("v1".to_string()),
+        // p9-fb-32: synthetic test mock — staleness not exercised here.
+        indexed_at: time::OffsetDateTime::UNIX_EPOCH,
+        stale: false,
     }
 }
 
