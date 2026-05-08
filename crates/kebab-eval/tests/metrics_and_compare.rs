@@ -82,6 +82,10 @@ fn hit(rank: u32, chunk_id: &str, doc_id: &str) -> SearchHit {
         index_version: IndexVersion("idx@1".into()),
         embedding_model: None,
         chunker_version: ChunkerVersion("test@1".into()),
+        // fb-32: synthetic eval fixtures don't exercise staleness;
+        // pin UNIX_EPOCH + stale=false so hits stay deterministic.
+        indexed_at: OffsetDateTime::UNIX_EPOCH,
+        stale: false,
     }
 }
 

@@ -42,6 +42,10 @@ fn make_answer(grounded: bool, refusal: Option<RefusalReason>, body: &str) -> An
                 end: 14,
                 section: Some("Section A".into()),
             },
+            // fb-32: TUI ask test fixture pinned to UNIX_EPOCH + stale=false;
+            // staleness rendering covered in dedicated tests (Task 11).
+            indexed_at: OffsetDateTime::UNIX_EPOCH,
+            stale: false,
         }],
         grounded,
         refusal_reason: refusal,

@@ -51,6 +51,10 @@ fn make_hit(rank: u32, path: &str, snippet: &str, citation: Citation) -> SearchH
         index_version: IndexVersion("v1".into()),
         embedding_model: Some(EmbeddingModelId("multilingual-e5-small".into())),
         chunker_version: ChunkerVersion("md-heading-v1".into()),
+        // fb-32: TUI search test fixtures pinned to UNIX_EPOCH + stale=false;
+        // staleness rendering covered in dedicated tests (Task 11).
+        indexed_at: time::OffsetDateTime::UNIX_EPOCH,
+        stale: false,
     }
 }
 
