@@ -18,6 +18,7 @@ use kebab_core::{
     Retriever, SearchFilters, SearchHit, SearchMode, SearchQuery,
 };
 use kebab_search::{FusionPolicy, HybridRetriever};
+use rusqlite::params;
 use serde_json::json;
 
 fn build_hybrid(env: &HybridEnv) -> HybridRetriever {
@@ -210,4 +211,48 @@ fn hybrid_snapshot_run_1() {
             w[1].retrieval.fusion_score
         );
     }
+}
+
+#[test]
+#[ignore = "requires AVX-capable hardware (LanceDB)"]
+fn vector_hit_carries_indexed_at() {
+    // p9-fb-32: VectorRetriever must populate SearchHit.indexed_at from
+    // documents.updated_at via the JOIN added to hydrate_chunks (mirrors
+    // the lexical retriever's behavior — Task 5).
+    use time::OffsetDateTime;
+    use time::format_description::well_known::Rfc3339;
+
+    require_avx_or_panic();
+    let env = HybridEnv::new();
+    let _ids = seed_disjoint_corpus(&env);
+
+    // `seed_chunk` hardcodes updated_at='1970-01-01T00:00:00Z'; bump
+    // every document's updated_at to wall-clock now so the assertion
+    // against `now` is meaningful.
+    let now = OffsetDateTime::now_utc();
+    let now_rfc = now.format(&Rfc3339).expect("format now as rfc3339");
+    {
+        let conn = env.sqlite.read_conn();
+        conn.execute(
+            "UPDATE documents SET updated_at = ?",
+            params![now_rfc],
+        )
+        .expect("bump documents.updated_at");
+    }
+
+    let r = env.vector_retriever();
+    let hits = r
+        .search(&SearchQuery {
+            text: "rust".to_string(),
+            mode: SearchMode::Vector,
+            k: 5,
+            filters: SearchFilters::default(),
+        })
+        .expect("vector search");
+    let hit = hits.first().expect("at least one vector hit");
+    let now2 = OffsetDateTime::now_utc();
+    let delta = (now2 - hit.indexed_at).whole_seconds().abs();
+    assert!(delta < 60, "indexed_at within ±60s of now, got {delta}s");
+    // stale is a placeholder set by the retriever; the App layer overwrites.
+    assert!(!hit.stale, "vector retriever must default stale=false");
 }
