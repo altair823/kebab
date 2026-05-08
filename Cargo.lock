@@ -3595,6 +3595,7 @@ dependencies = [
  "kebab-eval",
  "kebab-mcp",
  "kebab-tui",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

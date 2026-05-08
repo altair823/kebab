@@ -528,6 +528,14 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             if cli.json {
                 println!("{}", serde_json::to_string(&wire::wire_search_hits(&hits))?);
             } else {
+                // p9-fb-32: prefix `[stale]` on the doc_path for hits
+                // whose `stale: true`. Yellow on TTY, plain otherwise —
+                // mirrors the warning convention used by the progress
+                // renderer (`progress.rs`). Detection uses stdlib
+                // `IsTerminal` against stdout (the surface this print
+                // lands on); no new dep.
+                use std::io::IsTerminal;
+                let color = std::io::stdout().is_terminal();
                 for h in &hits {
                     // Show 4-digit score so RRF fused scores (bounded
                     // ~0–0.033 for k_rrf=60) don't all collapse to "0.02".
@@ -538,10 +546,20 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     } else {
                         format!("  >  {}", h.heading_path.join(" / "))
                     };
+                    let stale_tag = if h.stale {
+                        if color {
+                            "\x1b[33m[stale]\x1b[0m "
+                        } else {
+                            "[stale] "
+                        }
+                    } else {
+                        ""
+                    };
                     println!(
-                        "{:>2}. {:.4}  {}{}",
+                        "{:>2}. {:.4}  {}{}{}",
                         h.rank,
                         h.retrieval.fusion_score,
+                        stale_tag,
                         h.doc_path.0,
                         heading,
                     );
