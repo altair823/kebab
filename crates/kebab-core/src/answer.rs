@@ -35,6 +35,11 @@ pub struct Answer {
 pub struct AnswerCitation {
     pub marker: Option<String>,
     pub citation: Citation,
+    /// p9-fb-32: cited doc's `documents.updated_at`.
+    #[serde(with = "time::serde::rfc3339")]
+    pub indexed_at: OffsetDateTime,
+    /// p9-fb-32: server-computed staleness flag per config threshold.
+    pub stale: bool,
 }
 
 /// p9-fb-15: history 가 prompt 에 들어갈 때의 한 turn. RAG facade 가
@@ -90,3 +95,29 @@ pub struct TokenUsage {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct TraceId(pub String);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::asset::WorkspacePath;
+    use crate::citation::Citation;
+    use time::macros::datetime;
+
+    #[test]
+    fn answer_citation_serializes_indexed_at_and_stale() {
+        let ac = AnswerCitation {
+            marker: Some("[1]".to_string()),
+            citation: Citation::Line {
+                path: WorkspacePath::new("a.md".to_string()).unwrap(),
+                start: 1,
+                end: 1,
+                section: None,
+            },
+            indexed_at: datetime!(2026-05-09 12:00:00 UTC),
+            stale: false,
+        };
+        let v = serde_json::to_value(&ac).unwrap();
+        assert_eq!(v["indexed_at"], "2026-05-09T12:00:00Z");
+        assert_eq!(v["stale"], false);
+    }
+}
