@@ -377,6 +377,108 @@ fn render_refusal_score_gate_shows_status_without_citation_index_panic() {
     assert!(rendered.contains("score_gate"), "refusal reason surfaced");
 }
 
+/// p9-fb-32: when `AnswerCitation.stale == true`, the Ask pane's
+/// citations panel inserts a Warning-styled `[STALE] ` Span between
+/// the marker and the path URI.
+#[test]
+fn ask_citations_show_stale_badge_for_stale_citation() {
+    let mut app = fresh_app();
+    {
+        let s = app.ask.as_mut().unwrap();
+        let mut ans = make_answer(true, None, "answer body [1] [2].");
+        // Replace fixture's single fresh citation with two — one stale
+        // (notes/old.md) and one fresh (notes/new.md) — so the test
+        // can assert the badge attaches to one row only.
+        ans.citations = vec![
+            AnswerCitation {
+                marker: Some("1".into()),
+                citation: Citation::Line {
+                    path: WorkspacePath::new("notes/old.md".into()).unwrap(),
+                    start: 1,
+                    end: 1,
+                    section: None,
+                },
+                indexed_at: OffsetDateTime::UNIX_EPOCH,
+                stale: true,
+            },
+            AnswerCitation {
+                marker: Some("2".into()),
+                citation: Citation::Line {
+                    path: WorkspacePath::new("notes/new.md".into()).unwrap(),
+                    start: 5,
+                    end: 5,
+                    section: None,
+                },
+                indexed_at: OffsetDateTime::UNIX_EPOCH,
+                stale: false,
+            },
+        ];
+        s.turns.push(Turn {
+            question: "test".into(),
+            answer: ans.answer.clone(),
+            citations: ans.citations.clone(),
+            created_at: ans.created_at,
+        });
+        s.last_answer = Some(ans);
+    }
+    let backend = TestBackend::new(120, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| {
+            let area = Rect::new(0, 0, 120, 24);
+            render_ask(f, area, &app);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let rendered: String = (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        rendered.contains("[STALE]"),
+        "[STALE] badge must render somewhere on the citations panel: {rendered}"
+    );
+    let stale_line = rendered
+        .lines()
+        .find(|l| l.contains("notes/old.md"))
+        .expect("stale citation row must render");
+    assert!(
+        stale_line.contains("[STALE]"),
+        "stale citation row must carry [STALE] badge: {stale_line}"
+    );
+    let fresh_line = rendered
+        .lines()
+        .find(|l| l.contains("notes/new.md"))
+        .expect("fresh citation row must render");
+    assert!(
+        !fresh_line.contains("[STALE]"),
+        "fresh citation row must NOT carry [STALE] badge: {fresh_line}"
+    );
+    // Color side: the `[` of `[STALE]` must be Yellow (Warning role).
+    let mut stale_yellow_found = false;
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
+            let cell = &buffer[(x, y)];
+            if cell.symbol() == "["
+                && x + 1 < buffer.area.width
+                && buffer[(x + 1, y)].symbol() == "S"
+            {
+                if let ratatui::style::Color::Yellow = cell.fg {
+                    stale_yellow_found = true;
+                }
+            }
+        }
+    }
+    assert!(
+        stale_yellow_found,
+        "[STALE] badge in citations must use Yellow (Warning) fg"
+    );
+}
+
 #[test]
 fn explain_toggle_changes_panel_title() {
     let mut app = fresh_app();

@@ -130,10 +130,14 @@ fn render_result_list(f: &mut Frame, area: Rect, s: &SearchState, theme: &crate:
 }
 
 /// §1.5 dense format — 4 lines per hit:
-/// 1. `<rank>. <fusion_score>  <path#frag>`
+/// 1. `<rank>. <fusion_score>  [STALE]?<path#frag>`
 /// 2. `<heading_path joined by " / "> | section_label?`
 /// 3. snippet line 1
 /// 4. snippet line 2 (or trailing blank for layout symmetry)
+///
+/// p9-fb-32: when `h.stale == true` the rank/score header line is
+/// preceded by a Warning-styled `[STALE] ` Span — text + color so a
+/// monochrome reader still gets the signal (fb-14 accessibility note).
 fn format_hit_lines(h: &SearchHit, theme: &crate::theme::Theme) -> Vec<Line<'static>> {
     let header = format!(
         "{}. {:.4}  {}",
@@ -155,8 +159,16 @@ fn format_hit_lines(h: &SearchHit, theme: &crate::theme::Theme) -> Vec<Line<'sta
     let mut snippet_lines = h.snippet.lines();
     let s1 = snippet_lines.next().unwrap_or("").to_string();
     let s2 = snippet_lines.next().unwrap_or("").to_string();
+    let header_line = if h.stale {
+        Line::from(vec![
+            Span::styled("[STALE] ", theme.style(crate::theme::Role::Warning)),
+            Span::styled(header, theme.style(crate::theme::Role::Title)),
+        ])
+    } else {
+        Line::from(Span::styled(header, theme.style(crate::theme::Role::Title)))
+    };
     vec![
-        Line::from(Span::styled(header, theme.style(crate::theme::Role::Title))),
+        header_line,
         Line::from(Span::styled(path_line, theme.style(crate::theme::Role::Path))),
         Line::from(format!("  {s1}")),
         Line::from(format!("  {s2}")),

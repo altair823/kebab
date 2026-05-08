@@ -47,8 +47,14 @@ pub fn render_inspect(f: &mut Frame, area: Rect, state: &App) {
         f.render_widget(block, area);
         return;
     }
+    // p9-fb-32: compute staleness against the configured threshold so
+    // the inspect header can carry a `[STALE]` badge alongside the
+    // doc_path. Threshold = 0 short-circuits in `compute_stale`.
+    let threshold_days = state.config.search.stale_threshold_days;
     match (&s.target, &s.doc, &s.chunk) {
-        (Some(InspectTarget::Doc(_)), Some(doc), _) => render_doc(f, area, s, doc, &state.theme),
+        (Some(InspectTarget::Doc(_)), Some(doc), _) => {
+            render_doc(f, area, s, doc, &state.theme, threshold_days)
+        }
         (Some(InspectTarget::Chunk(_)), _, Some(chunk)) => {
             render_chunk(f, area, s, chunk, &state.theme)
         }
@@ -67,8 +73,15 @@ pub fn render_inspect(f: &mut Frame, area: Rect, state: &App) {
     }
 }
 
-fn render_doc(f: &mut Frame, area: Rect, s: &InspectState, doc: &CanonicalDocument, theme: &crate::theme::Theme) {
-    let lines = build_doc_lines(s, doc, theme);
+fn render_doc(
+    f: &mut Frame,
+    area: Rect,
+    s: &InspectState,
+    doc: &CanonicalDocument,
+    theme: &crate::theme::Theme,
+    threshold_days: u32,
+) {
+    let lines = build_doc_lines(s, doc, theme, threshold_days);
     let block = RBlock::default()
         .title(format!(
             "Inspect Doc — {}",
@@ -97,15 +110,27 @@ fn render_chunk(f: &mut Frame, area: Rect, s: &InspectState, chunk: &Chunk, them
 
 /// Build the wrapped Lines for a doc inspect view. Pure function so
 /// snapshot tests can compare a stable prefix of lines.
+///
+/// p9-fb-32: when `now - doc.metadata.updated_at > threshold_days`,
+/// the `doc_path` header line is preceded by a Warning-styled
+/// `[STALE] ` Span. Threshold 0 short-circuits to never-stale.
 pub(crate) fn build_doc_lines<'a>(
     s: &InspectState,
     doc: &'a CanonicalDocument,
     theme: &crate::theme::Theme,
+    threshold_days: u32,
 ) -> Vec<Line<'a>> {
     let mut lines: Vec<Line> = Vec::new();
     // Header
+    let now = time::OffsetDateTime::now_utc();
+    let stale = kebab_app::compute_stale(doc.metadata.updated_at, now, threshold_days);
     lines.push(header_kv("title", &doc.title, theme));
-    lines.push(header_kv("doc_path", &doc.workspace_path.0, theme));
+    lines.push(header_kv_with_stale(
+        "doc_path",
+        &doc.workspace_path.0,
+        stale,
+        theme,
+    ));
     lines.push(header_kv("doc_id", &doc.doc_id.0, theme));
     lines.push(header_kv("lang", &doc.lang.0, theme));
     lines.push(header_kv(
@@ -281,6 +306,30 @@ fn header_kv(k: &str, v: &str, theme: &crate::theme::Theme) -> Line<'static> {
         ),
         Span::raw(v.to_string()),
     ])
+}
+
+/// p9-fb-32: same as `header_kv` but prepends `[STALE] ` (Warning-
+/// styled) before the value when `stale == true`. The `[STALE]` text
+/// is plain ASCII so monochrome readers still get the signal (fb-14
+/// accessibility note).
+fn header_kv_with_stale(
+    k: &str,
+    v: &str,
+    stale: bool,
+    theme: &crate::theme::Theme,
+) -> Line<'static> {
+    let mut spans = vec![Span::styled(
+        format!("{k:>16}: "),
+        theme.style(crate::theme::Role::Heading),
+    )];
+    if stale {
+        spans.push(Span::styled(
+            "[STALE] ",
+            theme.style(crate::theme::Role::Warning),
+        ));
+    }
+    spans.push(Span::raw(v.to_string()));
+    Line::from(spans)
 }
 
 fn kv(k: &str, v: &str, theme: &crate::theme::Theme) -> Line<'static> {
