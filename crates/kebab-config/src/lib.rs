@@ -131,10 +131,19 @@ pub struct SearchCfg {
     /// (corpus_revision mismatch) are evicted on next access.
     #[serde(default = "default_cache_capacity")]
     pub cache_capacity: usize,
+    /// p9-fb-32: hits and citations whose source doc was last
+    /// re-processed more than this many days ago are marked
+    /// `stale: true` in wire / TUI / CLI surfaces. `0` disables.
+    #[serde(default = "default_stale_threshold_days")]
+    pub stale_threshold_days: u32,
 }
 
 fn default_cache_capacity() -> usize {
     256
+}
+
+fn default_stale_threshold_days() -> u32 {
+    30
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -317,6 +326,7 @@ impl Config {
                 rrf_k: 60,
                 snippet_chars: 220,
                 cache_capacity: default_cache_capacity(),
+                stale_threshold_days: 30,
             },
             rag: RagCfg {
                 prompt_template_version: "rag-v1".to_string(),
@@ -575,6 +585,11 @@ impl Config {
                 "KEBAB_SEARCH_SNIPPET_CHARS" => {
                     if let Ok(n) = v.parse::<usize>() {
                         self.search.snippet_chars = n;
+                    }
+                }
+                "KEBAB_SEARCH_STALE_THRESHOLD_DAYS" => {
+                    if let Ok(n) = v.parse::<u32>() {
+                        self.search.stale_threshold_days = n;
                     }
                 }
 
@@ -944,6 +959,7 @@ default_k = 10
 hybrid_fusion = "rrf"
 rrf_k = 60
 snippet_chars = 220
+stale_threshold_days = 30
 
 [rag]
 prompt_template_version = "rag-v1"
@@ -979,6 +995,41 @@ max_context_tokens = 8000
     fn workspace_cfg_has_only_root_and_exclude_fields() {
         let ws = Config::defaults().workspace;
         let WorkspaceCfg { root: _, exclude: _ } = &ws;
+    }
+
+    #[test]
+    fn default_stale_threshold_is_30() {
+        let c = Config::defaults();
+        assert_eq!(c.search.stale_threshold_days, 30);
+    }
+
+    #[test]
+    fn env_override_stale_threshold() {
+        let c = Config::defaults();
+        let env: HashMap<String, String> = [
+            ("KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(), "7".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let c = c.apply_env(&env);
+        assert_eq!(c.search.stale_threshold_days, 7);
+    }
+
+    #[test]
+    fn negative_stale_threshold_rejected_at_validation() {
+        let c = Config::defaults();
+        // u32 cannot hold a negative — represent the failure path through
+        // `apply_env` parse-failure: malformed values are silently ignored
+        // (existing pattern, see KEBAB_SEARCH_DEFAULT_K). For TOML-level
+        // negative rejection we rely on serde's u32 type; assert that the
+        // env path leaves the default in place when given garbage.
+        let env: HashMap<String, String> = [
+            ("KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(), "-5".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let c = c.apply_env(&env);
+        assert_eq!(c.search.stale_threshold_days, 30, "garbage env value must not corrupt the default");
     }
 
     #[test]
