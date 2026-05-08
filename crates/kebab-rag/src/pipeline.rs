@@ -659,6 +659,17 @@ impl RagPipeline {
 /// paths attach the configured embedding model so `kb explain` can
 /// later identify which embedder shaped the retrieval (even on
 /// refusals — see `refuse_score_gate`).
+fn embedding_ref_for(mode: SearchMode, cfg: &kebab_config::Config) -> Option<ModelRef> {
+    match mode {
+        SearchMode::Lexical => None,
+        SearchMode::Vector | SearchMode::Hybrid => Some(ModelRef {
+            id: cfg.models.embedding.model.clone(),
+            provider: cfg.models.embedding.provider.clone(),
+            dimensions: Some(cfg.models.embedding.dimensions),
+        }),
+    }
+}
+
 /// p9-fb-32: pipeline-local mirror of `kebab_app::staleness::compute_stale`.
 /// Duplicated here (rather than imported) because `kebab-rag` cannot
 /// depend on `kebab-app` — that would invert the crate-stack dependency
@@ -676,17 +687,6 @@ fn compute_stale(
     }
     let threshold = time::Duration::days(i64::from(threshold_days));
     (now - indexed_at) > threshold
-}
-
-fn embedding_ref_for(mode: SearchMode, cfg: &kebab_config::Config) -> Option<ModelRef> {
-    match mode {
-        SearchMode::Lexical => None,
-        SearchMode::Vector | SearchMode::Hybrid => Some(ModelRef {
-            id: cfg.models.embedding.model.clone(),
-            provider: cfg.models.embedding.provider.clone(),
-            dimensions: Some(cfg.models.embedding.dimensions),
-        }),
-    }
 }
 
 /// Korean RAG system prompt (`rag-v1`). Verbatim per design §1.

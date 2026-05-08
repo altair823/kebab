@@ -7,6 +7,9 @@ use kebab_core::SearchHit;
 /// Returns `true` iff `now - indexed_at > threshold_days * 24h`.
 /// `threshold_days = 0` always returns `false` (feature disabled).
 /// Strict `>` so that exactly `threshold_days` old returns `false`.
+///
+/// p9-fb-32: mirrored in `kebab_rag::pipeline::compute_stale` (dep-boundary
+/// rule prevents `kebab-rag → kebab-app`). Update both together.
 pub fn compute_stale(
     indexed_at: OffsetDateTime,
     now: OffsetDateTime,
