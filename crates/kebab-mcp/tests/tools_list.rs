@@ -1,13 +1,13 @@
-//! Integration: `build_tools_vec` returns 6 tools with correct names and
+//! Integration: `build_tools_vec` returns 7 tools with correct names and
 //! inputSchema. Uses the extracted `pub fn build_tools_vec()` helper — no
 //! transport or RequestContext needed.
 
 use kebab_mcp::build_tools_vec;
 
 #[test]
-fn tools_list_returns_six_tools() {
+fn tools_list_returns_seven_tools() {
     let tools = build_tools_vec();
-    assert_eq!(tools.len(), 6, "expected exactly 6 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 7, "expected exactly 7 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
     assert!(names.contains(&"schema"), "missing 'schema' tool");
@@ -16,6 +16,7 @@ fn tools_list_returns_six_tools() {
     assert!(names.contains(&"ask"), "missing 'ask' tool");
     assert!(names.contains(&"ingest_file"), "missing 'ingest_file' tool");
     assert!(names.contains(&"ingest_stdin"), "missing 'ingest_stdin' tool");
+    assert!(names.contains(&"fetch"), "missing 'fetch' tool");
 }
 
 #[test]
