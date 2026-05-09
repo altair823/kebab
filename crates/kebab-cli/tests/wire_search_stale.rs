@@ -45,10 +45,21 @@ fn search_json_includes_indexed_at_and_stale() {
 
     let out = run_search_lexical(&cfg, "apples", true);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    let arr: serde_json::Value = serde_json::from_str(stdout.trim())
-        .unwrap_or_else(|e| panic!("expected JSON array, got {stdout:?}: {e}"));
-    let arr = arr.as_array().unwrap_or_else(|| panic!("expected array, got {stdout}"));
-    let first = arr.first().unwrap_or_else(|| panic!("expected ≥1 hit, got empty array: {stdout}"));
+    // p9-fb-34: top-level wire is now `search_response.v1` wrapping the
+    // legacy `search_hit.v1[]` under a `hits` field (with pagination +
+    // truncation metadata). Hit shape inside `hits` is unchanged.
+    let resp: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("expected JSON object, got {stdout:?}: {e}"));
+    assert_eq!(
+        resp.get("schema_version").and_then(|v| v.as_str()),
+        Some("search_response.v1"),
+        "expected search_response.v1 wrapper, got {resp}"
+    );
+    let arr = resp
+        .get("hits")
+        .and_then(|h| h.as_array())
+        .unwrap_or_else(|| panic!("expected hits array, got {stdout}"));
+    let first = arr.first().unwrap_or_else(|| panic!("expected ≥1 hit, got empty hits: {stdout}"));
     assert!(
         first.get("indexed_at").is_some(),
         "missing indexed_at in {first}"

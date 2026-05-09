@@ -63,6 +63,7 @@ pub const SCHEMA_V1_ID: &str = "schema.v1";
 const WIRE_SCHEMAS: &[&str] = &[
     "answer.v1",
     "search_hit.v1",
+    "search_response.v1",
     "doc_summary.v1",
     "chunk_inspection.v1",
     "doctor.v1",

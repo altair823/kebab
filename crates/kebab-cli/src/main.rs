@@ -108,6 +108,23 @@ enum Cmd {
         /// future TUI cache-aware search and for explicit intent.
         #[arg(long)]
         no_cache: bool,
+
+        /// p9-fb-34: cap result wire JSON size at approximately N tokens
+        /// (chars/4 estimate). When set, smaller snippets and fewer hits
+        /// may be returned; check `truncated` in the JSON wire.
+        #[arg(long)]
+        max_tokens: Option<usize>,
+
+        /// p9-fb-34: per-hit snippet character cap, overrides
+        /// `config.search.snippet_chars` for this call only.
+        #[arg(long)]
+        snippet_chars: Option<usize>,
+
+        /// p9-fb-34: opaque cursor from a previous response's
+        /// `next_cursor` to fetch the next page. Mismatched
+        /// `corpus_revision` returns `error.v1.code = stale_cursor`.
+        #[arg(long)]
+        cursor: Option<String>,
     },
 
     /// Retrieval-augmented question answering.
@@ -515,6 +532,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             mode,
             explain: _,
             no_cache,
+            max_tokens,
+            snippet_chars,
+            cursor,
         } => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
             let q = kebab_core::SearchQuery {
@@ -523,16 +543,24 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 k: *k,
                 filters: kebab_core::SearchFilters::default(),
             };
-            // p9-fb-19: --no-cache routes to the uncached facade.
-            // Both calls go through the same App; only the cache
-            // lookup/insert is skipped.
-            let hits = if *no_cache {
-                kebab_app::search_uncached_with_config(cfg, q)?
-            } else {
-                kebab_app::search_with_config(cfg, q)?
+            let opts = kebab_core::SearchOpts {
+                max_tokens: *max_tokens,
+                snippet_chars: *snippet_chars,
+                cursor: cursor.clone(),
             };
+            // p9-fb-34: budget-aware path. --no-cache still bypasses the
+            // App-level LRU; wire wrapper applies regardless.
+            let app = kebab_app::App::open_with_config(cfg)?;
+            if *no_cache {
+                app.clear_search_cache();
+            }
+            let resp = app.search_with_opts(q, opts)?;
+
             if cli.json {
-                println!("{}", serde_json::to_string(&wire::wire_search_hits(&hits))?);
+                println!(
+                    "{}",
+                    serde_json::to_string(&wire::wire_search_response(&resp))?
+                );
             } else {
                 // p9-fb-32: prefix `[stale]` on the doc_path for hits
                 // whose `stale: true`. Yellow on TTY, plain otherwise —
@@ -542,7 +570,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 // lands on); no new dep.
                 use std::io::IsTerminal;
                 let color = std::io::stdout().is_terminal();
-                for h in &hits {
+                for h in &resp.hits {
                     // Show 4-digit score so RRF fused scores (bounded
                     // ~0–0.033 for k_rrf=60) don't all collapse to "0.02".
                     // Append heading_path so multiple chunks from the same
@@ -569,6 +597,12 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                         h.doc_path.0,
                         heading,
                     );
+                }
+                // p9-fb-34: truncation hint goes to stderr so it
+                // doesn't pollute the stdout hit list.
+                if resp.truncated {
+                    let next = resp.next_cursor.as_deref().unwrap_or("(none)");
+                    eprintln!("[truncated; use --cursor {next} for the next page]");
                 }
             }
             Ok(())
