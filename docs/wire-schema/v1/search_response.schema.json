@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/search_response.schema.json",
+  "title": "SearchResponse v1",
+  "description": "Top-level wrapper for `kebab search --json` output. Replaces the bare `search_hit.v1[]` array — wraps it with pagination + truncation metadata. Token counts are approximate (chars/4 estimate, no tokenizer dep). On `truncated: true`, caller may either widen `--max-tokens` or follow `next_cursor` for the next page. Stale `next_cursor` (corpus_revision changed since issued) returns `error.v1.code = stale_cursor`.",
+  "type": "object",
+  "required": ["schema_version", "hits", "next_cursor", "truncated"],
+  "properties": {
+    "schema_version": { "const": "search_response.v1" },
+    "hits":           { "type": "array", "description": "search_hit.v1[]" },
+    "next_cursor":    { "type": ["string", "null"], "description": "Opaque base64 cursor for next page; null when no more hits." },
+    "truncated":      { "type": "boolean", "description": "True when budget forced snippet shortening or k reduction. Caller can request next page via next_cursor or pass higher k." }
+  }
+}
