@@ -12,9 +12,12 @@
 //!    ~4 chars / token, matching the kb-chunk convention).
 //! 4. Render the `rag-v1` prompt (system + user) verbatim per design.
 //! 5. Generate via `LanguageModel::generate_stream`. The token loop runs
-//!    on the calling thread; `opts.stream_sink` (if any) gets each
-//!    token forwarded synchronously and a dropped receiver does not
-//!    abort generation.
+//!    on the calling thread; `opts.stream_sink` (if any) emits
+//!    `StreamEvent::RetrievalDone` once after retrieve+stale-stamp,
+//!    `StreamEvent::Token` per LM chunk, and `StreamEvent::Final` on
+//!    success. A dropped receiver triggers cancel: SendError on Token
+//!    breaks the LM loop + records `RefusalReason::LlmStreamAborted`
+//!    in the persisted Answer (p9-fb-33).
 //! 6. Citation extract — STRICT regex `\[#(\d{1,3})\]`, no false
 //!    positives from prose `[1]` / `vec![1]` / Markdown link refs.
 //! 7. Citation validate — every extracted marker must map to a packed
@@ -83,11 +86,12 @@ type PackedContext = (String, Vec<PackedCitation>, usize);
 /// `RefusalReason::LlmStreamAborted`).
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-// `Final.answer` carries a full `Answer` (~320B) and is the largest
-// variant; `Token` is the hot path. Size mismatch is unavoidable
-// without boxing the wire-shape, which would force every consumer
-// (TUI / CLI / future MCP) to deref. The sink is short-lived (one
-// per ask) so the per-event overhead is not material.
+// p9-fb-33: clippy flags Final.answer (~320B) as the heavy variant.
+// In practice RetrievalDone.hits (Vec<SearchHit>, k≤10×~1KB each)
+// dominates per-emit cost, but it fires once. Boxing either would
+// force every consumer (TUI, CLI ndjson driver, future MCP) to
+// deref through a Box for marginal win on a short-lived per-ask
+// channel. Keep both unboxed.
 #[allow(clippy::large_enum_variant)]
 pub enum StreamEvent {
     RetrievalDone {

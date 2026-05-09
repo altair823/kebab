@@ -73,8 +73,12 @@ fn stream_emits_ndjson_events_on_stderr() {
     }
 
     // First event must be retrieval_done. Last must be final.
-    // (If the LLM refused mid-stream we still expect the worker to
-    // emit a Final event — the pipeline always closes the stream.)
+    // Note: this test only exercises the LLM-running path which always
+    // closes with `final`. score-gate / no-chunks refusal paths emit
+    // only `retrieval_done` and skip `final` — that's why the test uses
+    // `relax_score_gate()` above to force the LLM path. See
+    // `stream_score_gate_refusal_emits_only_retrieval_done` for the
+    // refusal-path coverage.
     assert_eq!(
         kinds.first().map(String::as_str),
         Some("retrieval_done"),
@@ -183,4 +187,55 @@ fn stream_cancels_when_stderr_closes() {
     // may also exit 0 if the LLM finished before cancel propagated.
     // The load-bearing assertion is that wait() returned at all.
     let _ = status;
+}
+
+// p9-fb-33 (PR #124 round 1, item 4): score-gate refusal path —
+// thin doc + unrelated query trips the default 0.30 score gate
+// before the LLM runs. The pipeline emits only `retrieval_done`
+// on stderr (no `token`, no `final`); stdout still carries the
+// canonical `answer.v1` with `grounded=false`.
+#[test]
+#[ignore = "requires real Ollama on 127.0.0.1:11434"]
+fn stream_score_gate_refusal_emits_only_retrieval_done() {
+    let dir = tempfile::tempdir().unwrap();
+    let (cfg, workspace, _data) =
+        common::write_config_with_llm_model(dir.path(), 30, "gemma4:e4b");
+    // Intentionally NO relax_score_gate — keep the default 0.30
+    // so the thin-doc + unrelated-query combo trips refusal.
+    fs::write(
+        workspace.join("a.md"),
+        "# Title\n\nrust is a language.\n",
+    )
+    .unwrap();
+    common::ingest(&cfg, &workspace);
+
+    let (stdout, stderr) =
+        common::run_ask_stream(&cfg, "completely unrelated topic about cooking pasta");
+
+    let kinds: Vec<String> = stderr
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter_map(|v| v["kind"].as_str().map(String::from))
+        .collect();
+
+    // Refusal path: only retrieval_done, no token, no final.
+    assert!(
+        kinds.iter().all(|k| k == "retrieval_done"),
+        "refusal path must emit only retrieval_done, got {kinds:?}"
+    );
+    assert!(
+        !kinds.is_empty(),
+        "expected at least one retrieval_done event, got empty stderr"
+    );
+
+    // Stdout still has answer.v1 with grounded=false.
+    let final_line = stdout
+        .lines()
+        .last()
+        .expect("stdout has at least one line");
+    let answer: Value =
+        serde_json::from_str(final_line).expect("answer.v1");
+    assert_eq!(answer["schema_version"], "answer.v1");
+    assert_eq!(answer["grounded"], false);
 }
