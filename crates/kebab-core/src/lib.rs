@@ -23,6 +23,7 @@ pub mod vector;
 pub mod errors;
 pub mod traits;
 pub mod normalize;
+pub mod fetch;
 
 // Re-export the most commonly used items at the crate root, mirroring the
 // public surface listed in the task spec.
@@ -68,3 +69,4 @@ pub use traits::{
     SourceScope, TokenChunk, VectorStore,
 };
 pub use normalize::{nfc, to_posix};
+pub use fetch::{FetchKind, FetchOpts, FetchQuery, FetchResult};
