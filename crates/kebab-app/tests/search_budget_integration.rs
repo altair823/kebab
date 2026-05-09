@@ -98,24 +98,58 @@ fn cursor_rejected_after_corpus_revision_bump() {
     let page1 = app
         .search_with_opts(lex("apples", 1), SearchOpts::default())
         .unwrap();
-    let cursor = page1.next_cursor;
+    // p9-fb-34 round-1 review: replaced silent `if let Some(c) = ...`
+    // with `.expect(...)` so a fixture regression that breaks the
+    // cursor-emission contract fails loudly instead of passing vacuously.
+    let c = page1
+        .next_cursor
+        .expect("k=1 page must emit next_cursor — fixture too small if this fails");
 
-    if let Some(c) = cursor {
-        common::ingest_md(&env, "b.md", "# B\n\nbananas\n");
-        let app2 = env.app();
+    common::ingest_md(&env, "b.md", "# B\n\nbananas\n");
+    let app2 = env.app();
 
-        let result = app2.search_with_opts(
-            lex("apples", 1),
-            SearchOpts {
-                max_tokens: None,
-                snippet_chars: None,
-                cursor: Some(c),
-            },
-        );
-        let err = result.unwrap_err();
-        assert!(
-            err.to_string().contains("stale_cursor"),
-            "must surface stale_cursor: {err}"
+    let result = app2.search_with_opts(
+        lex("apples", 1),
+        SearchOpts {
+            max_tokens: None,
+            snippet_chars: None,
+            cursor: Some(c),
+        },
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().contains("stale_cursor"),
+        "must surface stale_cursor: {err}"
+    );
+}
+
+#[test]
+fn max_tokens_zero_returns_one_hit_truncated() {
+    // p9-fb-34 round-1 review: pin the documented "≥1 hit floor"
+    // contract — even with `max_tokens=0` (an absurdly tight budget)
+    // the budget loop must keep one hit and flip `truncated: true`.
+    // Fixture intentionally seeds multiple matches so step 2 of the
+    // budget loop (pop hits to 1) actually fires.
+    let env = common::TestEnv::new();
+    for i in 0..3 {
+        common::ingest_md(
+            &env,
+            &format!("d{i}.md"),
+            &format!("# T{i}\n\napples are red {i}\n"),
         );
     }
+    let app = env.app();
+
+    let resp = app
+        .search_with_opts(
+            lex("apples", 5),
+            SearchOpts {
+                max_tokens: Some(0),
+                snippet_chars: None,
+                cursor: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(resp.hits.len(), 1, "max_tokens=0 collapses to 1-hit floor");
+    assert!(resp.truncated);
 }

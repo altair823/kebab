@@ -9,6 +9,6 @@
     "schema_version": { "const": "search_response.v1" },
     "hits":           { "type": "array", "description": "search_hit.v1[]" },
     "next_cursor":    { "type": ["string", "null"], "description": "Opaque base64 cursor for next page; null when no more hits." },
-    "truncated":      { "type": "boolean", "description": "True when budget forced snippet shortening or k reduction. Caller can request next page via next_cursor or pass higher k." }
+    "truncated":      { "type": "boolean", "description": "True when budget forced snippet shortening or k reduction. When `next_cursor` is also non-null, k was reduced — paginate via cursor. When `next_cursor` is null but `truncated: true`, only snippets were shortened — widen `max_tokens` to get fuller snippets." }
   }
 }

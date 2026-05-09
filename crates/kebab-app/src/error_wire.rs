@@ -12,8 +12,10 @@ use serde_json::{Value, json};
 use crate::error_signal::{ConfigInvalid, LlmError, NotIndexed};
 
 // p9-fb-34: `stale_cursor` is constructed directly by `cursor::decode`
-// instead of routed through `classify`. Keep that contract — adding a
-// classify branch would create two sources of truth for the same code.
+// and surfaced through `StructuredError` (an anyhow-friendly wrapper
+// that carries the typed `ErrorV1` payload without lossy string
+// formatting). `classify` short-circuits on it at the top of the
+// function so the typed `code = "stale_cursor"` reaches the wire.
 
 /// Wire schema id for [`ErrorV1`]. Single source of truth — kebab-cli
 /// + kebab-mcp use this via `kebab_app::ERROR_V1_ID`.
@@ -28,7 +30,29 @@ pub struct ErrorV1 {
     pub hint: Option<String>,
 }
 
+/// p9-fb-34: typed wrapper around an [`ErrorV1`] so callers that
+/// surface `anyhow::Error` can downcast back to the structured wire
+/// payload instead of losing it to string formatting. Constructed by
+/// the cursor code path (`cursor::decode` → `App::search_with_opts`)
+/// and short-circuited inside [`classify`].
+#[derive(Debug)]
+pub struct StructuredError(pub ErrorV1);
+
+impl std::fmt::Display for StructuredError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] {}", self.0.code, self.0.message)
+    }
+}
+
+impl std::error::Error for StructuredError {}
+
 pub fn classify(err: &anyhow::Error, verbose: bool) -> ErrorV1 {
+    // p9-fb-34: structured wrapper short-circuits — preserves the
+    // typed payload that callers (cursor::decode) constructed
+    // instead of falling through to `code = "generic"`.
+    if let Some(s) = err.downcast_ref::<StructuredError>() {
+        return s.0.clone();
+    }
     if let Some(s) = err.downcast_ref::<ConfigInvalid>() {
         return ErrorV1 {
             schema_version: ERROR_V1_ID.to_string(),
@@ -208,9 +232,29 @@ mod tests {
         let err: anyhow::Error = anyhow!("stale_cursor: rev mismatch");
         let v1 = classify(&err, false);
         // p9-fb-34: stale_cursor is constructed directly by cursor::decode
-        // (single source of truth). classify routes anyhow strings to the
-        // generic "unknown" code. This test pins that contract — adding a
-        // classify branch for stale_cursor would create two sources.
-        assert_ne!(v1.code, "stale_cursor", "classify must not produce stale_cursor — cursor::decode is sole source");
+        // (single source of truth). classify must not pattern-match on
+        // anyhow string contents — that would create two sources of
+        // truth. The bare anyhow string falls through to "generic".
+        assert_ne!(v1.code, "stale_cursor", "classify must not produce stale_cursor from bare anyhow string");
+    }
+
+    #[test]
+    fn stale_cursor_propagates_through_structured_wrapper() {
+        // p9-fb-34: positive-side contract for the structured-wrapper
+        // path. cursor::decode constructs a typed ErrorV1, the call site
+        // wraps it in `StructuredError`, anyhow carries it, and classify
+        // short-circuits via downcast — preserving the typed code +
+        // message instead of falling through to "generic".
+        let original = ErrorV1 {
+            schema_version: ERROR_V1_ID.to_string(),
+            code: "stale_cursor".to_string(),
+            message: "test stale cursor".to_string(),
+            details: Value::Null,
+            hint: None,
+        };
+        let err: anyhow::Error = anyhow::Error::new(StructuredError(original));
+        let v1 = classify(&err, false);
+        assert_eq!(v1.code, "stale_cursor");
+        assert_eq!(v1.message, "test stale cursor");
     }
 }

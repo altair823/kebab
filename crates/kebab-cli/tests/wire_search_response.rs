@@ -135,6 +135,79 @@ fn search_json_cursor_paginates() {
 }
 
 #[test]
+fn search_stale_cursor_returns_error_v1_with_stale_cursor_code() {
+    // p9-fb-34 round-1 review: end-to-end wire contract — when the
+    // corpus_revision bumps between cursor issuance and the cursored
+    // search, `kebab --json search --cursor <stale>` must emit an
+    // `error.v1` ndjson line on stderr with `code = "stale_cursor"`.
+    // Pre-fix this returned `code = "generic"` because
+    // `App::search_with_opts` string-formatted the typed payload into
+    // anyhow, losing the structured wrapper.
+    let dir = tempfile::tempdir().unwrap();
+    let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
+    fs::write(workspace.join("a.md"), "# T\n\napples\n").unwrap();
+    common::ingest(&cfg, &workspace);
+
+    // Get a valid cursor first.
+    let (page1_stdout, _) = common::run_search_with_args(
+        &cfg,
+        &["--mode", "lexical", "--json", "--k", "1", "apples"],
+    );
+    let v1: Value = serde_json::from_str(page1_stdout.trim()).expect("json");
+    let cursor = v1["next_cursor"]
+        .as_str()
+        .expect("k=1 page must emit next_cursor — fixture too small if this fails")
+        .to_string();
+
+    // Bump corpus_revision by ingesting a second doc.
+    fs::write(workspace.join("b.md"), "# B\n\nbananas\n").unwrap();
+    common::ingest(&cfg, &workspace);
+
+    // Use the now-stale cursor. Direct invocation (not via the
+    // success-asserting helper) so we can read stderr on failure.
+    let exe = env!("CARGO_BIN_EXE_kebab");
+    let cfg_str = cfg.to_str().expect("utf8");
+    let out = std::process::Command::new(exe)
+        .args([
+            "--config",
+            cfg_str,
+            "--json",
+            "search",
+            "--mode",
+            "lexical",
+            "--json",
+            "--cursor",
+            &cursor,
+            "apples",
+        ])
+        .output()
+        .expect("kebab search --cursor");
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // Find the error.v1 ndjson line on stderr (one event per line).
+    let err_line = stderr
+        .lines()
+        .find(|l| {
+            serde_json::from_str::<Value>(l)
+                .ok()
+                .and_then(|v| {
+                    v.get("schema_version")
+                        .and_then(|s| s.as_str())
+                        .map(String::from)
+                })
+                .as_deref()
+                == Some("error.v1")
+        })
+        .unwrap_or_else(|| panic!("no error.v1 line on stderr: {stderr:?}"));
+
+    let v: Value = serde_json::from_str(err_line).expect("error.v1 json");
+    assert_eq!(
+        v["code"], "stale_cursor",
+        "code must be stale_cursor: {err_line}"
+    );
+}
+
+#[test]
 fn search_plain_emits_truncated_hint_to_stderr() {
     let dir = tempfile::tempdir().unwrap();
     let (cfg, workspace, _data) = common::write_config(dir.path(), 30);

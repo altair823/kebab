@@ -313,8 +313,12 @@ impl App {
 
         let corpus_revision = self.sqlite.corpus_revision().to_string();
         let offset = match opts.cursor.as_ref() {
+            // p9-fb-34: wrap the typed ErrorV1 in StructuredError so
+            // anyhow carries the structured payload all the way to
+            // `classify` — string formatting here would degrade
+            // `code = "stale_cursor"` to `code = "generic"` on the wire.
             Some(c) => cursor::decode(c, &corpus_revision)
-                .map_err(|e| anyhow!("stale_cursor: {}", e.message))?,
+                .map_err(|e| anyhow::Error::new(crate::error_wire::StructuredError(e)))?,
             None => 0,
         };
 
@@ -386,19 +390,26 @@ impl App {
             }
         }
 
-        // Compute next_cursor. Two paths produce one:
+        // Compute next_cursor. Only emit on the full-page path:
         //   - We returned a full `k_effective` page → more hits may
         //     remain in the original retriever set; the cursor is
         //     speculative (the next call falls through to an empty
         //     page if nothing's left, which is fine).
-        //   - The budget loop truncated mid-page → resume from where
-        //     we stopped so the caller can fetch the rest with a
-        //     bigger budget.
+        //
+        // p9-fb-34 round-1 review: the previous "truncated mid-page"
+        // branch was misleading — when the budget loop only shrank
+        // snippets (no hits popped), `next_cursor` would point at the
+        // page *after* the current hits, but the caller often wants
+        // *fuller snippets for the same hits* (i.e. widen `max_tokens`)
+        // not the next page. We now only emit a cursor when k was
+        // actually reduced (k-pop case) or the page was naturally full;
+        // both produce `returned == k_effective`. For snippet-only
+        // shrinkage with `truncated: true` and `next_cursor: null`, the
+        // documented guidance is "widen max_tokens".
         let returned = hits.len();
-        let full_page = returned == k_effective
-            && offset.saturating_add(returned) > 0;
-        let mid_page_truncation = truncated && returned > 0;
-        let next_cursor = if full_page || mid_page_truncation {
+        let next_cursor = if returned == k_effective
+            && offset.saturating_add(returned) > 0
+        {
             Some(cursor::encode(offset + returned, &corpus_revision))
         } else {
             None
@@ -782,11 +793,10 @@ fn trim_to_chars(s: &str, n: usize) -> String {
     out
 }
 
-/// p9-fb-34: estimate the wire-JSON char cost of a hit list. Used by
-/// the budget loop in `App::search_with_opts`. `serde_json::to_string`
-/// failures fall back to 0 so a single broken hit never makes the
-/// loop loop forever; in practice the hit struct serializes
-/// infallibly.
+/// p9-fb-34: estimate wire JSON char cost of the hit list. Returns 0
+/// per-hit when serialization fails — a SearchHit serialization
+/// failure is an invariant violation; we degrade gracefully (loop
+/// terminates early) rather than panic in the budget loop.
 fn estimate_chars(hits: &[SearchHit]) -> usize {
     hits.iter()
         .map(|h| serde_json::to_string(h).map(|s| s.len()).unwrap_or(0))

@@ -54,7 +54,7 @@ Input:
 - **`max_tokens` / `snippet_chars` / `cursor` (p9-fb-34)** — agent budget controls. Set `max_tokens` to cap result wire size (chars/4 estimate); set `cursor` to the previous response's `next_cursor` to fetch the next page.
 - Output is `search_response.v1`: `{ hits: search_hit.v1[], next_cursor: string|null, truncated: bool }`. Iterate `response.hits[]` for individual hits. Key hit fields: `rank`, `score`, `doc_path`, `heading_path[]`, `section_label`, `snippet`, `citation` (line range / page), `chunk_id`.
 - Cite back to the user as `doc_path § heading_path[-1]` so they can open the source.
-- When `truncated: true`, either widen `max_tokens` or paginate via `next_cursor`. Mismatched cursor (corpus_revision changed) returns `error.v1.code = stale_cursor` — re-issue the search to obtain a fresh one.
+- When `truncated: true` and `next_cursor` is non-null, k was reduced — paginate via cursor. When `truncated: true` and `next_cursor` is null, only snippets were shortened — widen `max_tokens` to get fuller snippets. Mismatched cursor (corpus_revision changed) returns `error.v1.code = stale_cursor` — re-issue the search to obtain a fresh one.
 
 ### `mcp__kebab__ask` — when you need the answer
 
@@ -106,7 +106,7 @@ Claude Code spawns `kebab mcp` at session start; the process stays alive across 
 - MCP tools return JSON content blocks; CLI prints **one JSON value to stdout**, progress / warnings to stderr. Capture stdout only: `kebab search ... --json 2>/dev/null`.
 - `search` output can be large for broad queries. Project relevant fields when summarizing — for CLI: `jq '.hits[] | {rank, doc_path, heading: .heading_path[-1], snippet}'` (note: `.hits[]`, not `.[]` — fb-34 wrapped the array). Use `--max-tokens N` (CLI) / `max_tokens` (MCP) to cap wire size in advance.
 - Pagination: `search_response.v1.next_cursor` is opaque base64 — pass back as `--cursor` (CLI) or `cursor` (MCP) for the next page. `null` means no more hits. `corpus_revision` mismatch returns `error.v1.code = stale_cursor` — re-issue search to obtain a fresh cursor.
-- `search_response.v1.truncated = true` means budget forced snippet shortening or k reduction. Either widen the budget or paginate via `next_cursor`.
+- `search_response.v1.truncated = true` means budget forced snippet shortening or k reduction. When `next_cursor` is also non-null, k was reduced — paginate via cursor. When `next_cursor` is null but `truncated: true`, only snippets were shortened — widen `max_tokens` to get fuller snippets.
 - `ask`'s `citations[]` mirrors `search_hit.v1` minus retrieval internals — same `doc_path` / `citation` shape.
 - Schema reference lives in the kebab repo at `docs/wire-schema/v1/*.schema.json` if a field is unclear.
 - `search_hit.v1` and `answer.v1.citations[]` carry `indexed_at` (RFC3339) + `stale` (bool). When `stale == true`, the source doc hasn't been re-processed since `config.search.stale_threshold_days`. Surface this caveat to the user when summarizing — the cited snapshot may not reflect current reality.

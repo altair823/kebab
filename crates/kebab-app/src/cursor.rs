@@ -35,28 +35,41 @@ pub fn encode(offset: usize, corpus_revision: &str) -> String {
 // after monomorphization with Value + String fields). Boxing here
 // would force every call site to deref through a Box for no win —
 // the err-path is rare. Single allow at the function level.
+//
+// p9-fb-34 round-1 review: differentiate the three failure modes
+// (base64 / JSON / revision mismatch) with distinct messages — all
+// keep `code = "stale_cursor"` so the agent's branching logic stays
+// the same, but humans reading the message get a precise hint.
 #[allow(clippy::result_large_err)]
 pub fn decode(s: &str, expected_revision: &str) -> Result<usize, ErrorV1> {
-    let bytes = URL_SAFE_NO_PAD
-        .decode(s.as_bytes())
-        .map_err(|_| stale("<malformed>", expected_revision))?;
-    let payload: Payload = serde_json::from_slice(&bytes)
-        .map_err(|_| stale("<malformed>", expected_revision))?;
-    if payload.corpus_revision != expected_revision {
-        return Err(stale(&payload.corpus_revision, expected_revision));
-    }
-    Ok(payload.offset)
-}
-
-fn stale(found: &str, expected: &str) -> ErrorV1 {
-    ErrorV1 {
+    let bytes = URL_SAFE_NO_PAD.decode(s.as_bytes()).map_err(|_| ErrorV1 {
         schema_version: "error.v1".to_string(),
         code: "stale_cursor".to_string(),
-        message: format!(
-            "cursor was issued against corpus_revision '{found}'; current revision is \
-             '{expected}'. Re-issue search to obtain a fresh cursor."
-        ),
+        message: "cursor is not valid base64. Re-issue search to obtain a fresh cursor."
+            .to_string(),
         details: Value::Null,
         hint: None,
+    })?;
+    let payload: Payload = serde_json::from_slice(&bytes).map_err(|_| ErrorV1 {
+        schema_version: "error.v1".to_string(),
+        code: "stale_cursor".to_string(),
+        message: "cursor payload is malformed. Re-issue search to obtain a fresh cursor."
+            .to_string(),
+        details: Value::Null,
+        hint: None,
+    })?;
+    if payload.corpus_revision != expected_revision {
+        return Err(ErrorV1 {
+            schema_version: "error.v1".to_string(),
+            code: "stale_cursor".to_string(),
+            message: format!(
+                "cursor was issued against corpus_revision '{}'; current revision is \
+                 '{}'. Re-issue search to obtain a fresh cursor.",
+                payload.corpus_revision, expected_revision
+            ),
+            details: Value::Null,
+            hint: None,
+        });
     }
+    Ok(payload.offset)
 }

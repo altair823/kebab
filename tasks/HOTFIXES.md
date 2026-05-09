@@ -27,6 +27,8 @@ git history.
 
 **영향 받는 consumer**: kebab-tui (Search 패널 — 변경 불필요, App::search 시그니처 보존), kebab-mcp (search tool — 같은 PR 에서 갱신), Claude Code skill (같은 PR 에서 갱신). 외부 producer/consumer 없음.
 
+**`--no-cache` 의미 변화**: fb-34 이전 `--no-cache` 는 `search_uncached_with_config` 로 cache 자체를 우회. fb-34 는 cached path 위에 `clear_search_cache()` 호출 후 search 실행 — long-lived process (TUI / MCP) 에서는 clear 와 fetch 사이 race window 가 있음. CLI (fresh App per call) 에서는 무영향. 후속 fb-3X 에서 `search_with_opts_uncached` 추가로 격리.
+
 ## 2026-05-09 — p9-fb-33: AskOpts.stream_sink type widened to StreamEvent
 
 **무엇이 바뀌었나**: `kebab_rag::AskOpts.stream_sink` 의 타입이 `Option<mpsc::Sender<String>>` 에서 `Option<mpsc::Sender<StreamEvent>>` 로 변경됨. `kebab_app::StreamEvent` 가 새 re-export.
