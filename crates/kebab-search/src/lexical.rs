@@ -330,7 +330,7 @@ fn run_query(
     //   END IN (?, ...)
     if !filters.media.is_empty() {
         let placeholders: Vec<&str> =
-            std::iter::repeat("?").take(filters.media.len()).collect();
+            std::iter::repeat_n("?", filters.media.len()).collect();
         let placeholders = placeholders.join(",");
         sql.push_str(&format!(
             " AND f.doc_id IN (\
