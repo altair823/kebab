@@ -98,6 +98,11 @@ pub enum FinishReason {
     Stop,
     Length,
     Aborted,
+    /// p9-fb-33: caller-side cancel. The pipeline breaks the LM loop
+    /// when a `Token` send into `AskOpts.stream_sink` returns
+    /// `SendError` (receiver dropped). The persisted answer is
+    /// flagged with `RefusalReason::LlmStreamAborted`.
+    Cancelled,
     Error(String),
 }
 

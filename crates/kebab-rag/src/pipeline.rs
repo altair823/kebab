@@ -12,9 +12,12 @@
 //!    ~4 chars / token, matching the kb-chunk convention).
 //! 4. Render the `rag-v1` prompt (system + user) verbatim per design.
 //! 5. Generate via `LanguageModel::generate_stream`. The token loop runs
-//!    on the calling thread; `opts.stream_sink` (if any) gets each
-//!    token forwarded synchronously and a dropped receiver does not
-//!    abort generation.
+//!    on the calling thread; `opts.stream_sink` (if any) emits
+//!    `StreamEvent::RetrievalDone` once after retrieve+stale-stamp,
+//!    `StreamEvent::Token` per LM chunk, and `StreamEvent::Final` on
+//!    success. A dropped receiver triggers cancel: SendError on Token
+//!    breaks the LM loop + records `RefusalReason::LlmStreamAborted`
+//!    in the persisted Answer (p9-fb-33).
 //! 6. Citation extract — STRICT regex `\[#(\d{1,3})\]`, no false
 //!    positives from prose `[1]` / `vec![1]` / Markdown link refs.
 //! 7. Citation validate — every extracted marker must map to a packed
@@ -67,6 +70,42 @@ struct PackedCitation {
 /// prompt section the LLM will see (system + query + packed context).
 type PackedContext = (String, Vec<PackedCitation>, usize);
 
+/// p9-fb-33: streaming events the pipeline forwards into
+/// [`AskOpts::stream_sink`] when present. Discriminated on `kind`
+/// to match the wire `answer_event.v1` schema. Three variants:
+///
+/// - `RetrievalDone` — emitted once after retrieval + stale-stamp.
+/// - `Token` — emitted per `TokenChunk::Token` from the LM.
+/// - `Final` — emitted once after the full Answer is built (before
+///   persistence). Always the terminal event on the success path.
+///
+/// On caller-side cancel (receiver dropped), the pipeline observes
+/// the `SendError` from the next `Token` send and breaks the LM
+/// loop — see `RagPipeline::ask` cancel branch. In that case
+/// `Final` is NOT emitted (the answer still gets persisted with
+/// `RefusalReason::LlmStreamAborted`).
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+// p9-fb-33: clippy flags Final.answer (~320B) as the heavy variant.
+// In practice RetrievalDone.hits (Vec<SearchHit>, k≤10×~1KB each)
+// dominates per-emit cost, but it fires once. Boxing either would
+// force every consumer (TUI, CLI ndjson driver, future MCP) to
+// deref through a Box for marginal win on a short-lived per-ask
+// channel. Keep both unboxed.
+#[allow(clippy::large_enum_variant)]
+pub enum StreamEvent {
+    RetrievalDone {
+        hits: Vec<SearchHit>,
+    },
+    Token {
+        delta: String,
+        turn_index: Option<u32>,
+    },
+    Final {
+        answer: Answer,
+    },
+}
+
 // ── AskOpts ─────────────────────────────────────────────────────────────────
 
 /// Caller-supplied knobs for one [`RagPipeline::ask`] invocation.
@@ -92,11 +131,10 @@ pub struct AskOpts {
     pub temperature: Option<f32>,
     /// Override `config.models.llm.seed` for this call.
     pub seed: Option<u64>,
-    /// Optional sink: every `TokenChunk::Token` produced by the LM is
-    /// forwarded synchronously. A dropped receiver does NOT abort the
-    /// pipeline — `SendError` is silently swallowed and generation
-    /// continues so the `Answer` row still gets persisted.
-    pub stream_sink: Option<std::sync::mpsc::Sender<String>>,
+    /// Optional sink: every staged event (`RetrievalDone`, `Token`,
+    /// `Final`) is forwarded synchronously. A dropped receiver
+    /// triggers cancel — see `RagPipeline::ask` for the break path.
+    pub stream_sink: Option<std::sync::mpsc::Sender<StreamEvent>>,
     /// p9-fb-15: prior turns of the same conversation. Empty for
     /// single-shot ask. The pipeline prepends a serialized `[이전
     /// 대화]` block to the user prompt and uses the most-recent
@@ -203,6 +241,16 @@ impl RagPipeline {
         for h in &mut hits {
             h.stale = compute_stale(h.indexed_at, now, stale_threshold_days);
         }
+        // p9-fb-33: emit retrieval_done as soon as the hit list is
+        // ready (post stale-stamp so consumers see the same `stale`
+        // values the App-level wire path emits). Cancel is best-effort
+        // here — if the caller already dropped the receiver we just
+        // skip and let the LLM-loop SendError handle it consistently.
+        if let Some(sink) = &opts.stream_sink {
+            let _ = sink.send(StreamEvent::RetrievalDone {
+                hits: hits.clone(),
+            });
+        }
         let chunks_returned = u32::try_from(hits.len()).unwrap_or(u32::MAX);
         let top_score = hits.first().map(|h| h.retrieval.fusion_score).unwrap_or(0.0);
 
@@ -301,16 +349,28 @@ impl RagPipeline {
             .llm
             .generate_stream(req)
             .context("kb-rag: llm.generate_stream")?;
+        let mut cancelled = false;
         for item in stream {
             let chunk = item.context("kb-rag: stream item")?;
             match chunk {
                 TokenChunk::Token(t) => {
                     acc.push_str(&t);
                     if let Some(sink) = &opts.stream_sink {
-                        // SendError silently dropped — caller cancelled but the
-                        // pipeline still drives generation to completion so the
-                        // `answers` row gets a faithful record.
-                        let _ = sink.send(t);
+                        // p9-fb-33: SendError → caller dropped the
+                        // receiver (probably a closed stdout downstream).
+                        // Stop generation, mark the answer cancelled so
+                        // the persistence path records refusal_reason =
+                        // LlmStreamAborted.
+                        if sink
+                            .send(StreamEvent::Token {
+                                delta: t,
+                                turn_index: opts.turn_index,
+                            })
+                            .is_err()
+                        {
+                            cancelled = true;
+                            break;
+                        }
                     }
                 }
                 TokenChunk::Done {
@@ -322,6 +382,9 @@ impl RagPipeline {
                     break;
                 }
             }
+        }
+        if cancelled {
+            finish_reason = FinishReason::Cancelled;
         }
 
         // ── 6. Citation extract ────────────────────────────────────────────
@@ -347,15 +410,20 @@ impl RagPipeline {
         });
         let trimmed_answer = acc.trim();
         let matched_refusal_phrase = refusal_phrase.is_match(&acc);
-        let grounded = !trimmed_answer.is_empty()
+        let grounded_unaware = !trimmed_answer.is_empty()
             && unknown_markers.is_empty()
             && !extracted.is_empty();
-        let refusal_reason = if grounded {
-            None
+        // p9-fb-33: cancel takes priority over LlmSelfJudge — the
+        // caller bailed mid-stream, so the recorded reason should
+        // reflect that, not "model didn't cite".
+        let (grounded, refusal_reason) = if matches!(finish_reason, FinishReason::Cancelled) {
+            (false, Some(RefusalReason::LlmStreamAborted))
+        } else if grounded_unaware {
+            (true, None)
         } else {
             // Spec §7: empty answer, unknown markers, silent ungrounded,
             // and explicit "근거가 부족" all collapse to LlmSelfJudge.
-            Some(RefusalReason::LlmSelfJudge)
+            (false, Some(RefusalReason::LlmSelfJudge))
         };
 
         // ── 8. Build Answer ────────────────────────────────────────────────
@@ -432,6 +500,17 @@ impl RagPipeline {
             chunks_used,
             "kb-rag: ask done"
         );
+
+        // p9-fb-33: emit final on the success path. On cancel we
+        // skip Final — the receiver is gone and persistence still
+        // records the partial answer below.
+        if !cancelled
+            && let Some(sink) = &opts.stream_sink
+        {
+            let _ = sink.send(StreamEvent::Final {
+                answer: answer.clone(),
+            });
+        }
 
         // ── 9. Persist ─────────────────────────────────────────────────────
         let packed_chunks_json = if opts.explain {
@@ -995,5 +1074,93 @@ mod compute_stale_mirror_tests {
         // clock skew safety: future timestamps must not be stale.
         let future = now() + Duration::hours(1);
         assert!(!compute_stale(future, now(), 30));
+    }
+}
+
+#[cfg(test)]
+mod stream_event_serde_tests {
+    use super::*;
+    use kebab_core::{
+        AnswerRetrievalSummary, ChunkId, ChunkerVersion, Citation,
+        DocumentId, IndexVersion, ModelRef, RetrievalDetail, SearchHit, SearchMode,
+        TokenUsage, TraceId,
+    };
+    use kebab_core::asset::WorkspacePath;
+    use kebab_core::versions::PromptTemplateVersion;
+    use time::macros::datetime;
+
+    fn mk_hit() -> SearchHit {
+        SearchHit {
+            rank: 1,
+            chunk_id: ChunkId("c1".into()),
+            doc_id: DocumentId("d1".into()),
+            doc_path: WorkspacePath::new("a.md".into()).unwrap(),
+            heading_path: vec!["H".into()],
+            section_label: None,
+            snippet: "s".into(),
+            citation: Citation::Line {
+                path: WorkspacePath::new("a.md".into()).unwrap(),
+                start: 1,
+                end: 1,
+                section: None,
+            },
+            retrieval: RetrievalDetail {
+                method: SearchMode::Lexical,
+                fusion_score: 0.5,
+                lexical_score: Some(0.5),
+                vector_score: None,
+                lexical_rank: Some(1),
+                vector_rank: None,
+            },
+            index_version: IndexVersion("v1".into()),
+            embedding_model: None,
+            chunker_version: ChunkerVersion("c@1".into()),
+            indexed_at: datetime!(2026-05-09 12:00:00 UTC),
+            stale: false,
+        }
+    }
+
+    #[test]
+    fn stream_event_token_serializes_with_kind_discriminator() {
+        let ev = StreamEvent::Token { delta: "안녕".into(), turn_index: Some(0) };
+        let v = serde_json::to_value(&ev).unwrap();
+        assert_eq!(v["kind"], "token");
+        assert_eq!(v["delta"], "안녕");
+        assert_eq!(v["turn_index"], 0);
+    }
+
+    #[test]
+    fn stream_event_retrieval_done_serializes_hits() {
+        let ev = StreamEvent::RetrievalDone { hits: vec![mk_hit()] };
+        let v = serde_json::to_value(&ev).unwrap();
+        assert_eq!(v["kind"], "retrieval_done");
+        assert_eq!(v["hits"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn stream_event_final_serializes_answer() {
+        let answer = Answer {
+            answer: "x".into(),
+            citations: vec![],
+            grounded: true,
+            refusal_reason: None,
+            model: ModelRef { id: "m".into(), provider: "p".into(), dimensions: None },
+            embedding: None,
+            prompt_template_version: PromptTemplateVersion("rag-v1".into()),
+            retrieval: AnswerRetrievalSummary {
+                trace_id: TraceId("t".into()),
+                mode: SearchMode::Hybrid,
+                k: 10, score_gate: 0.3, top_score: 0.5,
+                chunks_returned: 1, chunks_used: 1,
+            },
+            usage: TokenUsage { prompt_tokens: 0, completion_tokens: 0, latency_ms: 0 },
+            created_at: datetime!(2026-05-09 12:00:00 UTC),
+            conversation_id: None,
+            turn_index: None,
+        };
+        let ev = StreamEvent::Final { answer };
+        let v = serde_json::to_value(&ev).unwrap();
+        assert_eq!(v["kind"], "final");
+        assert!(v["answer"].is_object());
     }
 }

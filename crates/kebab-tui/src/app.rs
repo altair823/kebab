@@ -186,9 +186,12 @@ impl Default for SearchState {
 /// Ask pane state — owned by p9-3, extended by p9-fb-16 for
 /// multi-turn conversation transcript.
 ///
-/// The worker thread (`thread`) owns the `mpsc::Sender<String>` that
-/// `kebab-app::ask` writes tokens into. The pane keeps the matching
-/// `rx` and drains it once per render frame (no blocking).
+/// The worker thread (`thread`) owns the `mpsc::Sender<kebab_app::StreamEvent>`
+/// that `kebab-app::ask` writes events into. The pane keeps the matching
+/// `rx` and drains it once per render frame (no blocking). Only the
+/// `Token { delta }` variant is consumed for the streaming transcript;
+/// `RetrievalDone` and `Final` are ignored (citations render from
+/// `last_answer` after the worker join).
 ///
 /// p9-fb-16: completed `Turn`s accumulate in `turns`; the worker
 /// passes a snapshot of `turns` as `history` to
@@ -214,7 +217,7 @@ pub struct AskState {
     pub thread: Option<std::thread::JoinHandle<anyhow::Result<kebab_core::Answer>>>,
     /// Token receiver paired with the worker's `Sender`. Drained
     /// every render frame.
-    pub rx: Option<std::sync::mpsc::Receiver<String>>,
+    pub rx: Option<std::sync::mpsc::Receiver<kebab_app::StreamEvent>>,
     /// Vertical scroll offset for the transcript area when content
     /// exceeds the viewport. Only consulted when `follow_tail` is
     /// false; otherwise the renderer overrides this with the

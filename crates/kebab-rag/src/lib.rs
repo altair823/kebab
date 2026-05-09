@@ -22,4 +22,4 @@ pub use kebab_core::{Answer, AnswerCitation, AnswerRetrievalSummary, RefusalReas
 
 mod pipeline;
 
-pub use pipeline::{AskOpts, RagPipeline};
+pub use pipeline::{AskOpts, RagPipeline, StreamEvent};

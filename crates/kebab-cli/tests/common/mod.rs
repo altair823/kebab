@@ -126,6 +126,53 @@ pub fn ingest(cfg: &Path, workspace: &Path) {
     );
 }
 
+/// p9-fb-33: invoke `kebab ask --stream --mode lexical <query>` and
+/// capture stdout + stderr. Lexical mode skips embeddings (matches
+/// `wire_ask_stale.rs::run_ask_lexical`). Caller asserts on the
+/// resulting (stdout, stderr) pair.
+pub fn run_ask_stream(cfg: &Path, query: &str) -> (String, String) {
+    let bin = env!("CARGO_BIN_EXE_kebab");
+    let out = Command::new(bin)
+        .args([
+            "--config",
+            cfg.to_str().unwrap(),
+            "ask",
+            "--stream",
+            "--mode",
+            "lexical",
+            query,
+        ])
+        .output()
+        .expect("kebab ask --stream");
+    (
+        String::from_utf8_lossy(&out.stdout).to_string(),
+        String::from_utf8_lossy(&out.stderr).to_string(),
+    )
+}
+
+/// p9-fb-33: invoke `kebab --json ask --mode lexical <query>` (no
+/// `--stream`) — used by `wire_ask_stream::non_stream_path_unchanged`
+/// to confirm the non-streaming JSON path still emits a single
+/// `answer.v1` line on stdout. Returns stdout only (mirrors
+/// `wire_ask_stale.rs::run_ask_lexical(json=true)` minus the
+/// `Output` indirection).
+pub fn run_ask_json(cfg: &Path, query: &str) -> String {
+    let bin = env!("CARGO_BIN_EXE_kebab");
+    let out = Command::new(bin)
+        .args([
+            "--config",
+            cfg.to_str().unwrap(),
+            "--json",
+            "ask",
+            "--mode",
+            "lexical",
+            query,
+        ])
+        .output()
+        .expect("kebab ask --json");
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
 /// Rewrite `documents.updated_at` for one workspace path to
 /// `now - days_ago` (RFC3339 UTC). Mirrors
 /// `kebab-app/tests/common/mod.rs::backdate_document_updated_at`.

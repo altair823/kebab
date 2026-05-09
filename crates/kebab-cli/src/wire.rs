@@ -87,6 +87,25 @@ pub fn wire_answer(a: &Answer) -> Value {
     tag_object(v, "answer.v1")
 }
 
+/// p9-fb-33: tag a [`StreamEvent`] as `answer_event.v1` ndjson.
+///
+/// The timestamp is added at emit time (caller fills `ts`), since the
+/// pipeline doesn't carry one in the in-process enum — mirrors the
+/// `wire_ingest_progress` pattern (§2 ingest_progress.v1).
+pub fn wire_answer_event(
+    ev: &kebab_app::StreamEvent,
+    ts: time::OffsetDateTime,
+) -> Value {
+    let mut v = serde_json::to_value(ev).expect("StreamEvent serializes");
+    let ts_str = ts
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("OffsetDateTime formats as RFC3339");
+    if let Value::Object(ref mut map) = v {
+        map.insert("ts".to_string(), Value::String(ts_str));
+    }
+    tag_object(v, "answer_event.v1")
+}
+
 /// Idempotent pass-through for [`DoctorReport`] — the type already carries
 /// `schema_version: "doctor.v1"` (struct-field convention, the one
 /// exception called out in the module doc above). This helper exists so

@@ -85,7 +85,7 @@ pub const NO_EXT_SENTINEL: &str = "<no-ext>";
 /// `use kebab_app::AskOpts` keeps working without churn. The struct gained
 /// a `stream_sink` field in P4-3; non-streaming callers (kb-cli today)
 /// pass `stream_sink: None`.
-pub use kebab_rag::AskOpts;
+pub use kebab_rag::{AskOpts, StreamEvent};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DoctorReport {
