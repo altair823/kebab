@@ -19,6 +19,8 @@ tracing     = { workspace = true }
 # /dependencies endpoint — rmcp declares optional schemars = "^1.0").
 schemars    = "1"
 
+time         = { workspace = true }
+
 kebab-app    = { path = "../kebab-app" }
 kebab-config = { path = "../kebab-config" }
 kebab-core   = { path = "../kebab-core" }

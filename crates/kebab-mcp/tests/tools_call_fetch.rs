@@ -62,6 +62,13 @@ async fn fetch_tool_chunk_returns_fetch_result_v1() {
             max_tokens: None,
             snippet_chars: None,
             cursor: None,
+            tags: None,
+            lang: None,
+            path_glob: None,
+            trust_min: None,
+            media: None,
+            ingested_after: None,
+            doc_id: None,
         },
     );
     let search_text = match &search_result.content.first().unwrap().raw {
