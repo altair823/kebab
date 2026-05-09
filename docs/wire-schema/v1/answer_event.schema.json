@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/answer_event.schema.json",
+  "title": "AnswerEvent v1",
+  "description": "Streaming event emitted by `kebab ask --stream`. One event per line on stderr (ndjson). Discriminated by `kind`. Terminal: `final`. Final stdout line is `answer.v1` for backwards compat (see ingest_progress.v1 precedent).",
+  "type": "object",
+  "required": ["schema_version", "kind", "ts"],
+  "properties": {
+    "schema_version": { "const": "answer_event.v1" },
+    "kind":           { "enum": ["retrieval_done", "token", "final"] },
+    "ts":             { "type": "string", "format": "date-time" },
+    "hits":           { "type": "array",  "description": "retrieval_done: search_hit.v1[]" },
+    "delta":          { "type": "string", "description": "token: incremental string chunk" },
+    "turn_index":     { "type": ["integer", "null"], "minimum": 0, "description": "token: matches Answer.turn_index" },
+    "answer":         { "type": "object", "description": "final: complete answer.v1 payload" }
+  }
+}
