@@ -26,12 +26,30 @@ pub struct SearchQuery {
     pub filters: SearchFilters,
 }
 
+/// p9-fb-36: canonical kind labels for `SearchFilters.media`. Mirrors
+/// `MediaType` variant tags; CLI / MCP normalize aliases (`md` → `markdown`)
+/// before populating this Vec.
+pub const MEDIA_KINDS: &[&str] = &["markdown", "pdf", "image", "audio", "other"];
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SearchFilters {
     pub tags_any: Vec<String>,
     pub lang: Option<Lang>,
     pub path_glob: Option<String>,
     pub trust_min: Option<TrustLevel>,
+    /// p9-fb-36: media_type filter — IN-list of `MediaType.kind`
+    /// strings (`"markdown"`, `"pdf"`, `"image"`, `"audio"`, `"other"`).
+    /// Empty Vec = no filter. Match is on the variant tag only;
+    /// e.g. `["image"]` matches `Image(Png)` and `Image(Jpeg)`.
+    #[serde(default)]
+    pub media: Vec<String>,
+    /// p9-fb-36: hits whose source doc's `documents.updated_at` is at
+    /// or after this timestamp. None = no filter. RFC3339 / UTC.
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub ingested_after: Option<OffsetDateTime>,
+    /// p9-fb-36: restrict hits to a single document. None = no filter.
+    #[serde(default)]
+    pub doc_id: Option<DocumentId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -154,5 +172,25 @@ mod tests {
         assert!(opts.max_tokens.is_none());
         assert!(opts.snippet_chars.is_none());
         assert!(opts.cursor.is_none());
+    }
+
+    #[test]
+    fn search_filters_default_includes_new_fb36_fields() {
+        let f = SearchFilters::default();
+        assert!(f.media.is_empty(), "media default empty");
+        assert!(f.ingested_after.is_none(), "ingested_after default None");
+        assert!(f.doc_id.is_none(), "doc_id default None");
+        assert!(f.tags_any.is_empty());
+        assert!(f.lang.is_none());
+        assert!(f.path_glob.is_none());
+        assert!(f.trust_min.is_none());
+    }
+
+    #[test]
+    fn search_filters_serialize_with_serde_default_compat() {
+        let old: SearchFilters = serde_json::from_str(r#"{"tags_any":[],"lang":null,"path_glob":null,"trust_min":null}"#).unwrap();
+        assert!(old.media.is_empty());
+        assert!(old.ingested_after.is_none());
+        assert!(old.doc_id.is_none());
     }
 }
