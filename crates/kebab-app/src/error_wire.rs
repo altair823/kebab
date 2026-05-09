@@ -11,6 +11,10 @@ use serde_json::{Value, json};
 
 use crate::error_signal::{ConfigInvalid, LlmError, NotIndexed};
 
+// p9-fb-34: `stale_cursor` is constructed directly by `cursor::decode`
+// instead of routed through `classify`. Keep that contract — adding a
+// classify branch would create two sources of truth for the same code.
+
 /// Wire schema id for [`ErrorV1`]. Single source of truth — kebab-cli
 /// + kebab-mcp use this via `kebab_app::ERROR_V1_ID`.
 pub const ERROR_V1_ID: &str = "error.v1";
@@ -196,5 +200,17 @@ mod tests {
         let err = anyhow::Error::new(io);
         let v1 = classify(&err, false);
         assert_eq!(v1.code, "io_error");
+    }
+
+    #[test]
+    fn stale_cursor_is_not_routed_through_classify() {
+        use anyhow::anyhow;
+        let err: anyhow::Error = anyhow!("stale_cursor: rev mismatch");
+        let v1 = classify(&err, false);
+        // p9-fb-34: stale_cursor is constructed directly by cursor::decode
+        // (single source of truth). classify routes anyhow strings to the
+        // generic "unknown" code. This test pins that contract — adding a
+        // classify branch for stale_cursor would create two sources.
+        assert_ne!(v1.code, "stale_cursor", "classify must not produce stale_cursor — cursor::decode is sole source");
     }
 }
