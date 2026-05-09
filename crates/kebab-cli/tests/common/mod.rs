@@ -126,6 +126,29 @@ pub fn ingest(cfg: &Path, workspace: &Path) {
     );
 }
 
+/// p9-fb-34: invoke `kebab search` with arbitrary trailing flags +
+/// query, capture stdout + stderr. Caller is responsible for
+/// supplying `--mode lexical` / `--json` etc. as needed; this helper
+/// stays unopinionated so a single test can exercise both wire shapes
+/// (JSON wrapper + plain stderr hint). Asserts the binary exited 0;
+/// non-zero exits fail the test with stderr included.
+pub fn run_search_with_args(cfg: &Path, args: &[&str]) -> (String, String) {
+    let bin = env!("CARGO_BIN_EXE_kebab");
+    let mut cmd = Command::new(bin);
+    cmd.arg("--config").arg(cfg).arg("search");
+    cmd.args(args);
+    let out = cmd.output().expect("kebab search");
+    assert!(
+        out.status.success(),
+        "search failed: args={args:?} stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    (
+        String::from_utf8_lossy(&out.stdout).to_string(),
+        String::from_utf8_lossy(&out.stderr).to_string(),
+    )
+}
+
 /// p9-fb-33: invoke `kebab ask --stream --mode lexical <query>` and
 /// capture stdout + stderr. Lexical mode skips embeddings (matches
 /// `wire_ask_stale.rs::run_ask_lexical`). Caller asserts on the
