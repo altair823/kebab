@@ -190,6 +190,22 @@ kebab fetch span "$DOC_ID" 1 5 --json | jq '{line_start, line_end, effective_end
 
 PDF / audio docs reject `fetch span` with `error.v1.code = span_not_supported` — use `fetch chunk` (PDF chunks are page-aligned) or `fetch doc` instead.
 
+### Filter args (fb-36)
+
+````bash
+# Filter by media kind (md alias normalizes to markdown).
+kebab search "rust" --media md --json | jq '.hits | length'
+
+# Filter by ingest timestamp (RFC3339).
+kebab search "rust" --ingested-after 2026-04-01T00:00:00Z --json
+
+# Combine: doc-id scope + tag (AND across flags).
+kebab search "rust" --doc-id "<doc-id>" --tag rust --json
+````
+
+Bad `--ingested-after` → `error.v1.code = config_invalid`, exit 2.
+Unknown `--media` value → silently empty (no error).
+
 ## P6-4 이미지 ingestion 옵션
 
 `config.toml` 에 다음 절을 추가하면 `kebab ingest` 가 `**/*.png` / `**/*.jpg` 등 이미지 자산도 함께 색인합니다 (텍스트만 색인하려면 생략):
