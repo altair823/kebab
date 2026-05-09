@@ -155,11 +155,15 @@ impl SqliteStore {
 
         // p9-fb-36: ingested_after filter.
         // `documents.updated_at` is RFC3339 TEXT (UTC `Z` per fb-32);
-        // lexicographic >= compare is correct.
+        // lexicographic >= compare is correct — but only when the filter
+        // instant is also formatted as UTC `Z`. A non-UTC offset (e.g.
+        // `+09:00`) would compare as ASCII after `Z` (0x2B < 0x5A) and
+        // produce wrong results. Convert to UTC before formatting.
         if let Some(after) = &filters.ingested_after {
             let formatted = after
+                .to_offset(time::UtcOffset::UTC)
                 .format(&time::format_description::well_known::Rfc3339)
-                .expect("OffsetDateTime formats to RFC3339");
+                .expect("OffsetDateTime (UTC) formats to RFC3339");
             sql.push_str(" AND d.updated_at >= ?");
             bind.push(Box::new(formatted));
         }
@@ -665,5 +669,55 @@ mod tests {
             .filter_chunks(&[cid(c1), cid(c2)], &f)
             .unwrap();
         assert_eq!(out, vec![cid(c1)], "doc_id filter must scope to the target doc only");
+    }
+
+    #[test]
+    fn filter_chunks_ingested_after_non_utc_offset_compares_as_instant() {
+        // Regression test for the non-UTC offset lex-compare bug.
+        //
+        // Scenario (from PR #127 review):
+        //   - doc stored at `2026-04-01T01:00:00Z`
+        //   - filter: `2026-04-01T05:00:00+09:00` == `2026-03-31T20:00:00Z` instant
+        //
+        // The doc instant (01:00 UTC on Apr 1) is AFTER the filter instant
+        // (20:00 UTC on Mar 31), so the doc SHOULD match.
+        //
+        // Buggy code: formats `+09:00` as-is → lex compare
+        //   `2026-04-01T01:00:00Z` vs `2026-04-01T05:00:00+09:00`
+        //   `01` < `05` → doc dropped incorrectly.
+        //
+        // Fixed code: converts to UTC first → compares
+        //   `2026-04-01T01:00:00Z` vs `2026-03-31T20:00:00Z`
+        //   Apr 1 > Mar 31 → doc correctly included.
+        let tmp = TempDir::new().unwrap();
+        let store = open_store(&tmp);
+        let c1 = "11111111111111111111111111111111";
+        seed_committed_full(
+            &store, c1, "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+            "doc.md", "en", &[], "primary",
+            r#""markdown""#,
+            "2026-04-01T01:00:00Z",
+        );
+
+        // Filter instant: 2026-04-01T05:00:00+09:00 == 2026-03-31T20:00:00 UTC.
+        // Doc (2026-04-01T01:00:00Z) is after the filter instant → should match.
+        let filter_instant = time::OffsetDateTime::parse(
+            "2026-04-01T05:00:00+09:00",
+            &time::format_description::well_known::Rfc3339,
+        )
+        .expect("valid RFC3339 with +09:00 offset");
+
+        let f = SearchFilters {
+            ingested_after: Some(filter_instant),
+            ..Default::default()
+        };
+        let out = store
+            .filter_chunks(&[cid(c1)], &f)
+            .unwrap();
+        assert_eq!(
+            out,
+            vec![cid(c1)],
+            "doc ingested at 01:00Z should match filter 05:00+09:00 (== 20:00Z previous day)"
+        );
     }
 }

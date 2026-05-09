@@ -12,6 +12,8 @@ use rmcp::model::CallToolResult;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use kebab_app::ERROR_V1_ID;
+
 use crate::error::{to_tool_error, to_tool_success};
 use crate::state::KebabAppState;
 
@@ -161,7 +163,7 @@ fn normalize_media_alias(s: &str) -> String {
 fn invalid_input(msg: &str) -> CallToolResult {
     use kebab_app::{ErrorV1, StructuredError};
     let err = anyhow::Error::new(StructuredError(ErrorV1 {
-        schema_version: "error.v1".to_string(),
+        schema_version: ERROR_V1_ID.to_string(),
         code: "invalid_input".to_string(),
         message: msg.to_string(),
         details: serde_json::Value::Null,

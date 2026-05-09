@@ -224,3 +224,83 @@ fn search_with_tag_filter_matches_frontmatter_tags() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Test 5: --tag is repeatable (OR-within); two --tag values form an IN-list
+// ---------------------------------------------------------------------------
+
+#[test]
+fn search_with_two_tag_filters_returns_or_within_tags() {
+    // Two docs with different tag sets:
+    //   a.md → tags: [rust]
+    //   b.md → tags: [async]
+    //   c.md → no tags (but same keyword in body)
+    // Search with --tag rust --tag async (OR within --tag).
+    // Expect a.md and b.md, not c.md.
+    let dir = tempfile::tempdir().unwrap();
+    let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
+
+    fs::write(
+        workspace.join("a.md"),
+        "---\ntags: [rust]\n---\n# A\n\nrust systems programming\n",
+    )
+    .unwrap();
+    fs::write(
+        workspace.join("b.md"),
+        "---\ntags: [async]\n---\n# B\n\nrust async programming\n",
+    )
+    .unwrap();
+    fs::write(workspace.join("c.md"), "# C\n\nrust programming\n").unwrap();
+    common::ingest(&cfg, &workspace);
+
+    // Without filter: all three docs produce hits.
+    let (unfiltered, _) = common::run_search_with_args(
+        &cfg,
+        &["--json", "--mode", "lexical", "rust"],
+    );
+    let uresp: Value = serde_json::from_str(unfiltered.trim())
+        .unwrap_or_else(|e| panic!("not JSON (unfiltered): {unfiltered:?}: {e}"));
+    let uhits = uresp["hits"].as_array().expect("unfiltered hits array");
+    assert!(
+        uhits.len() >= 3,
+        "expected ≥3 hits before tag filter: {uresp}"
+    );
+
+    // With --tag rust --tag async: only a.md and b.md should appear.
+    let (filtered, _) = common::run_search_with_args(
+        &cfg,
+        &[
+            "--json", "--mode", "lexical",
+            "--tag", "rust",
+            "--tag", "async",
+            "rust",
+        ],
+    );
+    let fresp: Value = serde_json::from_str(filtered.trim())
+        .unwrap_or_else(|e| panic!("not JSON (two-tag-filtered): {filtered:?}: {e}"));
+    let fhits = fresp["hits"].as_array().expect("filtered hits array");
+
+    assert!(
+        !fhits.is_empty(),
+        "--tag rust --tag async must return hits from tagged docs; got 0: {fresp}"
+    );
+
+    // c.md must not appear — it has no tags.
+    for hit in fhits {
+        let path = hit["doc_path"].as_str().unwrap_or("");
+        assert!(
+            path.ends_with("a.md") || path.ends_with("b.md"),
+            "--tag rust --tag async must only return a.md or b.md, got path={path}"
+        );
+    }
+
+    // Both a.md and b.md must appear (OR, not AND).
+    let paths: Vec<&str> = fhits
+        .iter()
+        .filter_map(|h| h["doc_path"].as_str())
+        .collect();
+    let has_a = paths.iter().any(|p| p.ends_with("a.md"));
+    let has_b = paths.iter().any(|p| p.ends_with("b.md"));
+    assert!(has_a, "--tag rust must include a.md (rust-tagged): paths={paths:?}");
+    assert!(has_b, "--tag async must include b.md (async-tagged): paths={paths:?}");
+}

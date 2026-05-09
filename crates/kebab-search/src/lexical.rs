@@ -348,11 +348,15 @@ fn run_query(
 
     // p9-fb-36: ingested_after filter.
     // `documents.updated_at` is RFC3339 stored as TEXT (always UTC `Z` per
-    // fb-32 ingest path), so lexicographic >= compare is correct.
+    // fb-32 ingest path), so lexicographic >= compare is correct — but only
+    // when the filter instant is also formatted as UTC `Z`. A non-UTC offset
+    // (e.g. `+09:00`) would compare as ASCII after `Z` (0x2B < 0x5A) and
+    // produce wrong results. Convert to UTC before formatting.
     if let Some(after) = &filters.ingested_after {
         let formatted = after
+            .to_offset(time::UtcOffset::UTC)
             .format(&time::format_description::well_known::Rfc3339)
-            .expect("OffsetDateTime formats to RFC3339");
+            .expect("OffsetDateTime (UTC) formats to RFC3339");
         sql.push_str(" AND d.updated_at >= ?");
         params.push(Box::new(formatted));
     }
