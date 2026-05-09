@@ -14,6 +14,8 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — Claude Code 가 kebab CLI
 
 # p9-fb-32 — Stale doc indicator
 
+> ✅ **구현 완료.** 본 spec 은 구현 시점의 frozen 상태. post-merge deviation (특히 search_hit.v1 / citation.v1 의 required-field 확장) 은 [HOTFIXES.md](../HOTFIXES.md) 의 `2026-05-09 — p9-fb-32` 항목 참조 — live source of truth.
+
 상세 설계: `docs/superpowers/specs/2026-05-08-p9-fb-32-stale-doc-indicator-design.md`.
 구현 계획: `docs/superpowers/plans/2026-05-09-p9-fb-32-stale-doc-indicator.md`.
 

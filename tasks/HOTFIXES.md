@@ -14,7 +14,7 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
-## 2026-05-09 — fb-32: search_hit.v1 / citation.v1 required-field expansion
+## 2026-05-09 — p9-fb-32: search_hit.v1 / citation.v1 required-field expansion
 
 **무엇이 바뀌었나**: `search_hit.v1` 과 `citation.v1` 의 `required` 배열에 `indexed_at` (RFC3339) + `stale` (bool) 두 필드가 추가됨. `schema_version` 은 그대로 (`search_hit.v1` / `citation.v1`).
 

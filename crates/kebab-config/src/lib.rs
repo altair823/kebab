@@ -1096,6 +1096,10 @@ mod fb27_tests {
         // value rather than missing required sections.
         let cfg = Config::defaults();
         let mut toml_text = toml::to_string(&cfg).expect("default round-trips");
+        assert!(
+            toml_text.contains("stale_threshold_days = 30"),
+            "default value drifted; update test fixture"
+        );
         toml_text = toml_text.replace(
             "stale_threshold_days = 30",
             "stale_threshold_days = -5",
