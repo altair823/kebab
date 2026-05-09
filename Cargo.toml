@@ -80,6 +80,7 @@ rmcp         = { version = "1.6", default-features = false, features = ["server"
 # a tokio runtime to host its mock server (the runtime adapter crate stays
 # sync via reqwest::blocking — wiremock is dev-only there).
 wiremock     = "0.6"
+base64       = "0.22"
 
 # Disk-footprint trim for dev / test builds. Codegen, opt-level, and
 # behavior are unchanged — only DWARF debug info is reduced (line

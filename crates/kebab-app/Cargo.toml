@@ -52,6 +52,8 @@ unicode-normalization = "0.1"
 # p9-fb-31: GitignoreBuilder for .kebabignore matching in ingest_file_with_config.
 # Same version as kebab-source-fs (0.4) to avoid duplicate dep versions.
 ignore               = "0.4"
+# p9-fb-34: opaque pagination cursor encodes payload as base64.
+base64               = { workspace = true }
 
 [dev-dependencies]
 rusqlite             = { workspace = true }

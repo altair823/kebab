@@ -55,6 +55,7 @@ use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
 
 mod app;
+pub mod cursor;
 pub mod doctor_signal;
 pub mod error_signal;
 pub mod error_wire;
@@ -65,10 +66,10 @@ pub mod reset;
 pub mod schema;
 mod staleness;
 
-pub use app::App;
+pub use app::{App, SearchResponse};
 pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
 pub use reset::{ResetReport, ResetScope};
-pub use error_wire::{ERROR_V1_ID, ErrorV1, classify};
+pub use error_wire::{ERROR_V1_ID, ErrorV1, StructuredError, classify};
 pub use schema::{Capabilities, Models, SCHEMA_V1_ID, SchemaV1, Stats, WireBlock, schema_with_config};
 pub use staleness::{compute_stale, mark_stale_in_place};
 
@@ -1737,6 +1738,19 @@ pub fn search_uncached_with_config(
     query: SearchQuery,
 ) -> anyhow::Result<Vec<SearchHit>> {
     App::open_with_config(config)?.search_uncached(query)
+}
+
+/// p9-fb-34: budget-aware search free function. Mirrors
+/// [`search_with_config`] but threads `SearchOpts` (max_tokens,
+/// snippet_chars, cursor) and returns the [`SearchResponse`]
+/// pagination wrapper. Tasks 6+8 surface this via CLI / MCP.
+#[doc(hidden)]
+pub fn search_with_opts_with_config(
+    config: kebab_config::Config,
+    query: kebab_core::SearchQuery,
+    opts: kebab_core::SearchOpts,
+) -> anyhow::Result<SearchResponse> {
+    App::open_with_config(config)?.search_with_opts(query, opts)
 }
 
 // ── ask ──────────────────────────────────────────────────────────────────

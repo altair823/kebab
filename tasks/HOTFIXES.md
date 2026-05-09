@@ -14,6 +14,21 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-09 — p9-fb-34: search wire wrapped in search_response.v1
+
+**무엇이 바뀌었나**: `kebab search --json` stdout 이 기존 `search_hit.v1[]` 배열에서 신규 `search_response.v1` object 로 교체. wrapper 가 `hits`, `next_cursor`, `truncated` 세 필드를 가짐.
+
+**Spec contract 와의 관계**: 명시적 wire breaking change. spec `docs/superpowers/specs/2026-05-09-p9-fb-34-output-budget-controls-design.md` 의 §Wire shape 절에 단일 출처 결정.
+
+**의식적 결정**:
+- pagination + truncation metadata 를 `search_hit` 자체에 흡수하면 단일 hit 의 도메인 의미가 오염됨 (모든 hit 가 `next_cursor` 필드 보유 등). top-level wrapper 가 분리도 깨끗.
+- 외부 consumer 영향: 단일 사용자 환경 + Claude Code skill 한 곳. skill 은 fb-34 와 동시 갱신.
+- 이 변경은 search_hit.v1 자체 schema 는 손대지 않음 — 도메인 stable.
+
+**영향 받는 consumer**: kebab-tui (Search 패널 — 변경 불필요, App::search 시그니처 보존), kebab-mcp (search tool — 같은 PR 에서 갱신), Claude Code skill (같은 PR 에서 갱신). 외부 producer/consumer 없음.
+
+**`--no-cache` 의미 변화**: fb-34 이전 `--no-cache` 는 `search_uncached_with_config` 로 cache 자체를 우회. fb-34 는 cached path 위에 `clear_search_cache()` 호출 후 search 실행 — long-lived process (TUI / MCP) 에서는 clear 와 fetch 사이 race window 가 있음. CLI (fresh App per call) 에서는 무영향. 후속 fb-3X 에서 `search_with_opts_uncached` 추가로 격리.
+
 ## 2026-05-09 — p9-fb-33: AskOpts.stream_sink type widened to StreamEvent
 
 **무엇이 바뀌었나**: `kebab_rag::AskOpts.stream_sink` 의 타입이 `Option<mpsc::Sender<String>>` 에서 `Option<mpsc::Sender<StreamEvent>>` 로 변경됨. `kebab_app::StreamEvent` 가 새 re-export.

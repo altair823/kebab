@@ -3,8 +3,8 @@ phase: P9
 component: kebab-cli + kebab-app + wire-schema
 task_id: p9-fb-34
 title: "Output budget controls (--max-tokens / --snippet-chars / pagination)"
-status: open
-target_version: 0.4.0
+status: completed
+target_version: 0.5.0
 depends_on: []
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
@@ -14,7 +14,10 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — agent context window 제�
 
 # p9-fb-34 — Output budget controls
 
-> ⏳ **백로그 only — 미구현.** 본 spec 은 도그푸딩 피드백 skeleton. 구현 착수 전 [superpowers:brainstorming](../../docs/superpowers/) 으로 설계 단계 선행 필요. budget 적용 layer (truncate vs k 조정) / cursor 형식 / 기본값 brainstorm 후 확정.
+> ✅ **구현 완료.** 본 spec 은 구현 시점의 frozen 상태. post-merge deviation 은 [HOTFIXES.md](../HOTFIXES.md) 의 `2026-05-09 — p9-fb-34` 항목 참조 — live source of truth.
+
+상세 설계: `docs/superpowers/specs/2026-05-09-p9-fb-34-output-budget-controls-design.md`.
+구현 계획: `docs/superpowers/plans/2026-05-09-p9-fb-34-output-budget-controls.md`.
 
 ## 증상 / 동기
 

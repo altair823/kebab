@@ -1,4 +1,4 @@
-//! Integration: tools/call name=search — verify response is search_hit.v1 array.
+//! Integration: tools/call name=search — verify response is search_response.v1.
 
 use std::fs;
 
@@ -22,7 +22,7 @@ fn minimal_config(data_dir: &std::path::Path, workspace_root: &std::path::Path) 
 }
 
 #[tokio::test]
-async fn search_tool_returns_search_hits_array() {
+async fn search_tool_returns_search_response_v1() {
     let dir = tempfile::tempdir().unwrap();
     let data_dir = dir.path().join("data");
     let workspace_root = dir.path().join("notes");
@@ -53,8 +53,11 @@ async fn search_tool_returns_search_hits_array() {
         handler.state(),
         kebab_mcp::tools::search::SearchInput {
             query: "kebab".to_string(),
-            mode: "lexical".to_string(),
-            k: 5,
+            mode: Some("lexical".to_string()),
+            k: Some(5),
+            max_tokens: None,
+            snippet_chars: None,
+            cursor: None,
         },
     );
 
@@ -75,16 +78,33 @@ async fn search_tool_returns_search_hits_array() {
     };
 
     let v: serde_json::Value = serde_json::from_str(text).unwrap();
-    let arr = v.as_array().expect("search returns a JSON array");
+    assert_eq!(
+        v.get("schema_version").and_then(|s| s.as_str()),
+        Some("search_response.v1"),
+        "envelope should carry schema_version=search_response.v1"
+    );
+    let hits = v
+        .get("hits")
+        .and_then(|h| h.as_array())
+        .expect("hits must be a JSON array");
     assert!(
-        !arr.is_empty(),
+        !hits.is_empty(),
         "expected at least one hit for 'kebab' in 'a.md'"
     );
     assert_eq!(
-        arr[0]
+        hits[0]
             .get("schema_version")
             .and_then(|s| s.as_str()),
         Some("search_hit.v1"),
         "first hit should carry schema_version=search_hit.v1"
+    );
+    // truncated must be present (bool); next_cursor may be null on last page.
+    assert!(
+        v.get("truncated").and_then(|t| t.as_bool()).is_some(),
+        "envelope should carry truncated:bool"
+    );
+    assert!(
+        v.get("next_cursor").is_some(),
+        "envelope should carry next_cursor (possibly null)"
     );
 }

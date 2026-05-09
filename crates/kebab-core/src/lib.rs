@@ -51,7 +51,7 @@ pub use metadata::{
 };
 pub use search::{
     DocFilter, DocSummary, RetrievalDetail, SearchFilters, SearchHit,
-    SearchMode, SearchQuery,
+    SearchMode, SearchOpts, SearchQuery,
 };
 pub use answer::{
     Answer, AnswerCitation, AnswerRetrievalSummary, ModelRef, RefusalReason, TokenUsage,

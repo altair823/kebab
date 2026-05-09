@@ -75,10 +75,18 @@ pub fn wire_search_hit(h: &SearchHit) -> Value {
     tag_object(v, "search_hit.v1")
 }
 
-/// Wrap a list of [`SearchHit`] values as a JSON array of `search_hit.v1`
-/// objects (one tag per element, per design §2.2).
-pub fn wire_search_hits(hits: &[SearchHit]) -> Value {
-    Value::Array(hits.iter().map(wire_search_hit).collect())
+/// p9-fb-34: tag a `SearchResponse` as `search_response.v1`. Wraps
+/// the existing `search_hit.v1[]` array with pagination + truncation
+/// metadata. Replaces the previous bare `search_hit.v1[]` top-level
+/// array (`wire_search_hits`) — see HOTFIXES / fb-34 for the
+/// breaking shape change.
+pub fn wire_search_response(r: &kebab_app::SearchResponse) -> Value {
+    let v = serde_json::json!({
+        "hits": r.hits.iter().map(wire_search_hit).collect::<Vec<_>>(),
+        "next_cursor": r.next_cursor,
+        "truncated": r.truncated,
+    });
+    tag_object(v, "search_response.v1")
 }
 
 /// Wrap an [`Answer`] as `answer.v1`.
@@ -235,17 +243,34 @@ mod tests {
     }
 
     #[test]
-    fn search_hits_wraps_each_element() {
-        let v = wire_search_hits(&[]);
-        assert!(v.is_array());
-        assert_eq!(v.as_array().unwrap().len(), 0);
-    }
-
-    #[test]
     fn tag_object_inserts_into_object() {
         let v = Value::Object(serde_json::Map::new());
         let tagged = tag_object(v, "x.v1");
         assert_eq!(schema_of(&tagged), Some("x.v1"));
+    }
+
+    #[test]
+    fn search_response_carries_pagination_metadata() {
+        // p9-fb-34: empty-hits SearchResponse round-trips through the
+        // wrapper with its `next_cursor` + `truncated` fields preserved
+        // and the top-level `schema_version` set to `search_response.v1`.
+        let r = kebab_app::SearchResponse {
+            hits: vec![],
+            next_cursor: Some("opaque-cursor-abc".to_string()),
+            truncated: true,
+        };
+        let v = wire_search_response(&r);
+        assert_eq!(schema_of(&v), Some("search_response.v1"));
+        assert!(v.get("hits").and_then(|h| h.as_array()).is_some());
+        assert_eq!(
+            v.get("hits").and_then(|h| h.as_array()).unwrap().len(),
+            0
+        );
+        assert_eq!(
+            v.get("next_cursor").and_then(|c| c.as_str()),
+            Some("opaque-cursor-abc")
+        );
+        assert_eq!(v.get("truncated").and_then(|t| t.as_bool()), Some(true));
     }
 
     #[test]

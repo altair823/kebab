@@ -32,7 +32,7 @@ When `kebab` is registered as an MCP server (see `~/.claude/mcp.json` example be
 
 | tool | purpose | mutation |
 |------|---------|----------|
-| `mcp__kebab__search` | corpus search → `search_hit.v1[]` | no |
+| `mcp__kebab__search` | corpus search → `search_response.v1` (`{hits, next_cursor, truncated}`) | no |
 | `mcp__kebab__ask` | RAG answer → `answer.v1` | no |
 | `mcp__kebab__schema` | capability discovery → `schema.v1` | no |
 | `mcp__kebab__doctor` | health check → `doctor.v1` | no |
@@ -47,12 +47,14 @@ Use when the user wants to **find** a doc, or when you (the model) need raw chun
 
 Input:
 ```json
-{ "query": "<query>", "mode": "hybrid", "k": 10 }
+{ "query": "<query>", "mode": "hybrid", "k": 10, "max_tokens": null, "snippet_chars": null, "cursor": null }
 ```
 
 - `mode = "hybrid"` is the default-correct choice. Use `"vector"` for semantic-only ("docs about X concept"), `"lexical"` for exact strings ("the literal flag `--foo-bar`").
-- Output is `search_hit.v1` array. Key fields: `rank`, `score`, `doc_path`, `heading_path[]`, `section_label`, `snippet`, `citation` (line range / page), `chunk_id`.
+- **`max_tokens` / `snippet_chars` / `cursor` (p9-fb-34)** — agent budget controls. Set `max_tokens` to cap result wire size (chars/4 estimate); set `cursor` to the previous response's `next_cursor` to fetch the next page.
+- Output is `search_response.v1`: `{ hits: search_hit.v1[], next_cursor: string|null, truncated: bool }`. Iterate `response.hits[]` for individual hits. Key hit fields: `rank`, `score`, `doc_path`, `heading_path[]`, `section_label`, `snippet`, `citation` (line range / page), `chunk_id`.
 - Cite back to the user as `doc_path § heading_path[-1]` so they can open the source.
+- When `truncated: true`, the budget loop modified the page (snippet shortening or k reduction). `next_cursor` is **independent** — non-null whenever more hits may be reachable. Caller may widen `max_tokens` (re-issue same query for fuller snippets / more hits per page) or follow `next_cursor` (advance through more hits) or both. Mismatched cursor (corpus_revision changed) returns `error.v1.code = stale_cursor` — re-issue the search to obtain a fresh one.
 
 ### `mcp__kebab__ask` — when you need the answer
 
@@ -102,7 +104,9 @@ Claude Code spawns `kebab mcp` at session start; the process stays alive across 
 ## Parsing tips
 
 - MCP tools return JSON content blocks; CLI prints **one JSON value to stdout**, progress / warnings to stderr. Capture stdout only: `kebab search ... --json 2>/dev/null`.
-- `search` output can be large for broad queries. Project relevant fields when summarizing — for CLI: `jq '.[] | {rank, doc_path, heading: .heading_path[-1], snippet}'`.
+- `search` output can be large for broad queries. Project relevant fields when summarizing — for CLI: `jq '.hits[] | {rank, doc_path, heading: .heading_path[-1], snippet}'` (note: `.hits[]`, not `.[]` — fb-34 wrapped the array). Use `--max-tokens N` (CLI) / `max_tokens` (MCP) to cap wire size in advance.
+- Pagination: `search_response.v1.next_cursor` is opaque base64 — pass back as `--cursor` (CLI) or `cursor` (MCP) for the next page. `null` means no more hits. `corpus_revision` mismatch returns `error.v1.code = stale_cursor` — re-issue search to obtain a fresh cursor.
+- `search_response.v1.truncated = true` means budget forced snippet shortening or k reduction. Independent of `next_cursor`: widen `max_tokens` for fuller snippets, follow `next_cursor` for more hits, or both.
 - `ask`'s `citations[]` mirrors `search_hit.v1` minus retrieval internals — same `doc_path` / `citation` shape.
 - Schema reference lives in the kebab repo at `docs/wire-schema/v1/*.schema.json` if a field is unclear.
 - `search_hit.v1` and `answer.v1.citations[]` carry `indexed_at` (RFC3339) + `stale` (bool). When `stale == true`, the source doc hasn't been re-processed since `config.search.stale_threshold_days`. Surface this caveat to the user when summarizing — the cited snapshot may not reflect current reality.
