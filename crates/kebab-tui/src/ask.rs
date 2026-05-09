@@ -483,7 +483,7 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
 }
 
 fn spawn_ask_worker(state: &mut App) {
-    let (tx, rx) = mpsc::channel::<String>();
+    let (tx, rx) = mpsc::channel::<kebab_app::StreamEvent>();
     let cfg = state.config.clone();
     let s = state.ask.as_mut().unwrap();
     // p9-fb-10: take() consumes the input in one step (no clone +
@@ -542,8 +542,18 @@ fn make_conversation_id() -> String {
 pub(crate) fn drain_stream(state: &mut App) {
     let Some(s) = state.ask.as_mut() else { return };
     if let Some(rx) = &s.rx {
-        for tok in rx.try_iter() {
-            s.partial.push_str(&tok);
+        for ev in rx.try_iter() {
+            match ev {
+                kebab_app::StreamEvent::Token { delta, .. } => {
+                    s.partial.push_str(&delta);
+                }
+                // p9-fb-33: TUI ignores RetrievalDone (citation
+                // panel renders after completion via `last_answer`)
+                // and Final (the worker thread's join already
+                // delivers the canonical Answer in poll_worker).
+                kebab_app::StreamEvent::RetrievalDone { .. }
+                | kebab_app::StreamEvent::Final { .. } => {}
+            }
         }
     }
 }
