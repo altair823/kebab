@@ -96,6 +96,18 @@ pub struct DocSummary {
     pub chunker_version: ChunkerVersion,
 }
 
+/// p9-fb-34: caller-supplied output budget knobs for `App::search_with_opts`.
+/// All `None` = no enforcement (existing behavior).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SearchOpts {
+    /// chars/4 approximation of wire JSON token cost. None = no cap.
+    pub max_tokens: Option<usize>,
+    /// Per-hit snippet character cap. None = use config default.
+    pub snippet_chars: Option<usize>,
+    /// Opaque base64 cursor from a previous response. None = first page.
+    pub cursor: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,5 +146,13 @@ mod tests {
         let v = serde_json::to_value(&hit).unwrap();
         assert_eq!(v["indexed_at"], "2026-05-09T12:00:00Z");
         assert_eq!(v["stale"], true);
+    }
+
+    #[test]
+    fn search_opts_default_is_all_none() {
+        let opts = SearchOpts::default();
+        assert!(opts.max_tokens.is_none());
+        assert!(opts.snippet_chars.is_none());
+        assert!(opts.cursor.is_none());
     }
 }
