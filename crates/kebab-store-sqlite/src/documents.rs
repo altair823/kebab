@@ -389,10 +389,11 @@ impl SqliteStore {
     ///
     /// Real fix is a `chunks.ordinal` column (V007 migration) or sort
     /// by `chunks.source_spans_json[0]` start offset. Tracked as
-    /// follow-up; current behavior is good enough for sequentially
-    /// chunked markdown where created_at uniqueness varies, but PDFs
-    /// (page-aligned chunks) and large docs may surprise the agent.
-    /// See `tasks/HOTFIXES.md` if/when this is escalated.
+    /// follow-up. Until then `--context` neighbors are best-effort —
+    /// they may or may not align with document position depending on
+    /// whether `chunk_id` hash order happens to match insertion order
+    /// for that particular doc. Large markdown / PDF (page-aligned
+    /// chunks) likely re-orders. See `tasks/HOTFIXES.md` if escalated.
     pub fn list_chunk_ids_for_doc(
         &self,
         doc_id: &kebab_core::DocumentId,

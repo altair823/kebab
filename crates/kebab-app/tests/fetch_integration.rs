@@ -310,10 +310,20 @@ fn fetch_chunk_context_at_first_chunk_clamps_lower_bound() {
             },
         )
         .unwrap();
-    // context_before may be empty if target is the first chunk;
-    // context_after should have ≤ 2 entries. Both clamped at doc boundaries.
+    // p9-fb-35 R2: doc has 3 chunks; ±2 should clamp the total
+    // neighbor count to ≤ 2 + 1 (= excludes target).
+    //
+    // ⚠ Strict "first-chunk → context_before is empty" cannot be
+    // asserted here yet because chunks.ordinal column does not exist
+    // — `list_chunk_ids_for_doc` orders by `(created_at, chunk_id)`
+    // and chunk_id is a blake3 hash, so the "First chunk" content
+    // may land at any hash-order position within the doc. The clamp
+    // logic itself is correct (target_idx ± n → [0..len]); we just
+    // can't pin which chunk is hash-order-first. Tracked as
+    // follow-up: V007 chunks.ordinal migration.
+    let total = result.context_before.len() + result.context_after.len();
     assert!(
-        result.context_before.len() + result.context_after.len() <= 4,
-        "doc boundary should clamp ±N to fit chunk count"
+        total <= 2,
+        "doc with 3 chunks ±2 → at most 2 neighbors (excludes target), got {total}"
     );
 }

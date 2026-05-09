@@ -18,7 +18,7 @@
     "text":           { "type": "string", "description": "kind=doc/span: markdown text (truncated if budget tripped)" },
     "line_start":     { "type": ["integer", "null"], "minimum": 1, "description": "kind=span: requested start line (1-based)" },
     "line_end":       { "type": ["integer", "null"], "minimum": 1, "description": "kind=span: requested end line (1-based, inclusive)" },
-    "effective_end":  { "type": ["integer", "null"], "minimum": 1, "description": "kind=span: actual emitted end line after budget truncation" },
+    "effective_end":  { "type": ["integer", "null"], "minimum": 0, "description": "kind=span: actual end line of emitted text (1-based, inclusive). Equals `line_end` on full slice; less than `line_end` when (a) requested range exceeded total lines (line clamp) or (b) `--max-tokens` budget trimmed the tail. Special case: `line_start - 1` (which is 0 when line_start=1) signals the entire requested range was beyond doc end — returned `text` is empty." },
     "truncated":      { "type": "boolean", "description": "kind=doc/span: budget forced text truncation. Always false for chunk." }
   }
 }
