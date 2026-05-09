@@ -41,7 +41,7 @@ use lru::LruCache;
 
 use kebab_core::{
     Answer, Embedder, IndexVersion, LanguageModel, Retriever, SearchHit, SearchMode,
-    SearchQuery, VectorStore,
+    SearchOpts, SearchQuery, VectorStore,
 };
 use kebab_embed_local::FastembedEmbedder;
 use kebab_llm_local::OllamaLanguageModel;
@@ -49,6 +49,20 @@ use kebab_rag::{AskOpts, RagPipeline};
 use kebab_search::{HybridRetriever, LexicalRetriever, VectorRetriever};
 use kebab_store_sqlite::SqliteStore;
 use kebab_store_vector::LanceVectorStore;
+
+/// p9-fb-34: top-level wrapper around a paginated, budget-limited
+/// search result. Mirrors the wire `search_response.v1` shape.
+///
+/// `next_cursor` is `Some(_)` when the retriever returned a full
+/// `k_effective` page (more hits may exist) or when the budget loop
+/// truncated mid-page; the caller threads it back through
+/// [`SearchOpts::cursor`] on the next call.
+#[derive(Clone, Debug)]
+pub struct SearchResponse {
+    pub hits: Vec<SearchHit>,
+    pub next_cursor: Option<String>,
+    pub truncated: bool,
+}
 
 /// Facade state — see module docs for lifetime rules.
 ///
@@ -272,6 +286,129 @@ impl App {
             self.config.search.stale_threshold_days,
         );
         Ok(hits)
+    }
+
+    /// p9-fb-34: budget-aware search facade. Returns hits trimmed to
+    /// `opts.max_tokens` (chars/4 approximation of the wire JSON),
+    /// honors a `snippet_chars` override, and threads an opaque
+    /// pagination cursor through `corpus_revision`.
+    ///
+    /// Budget loop:
+    /// 1. Shorten snippets progressively (halve cap, floor at 60
+    ///    chars) until the estimated wire-JSON char total fits or the
+    ///    floor is reached.
+    /// 2. Pop hits off the end until the budget fits, but always
+    ///    retain ≥ 1 hit (the spec floor).
+    ///
+    /// `next_cursor` is set when the retriever returned a full page
+    /// (more results may exist) or the budget truncated mid-page.
+    /// `App::search` is unchanged and remains the cache-served fast
+    /// path used by the existing TUI / kebab-rag callers.
+    pub fn search_with_opts(
+        &self,
+        query: SearchQuery,
+        opts: SearchOpts,
+    ) -> Result<SearchResponse> {
+        use crate::cursor;
+
+        let corpus_revision = self.sqlite.corpus_revision().to_string();
+        let offset = match opts.cursor.as_ref() {
+            Some(c) => cursor::decode(c, &corpus_revision)
+                .map_err(|e| anyhow!("stale_cursor: {}", e.message))?,
+            None => 0,
+        };
+
+        let snippet_chars = opts
+            .snippet_chars
+            .unwrap_or(self.config.search.snippet_chars);
+
+        // Fetch enough to satisfy offset + the requested page. The
+        // retriever returns at most `fetch_k` hits — we then drop
+        // `offset` and keep the next `k_effective`. `k = 0` is
+        // treated as "use config default" so a caller passing through
+        // a default-constructed `SearchQuery` still gets useful work
+        // out of the budget facade.
+        let k_effective = if query.k == 0 {
+            self.config.search.default_k
+        } else {
+            query.k
+        };
+        let fetch_k = offset.saturating_add(k_effective);
+        let fetch_query = SearchQuery {
+            k: fetch_k,
+            ..query.clone()
+        };
+        let mut all_hits = self.search(fetch_query)?;
+
+        // Skip offset.
+        let drop_n = offset.min(all_hits.len());
+        all_hits.drain(..drop_n);
+        let mut hits: Vec<SearchHit> =
+            all_hits.into_iter().take(k_effective).collect();
+
+        // Apply snippet_chars override if shorter than what the
+        // retriever returned (retriever already honored
+        // `config.search.snippet_chars`; this only kicks in when the
+        // caller asked for *less*).
+        if opts.snippet_chars.is_some() {
+            for h in hits.iter_mut() {
+                if h.snippet.chars().count() > snippet_chars {
+                    h.snippet = trim_to_chars(&h.snippet, snippet_chars);
+                }
+            }
+        }
+
+        // Budget loop.
+        let mut truncated = false;
+        if let Some(max_tokens) = opts.max_tokens {
+            let max_chars = max_tokens.saturating_mul(4);
+            // Step 1: shorten snippets progressively to a 60-char floor.
+            const SNIPPET_FLOOR: usize = 60;
+            let mut current_snippet_cap = snippet_chars;
+            while estimate_chars(&hits) > max_chars
+                && current_snippet_cap > SNIPPET_FLOOR
+            {
+                current_snippet_cap =
+                    (current_snippet_cap / 2).max(SNIPPET_FLOOR);
+                for h in hits.iter_mut() {
+                    if h.snippet.chars().count() > current_snippet_cap {
+                        h.snippet =
+                            trim_to_chars(&h.snippet, current_snippet_cap);
+                        truncated = true;
+                    }
+                }
+            }
+            // Step 2: pop hits from the end until we fit, but always
+            // keep ≥ 1.
+            while estimate_chars(&hits) > max_chars && hits.len() > 1 {
+                hits.pop();
+                truncated = true;
+            }
+        }
+
+        // Compute next_cursor. Two paths produce one:
+        //   - We returned a full `k_effective` page → more hits may
+        //     remain in the original retriever set; the cursor is
+        //     speculative (the next call falls through to an empty
+        //     page if nothing's left, which is fine).
+        //   - The budget loop truncated mid-page → resume from where
+        //     we stopped so the caller can fetch the rest with a
+        //     bigger budget.
+        let returned = hits.len();
+        let full_page = returned == k_effective
+            && offset.saturating_add(returned) > 0;
+        let mid_page_truncation = truncated && returned > 0;
+        let next_cursor = if full_page || mid_page_truncation {
+            Some(cursor::encode(offset + returned, &corpus_revision))
+        } else {
+            None
+        };
+
+        Ok(SearchResponse {
+            hits,
+            next_cursor,
+            truncated,
+        })
     }
 
     /// Run a RAG `ask` against the configured retriever + LLM. Reuses
@@ -625,6 +762,35 @@ fn blake3_truncate(input: &str) -> u128 {
     let mut buf = [0u8; 16];
     buf.copy_from_slice(&bytes[..16]);
     u128::from_be_bytes(buf)
+}
+
+/// p9-fb-34: trim `s` to at most `n` Unicode scalar chars. Cheap
+/// alternative to a `.chars().take(n).collect::<String>()` pattern;
+/// reserves capacity proportional to UTF-8 worst case (4 bytes / char)
+/// so the inner push never re-allocates.
+fn trim_to_chars(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(n.saturating_mul(4));
+    for (i, c) in s.chars().enumerate() {
+        if i >= n {
+            break;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// p9-fb-34: estimate the wire-JSON char cost of a hit list. Used by
+/// the budget loop in `App::search_with_opts`. `serde_json::to_string`
+/// failures fall back to 0 so a single broken hit never makes the
+/// loop loop forever; in practice the hit struct serializes
+/// infallibly.
+fn estimate_chars(hits: &[SearchHit]) -> usize {
+    hits.iter()
+        .map(|h| serde_json::to_string(h).map(|s| s.len()).unwrap_or(0))
+        .sum()
 }
 
 #[cfg(test)]

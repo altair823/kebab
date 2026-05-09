@@ -79,6 +79,37 @@ impl TestEnv {
             ..Default::default()
         }
     }
+
+    /// p9-fb-34 alias — tests added in fb-34 invoke `TestEnv::new()`
+    /// per the plan; route to the existing lexical-only constructor
+    /// so the lane stays AVX-free without churning all the existing
+    /// callers.
+    pub fn new() -> Self {
+        Self::lexical_only()
+    }
+
+    /// p9-fb-34: open a fresh `App` against this env's config. Used
+    /// by integration tests that need to call `App::search_with_opts`
+    /// directly. Caller can invoke this multiple times to simulate
+    /// re-opening the binary after a corpus revision bump.
+    pub fn app(&self) -> kebab_app::App {
+        kebab_app::App::open_with_config(self.config.clone())
+            .expect("App::open_with_config")
+    }
+}
+
+/// p9-fb-34: write `content` into the env's workspace at
+/// `relative_path`, then run a full ingest so the document is
+/// searchable. Mirrors the convenience helpers used by other
+/// `TestEnv`-driven crates.
+pub fn ingest_md(env: &TestEnv, relative_path: &str, content: &str) {
+    let path = env.workspace_root.join(relative_path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("create parent dirs");
+    }
+    std::fs::write(&path, content).expect("write workspace file");
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true)
+        .expect("ingest_with_config");
 }
 
 /// Test helper: build a `SearchQuery` for lexical mode at k=10. Used
