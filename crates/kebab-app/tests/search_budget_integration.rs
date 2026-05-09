@@ -152,4 +152,10 @@ fn max_tokens_zero_returns_one_hit_truncated() {
         .unwrap();
     assert_eq!(resp.hits.len(), 1, "max_tokens=0 collapses to 1-hit floor");
     assert!(resp.truncated);
+    // p9-fb-34 R2: cursor IS emitted on k-pop case so the popped
+    // hits remain reachable.
+    assert!(
+        resp.next_cursor.is_some(),
+        "k-pop truncation must still emit next_cursor; popped hits at offset+returned"
+    );
 }

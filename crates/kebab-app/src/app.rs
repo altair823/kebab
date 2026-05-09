@@ -53,10 +53,18 @@ use kebab_store_vector::LanceVectorStore;
 /// p9-fb-34: top-level wrapper around a paginated, budget-limited
 /// search result. Mirrors the wire `search_response.v1` shape.
 ///
-/// `next_cursor` is `Some(_)` when the retriever returned a full
-/// `k_effective` page (more hits may exist) or when the budget loop
-/// truncated mid-page; the caller threads it back through
-/// [`SearchOpts::cursor`] on the next call.
+/// `next_cursor` is non-null whenever more hits may be reachable —
+/// either the retriever filled the page (more behind it), or the
+/// budget loop popped hits (those popped hits remain fetchable
+/// from `offset + returned`). It is null only when the retriever
+/// returned fewer hits than requested AND nothing was popped — i.e.
+/// the corpus has nothing more for this query.
+///
+/// `truncated` is independent of `next_cursor`: it signals that
+/// the budget loop modified the page (snippet shorten or k pop).
+/// Caller may either widen `max_tokens` (and re-issue the same
+/// query) or follow `next_cursor` (to advance through more hits)
+/// or both.
 #[derive(Clone, Debug)]
 pub struct SearchResponse {
     pub hits: Vec<SearchHit>,
@@ -289,21 +297,12 @@ impl App {
     }
 
     /// p9-fb-34: budget-aware search facade. Returns hits trimmed to
-    /// `opts.max_tokens` (chars/4 approximation of the wire JSON),
-    /// honors a `snippet_chars` override, and threads an opaque
-    /// pagination cursor through `corpus_revision`.
+    /// `opts.max_tokens` (chars/4 approximation) plus pagination
+    /// metadata. `App::search` is now a thin wrapper that drops the
+    /// metadata for backwards compat.
     ///
-    /// Budget loop:
-    /// 1. Shorten snippets progressively (halve cap, floor at 60
-    ///    chars) until the estimated wire-JSON char total fits or the
-    ///    floor is reached.
-    /// 2. Pop hits off the end until the budget fits, but always
-    ///    retain ≥ 1 hit (the spec floor).
-    ///
-    /// `next_cursor` is set when the retriever returned a full page
-    /// (more results may exist) or the budget truncated mid-page.
-    /// `App::search` is unchanged and remains the cache-served fast
-    /// path used by the existing TUI / kebab-rag callers.
+    /// `SearchResponse.next_cursor` and `truncated` are independent
+    /// signals — see `SearchResponse` doc for details.
     pub fn search_with_opts(
         &self,
         query: SearchQuery,
@@ -390,27 +389,30 @@ impl App {
             }
         }
 
-        // Compute next_cursor. Only emit on the full-page path:
-        //   - We returned a full `k_effective` page → more hits may
-        //     remain in the original retriever set; the cursor is
-        //     speculative (the next call falls through to an empty
-        //     page if nothing's left, which is fine).
+        // p9-fb-34: emit cursor whenever more hits may be reachable.
+        // Three cases produce a non-null cursor:
+        //   (a) returned == k_effective: retriever filled the page; there
+        //       may be more behind it. Speculative — next call may return
+        //       an empty page if nothing remains.
+        //   (b) truncated by k-pop: returned < k_effective because we
+        //       popped hits to fit the budget. Those popped hits live at
+        //       offset+returned..; next call (with same or wider budget)
+        //       resumes from there.
+        //   (c) truncated by snippet-only shrink: returned == k_effective,
+        //       falls under (a). Cursor lets caller paginate; widening
+        //       --max-tokens lets caller re-fetch fuller snippets at the
+        //       same offset.
         //
-        // p9-fb-34 round-1 review: the previous "truncated mid-page"
-        // branch was misleading — when the budget loop only shrank
-        // snippets (no hits popped), `next_cursor` would point at the
-        // page *after* the current hits, but the caller often wants
-        // *fuller snippets for the same hits* (i.e. widen `max_tokens`)
-        // not the next page. We now only emit a cursor when k was
-        // actually reduced (k-pop case) or the page was naturally full;
-        // both produce `returned == k_effective`. For snippet-only
-        // shrinkage with `truncated: true` and `next_cursor: null`, the
-        // documented guidance is "widen max_tokens".
+        // No cursor when neither (a) nor (b) applies — i.e. the retriever
+        // returned fewer than k_effective AND we didn't pop. That means
+        // end of available results.
         let returned = hits.len();
-        let next_cursor = if returned == k_effective
-            && offset.saturating_add(returned) > 0
-        {
-            Some(cursor::encode(offset + returned, &corpus_revision))
+        let next_cursor = if returned == k_effective || truncated {
+            if offset.saturating_add(returned) > 0 {
+                Some(cursor::encode(offset + returned, &corpus_revision))
+            } else {
+                None
+            }
         } else {
             None
         };
