@@ -122,7 +122,7 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
     ### 🎯 0.4.0 — agent surface refinement (additive only)
     - [p9-fb-32 stale doc indicator](p9/p9-fb-32-stale-doc-indicator.md) — ✅ 머지 + v0.4.0 cut 후보 (2026-05-09)
     - [p9-fb-33 streaming ask (ndjson delta)](p9/p9-fb-33-streaming-ask.md) — ✅ 머지 + v0.5.0 cut 후보 (2026-05-09)
-    - [p9-fb-34 output budget controls](p9/p9-fb-34-output-budget-controls.md) — ⏳ 미구현, brainstorm 필요
+    - [p9-fb-34 output budget controls](p9/p9-fb-34-output-budget-controls.md) — ✅ 머지 + v0.5.0 cut 후보 (2026-05-09)
     - [p9-fb-35 verbatim fetch](p9/p9-fb-35-verbatim-fetch.md) — ⏳ 미구현, brainstorm 필요
     - [p9-fb-36 search filter args](p9/p9-fb-36-search-filters.md) — ⏳ 미구현, brainstorm 필요
     - [p9-fb-37 trace + stats](p9/p9-fb-37-trace-and-stats.md) — ⏳ 미구현, brainstorm 필요 (depends_on 27)

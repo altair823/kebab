@@ -152,6 +152,25 @@ stderr 의 events.ndjson 은 한 줄 = 한 event 의 ndjson — `retrieval_done`
 
 agent 가 stderr 를 닫으면 (`head -c 1` 등) pipeline 이 LLM stream 을 즉시 중단하고 `RefusalReason::LlmStreamAborted` 로 partial answer 를 `answers` 테이블에 기록.
 
+### Pagination + budget (fb-34)
+
+```bash
+# First page
+kebab search "rust" --json --k 5 > page1.json
+jq '.next_cursor' page1.json
+
+# Next page using the returned cursor
+NEXT=$(jq -r '.next_cursor' page1.json)
+kebab search "rust" --json --k 5 --cursor "$NEXT" > page2.json
+
+# Budget cap — returns smaller snippet / fewer hits + truncated=true
+kebab search "rust" --json --max-tokens 200 | jq '.truncated, (.hits | length)'
+```
+
+`next_cursor` 는 corpus_revision 변경 (이후 ingest 등) 시 invalid — 다음 호출이 `error.v1.code = stale_cursor` 로 거절. agent 는 새 search 로 재발급 받기.
+
+`--json` 출력은 `search_response.v1` wrapper (`{hits, next_cursor, truncated}`) — pre-fb-34 의 bare `search_hit.v1[]` 배열과 호환 안 됨.
+
 ## P6-4 이미지 ingestion 옵션
 
 `config.toml` 에 다음 절을 추가하면 `kebab ingest` 가 `**/*.png` / `**/*.jpg` 등 이미지 자산도 함께 색인합니다 (텍스트만 색인하려면 생략):
