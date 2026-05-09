@@ -322,7 +322,9 @@ fn build_hit(
         embedding_model: Some(model_id.clone()),
         chunker_version: ChunkerVersion(meta.chunker_version.clone()),
         indexed_at,
-        // Placeholder — App layer overwrites against config threshold (Task 6).
+        // Placeholder — overwritten by `kebab_app::staleness::mark_stale_in_place`
+        // (called from `App::search` / `App::search_uncached`) and the equivalent
+        // in `RagPipeline::ask` against the configured threshold.
         stale: false,
     })
 }

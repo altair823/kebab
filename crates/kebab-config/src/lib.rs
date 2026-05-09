@@ -1016,20 +1016,23 @@ max_context_tokens = 8000
     }
 
     #[test]
-    fn negative_stale_threshold_rejected_at_validation() {
+    fn env_negative_threshold_silently_ignored() {
+        // Env path: malformed numeric values (including negatives that
+        // can't fit `u32`) are silently ignored — same pattern as
+        // `KEBAB_SEARCH_DEFAULT_K`. The TOML file-load path (covered in
+        // `fb27_tests::file_negative_stale_threshold_returns_config_invalid`)
+        // is the spec-required hard error surface.
         let c = Config::defaults();
-        // u32 cannot hold a negative — represent the failure path through
-        // `apply_env` parse-failure: malformed values are silently ignored
-        // (existing pattern, see KEBAB_SEARCH_DEFAULT_K). For TOML-level
-        // negative rejection we rely on serde's u32 type; assert that the
-        // env path leaves the default in place when given garbage.
         let env: HashMap<String, String> = [
             ("KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(), "-5".to_string()),
         ]
         .into_iter()
         .collect();
         let c = c.apply_env(&env);
-        assert_eq!(c.search.stale_threshold_days, 30, "garbage env value must not corrupt the default");
+        assert_eq!(
+            c.search.stale_threshold_days, 30,
+            "env path: malformed value must leave the default unchanged"
+        );
     }
 
     #[test]
@@ -1077,5 +1080,35 @@ mod fb27_tests {
             .expect("malformed TOML should downcast to ConfigInvalid");
         assert_eq!(signal.path, p);
         assert!(!signal.cause.is_empty(), "cause should be non-empty");
+    }
+
+    /// Spec §Config: a negative `stale_threshold_days` in TOML must be
+    /// rejected at load time (not silently coerced or ignored). serde's
+    /// `u32` type-check surfaces the failure as a parse error, which
+    /// `from_file` wraps into `ConfigInvalid`. CLI's `error_classify`
+    /// downcasts this and emits `error.v1.code = "config_invalid"`.
+    #[test]
+    fn file_negative_stale_threshold_returns_config_invalid() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("neg.toml");
+        // Build a minimally valid TOML and override only the field
+        // under test — this isolates the failure to the negative
+        // value rather than missing required sections.
+        let cfg = Config::defaults();
+        let mut toml_text = toml::to_string(&cfg).expect("default round-trips");
+        toml_text = toml_text.replace(
+            "stale_threshold_days = 30",
+            "stale_threshold_days = -5",
+        );
+        std::fs::write(&p, &toml_text).unwrap();
+        let err = Config::from_file(&p).unwrap_err();
+        let signal = err.downcast_ref::<ConfigInvalid>()
+            .expect("negative stale_threshold_days should downcast to ConfigInvalid");
+        assert_eq!(signal.path, p);
+        assert!(
+            signal.cause.contains("parse_failed"),
+            "expected parse_failed cause, got: {}",
+            signal.cause
+        );
     }
 }

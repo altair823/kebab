@@ -123,6 +123,9 @@ pub(crate) fn build_doc_lines<'a>(
     let mut lines: Vec<Line> = Vec::new();
     // Header
     let now = time::OffsetDateTime::now_utc();
+    // `doc.metadata.updated_at` is the same source as `SearchHit.indexed_at`
+    // (both come from `documents.updated_at`); we compute here because Inspect
+    // doesn't go through the SearchHit post-process pipeline.
     let stale = kebab_app::compute_stale(doc.metadata.updated_at, now, threshold_days);
     lines.push(header_kv("title", &doc.title, theme));
     lines.push(header_kv_with_stale(
