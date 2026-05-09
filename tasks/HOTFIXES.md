@@ -18,7 +18,7 @@ git history.
 
 **무엇이 바뀌었나**: `kebab_rag::AskOpts.stream_sink` 의 타입이 `Option<mpsc::Sender<String>>` 에서 `Option<mpsc::Sender<StreamEvent>>` 로 변경됨. `kebab_app::StreamEvent` 가 새 re-export.
 
-**Spec contract 와의 관계**: spec §Domain API change 에서 명시한 internal API breaking. consumer = TUI worker 한 곳 (이번 PR 에서 같이 갱신). 외부 consumer 없음.
+**Spec contract 와의 관계**: `answer_event.v1` (신규 wire schema) 가 단일 sink 로 3 stage (retrieval_done / token / final) 를 운반하도록 강제하면서 자연스럽게 in-process sink 의 type 폭이 넓어진 부산물. spec `docs/superpowers/specs/2026-05-09-p9-fb-33-streaming-ask-design.md` 의 "Domain API change" 절에서 미리 명시. consumer = TUI worker 한 곳 (이번 PR 에서 같이 갱신). 외부 consumer 없음.
 
 **의식적 결정**:
 - single sink 로 retrieval / token / final 세 stage 를 모두 운반하기 위한 필수 타입 변경.
