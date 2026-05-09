@@ -83,6 +83,12 @@ type PackedContext = (String, Vec<PackedCitation>, usize);
 /// `RefusalReason::LlmStreamAborted`).
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+// `Final.answer` carries a full `Answer` (~320B) and is the largest
+// variant; `Token` is the hot path. Size mismatch is unavoidable
+// without boxing the wire-shape, which would force every consumer
+// (TUI / CLI / future MCP) to deref. The sink is short-lived (one
+// per ask) so the per-event overhead is not material.
+#[allow(clippy::large_enum_variant)]
 pub enum StreamEvent {
     RetrievalDone {
         hits: Vec<SearchHit>,
@@ -231,6 +237,16 @@ impl RagPipeline {
         for h in &mut hits {
             h.stale = compute_stale(h.indexed_at, now, stale_threshold_days);
         }
+        // p9-fb-33: emit retrieval_done as soon as the hit list is
+        // ready (post stale-stamp so consumers see the same `stale`
+        // values the App-level wire path emits). Cancel is best-effort
+        // here — if the caller already dropped the receiver we just
+        // skip and let the LLM-loop SendError handle it consistently.
+        if let Some(sink) = &opts.stream_sink {
+            let _ = sink.send(StreamEvent::RetrievalDone {
+                hits: hits.clone(),
+            });
+        }
         let chunks_returned = u32::try_from(hits.len()).unwrap_or(u32::MAX);
         let top_score = hits.first().map(|h| h.retrieval.fusion_score).unwrap_or(0.0);
 
@@ -329,16 +345,28 @@ impl RagPipeline {
             .llm
             .generate_stream(req)
             .context("kb-rag: llm.generate_stream")?;
+        let mut cancelled = false;
         for item in stream {
             let chunk = item.context("kb-rag: stream item")?;
             match chunk {
                 TokenChunk::Token(t) => {
                     acc.push_str(&t);
                     if let Some(sink) = &opts.stream_sink {
-                        // SendError silently dropped — caller cancelled but the
-                        // pipeline still drives generation to completion so the
-                        // `answers` row gets a faithful record.
-                        let _ = sink.send(t);
+                        // p9-fb-33: SendError → caller dropped the
+                        // receiver (probably a closed stdout downstream).
+                        // Stop generation, mark the answer cancelled so
+                        // the persistence path records refusal_reason =
+                        // LlmStreamAborted.
+                        if sink
+                            .send(StreamEvent::Token {
+                                delta: t,
+                                turn_index: opts.turn_index,
+                            })
+                            .is_err()
+                        {
+                            cancelled = true;
+                            break;
+                        }
                     }
                 }
                 TokenChunk::Done {
@@ -350,6 +378,9 @@ impl RagPipeline {
                     break;
                 }
             }
+        }
+        if cancelled {
+            finish_reason = FinishReason::Cancelled;
         }
 
         // ── 6. Citation extract ────────────────────────────────────────────
@@ -375,15 +406,20 @@ impl RagPipeline {
         });
         let trimmed_answer = acc.trim();
         let matched_refusal_phrase = refusal_phrase.is_match(&acc);
-        let grounded = !trimmed_answer.is_empty()
+        let grounded_unaware = !trimmed_answer.is_empty()
             && unknown_markers.is_empty()
             && !extracted.is_empty();
-        let refusal_reason = if grounded {
-            None
+        // p9-fb-33: cancel takes priority over LlmSelfJudge — the
+        // caller bailed mid-stream, so the recorded reason should
+        // reflect that, not "model didn't cite".
+        let (grounded, refusal_reason) = if matches!(finish_reason, FinishReason::Cancelled) {
+            (false, Some(RefusalReason::LlmStreamAborted))
+        } else if grounded_unaware {
+            (true, None)
         } else {
             // Spec §7: empty answer, unknown markers, silent ungrounded,
             // and explicit "근거가 부족" all collapse to LlmSelfJudge.
-            Some(RefusalReason::LlmSelfJudge)
+            (false, Some(RefusalReason::LlmSelfJudge))
         };
 
         // ── 8. Build Answer ────────────────────────────────────────────────
@@ -460,6 +496,17 @@ impl RagPipeline {
             chunks_used,
             "kb-rag: ask done"
         );
+
+        // p9-fb-33: emit final on the success path. On cancel we
+        // skip Final — the receiver is gone and persistence still
+        // records the partial answer below.
+        if !cancelled
+            && let Some(sink) = &opts.stream_sink
+        {
+            let _ = sink.send(StreamEvent::Final {
+                answer: answer.clone(),
+            });
+        }
 
         // ── 9. Persist ─────────────────────────────────────────────────────
         let packed_chunks_json = if opts.explain {

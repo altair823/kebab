@@ -14,7 +14,7 @@ use kebab_core::{
     FinishReason, LanguageModel, Retriever, SearchMode, TokenChunk, TokenUsage,
 };
 use kebab_llm::MockLanguageModel;
-use kebab_rag::{AskOpts, RagPipeline, RefusalReason};
+use kebab_rag::{AskOpts, RagPipeline, RefusalReason, StreamEvent};
 
 /// LM ID used everywhere — kept short so snapshots stay stable.
 const TEST_LM_ID: &str = "mock-lm";
@@ -270,18 +270,32 @@ fn streaming_forwards_tokens_to_sink() {
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new(canned));
     let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
 
-    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let (tx, rx) = std::sync::mpsc::channel::<StreamEvent>();
     let mut opts = default_opts();
     opts.stream_sink = Some(tx);
     let _ = pipeline.ask("q", opts).unwrap();
-    let collected: String = rx.into_iter().collect::<Vec<_>>().join("");
+    // p9-fb-33: extract Token deltas from the staged event stream.
+    let collected: String = rx
+        .into_iter()
+        .filter_map(|ev| match ev {
+            StreamEvent::Token { delta, .. } => Some(delta),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
     assert_eq!(collected, canned);
 }
 
-// ── 10. dropped receiver does NOT abort generation ────────────────────────
+// ── 10. dropped receiver aborts generation, records LlmStreamAborted ──────
+//
+// p9-fb-33: cancel semantics changed. Pre-fb-33 the pipeline drove
+// the LM loop to completion and silently dropped sends. Now a
+// SendError breaks the loop and stamps `RefusalReason::LlmStreamAborted`
+// onto the persisted row — the partial answer (whatever was buffered
+// before the cancel) still gets written for audit.
 
 #[test]
-fn dropped_receiver_does_not_abort_generation() {
+fn dropped_receiver_aborts_with_llm_stream_aborted() {
     let env = RagEnv::new();
     let cid = id32("c1");
     let did = id32("d1");
@@ -292,13 +306,17 @@ fn dropped_receiver_does_not_abort_generation() {
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new(canned));
     let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
 
-    let (tx, rx) = std::sync::mpsc::channel::<String>();
-    drop(rx); // receiver gone — every send fails silently
+    let (tx, rx) = std::sync::mpsc::channel::<StreamEvent>();
+    drop(rx); // receiver gone — first Token send fails, loop breaks
     let mut opts = default_opts();
     opts.stream_sink = Some(tx);
     let answer = pipeline.ask("q", opts).unwrap();
-    assert_eq!(answer.answer, canned, "generation completes despite dead sink");
-    assert!(answer.grounded);
+    assert!(!answer.grounded, "cancel takes priority over grounded");
+    assert_eq!(
+        answer.refusal_reason,
+        Some(RefusalReason::LlmStreamAborted),
+        "cancel records LlmStreamAborted",
+    );
     assert_eq!(env.count_answers(), 1, "answers row still persisted");
 }
 
