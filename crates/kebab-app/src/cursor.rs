@@ -30,6 +30,12 @@ pub fn encode(offset: usize, corpus_revision: &str) -> String {
 /// Decode an opaque cursor against the expected `corpus_revision`.
 /// Mismatch or malformed input returns an `ErrorV1` with
 /// `code = "stale_cursor"`.
+//
+// p9-fb-34: ErrorV1 is the workspace-wide wire error struct (~200B
+// after monomorphization with Value + String fields). Boxing here
+// would force every call site to deref through a Box for no win —
+// the err-path is rare. Single allow at the function level.
+#[allow(clippy::result_large_err)]
 pub fn decode(s: &str, expected_revision: &str) -> Result<usize, ErrorV1> {
     let bytes = URL_SAFE_NO_PAD
         .decode(s.as_bytes())
