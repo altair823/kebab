@@ -168,14 +168,104 @@ fn trim_to_chars(s: &str, n: usize) -> String {
 }
 
 fn fetch_span(
-    _app: &App,
-    _id: DocumentId,
-    _line_start: u32,
-    _line_end: u32,
-    _opts: FetchOpts,
+    app: &App,
+    id: DocumentId,
+    line_start: u32,
+    line_end: u32,
+    opts: FetchOpts,
 ) -> Result<FetchResult> {
-    // Implemented in Task 5.
-    anyhow::bail!("fetch_span not yet implemented")
+    let doc = <kebab_store_sqlite::SqliteStore as DocumentStore>::get_document(&app.sqlite, &id)?
+        .ok_or_else(|| {
+            anyhow::Error::new(StructuredError(ErrorV1 {
+                schema_version: ERROR_V1_ID.to_string(),
+                code: "doc_not_found".to_string(),
+                message: format!("doc_id '{}' not found", id.0),
+                details: serde_json::Value::Null,
+                hint: None,
+            }))
+        })?;
+
+    // Reject line-incompatible media types (PDF / audio). `SourceType`
+    // (markdown / note / paper / reference / inbox) is the *user-facing*
+    // category, not the rendering format — the actual byte-level format
+    // lives on the source `RawAsset.media_type`. Look it up via
+    // workspace_path (unique key per asset).
+    if let Some(asset) = <kebab_store_sqlite::SqliteStore as DocumentStore>::get_asset_by_workspace_path(
+        &app.sqlite,
+        &doc.workspace_path,
+    )? {
+        if matches!(
+            asset.media_type,
+            kebab_core::MediaType::Pdf | kebab_core::MediaType::Audio(_)
+        ) {
+            return Err(anyhow::Error::new(StructuredError(ErrorV1 {
+                schema_version: ERROR_V1_ID.to_string(),
+                code: "span_not_supported".to_string(),
+                message: format!(
+                    "doc '{}' has media_type {:?}; line-based span fetch unsupported. \
+                     Use `fetch chunk` or `fetch doc` instead.",
+                    id.0, asset.media_type
+                ),
+                details: serde_json::Value::Null,
+                hint: Some("kind = chunk or kind = doc instead".to_string()),
+            })));
+        }
+    }
+
+    if line_start == 0 || line_end == 0 || line_end < line_start {
+        return Err(anyhow::Error::new(StructuredError(ErrorV1 {
+            schema_version: ERROR_V1_ID.to_string(),
+            code: "invalid_input".to_string(),
+            message: format!(
+                "line_start ({line_start}) and line_end ({line_end}) must be 1-based with start <= end"
+            ),
+            details: serde_json::Value::Null,
+            hint: None,
+        })));
+    }
+
+    let full = fmt_canonical_to_markdown(&doc);
+    let lines: Vec<&str> = full.lines().collect();
+    let total = lines.len() as u32;
+    let effective_end_raw = line_end.min(total).max(line_start);
+    let lo = (line_start - 1) as usize;
+    let hi = effective_end_raw as usize;
+    let mut text = lines[lo..hi].join("\n");
+
+    let mut truncated = effective_end_raw != line_end;
+    let mut effective_end = effective_end_raw;
+    if let Some(max_tokens) = opts.max_tokens {
+        let max_chars = max_tokens.saturating_mul(4);
+        if text.chars().count() > max_chars {
+            text = trim_to_chars(&text, max_chars);
+            truncated = true;
+            let kept = text.lines().count() as u32;
+            effective_end = (line_start - 1) + kept;
+        }
+    }
+
+    let now = OffsetDateTime::now_utc();
+    let stale = compute_stale(
+        doc_metadata_updated_at(&doc),
+        now,
+        app.config.search.stale_threshold_days,
+    );
+
+    Ok(FetchResult {
+        kind: FetchKind::Span,
+        doc_id: doc.doc_id.clone(),
+        doc_path: doc.workspace_path.clone(),
+        indexed_at: doc_metadata_updated_at(&doc),
+        stale,
+        chunk: None,
+        context_before: Vec::new(),
+        context_after: Vec::new(),
+        text: Some(text),
+        line_start: Some(line_start),
+        line_end: Some(line_end),
+        effective_end: Some(effective_end),
+        truncated,
+    })
 }
 
 /// p9-fb-35: list chunks for a document in ordinal order, return
