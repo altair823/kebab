@@ -55,6 +55,7 @@ use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
 
 mod app;
+pub mod cursor;
 pub mod doctor_signal;
 pub mod error_signal;
 pub mod error_wire;

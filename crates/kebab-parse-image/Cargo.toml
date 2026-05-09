@@ -34,7 +34,7 @@ kamadak-exif = "0.6"
 # rustls-tls) so both crates share the same TLS backend and the
 # transitive tokio runtime is brought in once.
 reqwest      = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-base64       = "0.22"
+base64       = { workspace = true }
 
 [dev-dependencies]
 tempfile     = { workspace = true }
@@ -47,7 +47,7 @@ tokio        = { workspace = true, features = ["rt-multi-thread"] }
 # fixture. Only loaded for tests; the production crate doesn't need
 # font rendering.
 ab_glyph     = "0.2"
-base64       = "0.22"
+base64       = { workspace = true }
 # `kebab-llm/mock` exposes `MockLanguageModel` for hermetic caption
 # tests. Real adapters (Ollama) live in `kebab-llm-local`, which is
 # only allowed at the dev-dep level here — the runtime crate stays
