@@ -1,6 +1,7 @@
-//! MCP (Model Context Protocol) server over stdio. Exposes 6 tools
-//! (`search` / `ask` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`)
-//! backed by `kebab-app` facade methods. Used by `kebab-cli`'s `Cmd::Mcp` arm.
+//! MCP (Model Context Protocol) server over stdio. Exposes 7 tools
+//! (`search` / `ask` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`
+//! / `fetch`) backed by `kebab-app` facade methods. Used by `kebab-cli`'s
+//! `Cmd::Mcp` arm.
 //!
 //! See spec `docs/superpowers/specs/2026-05-07-p9-fb-30-mcp-server-design.md`.
 
@@ -60,6 +61,11 @@ pub fn build_tools_vec() -> Vec<Tool> {
             "ingest_stdin",
             "Ingest markdown content into the knowledge base. v1 markdown only. Frontmatter (title + source_uri) auto-injected.",
             schema_for_type::<tools::ingest_stdin::IngestStdinInput>(),
+        ),
+        Tool::new(
+            "fetch",
+            "Verbatim fetch — chunk / doc / span modes. Returns fetch_result.v1 with the indexed text (no LLM rewrite).",
+            schema_for_type::<tools::fetch::FetchInput>(),
         ),
     ]
 }
@@ -154,6 +160,13 @@ impl ServerHandler for KebabHandler {
                 let args = request.arguments.unwrap_or_default();
                 self.spawn_tool(args, |state, input| {
                     tools::ingest_stdin::handle(&state, input)
+                })
+                .await
+            }
+            "fetch" => {
+                let args = request.arguments.unwrap_or_default();
+                self.spawn_tool(args, |state, input| {
+                    tools::fetch::handle(&state, input)
                 })
                 .await
             }

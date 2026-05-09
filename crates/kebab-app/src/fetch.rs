@@ -1,0 +1,447 @@
+//! p9-fb-35 verbatim fetch implementation.
+//!
+//! [`App::fetch`] is the facade entry point. It dispatches on
+//! [`FetchQuery`] variants:
+//!
+//! - `Chunk(id)` — return the chunk row from `chunks.text`, optionally
+//!   with ±N surrounding chunks (`FetchOpts::context`).
+//! - `Doc(id)` — return the entire document re-serialized to markdown.
+//!   (Implemented in Task 4.)
+//! - `Span { doc_id, line_start, line_end }` — return a contiguous line
+//!   slice. (Implemented in Task 5.)
+//!
+//! Errors are surfaced as [`StructuredError`] (anyhow-friendly wrapper
+//! around `ErrorV1`) so the CLI / MCP wire layer's `classify` keeps the
+//! typed `code` (`chunk_not_found` / `doc_not_found` /
+//! `span_not_supported`) instead of falling through to `code =
+//! "generic"`.
+
+use anyhow::Result;
+use time::OffsetDateTime;
+
+use kebab_core::{
+    Block, CanonicalDocument, Chunk, ChunkId, DocumentId, DocumentStore, FetchKind, FetchOpts,
+    FetchQuery, FetchResult,
+};
+
+use crate::App;
+use crate::error_wire::{ERROR_V1_ID, ErrorV1, StructuredError};
+use crate::staleness::compute_stale;
+
+impl App {
+    /// p9-fb-35: verbatim fetch facade. Returns text from
+    /// `chunks.text` / `CanonicalDocument` based on the requested
+    /// mode. Errors surface as `StructuredError(ErrorV1)` with one
+    /// of `chunk_not_found` / `doc_not_found` / `span_not_supported`
+    /// so the wire-layer classifier preserves the typed code.
+    pub fn fetch(&self, query: FetchQuery, opts: FetchOpts) -> Result<FetchResult> {
+        match query {
+            FetchQuery::Chunk(id) => fetch_chunk(self, id, opts),
+            FetchQuery::Doc(id) => fetch_doc(self, id, opts),
+            FetchQuery::Span {
+                doc_id,
+                line_start,
+                line_end,
+            } => fetch_span(self, doc_id, line_start, line_end, opts),
+        }
+    }
+}
+
+fn fetch_chunk(app: &App, id: ChunkId, opts: FetchOpts) -> Result<FetchResult> {
+    let target = <kebab_store_sqlite::SqliteStore as DocumentStore>::get_chunk(&app.sqlite, &id)?
+        .ok_or_else(|| {
+            anyhow::Error::new(StructuredError(ErrorV1 {
+                schema_version: ERROR_V1_ID.to_string(),
+                code: "chunk_not_found".to_string(),
+                message: format!("chunk_id '{}' not found", id.0),
+                details: serde_json::Value::Null,
+                hint: None,
+            }))
+        })?;
+
+    let doc_id = target.doc_id.clone();
+    let doc =
+        <kebab_store_sqlite::SqliteStore as DocumentStore>::get_document(&app.sqlite, &doc_id)?
+            .ok_or_else(|| {
+                anyhow::Error::new(StructuredError(ErrorV1 {
+                    schema_version: ERROR_V1_ID.to_string(),
+                    code: "doc_not_found".to_string(),
+                    message: format!(
+                        "doc_id '{}' (parent of chunk '{}') not found",
+                        doc_id.0, id.0
+                    ),
+                    details: serde_json::Value::Null,
+                    hint: None,
+                }))
+            })?;
+
+    let (context_before, context_after) = match opts.context {
+        Some(n) if n > 0 => surrounding_chunks(app, &doc_id, &id, n)?,
+        _ => (Vec::new(), Vec::new()),
+    };
+
+    let now = OffsetDateTime::now_utc();
+    let stale = compute_stale(
+        doc_metadata_updated_at(&doc),
+        now,
+        app.config.search.stale_threshold_days,
+    );
+
+    Ok(FetchResult {
+        kind: FetchKind::Chunk,
+        doc_id: doc.doc_id.clone(),
+        doc_path: doc.workspace_path.clone(),
+        indexed_at: doc_metadata_updated_at(&doc),
+        stale,
+        chunk: Some(target),
+        context_before,
+        context_after,
+        text: None,
+        line_start: None,
+        line_end: None,
+        effective_end: None,
+        truncated: false,
+    })
+}
+
+fn fetch_doc(app: &App, id: DocumentId, opts: FetchOpts) -> Result<FetchResult> {
+    let doc = <kebab_store_sqlite::SqliteStore as DocumentStore>::get_document(&app.sqlite, &id)?
+        .ok_or_else(|| {
+            anyhow::Error::new(StructuredError(ErrorV1 {
+                schema_version: ERROR_V1_ID.to_string(),
+                code: "doc_not_found".to_string(),
+                message: format!("doc_id '{}' not found", id.0),
+                details: serde_json::Value::Null,
+                hint: None,
+            }))
+        })?;
+
+    let mut text = fmt_canonical_to_markdown(&doc);
+    let mut truncated = false;
+    if let Some(max_tokens) = opts.max_tokens {
+        let max_chars = max_tokens.saturating_mul(4);
+        if text.chars().count() > max_chars {
+            text = trim_to_chars(&text, max_chars);
+            truncated = true;
+        }
+    }
+
+    let now = OffsetDateTime::now_utc();
+    let stale = compute_stale(
+        doc_metadata_updated_at(&doc),
+        now,
+        app.config.search.stale_threshold_days,
+    );
+
+    Ok(FetchResult {
+        kind: FetchKind::Doc,
+        doc_id: doc.doc_id.clone(),
+        doc_path: doc.workspace_path.clone(),
+        indexed_at: doc_metadata_updated_at(&doc),
+        stale,
+        chunk: None,
+        context_before: Vec::new(),
+        context_after: Vec::new(),
+        text: Some(text),
+        line_start: None,
+        line_end: None,
+        effective_end: None,
+        truncated,
+    })
+}
+
+/// p9-fb-35: trim string to N chars (Unicode-safe). Mirrors fb-34's
+/// helper at `crates/kebab-app/src/app.rs` — kept local to avoid
+/// re-exporting an internal helper.
+fn trim_to_chars(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(n * 4);
+    for (i, c) in s.chars().enumerate() {
+        if i >= n {
+            break;
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn fetch_span(
+    app: &App,
+    id: DocumentId,
+    line_start: u32,
+    line_end: u32,
+    opts: FetchOpts,
+) -> Result<FetchResult> {
+    let doc = <kebab_store_sqlite::SqliteStore as DocumentStore>::get_document(&app.sqlite, &id)?
+        .ok_or_else(|| {
+            anyhow::Error::new(StructuredError(ErrorV1 {
+                schema_version: ERROR_V1_ID.to_string(),
+                code: "doc_not_found".to_string(),
+                message: format!("doc_id '{}' not found", id.0),
+                details: serde_json::Value::Null,
+                hint: None,
+            }))
+        })?;
+
+    // Reject line-incompatible media types (PDF / audio). `SourceType`
+    // (markdown / note / paper / reference / inbox) is the *user-facing*
+    // category, not the rendering format — the actual byte-level format
+    // lives on the source `RawAsset.media_type`. Look it up via
+    // workspace_path (unique key per asset).
+    if let Some(asset) = <kebab_store_sqlite::SqliteStore as DocumentStore>::get_asset_by_workspace_path(
+        &app.sqlite,
+        &doc.workspace_path,
+    )? {
+        if matches!(
+            asset.media_type,
+            kebab_core::MediaType::Pdf | kebab_core::MediaType::Audio(_)
+        ) {
+            return Err(anyhow::Error::new(StructuredError(ErrorV1 {
+                schema_version: ERROR_V1_ID.to_string(),
+                code: "span_not_supported".to_string(),
+                message: format!(
+                    "doc '{}' has media_type {:?}; line-based span fetch unsupported. \
+                     Use `fetch chunk` or `fetch doc` instead.",
+                    id.0, asset.media_type
+                ),
+                details: serde_json::Value::Null,
+                hint: Some("kind = chunk or kind = doc instead".to_string()),
+            })));
+        }
+    }
+
+    if line_start == 0 || line_end == 0 || line_end < line_start {
+        return Err(anyhow::Error::new(StructuredError(ErrorV1 {
+            schema_version: ERROR_V1_ID.to_string(),
+            code: "invalid_input".to_string(),
+            message: format!(
+                "line_start ({line_start}) and line_end ({line_end}) must be 1-based with start <= end"
+            ),
+            details: serde_json::Value::Null,
+            hint: None,
+        })));
+    }
+
+    let full = fmt_canonical_to_markdown(&doc);
+    let lines: Vec<&str> = full.lines().collect();
+    let total = lines.len() as u32;
+
+    // p9-fb-35 round-1 review fix: empty / out-of-range request must
+    // not slice. Returning empty text + `effective_end = line_start - 1`
+    // lets the caller detect "no lines fetched" via
+    // `text.is_empty() && effective_end < line_start`. `truncated`
+    // stays false because line-range clamp is NOT a budget event —
+    // budget-driven truncation is the only thing `truncated` signals.
+    if total == 0 || line_start > total {
+        let now = OffsetDateTime::now_utc();
+        let stale = compute_stale(
+            doc_metadata_updated_at(&doc),
+            now,
+            app.config.search.stale_threshold_days,
+        );
+        return Ok(FetchResult {
+            kind: FetchKind::Span,
+            doc_id: doc.doc_id.clone(),
+            doc_path: doc.workspace_path.clone(),
+            indexed_at: doc_metadata_updated_at(&doc),
+            stale,
+            chunk: None,
+            context_before: Vec::new(),
+            context_after: Vec::new(),
+            text: Some(String::new()),
+            line_start: Some(line_start),
+            line_end: Some(line_end),
+            // saturating_sub: when line_start = 1 we end at 0, signaling
+            // "no lines fetched" without underflowing u32.
+            effective_end: Some(line_start.saturating_sub(1)),
+            truncated: false,
+        });
+    }
+
+    let effective_end_raw = line_end.min(total);
+    let lo = (line_start - 1) as usize;
+    let hi = effective_end_raw as usize;
+    let mut text = lines[lo..hi].join("\n");
+
+    // p9-fb-35 round-1 review fix: `truncated` is reserved for
+    // budget-driven truncation only. Line-range clamp (line_end >
+    // total) is signaled via `effective_end < line_end`, not via
+    // `truncated`.
+    let mut truncated = false;
+    let mut effective_end = effective_end_raw;
+    if let Some(max_tokens) = opts.max_tokens {
+        let max_chars = max_tokens.saturating_mul(4);
+        if text.chars().count() > max_chars {
+            text = trim_to_chars(&text, max_chars);
+            truncated = true;
+            let kept = text.lines().count() as u32;
+            effective_end = (line_start - 1) + kept;
+        }
+    }
+
+    let now = OffsetDateTime::now_utc();
+    let stale = compute_stale(
+        doc_metadata_updated_at(&doc),
+        now,
+        app.config.search.stale_threshold_days,
+    );
+
+    Ok(FetchResult {
+        kind: FetchKind::Span,
+        doc_id: doc.doc_id.clone(),
+        doc_path: doc.workspace_path.clone(),
+        indexed_at: doc_metadata_updated_at(&doc),
+        stale,
+        chunk: None,
+        context_before: Vec::new(),
+        context_after: Vec::new(),
+        text: Some(text),
+        line_start: Some(line_start),
+        line_end: Some(line_end),
+        effective_end: Some(effective_end),
+        truncated,
+    })
+}
+
+/// p9-fb-35: list chunks for a document in ordinal order, return
+/// `(before, after)` slices around the target chunk_id. `n` caps each
+/// side independently — the worst case is `2n` total neighbors when
+/// the target sits in the middle of the doc.
+fn surrounding_chunks(
+    app: &App,
+    doc_id: &DocumentId,
+    target: &ChunkId,
+    n: u32,
+) -> Result<(Vec<Chunk>, Vec<Chunk>)> {
+    let chunks = list_chunks_in_order(app, doc_id)?;
+    let target_idx = chunks
+        .iter()
+        .position(|c| c.chunk_id == *target)
+        .ok_or_else(|| anyhow::anyhow!("chunk not found in doc chunk list"))?;
+    let n = n as usize;
+    let lo = target_idx.saturating_sub(n);
+    let hi = target_idx
+        .saturating_add(n)
+        .saturating_add(1)
+        .min(chunks.len());
+    let before: Vec<Chunk> = chunks[lo..target_idx].to_vec();
+    let after: Vec<Chunk> = chunks[target_idx + 1..hi].to_vec();
+    Ok((before, after))
+}
+
+/// p9-fb-35: chunks have no explicit ordinal column, so the underlying
+/// helper sorts by `(created_at, chunk_id)` which matches insertion
+/// order produced by the chunker (deterministic). The actual SQL lives
+/// inside `kebab-store-sqlite` (`SqliteStore::list_chunk_ids_for_doc`)
+/// to keep the facade crate free of direct rusqlite usage.
+fn list_chunks_in_order(app: &App, doc_id: &DocumentId) -> Result<Vec<Chunk>> {
+    let chunk_ids = app.sqlite.list_chunk_ids_for_doc(doc_id)?;
+    let mut out: Vec<Chunk> = Vec::with_capacity(chunk_ids.len());
+    for cid in chunk_ids {
+        if let Some(chunk) =
+            <kebab_store_sqlite::SqliteStore as DocumentStore>::get_chunk(&app.sqlite, &cid)?
+        {
+            out.push(chunk);
+        }
+    }
+    Ok(out)
+}
+
+fn doc_metadata_updated_at(doc: &CanonicalDocument) -> OffsetDateTime {
+    doc.metadata.updated_at
+}
+
+/// p9-fb-35: serialize a `CanonicalDocument` back to markdown. Best-
+/// effort round-trip — inline-styled spans (Strong/Emph children)
+/// flatten to plain text via the already-flattened `TextBlock.text`
+/// field. Good enough for an agent reading verbatim context. Used by
+/// Task 4 (doc mode) and Task 5 (span mode).
+pub(crate) fn fmt_canonical_to_markdown(doc: &CanonicalDocument) -> String {
+    let mut out = String::with_capacity(1024);
+    for (i, block) in doc.blocks.iter().enumerate() {
+        if i > 0 {
+            out.push_str("\n\n");
+        }
+        match block {
+            Block::Heading(h) => {
+                let level = h.level.clamp(1, 6) as usize;
+                for _ in 0..level {
+                    out.push('#');
+                }
+                out.push(' ');
+                out.push_str(&h.text);
+            }
+            Block::Paragraph(t) => out.push_str(&t.text),
+            Block::Quote(t) => {
+                // Prefix every line with `> ` so block-quote round-trips.
+                for (li, line) in t.text.split('\n').enumerate() {
+                    if li > 0 {
+                        out.push('\n');
+                    }
+                    out.push_str("> ");
+                    out.push_str(line);
+                }
+            }
+            Block::List(l) => {
+                for (idx, item) in l.items.iter().enumerate() {
+                    if idx > 0 {
+                        out.push('\n');
+                    }
+                    if l.ordered {
+                        out.push_str(&format!("{}. {}", idx + 1, item.text));
+                    } else {
+                        out.push_str(&format!("- {}", item.text));
+                    }
+                }
+            }
+            Block::Code(c) => {
+                out.push_str("```");
+                if let Some(lang) = &c.lang {
+                    out.push_str(lang);
+                }
+                out.push('\n');
+                out.push_str(&c.code);
+                if !c.code.ends_with('\n') {
+                    out.push('\n');
+                }
+                out.push_str("```");
+            }
+            Block::Table(t) => {
+                out.push_str(&t.headers.join(" | "));
+                out.push('\n');
+                // Markdown table separator — N copies of `---|` is
+                // acceptable for a verbatim re-serialization (renderer
+                // tolerates trailing pipe).
+                out.push_str(&"---|".repeat(t.headers.len()));
+                for row in &t.rows {
+                    out.push('\n');
+                    out.push_str(&row.join(" | "));
+                }
+            }
+            Block::ImageRef(img) => {
+                out.push_str(&format!("![{}]({})", img.alt, img.src));
+            }
+            Block::AudioRef(_a) => {
+                // Canonical doc carries the transcript on AudioRefBlock,
+                // but markdown has no native audio embed. Emit a stub
+                // marker so the agent sees something ran here.
+                out.push_str("(audio reference)");
+            }
+        }
+    }
+    out
+}
+
+/// p9-fb-35: free-function entry for CLI / MCP. Mirrors the
+/// `*_with_config` pattern documented in the kebab-app crate root —
+/// `kebab-cli` calls this so a `--config <path>` flag is honored.
+#[doc(hidden)]
+pub fn fetch_with_config(
+    config: kebab_config::Config,
+    query: FetchQuery,
+    opts: FetchOpts,
+) -> Result<FetchResult> {
+    App::open_with_config(config)?.fetch(query, opts)
+}

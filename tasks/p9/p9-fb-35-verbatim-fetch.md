@@ -3,8 +3,8 @@ phase: P9
 component: kebab-cli + kebab-app + wire-schema
 task_id: p9-fb-35
 title: "Verbatim fetch (`kebab fetch <chunk_id|doc_id>`) — citation deep-link"
-status: open
-target_version: 0.4.0
+status: completed
+target_version: 0.5.0
 depends_on: []
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
@@ -14,7 +14,10 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — agent 가 search hit / ci
 
 # p9-fb-35 — Verbatim fetch
 
-> ⏳ **백로그 only — 미구현.** 본 spec 은 도그푸딩 피드백 skeleton. 구현 착수 전 [superpowers:brainstorming](../../docs/superpowers/) 으로 설계 단계 선행 필요. fetch unit (chunk vs doc vs span) / 주변 context (앞뒤 chunk N 개) / 옵션 정책 brainstorm 후 확정.
+> ✅ **구현 완료.** 본 spec 은 구현 시점의 frozen 상태. post-merge deviation 은 [HOTFIXES.md](../HOTFIXES.md) 참조.
+
+상세 설계: `docs/superpowers/specs/2026-05-09-p9-fb-35-verbatim-fetch-design.md`.
+구현 계획: `docs/superpowers/plans/2026-05-09-p9-fb-35-verbatim-fetch.md`.
 
 ## 증상 / 동기
 
@@ -34,7 +37,7 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — agent 가 search hit / ci
 - chunk_id / doc_id 노출 — 현재 search_hit.v1 에 있는지 확인 + 안정성.
 - context window — N 개 chunk vs N tokens.
 - doc 전체 fetch 의 size 제한 (fb-34 budget 과 통합).
-- pdf / image 의 fetch — 텍스트 추출본 vs 원본 path.
+- pdf / audio 의 fetch — 텍스트 추출본 vs 원본 path. (image OCR 는 markdown line 으로 떨어져 span 허용.)
 
 ## Risks / notes
 

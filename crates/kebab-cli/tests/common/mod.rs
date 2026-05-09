@@ -196,6 +196,30 @@ pub fn run_ask_json(cfg: &Path, query: &str) -> String {
     String::from_utf8_lossy(&out.stdout).to_string()
 }
 
+/// p9-fb-35: invoke `kebab fetch` with arbitrary trailing flags,
+/// capture stdout + stderr. Caller is responsible for supplying
+/// `--json` (global flag) before the subcommand position via the
+/// `args` slice (e.g. `&["--json", "chunk", &id]`). Asserts the
+/// binary exited 0; non-zero exits fail the test with stderr
+/// included — for negative-path tests (unknown chunk_id etc.) drive
+/// the binary directly via `std::process::Command`.
+pub fn run_fetch_with_args(cfg: &Path, args: &[&str]) -> (String, String) {
+    let bin = env!("CARGO_BIN_EXE_kebab");
+    let mut cmd = Command::new(bin);
+    cmd.arg("--config").arg(cfg).arg("fetch");
+    cmd.args(args);
+    let out = cmd.output().expect("kebab fetch");
+    assert!(
+        out.status.success(),
+        "fetch failed: args={args:?} stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    (
+        String::from_utf8_lossy(&out.stdout).to_string(),
+        String::from_utf8_lossy(&out.stderr).to_string(),
+    )
+}
+
 /// Rewrite `documents.updated_at` for one workspace path to
 /// `now - days_ago` (RFC3339 UTC). Mirrors
 /// `kebab-app/tests/common/mod.rs::backdate_document_updated_at`.

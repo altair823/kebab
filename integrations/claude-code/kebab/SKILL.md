@@ -28,12 +28,13 @@ User-specific trigger keywords (team names, system names, internal acronyms) bel
 
 ## MCP tools (preferred)
 
-When `kebab` is registered as an MCP server (see `~/.claude/mcp.json` example below), six tools are exposed as `mcp__kebab__<name>`:
+When `kebab` is registered as an MCP server (see `~/.claude/mcp.json` example below), seven tools are exposed as `mcp__kebab__<name>`:
 
 | tool | purpose | mutation |
 |------|---------|----------|
 | `mcp__kebab__search` | corpus search → `search_response.v1` (`{hits, next_cursor, truncated}`) | no |
 | `mcp__kebab__ask` | RAG answer → `answer.v1` | no |
+| `mcp__kebab__fetch` | verbatim text → `fetch_result.v1` (chunk / doc / span) | no |
 | `mcp__kebab__schema` | capability discovery → `schema.v1` | no |
 | `mcp__kebab__doctor` | health check → `doctor.v1` | no |
 | `mcp__kebab__ingest_file` | save single file → `ingest_report.v1` | yes |
@@ -68,6 +69,22 @@ Input:
 - Returns `answer.v1`: `answer` (markdown), `citations[]`, `grounded` (bool), `refusal_reason`, `model`, `conversation_id`, `turn_index`.
 - **If `grounded == false`** → KB doesn't have enough context. Don't paraphrase the refusal as if it were an answer. Tell the user the KB came up dry and fall back to your own knowledge or ask for the source.
 - For follow-up turns on the same topic, pass `session_id` (e.g. `"team-onboarding-2026-05"`) and reuse it across the conversation. Sessions persist until `kebab reset --data-only`.
+
+### `mcp__kebab__fetch` — when you need raw text
+
+Use after `search` to read the verbatim chunk text + surrounding context, or to pull a full doc / line range.
+
+Input:
+```json
+{ "kind": "chunk", "chunk_id": "<id>", "context": 2 }
+{ "kind": "doc", "doc_id": "<id>", "max_tokens": 1000 }
+{ "kind": "span", "doc_id": "<id>", "line_start": 1, "line_end": 5 }
+```
+
+- `chunk` mode: `context: N` returns ordinal-adjacent chunks before/after for surrounding paragraphs.
+- `doc` mode: full normalized markdown. `max_tokens` (chars/4) caps the response — `truncated: true` when applied.
+- `span` mode: 1-based inclusive line range. PDF / audio docs reject as `error.v1.code = span_not_supported` (use `chunk` mode instead — PDF chunks are page-aligned).
+- `error.v1.code = chunk_not_found` / `doc_not_found` are non-retryable from the same id — re-issue search to get a fresh one.
 
 ## CLI fallback
 

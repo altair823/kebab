@@ -171,6 +171,25 @@ kebab search "rust" --json --max-tokens 200 | jq '.truncated, (.hits | length)'
 
 `--json` 출력은 `search_response.v1` wrapper (`{hits, next_cursor, truncated}`) — pre-fb-34 의 bare `search_hit.v1[]` 배열과 호환 안 됨.
 
+### Verbatim fetch (fb-35)
+
+```bash
+# Search to get a chunk_id.
+CHUNK_ID=$(kebab search "rust ownership" --json --k 1 | jq -r '.hits[0].chunk_id')
+
+# Fetch verbatim with surrounding context.
+kebab fetch chunk "$CHUNK_ID" --context 2 --json | jq .
+
+# Fetch the full doc as markdown.
+DOC_ID=$(kebab search "rust ownership" --json --k 1 | jq -r '.hits[0].doc_id')
+kebab fetch doc "$DOC_ID" --max-tokens 1000 --json | jq '{kind, truncated, len: (.text | length)}'
+
+# Fetch a line range (markdown / text only).
+kebab fetch span "$DOC_ID" 1 5 --json | jq '{line_start, line_end, effective_end, text}'
+```
+
+PDF / audio docs reject `fetch span` with `error.v1.code = span_not_supported` — use `fetch chunk` (PDF chunks are page-aligned) or `fetch doc` instead.
+
 ## P6-4 이미지 ingestion 옵션
 
 `config.toml` 에 다음 절을 추가하면 `kebab ingest` 가 `**/*.png` / `**/*.jpg` 등 이미지 자산도 함께 색인합니다 (텍스트만 색인하려면 생략):

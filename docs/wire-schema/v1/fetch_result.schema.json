@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/fetch_result.schema.json",
+  "title": "FetchResult v1",
+  "description": "Verbatim text fetch from the indexed corpus. Discriminated by `kind`. All text is normalized markdown sourced from `CanonicalDocument` / `chunks.text` — original raw bytes are not exposed. PDF / audio span fetch returns `error.v1.code = span_not_supported`.",
+  "type": "object",
+  "required": ["schema_version", "kind", "doc_id", "doc_path", "indexed_at", "stale", "truncated"],
+  "properties": {
+    "schema_version": { "const": "fetch_result.v1" },
+    "kind":           { "enum": ["chunk", "doc", "span"] },
+    "doc_id":         { "type": "string" },
+    "doc_path":       { "type": "string" },
+    "indexed_at":     { "type": "string", "format": "date-time", "description": "fb-32 documents.updated_at" },
+    "stale":          { "type": "boolean", "description": "fb-32 staleness flag against config.search.stale_threshold_days" },
+    "chunk":          { "type": "object", "description": "kind=chunk: target chunk_inspection.v1 payload" },
+    "context_before": { "type": "array", "description": "kind=chunk: --context N preceding chunks (ordinal-sorted)" },
+    "context_after":  { "type": "array", "description": "kind=chunk: --context N following chunks (ordinal-sorted)" },
+    "text":           { "type": "string", "description": "kind=doc/span: markdown text (truncated if budget tripped)" },
+    "line_start":     { "type": ["integer", "null"], "minimum": 1, "description": "kind=span: requested start line (1-based)" },
+    "line_end":       { "type": ["integer", "null"], "minimum": 1, "description": "kind=span: requested end line (1-based, inclusive)" },
+    "effective_end":  { "type": ["integer", "null"], "minimum": 0, "description": "kind=span: actual end line of emitted text (1-based, inclusive). Equals `line_end` on full slice; less than `line_end` when (a) requested range exceeded total lines (line clamp) or (b) `--max-tokens` budget trimmed the tail. Special case: `line_start - 1` (which is 0 when line_start=1) signals the entire requested range was beyond doc end — returned `text` is empty." },
+    "truncated":      { "type": "boolean", "description": "kind=doc/span: budget forced text truncation. Always false for chunk." }
+  }
+}

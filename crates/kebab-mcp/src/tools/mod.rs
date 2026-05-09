@@ -6,3 +6,4 @@ pub mod search;
 pub mod ask;
 pub mod ingest_file;
 pub mod ingest_stdin;
+pub mod fetch;

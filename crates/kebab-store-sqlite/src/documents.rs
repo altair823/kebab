@@ -375,6 +375,48 @@ impl kebab_core::DocumentStore for SqliteStore {
     }
 }
 
+impl SqliteStore {
+    /// p9-fb-35: list `chunk_id`s for a document, returning a stable
+    /// `(created_at, chunk_id)` order. Used by
+    /// `App::fetch chunk --context N` to find ordinal-adjacent chunks.
+    ///
+    /// ⚠ Round-1 review caveat: `chunk_id` is a blake3 hash of
+    /// `(doc_id, chunker_version, …)` — hex-lexicographic sort does NOT
+    /// correspond to document position. Within one ingest transaction
+    /// all chunks share `created_at` to the millisecond, so the
+    /// secondary `chunk_id` sort dominates and the "neighbors"
+    /// returned here may not be document-adjacent.
+    ///
+    /// Real fix is a `chunks.ordinal` column (V007 migration) or sort
+    /// by `chunks.source_spans_json[0]` start offset. Tracked as
+    /// follow-up. Until then `--context` neighbors are best-effort —
+    /// they may or may not align with document position depending on
+    /// whether `chunk_id` hash order happens to match insertion order
+    /// for that particular doc. Large markdown / PDF (page-aligned
+    /// chunks) likely re-orders. See `tasks/HOTFIXES.md` if escalated.
+    pub fn list_chunk_ids_for_doc(
+        &self,
+        doc_id: &kebab_core::DocumentId,
+    ) -> Result<Vec<kebab_core::ChunkId>> {
+        let conn = self.read_conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT chunk_id FROM chunks
+                 WHERE doc_id = ?
+                 ORDER BY created_at ASC, chunk_id ASC",
+            )
+            .map_err(StoreError::from)?;
+        let rows = stmt
+            .query_map(params![doc_id.0], |r| r.get::<_, String>(0))
+            .map_err(StoreError::from)?;
+        let ids: Vec<kebab_core::ChunkId> = rows
+            .map(|r| r.map(kebab_core::ChunkId))
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(StoreError::from)?;
+        Ok(ids)
+    }
+}
+
 // ── Internal row + (de)serialization helpers ─────────────────────────────
 
 struct DocumentRow {

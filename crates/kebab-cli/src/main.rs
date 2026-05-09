@@ -86,6 +86,12 @@ enum Cmd {
         what: InspectWhat,
     },
 
+    /// p9-fb-35: verbatim chunk / doc / span fetch.
+    Fetch {
+        #[command(subcommand)]
+        what: FetchWhat,
+    },
+
     /// Lexical / vector / hybrid search over chunks.
     Search {
         query: String,
@@ -259,6 +265,33 @@ enum InspectWhat {
     Doc { id: String },
     /// Inspect a single chunk by ID.
     Chunk { id: String },
+}
+
+#[derive(Subcommand, Debug)]
+enum FetchWhat {
+    /// Fetch a single chunk verbatim, optionally with surrounding context.
+    Chunk {
+        id: String,
+        /// p9-fb-35: include ±N chunks before and after the target.
+        #[arg(long)]
+        context: Option<u32>,
+    },
+    /// Fetch the entire normalized markdown text of a document.
+    Doc {
+        id: String,
+        /// p9-fb-35: chars/4 budget cap.
+        #[arg(long)]
+        max_tokens: Option<usize>,
+    },
+    /// Fetch a 1-based line range of a document. PDF / audio rejected.
+    Span {
+        doc_id: String,
+        line_start: u32,
+        line_end: u32,
+        /// p9-fb-35: chars/4 budget cap.
+        #[arg(long)]
+        max_tokens: Option<usize>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -525,6 +558,49 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 Ok(())
             }
         },
+
+        Cmd::Fetch { what } => {
+            let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+            let (query, opts) = match what {
+                FetchWhat::Chunk { id, context } => (
+                    kebab_core::FetchQuery::Chunk(kebab_core::ChunkId(id.clone())),
+                    kebab_core::FetchOpts {
+                        context: *context,
+                        max_tokens: None,
+                    },
+                ),
+                FetchWhat::Doc { id, max_tokens } => (
+                    kebab_core::FetchQuery::Doc(kebab_core::DocumentId(id.clone())),
+                    kebab_core::FetchOpts {
+                        context: None,
+                        max_tokens: *max_tokens,
+                    },
+                ),
+                FetchWhat::Span {
+                    doc_id,
+                    line_start,
+                    line_end,
+                    max_tokens,
+                } => (
+                    kebab_core::FetchQuery::Span {
+                        doc_id: kebab_core::DocumentId(doc_id.clone()),
+                        line_start: *line_start,
+                        line_end: *line_end,
+                    },
+                    kebab_core::FetchOpts {
+                        context: None,
+                        max_tokens: *max_tokens,
+                    },
+                ),
+            };
+            let result = kebab_app::fetch_with_config(cfg, query, opts)?;
+            if cli.json {
+                println!("{}", serde_json::to_string(&wire::wire_fetch_result(&result))?);
+            } else {
+                render_fetch_plain(&result);
+            }
+            Ok(())
+        }
 
         Cmd::Search {
             query,
@@ -1110,6 +1186,53 @@ fn confirm_destructive(
     std::io::stdin().read_line(&mut line)?;
     let s = line.trim().to_ascii_lowercase();
     Ok(matches!(s.as_str(), "y" | "yes"))
+}
+
+/// p9-fb-35: human-friendly plain output for `kebab fetch`.
+fn render_fetch_plain(r: &kebab_core::FetchResult) {
+    println!("# {} ({})", r.doc_path.0, format_kind(r.kind));
+    if r.stale {
+        println!("[stale; indexed_at = {}]", r.indexed_at);
+    }
+    match r.kind {
+        kebab_core::FetchKind::Chunk => {
+            if !r.context_before.is_empty() {
+                println!("\n=== before ===");
+                for c in &r.context_before {
+                    let heading = c.heading_path.last().map(|s| s.as_str()).unwrap_or("");
+                    println!("[{} § {}]\n{}\n", c.chunk_id.0, heading, c.text);
+                }
+            }
+            if let Some(c) = &r.chunk {
+                println!("\n=== target ===");
+                let heading = c.heading_path.last().map(|s| s.as_str()).unwrap_or("");
+                println!("[{} § {}]\n{}\n", c.chunk_id.0, heading, c.text);
+            }
+            if !r.context_after.is_empty() {
+                println!("\n=== after ===");
+                for c in &r.context_after {
+                    let heading = c.heading_path.last().map(|s| s.as_str()).unwrap_or("");
+                    println!("[{} § {}]\n{}\n", c.chunk_id.0, heading, c.text);
+                }
+            }
+        }
+        kebab_core::FetchKind::Doc | kebab_core::FetchKind::Span => {
+            if let Some(text) = &r.text {
+                println!("\n{text}");
+            }
+            if r.truncated {
+                eprintln!("[truncated; widen --max-tokens for fuller text]");
+            }
+        }
+    }
+}
+
+fn format_kind(k: kebab_core::FetchKind) -> &'static str {
+    match k {
+        kebab_core::FetchKind::Chunk => "chunk",
+        kebab_core::FetchKind::Doc => "doc",
+        kebab_core::FetchKind::Span => "span",
+    }
 }
 
 #[cfg(test)]
