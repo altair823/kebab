@@ -15,7 +15,7 @@ use common::{
     HybridEnv, id32, require_avx_or_panic, TEST_LEX_INDEX_VERSION, TEST_VEC_INDEX_VERSION,
 };
 use kebab_core::{
-    Retriever, SearchFilters, SearchHit, SearchMode, SearchQuery,
+    MediaType, Retriever, SearchFilters, SearchHit, SearchMode, SearchQuery,
 };
 use kebab_search::{FusionPolicy, HybridRetriever};
 use rusqlite::params;
@@ -211,6 +211,57 @@ fn hybrid_snapshot_run_1() {
             w[1].retrieval.fusion_score
         );
     }
+}
+
+/// p9-fb-36: vector post-filter must pass `media` through `filter_chunks`.
+/// Seeding two docs (markdown + pdf) and filtering for pdf-only must
+/// return only the pdf chunk, proving `LanceVectorStore::search` →
+/// `SqliteStore::filter_chunks` correctly applies the media arm.
+#[test]
+#[ignore = "requires AVX-capable hardware (LanceDB)"]
+fn vector_filter_by_media() {
+    require_avx_or_panic();
+    let env = HybridEnv::new();
+    env.insert_doc_with_media("md1.md", "rust ownership", MediaType::Markdown);
+    env.insert_doc_with_media("doc.pdf", "rust pdf body", MediaType::Pdf);
+
+    let filters = SearchFilters {
+        media: vec!["pdf".to_string()],
+        ..Default::default()
+    };
+    let hits = env.run_vector_search("rust", &filters);
+    assert_eq!(hits.len(), 1, "media filter must keep only pdf chunk");
+    assert!(
+        hits[0].doc_path.0.ends_with(".pdf"),
+        "expected .pdf path, got: {}",
+        hits[0].doc_path.0
+    );
+}
+
+/// p9-fb-36: vector post-filter must pass `doc_id` through `filter_chunks`.
+/// Seeding two docs with shared text, filtering by one doc_id must return
+/// only chunks from that doc.
+#[test]
+#[ignore = "requires AVX-capable hardware (LanceDB)"]
+fn vector_filter_by_doc_id() {
+    require_avx_or_panic();
+    let env = HybridEnv::new();
+    let target = env.insert_doc("a.md", "shared knowledge");
+    env.insert_doc("b.md", "shared knowledge");
+
+    let filters = SearchFilters {
+        doc_id: Some(target.clone()),
+        ..Default::default()
+    };
+    let hits = env.run_vector_search("shared", &filters);
+    assert!(
+        !hits.is_empty(),
+        "doc_id filter must return hits for the target doc"
+    );
+    assert!(
+        hits.iter().all(|h| h.doc_id == target),
+        "all hits must belong to the target doc_id"
+    );
 }
 
 #[test]
