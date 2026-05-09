@@ -104,9 +104,67 @@ fn fetch_chunk(app: &App, id: ChunkId, opts: FetchOpts) -> Result<FetchResult> {
     })
 }
 
-fn fetch_doc(_app: &App, _id: DocumentId, _opts: FetchOpts) -> Result<FetchResult> {
-    // Implemented in Task 4.
-    anyhow::bail!("fetch_doc not yet implemented")
+fn fetch_doc(app: &App, id: DocumentId, opts: FetchOpts) -> Result<FetchResult> {
+    let doc = <kebab_store_sqlite::SqliteStore as DocumentStore>::get_document(&app.sqlite, &id)?
+        .ok_or_else(|| {
+            anyhow::Error::new(StructuredError(ErrorV1 {
+                schema_version: ERROR_V1_ID.to_string(),
+                code: "doc_not_found".to_string(),
+                message: format!("doc_id '{}' not found", id.0),
+                details: serde_json::Value::Null,
+                hint: None,
+            }))
+        })?;
+
+    let mut text = fmt_canonical_to_markdown(&doc);
+    let mut truncated = false;
+    if let Some(max_tokens) = opts.max_tokens {
+        let max_chars = max_tokens.saturating_mul(4);
+        if text.chars().count() > max_chars {
+            text = trim_to_chars(&text, max_chars);
+            truncated = true;
+        }
+    }
+
+    let now = OffsetDateTime::now_utc();
+    let stale = compute_stale(
+        doc_metadata_updated_at(&doc),
+        now,
+        app.config.search.stale_threshold_days,
+    );
+
+    Ok(FetchResult {
+        kind: FetchKind::Doc,
+        doc_id: doc.doc_id.clone(),
+        doc_path: doc.workspace_path.clone(),
+        indexed_at: doc_metadata_updated_at(&doc),
+        stale,
+        chunk: None,
+        context_before: Vec::new(),
+        context_after: Vec::new(),
+        text: Some(text),
+        line_start: None,
+        line_end: None,
+        effective_end: None,
+        truncated,
+    })
+}
+
+/// p9-fb-35: trim string to N chars (Unicode-safe). Mirrors fb-34's
+/// helper at `crates/kebab-app/src/app.rs` — kept local to avoid
+/// re-exporting an internal helper.
+fn trim_to_chars(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(n * 4);
+    for (i, c) in s.chars().enumerate() {
+        if i >= n {
+            break;
+        }
+        out.push(c);
+    }
+    out
 }
 
 fn fetch_span(
@@ -170,11 +228,6 @@ fn doc_metadata_updated_at(doc: &CanonicalDocument) -> OffsetDateTime {
 /// flatten to plain text via the already-flattened `TextBlock.text`
 /// field. Good enough for an agent reading verbatim context. Used by
 /// Task 4 (doc mode) and Task 5 (span mode).
-//
-// The first caller lands in Task 4 (`fetch_doc`); silence the
-// stop-gap dead-code warning until then so this Task 3 commit lands
-// with a clean clippy run.
-#[allow(dead_code)]
 pub(crate) fn fmt_canonical_to_markdown(doc: &CanonicalDocument) -> String {
     let mut out = String::with_capacity(1024);
     for (i, block) in doc.blocks.iter().enumerate() {

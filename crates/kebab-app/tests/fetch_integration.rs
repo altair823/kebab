@@ -83,3 +83,73 @@ fn fetch_chunk_unknown_id_returns_chunk_not_found() {
         "expected chunk_not_found error, got: {msg}"
     );
 }
+
+#[test]
+fn fetch_doc_returns_serialized_markdown() {
+    let env = common::TestEnv::new();
+    let body = "# Heading One\n\nFirst paragraph.\n\n## Sub\n\nSecond.\n";
+    common::ingest_md(&env, "doc.md", body);
+    let app = env.app();
+
+    // Discover doc_id via search hit (avoids depending on list_docs API shape).
+    let q = kebab_core::SearchQuery {
+        text: "First".to_string(),
+        mode: kebab_core::SearchMode::Lexical,
+        k: 1,
+        filters: kebab_core::SearchFilters::default(),
+    };
+    let hits = app.search(q).unwrap();
+    let doc_id = hits[0].doc_id.clone();
+
+    let result = app
+        .fetch(FetchQuery::Doc(doc_id), FetchOpts::default())
+        .unwrap();
+    assert_eq!(result.kind, FetchKind::Doc);
+    let text = result.text.expect("doc text");
+    assert!(text.contains("Heading One"), "doc text contains heading: {text:?}");
+    assert!(text.contains("First paragraph"), "doc text contains body");
+    assert!(!result.truncated);
+}
+
+#[test]
+fn fetch_doc_unknown_id_returns_doc_not_found() {
+    let env = common::TestEnv::new();
+    let app = env.app();
+    let err = app
+        .fetch(
+            FetchQuery::Doc(kebab_core::DocumentId("nonexistent-doc".to_string())),
+            FetchOpts::default(),
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("doc_not_found"), "got: {err}");
+}
+
+#[test]
+fn fetch_doc_with_max_tokens_truncates() {
+    let env = common::TestEnv::new();
+    let p = "Lorem ipsum dolor sit amet consectetur adipiscing elit. ".repeat(20);
+    let body = format!("# Big\n\n{p}\n");
+    common::ingest_md(&env, "big.md", &body);
+    let app = env.app();
+    let q = kebab_core::SearchQuery {
+        text: "Lorem".to_string(),
+        mode: kebab_core::SearchMode::Lexical,
+        k: 1,
+        filters: kebab_core::SearchFilters::default(),
+    };
+    let hits = app.search(q).unwrap();
+    let doc_id = hits[0].doc_id.clone();
+
+    let result = app
+        .fetch(
+            FetchQuery::Doc(doc_id),
+            FetchOpts {
+                context: None,
+                max_tokens: Some(20), // ~80 chars
+            },
+        )
+        .unwrap();
+    assert!(result.truncated);
+    let text = result.text.expect("doc text");
+    assert!(text.chars().count() <= 100, "trimmed text len {}", text.chars().count());
+}
