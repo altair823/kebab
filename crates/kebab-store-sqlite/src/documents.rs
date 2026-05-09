@@ -375,6 +375,42 @@ impl kebab_core::DocumentStore for SqliteStore {
     }
 }
 
+impl SqliteStore {
+    /// p9-fb-35: list `chunk_id`s for a document in deterministic
+    /// chunker-emit order. `put_chunks` writes one transaction with a
+    /// single `created_at` snapshot, so the secondary `chunk_id` sort
+    /// is what actually orders neighbors within a single re-ingest;
+    /// the primary `created_at` sort distinguishes successive
+    /// re-ingests if they ever co-exist in the table (they shouldn't —
+    /// `put_chunks` deletes the old rows first — but the ordering is
+    /// still well-defined under that scenario).
+    ///
+    /// Used by `kebab-app::fetch::surrounding_chunks` to derive ±N
+    /// neighbors around a target chunk without leaking SQL into the
+    /// facade crate.
+    pub fn list_chunk_ids_for_doc(
+        &self,
+        doc_id: &kebab_core::DocumentId,
+    ) -> Result<Vec<kebab_core::ChunkId>> {
+        let conn = self.read_conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT chunk_id FROM chunks
+                 WHERE doc_id = ?
+                 ORDER BY created_at ASC, chunk_id ASC",
+            )
+            .map_err(StoreError::from)?;
+        let rows = stmt
+            .query_map(params![doc_id.0], |r| r.get::<_, String>(0))
+            .map_err(StoreError::from)?;
+        let ids: Vec<kebab_core::ChunkId> = rows
+            .map(|r| r.map(kebab_core::ChunkId))
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(StoreError::from)?;
+        Ok(ids)
+    }
+}
+
 // ── Internal row + (de)serialization helpers ─────────────────────────────
 
 struct DocumentRow {
