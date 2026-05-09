@@ -142,6 +142,16 @@ A 30-day default flags docs that haven't been touched in a month — the
 intent is to nudge a reingest before relying on the snapshot. Set to `0`
 to disable.
 
+### Streaming ask (fb-33)
+
+```bash
+kebab ask "what is rust ownership" --stream 2> events.ndjson > final.json
+```
+
+stderr 의 events.ndjson 은 한 줄 = 한 event 의 ndjson — `retrieval_done` 한 번, `token` 여러 번, `final` 한 번 (refusal 경로는 `final` 생략). final.json 은 기존 `answer.v1` 그대로 (backwards-compat).
+
+agent 가 stderr 를 닫으면 (`head -c 1` 등) pipeline 이 LLM stream 을 즉시 중단하고 `RefusalReason::LlmStreamAborted` 로 partial answer 를 `answers` 테이블에 기록.
+
 ## P6-4 이미지 ingestion 옵션
 
 `config.toml` 에 다음 절을 추가하면 `kebab ingest` 가 `**/*.png` / `**/*.jpg` 등 이미지 자산도 함께 색인합니다 (텍스트만 색인하려면 생략):

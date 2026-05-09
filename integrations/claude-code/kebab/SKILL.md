@@ -75,9 +75,12 @@ If MCP tools aren't in scope (host without MCP support, or `mcp.json` not config
 kebab search "<query>" --mode hybrid --json 2>/dev/null
 kebab ask "<question>" --json 2>/dev/null
 kebab ask "<question>" --session <stable-id> --json 2>/dev/null
+kebab ask "<question>" --stream  # ndjson answer_event.v1 on stderr, final answer.v1 on stdout
 ```
 
 Same wire shapes as MCP. CLI pays cold start (~1-2s) per call — prefer MCP when available.
+
+`--stream` (p9-fb-33) emits `retrieval_done` → `token`* → `final` events on stderr while the answer streams; the final stdout line is the standard `answer.v1` for backwards compat. Use when you need progressive token consumption; otherwise the default non-streaming path is simpler. Refusal paths (score-gate / no-chunks) emit `retrieval_done` then no `token`/`final` — read stdout `answer.v1` for the canonical refusal signal.
 
 ## MCP host config
 
