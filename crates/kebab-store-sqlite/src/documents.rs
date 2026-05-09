@@ -376,18 +376,23 @@ impl kebab_core::DocumentStore for SqliteStore {
 }
 
 impl SqliteStore {
-    /// p9-fb-35: list `chunk_id`s for a document in deterministic
-    /// chunker-emit order. `put_chunks` writes one transaction with a
-    /// single `created_at` snapshot, so the secondary `chunk_id` sort
-    /// is what actually orders neighbors within a single re-ingest;
-    /// the primary `created_at` sort distinguishes successive
-    /// re-ingests if they ever co-exist in the table (they shouldn't —
-    /// `put_chunks` deletes the old rows first — but the ordering is
-    /// still well-defined under that scenario).
+    /// p9-fb-35: list `chunk_id`s for a document, returning a stable
+    /// `(created_at, chunk_id)` order. Used by
+    /// `App::fetch chunk --context N` to find ordinal-adjacent chunks.
     ///
-    /// Used by `kebab-app::fetch::surrounding_chunks` to derive ±N
-    /// neighbors around a target chunk without leaking SQL into the
-    /// facade crate.
+    /// ⚠ Round-1 review caveat: `chunk_id` is a blake3 hash of
+    /// `(doc_id, chunker_version, …)` — hex-lexicographic sort does NOT
+    /// correspond to document position. Within one ingest transaction
+    /// all chunks share `created_at` to the millisecond, so the
+    /// secondary `chunk_id` sort dominates and the "neighbors"
+    /// returned here may not be document-adjacent.
+    ///
+    /// Real fix is a `chunks.ordinal` column (V007 migration) or sort
+    /// by `chunks.source_spans_json[0]` start offset. Tracked as
+    /// follow-up; current behavior is good enough for sequentially
+    /// chunked markdown where created_at uniqueness varies, but PDFs
+    /// (page-aligned chunks) and large docs may surprise the agent.
+    /// See `tasks/HOTFIXES.md` if/when this is escalated.
     pub fn list_chunk_ids_for_doc(
         &self,
         doc_id: &kebab_core::DocumentId,

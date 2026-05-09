@@ -37,7 +37,7 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — agent 가 search hit / ci
 - chunk_id / doc_id 노출 — 현재 search_hit.v1 에 있는지 확인 + 안정성.
 - context window — N 개 chunk vs N tokens.
 - doc 전체 fetch 의 size 제한 (fb-34 budget 과 통합).
-- pdf / image 의 fetch — 텍스트 추출본 vs 원본 path.
+- pdf / audio 의 fetch — 텍스트 추출본 vs 원본 path. (image OCR 는 markdown line 으로 떨어져 span 허용.)
 
 ## Risks / notes
 

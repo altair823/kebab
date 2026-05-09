@@ -227,12 +227,49 @@ fn fetch_span(
     let full = fmt_canonical_to_markdown(&doc);
     let lines: Vec<&str> = full.lines().collect();
     let total = lines.len() as u32;
-    let effective_end_raw = line_end.min(total).max(line_start);
+
+    // p9-fb-35 round-1 review fix: empty / out-of-range request must
+    // not slice. Returning empty text + `effective_end = line_start - 1`
+    // lets the caller detect "no lines fetched" via
+    // `text.is_empty() && effective_end < line_start`. `truncated`
+    // stays false because line-range clamp is NOT a budget event —
+    // budget-driven truncation is the only thing `truncated` signals.
+    if total == 0 || line_start > total {
+        let now = OffsetDateTime::now_utc();
+        let stale = compute_stale(
+            doc_metadata_updated_at(&doc),
+            now,
+            app.config.search.stale_threshold_days,
+        );
+        return Ok(FetchResult {
+            kind: FetchKind::Span,
+            doc_id: doc.doc_id.clone(),
+            doc_path: doc.workspace_path.clone(),
+            indexed_at: doc_metadata_updated_at(&doc),
+            stale,
+            chunk: None,
+            context_before: Vec::new(),
+            context_after: Vec::new(),
+            text: Some(String::new()),
+            line_start: Some(line_start),
+            line_end: Some(line_end),
+            // saturating_sub: when line_start = 1 we end at 0, signaling
+            // "no lines fetched" without underflowing u32.
+            effective_end: Some(line_start.saturating_sub(1)),
+            truncated: false,
+        });
+    }
+
+    let effective_end_raw = line_end.min(total);
     let lo = (line_start - 1) as usize;
     let hi = effective_end_raw as usize;
     let mut text = lines[lo..hi].join("\n");
 
-    let mut truncated = effective_end_raw != line_end;
+    // p9-fb-35 round-1 review fix: `truncated` is reserved for
+    // budget-driven truncation only. Line-range clamp (line_end >
+    // total) is signaled via `effective_end < line_end`, not via
+    // `truncated`.
+    let mut truncated = false;
     let mut effective_end = effective_end_raw;
     if let Some(max_tokens) = opts.max_tokens {
         let max_chars = max_tokens.saturating_mul(4);
@@ -285,7 +322,10 @@ fn surrounding_chunks(
         .ok_or_else(|| anyhow::anyhow!("chunk not found in doc chunk list"))?;
     let n = n as usize;
     let lo = target_idx.saturating_sub(n);
-    let hi = (target_idx + n + 1).min(chunks.len());
+    let hi = target_idx
+        .saturating_add(n)
+        .saturating_add(1)
+        .min(chunks.len());
     let before: Vec<Chunk> = chunks[lo..target_idx].to_vec();
     let after: Vec<Chunk> = chunks[target_idx + 1..hi].to_vec();
     Ok((before, after))

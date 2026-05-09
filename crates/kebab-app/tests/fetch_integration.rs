@@ -250,3 +250,70 @@ fn fetch_span_invalid_input_when_zero_lines() {
         .unwrap_err();
     assert!(err.to_string().contains("invalid_input"), "got: {err}");
 }
+
+#[test]
+fn fetch_span_line_start_beyond_total_returns_empty_text() {
+    let env = common::TestEnv::new();
+    let body = "- Line one.\n- Line two.\n";
+    common::ingest_md(&env, "two_lines.md", body);
+    let app = env.app();
+    let q = kebab_core::SearchQuery {
+        text: "Line".to_string(),
+        mode: kebab_core::SearchMode::Lexical,
+        k: 1,
+        filters: kebab_core::SearchFilters::default(),
+    };
+    let hits = app.search(q).unwrap();
+    let doc_id = hits[0].doc_id.clone();
+
+    let result = app
+        .fetch(
+            FetchQuery::Span {
+                doc_id,
+                line_start: 100,
+                line_end: 200,
+            },
+            FetchOpts::default(),
+        )
+        .unwrap();
+    let text = result.text.expect("text field");
+    assert!(text.is_empty(), "out-of-range request returns empty text");
+    assert!(
+        !result.truncated,
+        "out-of-range is NOT truncated (budget-only flag)"
+    );
+}
+
+#[test]
+fn fetch_chunk_context_at_first_chunk_clamps_lower_bound() {
+    let env = common::TestEnv::new();
+    // Multi-chunk markdown so context ±N has neighbors.
+    let body =
+        "# H1\n\nFirst chunk text body.\n\n# H2\n\nSecond chunk.\n\n# H3\n\nThird chunk.\n";
+    common::ingest_md(&env, "boundary.md", body);
+    let app = env.app();
+    let q = kebab_core::SearchQuery {
+        text: "First".to_string(),
+        mode: kebab_core::SearchMode::Lexical,
+        k: 1,
+        filters: kebab_core::SearchFilters::default(),
+    };
+    let hits = app.search(q).unwrap();
+    let chunk_id = hits[0].chunk_id.clone();
+
+    let result = app
+        .fetch(
+            FetchQuery::Chunk(chunk_id),
+            FetchOpts {
+                context: Some(2),
+                max_tokens: None,
+            },
+        )
+        .unwrap();
+    // context_before may be empty if target is the first chunk;
+    // context_after should have ≤ 2 entries. Both clamped at doc boundaries.
+    assert!(
+        result.context_before.len() + result.context_after.len() <= 4,
+        "doc boundary should clamp ±N to fit chunk count"
+    );
+}

@@ -14,13 +14,13 @@ date: 2026-05-09
 
 ## Goal
 
-agent 가 search hit / RAG citation 의 `chunk_id` / `doc_id` 로 raw verbatim text 를 deep-link fetch 할 수 있는 surface. CLI 와 MCP 동시 노출. 3가지 mode (chunk / doc / span). PDF / image 의 line-based span 은 명시적 거절 (`error.v1.code = span_not_supported`).
+agent 가 search hit / RAG citation 의 `chunk_id` / `doc_id` 로 raw verbatim text 를 deep-link fetch 할 수 있는 surface. CLI 와 MCP 동시 노출. 3가지 mode (chunk / doc / span). PDF / audio 의 line-based span 은 명시적 거절 (`error.v1.code = span_not_supported`). image OCR text 는 line-addressable 이라 span 허용.
 
 ## Behavior contract
 
 ### Source of truth
 
-모든 text 는 `CanonicalDocument` / `chunks.text` 에서 가져온 정규화된 markdown. 원본 raw bytes (`assets.storage_path` 의 파일) 는 노출 안 함 — 사용자가 필요하면 직접 read. PDF / image 도 동일 surface (page-text / OCR text).
+모든 text 는 `CanonicalDocument` / `chunks.text` 에서 가져온 정규화된 markdown. 원본 raw bytes (`assets.storage_path` 의 파일) 는 노출 안 함 — 사용자가 필요하면 직접 read. PDF / audio / image 도 동일 surface (page-text / transcript / OCR text). 단 line-based span 은 PDF / audio 거절 — image OCR 은 line-addressable 이라 허용.
 
 ### CLI subcommand
 
