@@ -319,6 +319,50 @@ fn run_query(
         };
         params.push(Box::new(rank));
     }
+    // p9-fb-36: media_type filter (IN-list).
+    // `assets.media_type` JSON has two shapes:
+    //   - unit variant (Markdown / Pdf): JSON text, e.g. `"markdown"`
+    //   - tuple variant (Image(Png) / Audio(Mp3) / Other(s)): JSON object,
+    //     e.g. `{"image": "png"}`
+    // Extract a unified "kind" string for both shapes via:
+    //   CASE WHEN json_type = 'text' THEN json_extract($)
+    //        ELSE (first object key)
+    //   END IN (?, ...)
+    if !filters.media.is_empty() {
+        let placeholders: Vec<&str> =
+            std::iter::repeat("?").take(filters.media.len()).collect();
+        let placeholders = placeholders.join(",");
+        sql.push_str(&format!(
+            " AND f.doc_id IN (\
+               SELECT d2.doc_id FROM documents d2 \
+               JOIN assets a ON a.asset_id = d2.asset_id \
+               WHERE CASE \
+                 WHEN json_type(a.media_type) = 'text' THEN json_extract(a.media_type, '$') \
+                 ELSE (SELECT key FROM json_each(a.media_type) LIMIT 1) \
+               END IN ({placeholders}))"
+        ));
+        for kind in &filters.media {
+            params.push(Box::new(kind.clone()));
+        }
+    }
+
+    // p9-fb-36: ingested_after filter.
+    // `documents.updated_at` is RFC3339 stored as TEXT (always UTC `Z` per
+    // fb-32 ingest path), so lexicographic >= compare is correct.
+    if let Some(after) = &filters.ingested_after {
+        let formatted = after
+            .format(&time::format_description::well_known::Rfc3339)
+            .expect("OffsetDateTime formats to RFC3339");
+        sql.push_str(" AND d.updated_at >= ?");
+        params.push(Box::new(formatted));
+    }
+
+    // p9-fb-36: doc_id filter — single-doc scoping.
+    if let Some(id) = &filters.doc_id {
+        sql.push_str(" AND d.doc_id = ?");
+        params.push(Box::new(id.0.clone()));
+    }
+
     // path_glob is intentionally NOT applied here — see module comment
     // on PATH_GLOB_OVERFETCH and the post-filter in `LexicalRetriever::search`.
 
