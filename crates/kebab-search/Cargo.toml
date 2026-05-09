@@ -25,6 +25,9 @@ serde_json      = { workspace = true }
 tracing         = { workspace = true }
 thiserror       = { workspace = true }
 anyhow          = { workspace = true }
+# p9-fb-32: parse documents.updated_at (RFC3339) into OffsetDateTime
+# for SearchHit.indexed_at.
+time            = { workspace = true }
 
 [dev-dependencies]
 tempfile        = { workspace = true }

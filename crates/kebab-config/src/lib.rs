@@ -131,10 +131,19 @@ pub struct SearchCfg {
     /// (corpus_revision mismatch) are evicted on next access.
     #[serde(default = "default_cache_capacity")]
     pub cache_capacity: usize,
+    /// p9-fb-32: hits and citations whose source doc was last
+    /// re-processed more than this many days ago are marked
+    /// `stale: true` in wire / TUI / CLI surfaces. `0` disables.
+    #[serde(default = "default_stale_threshold_days")]
+    pub stale_threshold_days: u32,
 }
 
 fn default_cache_capacity() -> usize {
     256
+}
+
+fn default_stale_threshold_days() -> u32 {
+    30
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -317,6 +326,7 @@ impl Config {
                 rrf_k: 60,
                 snippet_chars: 220,
                 cache_capacity: default_cache_capacity(),
+                stale_threshold_days: 30,
             },
             rag: RagCfg {
                 prompt_template_version: "rag-v1".to_string(),
@@ -575,6 +585,11 @@ impl Config {
                 "KEBAB_SEARCH_SNIPPET_CHARS" => {
                     if let Ok(n) = v.parse::<usize>() {
                         self.search.snippet_chars = n;
+                    }
+                }
+                "KEBAB_SEARCH_STALE_THRESHOLD_DAYS" => {
+                    if let Ok(n) = v.parse::<u32>() {
+                        self.search.stale_threshold_days = n;
                     }
                 }
 
@@ -944,6 +959,7 @@ default_k = 10
 hybrid_fusion = "rrf"
 rrf_k = 60
 snippet_chars = 220
+stale_threshold_days = 30
 
 [rag]
 prompt_template_version = "rag-v1"
@@ -979,6 +995,44 @@ max_context_tokens = 8000
     fn workspace_cfg_has_only_root_and_exclude_fields() {
         let ws = Config::defaults().workspace;
         let WorkspaceCfg { root: _, exclude: _ } = &ws;
+    }
+
+    #[test]
+    fn default_stale_threshold_is_30() {
+        let c = Config::defaults();
+        assert_eq!(c.search.stale_threshold_days, 30);
+    }
+
+    #[test]
+    fn env_override_stale_threshold() {
+        let c = Config::defaults();
+        let env: HashMap<String, String> = [
+            ("KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(), "7".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let c = c.apply_env(&env);
+        assert_eq!(c.search.stale_threshold_days, 7);
+    }
+
+    #[test]
+    fn env_negative_threshold_silently_ignored() {
+        // Env path: malformed numeric values (including negatives that
+        // can't fit `u32`) are silently ignored — same pattern as
+        // `KEBAB_SEARCH_DEFAULT_K`. The TOML file-load path (covered in
+        // `fb27_tests::file_negative_stale_threshold_returns_config_invalid`)
+        // is the spec-required hard error surface.
+        let c = Config::defaults();
+        let env: HashMap<String, String> = [
+            ("KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(), "-5".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let c = c.apply_env(&env);
+        assert_eq!(
+            c.search.stale_threshold_days, 30,
+            "env path: malformed value must leave the default unchanged"
+        );
     }
 
     #[test]
@@ -1026,5 +1080,39 @@ mod fb27_tests {
             .expect("malformed TOML should downcast to ConfigInvalid");
         assert_eq!(signal.path, p);
         assert!(!signal.cause.is_empty(), "cause should be non-empty");
+    }
+
+    /// Spec §Config: a negative `stale_threshold_days` in TOML must be
+    /// rejected at load time (not silently coerced or ignored). serde's
+    /// `u32` type-check surfaces the failure as a parse error, which
+    /// `from_file` wraps into `ConfigInvalid`. CLI's `error_classify`
+    /// downcasts this and emits `error.v1.code = "config_invalid"`.
+    #[test]
+    fn file_negative_stale_threshold_returns_config_invalid() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("neg.toml");
+        // Build a minimally valid TOML and override only the field
+        // under test — this isolates the failure to the negative
+        // value rather than missing required sections.
+        let cfg = Config::defaults();
+        let mut toml_text = toml::to_string(&cfg).expect("default round-trips");
+        assert!(
+            toml_text.contains("stale_threshold_days = 30"),
+            "default value drifted; update test fixture"
+        );
+        toml_text = toml_text.replace(
+            "stale_threshold_days = 30",
+            "stale_threshold_days = -5",
+        );
+        std::fs::write(&p, &toml_text).unwrap();
+        let err = Config::from_file(&p).unwrap_err();
+        let signal = err.downcast_ref::<ConfigInvalid>()
+            .expect("negative stale_threshold_days should downcast to ConfigInvalid");
+        assert_eq!(signal.path, p);
+        assert!(
+            signal.cause.contains("parse_failed"),
+            "expected parse_failed cause, got: {}",
+            signal.cause
+        );
     }
 }

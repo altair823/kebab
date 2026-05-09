@@ -244,6 +244,8 @@ struct RawRow {
     source_spans_json: String,
     chunker_version: String,
     workspace_path: String,
+    /// p9-fb-32: documents.updated_at (RFC3339).
+    updated_at: String,
 }
 
 /// Build + execute the FTS5 query. The SQL pattern is the one documented
@@ -265,7 +267,8 @@ fn run_query(
             snippet(chunks_fts, 3, '', '', '…', ?) AS snippet, \
             c.heading_path_json, c.section_label, c.source_spans_json, \
             c.chunker_version, \
-            d.workspace_path \
+            d.workspace_path, \
+            d.updated_at \
          FROM chunks_fts f \
          JOIN chunks c    ON c.chunk_id = f.chunk_id \
          JOIN documents d ON d.doc_id = f.doc_id",
@@ -349,6 +352,7 @@ fn row_from_sql(row: &Row<'_>) -> rusqlite::Result<RawRow> {
         source_spans_json: row.get(6)?,
         chunker_version: row.get(7)?,
         workspace_path: row.get(8)?,
+        updated_at: row.get(9)?,
     })
 }
 
@@ -382,6 +386,16 @@ fn build_hit(
     // defensively if SQLite ever returns a longer string.
     let snippet = trim_snippet(&raw.snippet, snippet_chars);
 
+    // p9-fb-32: documents.updated_at is stored as RFC3339 TEXT (V001
+    // migration; written by put_document via OffsetDateTime::now_utc).
+    // fb-23 incremental ingest's skip path does not call put_document,
+    // so this naturally reflects the last actual re-process.
+    let indexed_at = time::OffsetDateTime::parse(
+        &raw.updated_at,
+        &time::format_description::well_known::Rfc3339,
+    )
+    .context("kb-search lexical: parse documents.updated_at as RFC3339")?;
+
     Ok(SearchHit {
         rank,
         chunk_id: ChunkId(raw.chunk_id),
@@ -402,6 +416,11 @@ fn build_hit(
         index_version: index_version.clone(),
         embedding_model: None,
         chunker_version: ChunkerVersion(raw.chunker_version),
+        indexed_at,
+        // Placeholder — overwritten by `kebab_app::staleness::mark_stale_in_place`
+        // (called from `App::search` / `App::search_uncached`) and the equivalent
+        // in `RagPipeline::ask` against the configured threshold.
+        stale: false,
     })
 }
 

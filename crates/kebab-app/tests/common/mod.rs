@@ -94,6 +94,29 @@ pub fn lexical_query(text: &str) -> kebab_core::SearchQuery {
     }
 }
 
+/// p9-fb-32: rewrite `documents.updated_at` for one workspace path
+/// to `now - days_ago` (RFC3339 UTC). Used by staleness integration
+/// tests to simulate aged-out docs without faking system time. Caller
+/// is responsible for ingesting the doc *before* calling this — the
+/// row must already exist.
+pub fn backdate_document_updated_at(env: &TestEnv, workspace_path: &str, days_ago: i64) {
+    let backdated = (time::OffsetDateTime::now_utc() - time::Duration::days(days_ago))
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("format backdated updated_at");
+    let db_path = PathBuf::from(&env.config.storage.data_dir).join("kebab.sqlite");
+    let conn = rusqlite::Connection::open(&db_path).expect("open kebab.sqlite");
+    let updated = conn
+        .execute(
+            "UPDATE documents SET updated_at = ?1 WHERE workspace_path = ?2",
+            rusqlite::params![backdated, workspace_path],
+        )
+        .expect("UPDATE documents.updated_at");
+    assert_eq!(
+        updated, 1,
+        "backdate_document_updated_at: expected to update exactly 1 row for {workspace_path}, got {updated}"
+    );
+}
+
 fn copy_fixture_workspace(dest: &Path) {
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")

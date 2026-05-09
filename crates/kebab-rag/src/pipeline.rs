@@ -44,11 +44,28 @@ use regex::Regex;
 use std::sync::OnceLock;
 use time::OffsetDateTime;
 
+/// One entry in the packed context returned by
+/// [`RagPipeline::pack_context`]. Carries the marker number, the
+/// upstream `Citation`, and the per-hit `indexed_at` + `stale` so the
+/// LLM-citation construction site can build a complete
+/// [`kebab_core::AnswerCitation`] (p9-fb-32).
+#[derive(Clone, Debug)]
+struct PackedCitation {
+    marker: u32,
+    citation: Citation,
+    indexed_at: OffsetDateTime,
+    /// Pre-stamped by `RagPipeline::ask` against the configured
+    /// `search.stale_threshold_days` before `pack_context` runs;
+    /// this struct just forwards the value into the eventual
+    /// `AnswerCitation` and never recomputes.
+    stale: bool,
+}
+
 /// Tuple returned by [`RagPipeline::pack_context`]: the packed
-/// `[#n] doc=… heading=… span=…\n<text>` block, the marker→Citation
+/// `[#n] doc=… heading=… span=…\n<text>` block, the marker→PackedCitation
 /// mapping (in packed order), and an estimated token count for the
 /// prompt section the LLM will see (system + query + packed context).
-type PackedContext = (String, Vec<(u32, Citation)>, usize);
+type PackedContext = (String, Vec<PackedCitation>, usize);
 
 // ── AskOpts ─────────────────────────────────────────────────────────────────
 
@@ -172,10 +189,20 @@ impl RagPipeline {
             k: k_effective,
             filters: SearchFilters::default(),
         };
-        let hits = self
+        let mut hits = self
             .retriever
             .search(&search_query)
             .context("kb-rag: retriever.search")?;
+        // p9-fb-32: stamp `stale` on every hit against `now_utc()` and
+        // the configured threshold. Cheap (per-hit comparison). Both
+        // the score-gate refusal path and the LLM-citation path read
+        // `hit.stale` downstream, so stamping once here keeps both
+        // call sites aligned with the App-level `search` post-process.
+        let now = OffsetDateTime::now_utc();
+        let stale_threshold_days = self.config.search.stale_threshold_days;
+        for h in &mut hits {
+            h.stale = compute_stale(h.indexed_at, now, stale_threshold_days);
+        }
         let chunks_returned = u32::try_from(hits.len()).unwrap_or(u32::MAX);
         let top_score = hits.first().map(|h| h.retrieval.fusion_score).unwrap_or(0.0);
 
@@ -302,7 +329,7 @@ impl RagPipeline {
 
         // ── 7. Citation validate ───────────────────────────────────────────
         let valid_markers: std::collections::BTreeSet<u32> =
-            packed_entries.iter().map(|(n, _)| *n).collect();
+            packed_entries.iter().map(|p| p.marker).collect();
         let unknown_markers: Vec<u32> = extracted
             .iter()
             .copied()
@@ -335,14 +362,19 @@ impl RagPipeline {
         let cited_set: std::collections::BTreeSet<u32> = extracted.iter().copied().collect();
         let citations: Vec<AnswerCitation> = packed_entries
             .iter()
-            .filter(|(n, _)| cited_set.contains(n))
-            .map(|(n, c)| AnswerCitation {
+            .filter(|p| cited_set.contains(&p.marker))
+            .map(|p| AnswerCitation {
                 // Wire-format marker per design §2.3: bare bracketed form
                 // `[1]`. The `[#1]` form is the *prompt-side* citation
                 // grammar (what the LLM emits in its text); the wire-side
                 // `AnswerCitation.marker` strips the `#`.
-                marker: Some(format!("[{n}]")),
-                citation: c.clone(),
+                marker: Some(format!("[{}]", p.marker)),
+                citation: p.citation.clone(),
+                // p9-fb-32: real values from the upstream SearchHit
+                // (post-processed for `stale` against the configured
+                // threshold at retrieval time — see `ask` body).
+                indexed_at: p.indexed_at,
+                stale: p.stale,
             })
             .collect();
 
@@ -407,10 +439,10 @@ impl RagPipeline {
             // `kb explain` can reconstruct what was sent to the LLM.
             let v: Vec<_> = packed_entries
                 .iter()
-                .map(|(n, c)| {
+                .map(|p| {
                     serde_json::json!({
-                        "marker": n,
-                        "citation": c,
+                        "marker": p.marker,
+                        "citation": p.citation,
                     })
                 })
                 .collect();
@@ -442,7 +474,7 @@ impl RagPipeline {
         let budget_tokens = cap.saturating_sub(prompt_overhead_tokens);
 
         let mut text = String::new();
-        let mut entries: Vec<(u32, Citation)> = Vec::new();
+        let mut entries: Vec<PackedCitation> = Vec::new();
         let mut tokens_so_far: usize = 0;
         let mut n: u32 = 1;
 
@@ -475,7 +507,19 @@ impl RagPipeline {
                 break;
             }
             text.push_str(&block);
-            entries.push((n, hit.citation.clone()));
+            // p9-fb-32: forward indexed_at + stale from the upstream
+            // SearchHit so the LLM-citation construction site can build
+            // a complete AnswerCitation (replaces Task 6's UNIX_EPOCH
+            // placeholder). `hit.stale` is stamped by the pipeline
+            // entry (`ask`) right after `retriever.search`, so by the
+            // time this method runs it already reflects the
+            // configured threshold.
+            entries.push(PackedCitation {
+                marker: n,
+                citation: hit.citation.clone(),
+                indexed_at: hit.indexed_at,
+                stale: hit.stale,
+            });
             tokens_so_far = next_total;
             n = n.saturating_add(1);
         }
@@ -560,6 +604,11 @@ impl RagPipeline {
             .map(|h| AnswerCitation {
                 marker: None,
                 citation: h.citation.clone(),
+                // p9-fb-32: forward staleness from the underlying
+                // `SearchHit` directly — this is the score-gate refusal
+                // path which doesn't go through `pack_context`.
+                indexed_at: h.indexed_at,
+                stale: h.stale,
             })
             .collect();
         let chunks_returned = u32::try_from(hits.len()).unwrap_or(u32::MAX);
@@ -623,6 +672,25 @@ fn embedding_ref_for(mode: SearchMode, cfg: &kebab_config::Config) -> Option<Mod
             dimensions: Some(cfg.models.embedding.dimensions),
         }),
     }
+}
+
+/// p9-fb-32: pipeline-local mirror of `kebab_app::staleness::compute_stale`.
+/// Duplicated here (rather than imported) because `kebab-rag` cannot
+/// depend on `kebab-app` — that would invert the crate-stack dependency
+/// direction. The `App::search` post-process and this helper share a
+/// behavioral contract: `now - indexed_at > threshold_days * 24h`,
+/// strict `>` so exactly-threshold hits stay fresh, and
+/// `threshold_days = 0` short-circuits to `false` (feature off).
+fn compute_stale(
+    indexed_at: OffsetDateTime,
+    now: OffsetDateTime,
+    threshold_days: u32,
+) -> bool {
+    if threshold_days == 0 {
+        return false;
+    }
+    let threshold = time::Duration::days(i64::from(threshold_days));
+    (now - indexed_at) > threshold
 }
 
 /// Korean RAG system prompt (`rag-v1`). Verbatim per design §1.
@@ -876,5 +944,56 @@ mod tests {
         let s = "x".repeat(1000);
         let left = remaining_history_budget_chars(10, &s, "q", "p");
         assert_eq!(left, 0);
+    }
+}
+
+/// p9-fb-32: boundary tests pinning the local `compute_stale` mirror's
+/// semantic equivalence to `kebab_app::staleness::compute_stale`. The
+/// two implementations are intentionally duplicated (dep-boundary rule
+/// blocks `kebab-rag → kebab-app`); these tests are the contract that
+/// guards both copies from drifting. Mirrors the test set in
+/// `crates/kebab-app/src/staleness.rs`.
+#[cfg(test)]
+mod compute_stale_mirror_tests {
+    use super::compute_stale;
+    use time::Duration;
+    use time::OffsetDateTime;
+    use time::macros::datetime;
+
+    fn now() -> OffsetDateTime {
+        datetime!(2026-05-09 12:00:00 UTC)
+    }
+
+    #[test]
+    fn threshold_zero_always_fresh() {
+        let very_old = datetime!(2020-01-01 00:00:00 UTC);
+        assert!(!compute_stale(very_old, now(), 0));
+    }
+
+    #[test]
+    fn just_under_threshold_is_fresh() {
+        // 29 days, 23h, 59m old — under 30d.
+        let indexed = now() - Duration::days(29) - Duration::hours(23) - Duration::minutes(59);
+        assert!(!compute_stale(indexed, now(), 30));
+    }
+
+    #[test]
+    fn exactly_threshold_is_fresh() {
+        // strict `>` boundary: exactly 30d old is still fresh.
+        let indexed = now() - Duration::days(30);
+        assert!(!compute_stale(indexed, now(), 30));
+    }
+
+    #[test]
+    fn one_minute_past_threshold_is_stale() {
+        let indexed = now() - Duration::days(30) - Duration::minutes(1);
+        assert!(compute_stale(indexed, now(), 30));
+    }
+
+    #[test]
+    fn future_indexed_at_is_fresh() {
+        // clock skew safety: future timestamps must not be stale.
+        let future = now() + Duration::hours(1);
+        assert!(!compute_stale(future, now(), 30));
     }
 }

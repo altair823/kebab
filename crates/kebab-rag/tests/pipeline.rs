@@ -9,7 +9,7 @@ mod common;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use common::{MockRetriever, RagEnv, id32, mk_hit};
+use common::{MockRetriever, RagEnv, id32, mk_hit, mk_hit_with_indexed_at};
 use kebab_core::{
     FinishReason, LanguageModel, Retriever, SearchMode, TokenChunk, TokenUsage,
 };
@@ -419,6 +419,73 @@ fn unfetchable_chunks_fall_back_to_no_chunks() {
         "LM must NOT be called when every retrieved chunk is unfetchable"
     );
     assert_eq!(env.count_answers(), 1, "answers row written for refusal");
+}
+
+// ── 16. p9-fb-32: AnswerCitation carries indexed_at + stale ──────────────
+//
+// Previously the LLM-citation construction site stamped `UNIX_EPOCH` +
+// `false` as a Task-7 placeholder. Task 7 plumbs real values from the
+// upstream `SearchHit` through `pack_context` so the wire-side
+// `AnswerCitation` reflects the document's actual age.
+
+#[test]
+fn grounded_citations_inherit_indexed_at_and_stale_from_hit() {
+    let env = RagEnv::new();
+    let cid = id32("c1");
+    let did = id32("d1");
+    env.seed_chunk(&cid, &did, "notes/a.md", "Apples are fruit.", &["Intro"]);
+    // 60 days old vs. the default 30-day threshold → stale.
+    let now = time::OffsetDateTime::now_utc();
+    let sixty_days_ago = now - time::Duration::days(60);
+    let hits = vec![mk_hit_with_indexed_at(
+        1, &cid, &did, "notes/a.md", 0.85, &["Intro"], sixty_days_ago,
+    )];
+    let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
+    let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("apples are fruit. [#1]"));
+    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+
+    let answer = pipeline.ask("apples", default_opts()).unwrap();
+    assert!(answer.grounded);
+    assert_eq!(answer.citations.len(), 1, "one cited marker [#1]");
+    let c = &answer.citations[0];
+    // indexed_at must be the value the retriever produced — NOT the
+    // UNIX_EPOCH placeholder the Task 6 cross-task patch left behind.
+    assert_eq!(
+        c.indexed_at, sixty_days_ago,
+        "AnswerCitation.indexed_at must inherit from SearchHit.indexed_at"
+    );
+    // 60d > default 30d threshold → stale.
+    assert!(
+        c.stale,
+        "60-day-old hit must surface stale=true on the AnswerCitation"
+    );
+}
+
+#[test]
+fn grounded_citations_not_stale_for_fresh_hit() {
+    let env = RagEnv::new();
+    let cid = id32("c1");
+    let did = id32("d1");
+    env.seed_chunk(&cid, &did, "notes/a.md", "Apples are fruit.", &["Intro"]);
+    // 1 day old vs. the default 30-day threshold → fresh.
+    let now = time::OffsetDateTime::now_utc();
+    let one_day_ago = now - time::Duration::days(1);
+    let hits = vec![mk_hit_with_indexed_at(
+        1, &cid, &did, "notes/a.md", 0.85, &["Intro"], one_day_ago,
+    )];
+    let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
+    let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("apples are fruit. [#1]"));
+    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+
+    let answer = pipeline.ask("apples", default_opts()).unwrap();
+    assert!(answer.grounded);
+    assert_eq!(answer.citations.len(), 1);
+    let c = &answer.citations[0];
+    assert_eq!(c.indexed_at, one_day_ago);
+    assert!(
+        !c.stale,
+        "1-day-old hit must NOT be stale at default 30d threshold"
+    );
 }
 
 // ── 15. snapshot Answer JSON stable ───────────────────────────────────────

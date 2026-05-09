@@ -444,6 +444,10 @@ mod tests {
             index_version: IndexVersion(format!("idx@{rank}")),
             embedding_model: None,
             chunker_version: ChunkerVersion("test@1".into()),
+            // fb-32: synthetic eval fixtures don't exercise staleness;
+            // pin UNIX_EPOCH + stale=false so hits stay deterministic.
+            indexed_at: OffsetDateTime::UNIX_EPOCH,
+            stale: false,
         }
     }
 
@@ -479,6 +483,9 @@ mod tests {
                     end: 1,
                     section: None,
                 },
+                // fb-32: synthetic eval citations don't exercise staleness.
+                indexed_at: OffsetDateTime::UNIX_EPOCH,
+                stale: false,
             }).collect(),
             grounded,
             refusal_reason: None,

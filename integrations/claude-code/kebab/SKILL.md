@@ -102,6 +102,7 @@ Claude Code spawns `kebab mcp` at session start; the process stays alive across 
 - `search` output can be large for broad queries. Project relevant fields when summarizing — for CLI: `jq '.[] | {rank, doc_path, heading: .heading_path[-1], snippet}'`.
 - `ask`'s `citations[]` mirrors `search_hit.v1` minus retrieval internals — same `doc_path` / `citation` shape.
 - Schema reference lives in the kebab repo at `docs/wire-schema/v1/*.schema.json` if a field is unclear.
+- `search_hit.v1` and `answer.v1.citations[]` carry `indexed_at` (RFC3339) + `stale` (bool). When `stale == true`, the source doc hasn't been re-processed since `config.search.stale_threshold_days`. Surface this caveat to the user when summarizing — the cited snapshot may not reflect current reality.
 
 ## Capability discovery
 

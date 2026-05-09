@@ -46,3 +46,7 @@ ctrlc        = "3"
 
 [dev-dependencies]
 tempfile     = { workspace = true }
+# p9-fb-32: backdate `documents.updated_at` in CLI integration tests
+# to simulate stale docs. `time` is the formatter used by the helper.
+rusqlite     = { workspace = true }
+time         = { workspace = true }

@@ -415,6 +415,10 @@ mod tests {
             index_version: IndexVersion("v1".to_string()),
             embedding_model: None,
             chunker_version: ChunkerVersion("v1".to_string()),
+            // p9-fb-32: hybrid unit tests don't exercise staleness; pin
+            // a fixed UNIX_EPOCH so synthetic hits remain deterministic.
+            indexed_at: time::OffsetDateTime::UNIX_EPOCH,
+            stale: false,
         }
     }
 

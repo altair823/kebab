@@ -117,6 +117,29 @@ pub fn mk_hit(
     fusion_score: f32,
     heading: &[&str],
 ) -> SearchHit {
+    mk_hit_with_indexed_at(
+        rank,
+        chunk_id,
+        doc_id,
+        workspace_path,
+        fusion_score,
+        heading,
+        time::OffsetDateTime::UNIX_EPOCH,
+    )
+}
+
+/// Build a `SearchHit` with an explicit `indexed_at` timestamp. Used by
+/// p9-fb-32 staleness tests so the pipeline sees realistic per-hit
+/// indexed_at values flowing through to `AnswerCitation`.
+pub fn mk_hit_with_indexed_at(
+    rank: u32,
+    chunk_id: &str,
+    doc_id: &str,
+    workspace_path: &str,
+    fusion_score: f32,
+    heading: &[&str],
+    indexed_at: time::OffsetDateTime,
+) -> SearchHit {
     let p = WorkspacePath::new(workspace_path.to_string()).expect("workspace path valid");
     SearchHit {
         rank,
@@ -143,6 +166,10 @@ pub fn mk_hit(
         index_version: IndexVersion("test-iv".to_string()),
         embedding_model: None,
         chunker_version: ChunkerVersion("v1".to_string()),
+        // p9-fb-32: pipeline post-processes `stale` from `indexed_at`
+        // + cfg threshold; tests configure both via this helper.
+        indexed_at,
+        stale: false,
     }
 }
 

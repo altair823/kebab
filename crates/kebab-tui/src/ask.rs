@@ -284,13 +284,22 @@ fn render_citations_or_explain(f: &mut Frame, area: Rect, s: &AskState, theme: &
             .iter()
             .map(|c| {
                 let marker = c.marker.as_deref().unwrap_or("?");
-                Line::from(vec![
-                    Span::styled(
-                        format!("[{marker}] "),
-                        theme.style(crate::theme::Role::CitationMarker),
-                    ),
-                    Span::raw(c.citation.to_uri()),
-                ])
+                // p9-fb-32: when `c.stale`, prepend a Warning-styled
+                // `[STALE] ` Span between the citation marker and the
+                // path so the user sees the staleness signal as text
+                // (not just color — fb-14 accessibility).
+                let mut spans = vec![Span::styled(
+                    format!("[{marker}] "),
+                    theme.style(crate::theme::Role::CitationMarker),
+                )];
+                if c.stale {
+                    spans.push(Span::styled(
+                        "[STALE] ",
+                        theme.style(crate::theme::Role::Warning),
+                    ));
+                }
+                spans.push(Span::raw(c.citation.to_uri()));
+                Line::from(spans)
             })
             .collect(),
     };

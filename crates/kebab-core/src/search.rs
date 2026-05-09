@@ -48,6 +48,13 @@ pub struct SearchHit {
     pub index_version: IndexVersion,
     pub embedding_model: Option<EmbeddingModelId>,
     pub chunker_version: ChunkerVersion,
+    /// p9-fb-32: source doc's `documents.updated_at` (last actual re-process).
+    /// fb-23 incremental ingest skip path leaves this unchanged.
+    #[serde(with = "time::serde::rfc3339")]
+    pub indexed_at: OffsetDateTime,
+    /// p9-fb-32: server-computed `now - indexed_at > threshold` per
+    /// `config.search.stale_threshold_days`. `false` when threshold = 0.
+    pub stale: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -87,4 +94,45 @@ pub struct DocSummary {
     pub updated_at: OffsetDateTime,
     pub parser_version: ParserVersion,
     pub chunker_version: ChunkerVersion,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use time::macros::datetime;
+
+    #[test]
+    fn search_hit_serializes_indexed_at_and_stale() {
+        let hit = SearchHit {
+            rank: 1,
+            chunk_id: ChunkId("c".to_string()),
+            doc_id: DocumentId("d".to_string()),
+            doc_path: WorkspacePath::new("a/b.md".to_string()).unwrap(),
+            heading_path: vec!["H".to_string()],
+            section_label: None,
+            snippet: "s".to_string(),
+            citation: Citation::Line {
+                path: WorkspacePath::new("a/b.md".to_string()).unwrap(),
+                start: 1,
+                end: 1,
+                section: None,
+            },
+            retrieval: RetrievalDetail {
+                method: SearchMode::Lexical,
+                fusion_score: 0.5,
+                lexical_score: Some(0.5),
+                vector_score: None,
+                lexical_rank: Some(1),
+                vector_rank: None,
+            },
+            index_version: IndexVersion("v1".to_string()),
+            embedding_model: None,
+            chunker_version: ChunkerVersion("c1".to_string()),
+            indexed_at: datetime!(2026-05-09 12:00:00 UTC),
+            stale: true,
+        };
+        let v = serde_json::to_value(&hit).unwrap();
+        assert_eq!(v["indexed_at"], "2026-05-09T12:00:00Z");
+        assert_eq!(v["stale"], true);
+    }
 }

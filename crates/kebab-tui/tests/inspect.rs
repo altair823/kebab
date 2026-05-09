@@ -325,6 +325,81 @@ fn chunk_view_renders_text_and_block_ids() {
     );
 }
 
+/// p9-fb-32: when a doc's `metadata.updated_at` is older than the
+/// configured `stale_threshold_days`, the Inspect pane prefixes the
+/// `doc_path` value with a Warning-styled `[STALE] ` Span. Threshold
+/// 0 (the staleness feature off) must NOT render the badge.
+#[test]
+fn inspect_doc_header_shows_stale_badge_when_threshold_exceeded() {
+    let mut app = fresh_app();
+    // Force a non-zero threshold so the staleness post-process can fire.
+    app.config.search.stale_threshold_days = 30;
+    {
+        let s = app.inspect.as_mut().unwrap();
+        s.target = Some(InspectTarget::Doc(DocumentId("d".repeat(32))));
+        let mut doc = make_doc();
+        // Backdate updated_at by 60 days so 60d > 30d threshold.
+        doc.metadata.updated_at =
+            OffsetDateTime::now_utc() - time::Duration::days(60);
+        s.doc = Some(doc);
+    }
+    let rendered = render_to_string(&app, 100, 40);
+    assert!(
+        rendered.contains("[STALE]"),
+        "[STALE] badge must render on stale doc header: {rendered}"
+    );
+    // Same line carrying the doc_path value must show the badge.
+    let path_line = rendered
+        .lines()
+        .find(|l| l.contains("notes/test.md"))
+        .expect("doc_path line must render");
+    assert!(
+        path_line.contains("[STALE]"),
+        "doc_path row must carry [STALE] badge: {path_line}"
+    );
+}
+
+#[test]
+fn inspect_doc_header_omits_stale_badge_when_fresh() {
+    let mut app = fresh_app();
+    app.config.search.stale_threshold_days = 30;
+    {
+        let s = app.inspect.as_mut().unwrap();
+        s.target = Some(InspectTarget::Doc(DocumentId("d".repeat(32))));
+        let mut doc = make_doc();
+        // 1 day old — under the 30d threshold.
+        doc.metadata.updated_at =
+            OffsetDateTime::now_utc() - time::Duration::days(1);
+        s.doc = Some(doc);
+    }
+    let rendered = render_to_string(&app, 100, 40);
+    assert!(
+        !rendered.contains("[STALE]"),
+        "fresh doc must NOT carry [STALE] badge: {rendered}"
+    );
+}
+
+#[test]
+fn inspect_doc_header_omits_stale_badge_when_threshold_zero() {
+    let mut app = fresh_app();
+    // Threshold 0 = staleness feature disabled.
+    app.config.search.stale_threshold_days = 0;
+    {
+        let s = app.inspect.as_mut().unwrap();
+        s.target = Some(InspectTarget::Doc(DocumentId("d".repeat(32))));
+        let mut doc = make_doc();
+        // Even a year-old doc must not get [STALE] when threshold = 0.
+        doc.metadata.updated_at =
+            OffsetDateTime::now_utc() - time::Duration::days(365);
+        s.doc = Some(doc);
+    }
+    let rendered = render_to_string(&app, 100, 40);
+    assert!(
+        !rendered.contains("[STALE]"),
+        "threshold = 0 must disable [STALE] badge regardless of age: {rendered}"
+    );
+}
+
 #[test]
 fn no_inspect_state_returns_to_library() {
     let mut config = Config::defaults();

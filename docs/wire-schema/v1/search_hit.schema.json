@@ -16,7 +16,9 @@
     "citation",
     "retrieval",
     "index_version",
-    "chunker_version"
+    "chunker_version",
+    "indexed_at",
+    "stale"
   ],
   "properties": {
     "schema_version": { "const": "search_hit.v1" },
@@ -33,6 +35,8 @@
     "retrieval":       { "type": "object" },
     "index_version":   { "type": "string" },
     "embedding_model": { "type": ["string", "null"] },
-    "chunker_version": { "type": "string" }
+    "chunker_version": { "type": "string" },
+    "indexed_at":      { "type": "string", "format": "date-time" },
+    "stale":           { "type": "boolean" }
   }
 }

@@ -14,6 +14,20 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-09 — p9-fb-32: search_hit.v1 / citation.v1 required-field expansion
+
+**무엇이 바뀌었나**: `search_hit.v1` 과 `citation.v1` 의 `required` 배열에 `indexed_at` (RFC3339) + `stale` (bool) 두 필드가 추가됨. `schema_version` 은 그대로 (`search_hit.v1` / `citation.v1`).
+
+**Spec contract 와의 관계**: 본 PR 에서는 additive minor 로 분류했으나 strict JSON Schema validator 입장에서는 pre-fb-32 payload 가 invalid 가 됨. CLAUDE.md `Wire schema v1` 절의 "breaking it requires a *.v2 major bump" 와 엄밀히는 충돌.
+
+**의식적 결정**:
+
+- single-user / single-producer 환경 (kebab CLI + MCP server 가 동일 binary) 에서는 producer 가 항상 새 필드를 채우므로 실용적 호환성 영향 없음.
+- v2 cascade 로 가면 schema 파일 + 모든 consumer 코드 + integration 테스트가 `.v2` 로 동시 bump 가 필요한데, 두 필드 추가만으로 그 비용은 과함.
+- producer-controlled 환경의 minor bump 로 처리. 향후 외부 third-party producer 가 등장하면 그 시점에 v2 cascade 검토.
+
+**영향 받는 consumer**: 없음 (현재 모든 consumer 가 동일 repo 내 — `kebab-cli`, `kebab-tui`, `kebab-mcp`, `integrations/claude-code/kebab/`).
+
 ## 2026-05-07 (2)
 
 ### macOS XDG path collision: `data_dir` == `config_dir` → DataOnly reset deletes config

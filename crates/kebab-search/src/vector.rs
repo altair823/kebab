@@ -197,6 +197,8 @@ struct ChunkMeta {
     chunker_version: String,
     doc_id: String,
     workspace_path: String,
+    /// p9-fb-32: documents.updated_at (RFC3339).
+    updated_at: String,
 }
 
 fn hydrate_chunks(
@@ -222,7 +224,7 @@ fn hydrate_chunks(
         "SELECT \
             c.chunk_id, c.text, c.heading_path_json, c.section_label, \
             c.source_spans_json, c.chunker_version, \
-            c.doc_id, d.workspace_path \
+            c.doc_id, d.workspace_path, d.updated_at \
          FROM chunks c \
          JOIN documents d ON d.doc_id = c.doc_id \
          WHERE c.chunk_id IN ({placeholders})"
@@ -249,6 +251,7 @@ fn hydrate_chunks(
                         chunker_version: row.get(5)?,
                         doc_id: row.get(6)?,
                         workspace_path: row.get(7)?,
+                        updated_at: row.get(8)?,
                     },
                 ))
             },
@@ -287,6 +290,16 @@ fn build_hit(
     );
     let snippet = trim_snippet(&meta.text, snippet_chars);
 
+    // p9-fb-32: documents.updated_at is stored as RFC3339 TEXT (V001
+    // migration; written by put_document via OffsetDateTime::now_utc).
+    // Mirrors the lexical retriever; see lexical::build_hit for the
+    // shared rationale on incremental-ingest skip semantics.
+    let indexed_at = time::OffsetDateTime::parse(
+        &meta.updated_at,
+        &time::format_description::well_known::Rfc3339,
+    )
+    .context("kb-search vector: parse documents.updated_at as RFC3339")?;
+
     let score = hit.score;
     Ok(SearchHit {
         rank,
@@ -308,6 +321,11 @@ fn build_hit(
         index_version: index_version.clone(),
         embedding_model: Some(model_id.clone()),
         chunker_version: ChunkerVersion(meta.chunker_version.clone()),
+        indexed_at,
+        // Placeholder — overwritten by `kebab_app::staleness::mark_stale_in_place`
+        // (called from `App::search` / `App::search_uncached`) and the equivalent
+        // in `RagPipeline::ask` against the configured threshold.
+        stale: false,
     })
 }
 

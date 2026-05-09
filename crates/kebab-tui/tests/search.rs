@@ -51,6 +51,10 @@ fn make_hit(rank: u32, path: &str, snippet: &str, citation: Citation) -> SearchH
         index_version: IndexVersion("v1".into()),
         embedding_model: Some(EmbeddingModelId("multilingual-e5-small".into())),
         chunker_version: ChunkerVersion("md-heading-v1".into()),
+        // fb-32: TUI search test fixtures pinned to UNIX_EPOCH + stale=false;
+        // staleness rendering covered in dedicated tests (Task 11).
+        indexed_at: time::OffsetDateTime::UNIX_EPOCH,
+        stale: false,
     }
 }
 
@@ -246,6 +250,100 @@ fn render_search_with_hits_shows_input_and_path() {
     assert!(rendered.contains("rust traits"), "input text rendered");
     assert!(rendered.contains("notes/rust.md"), "first hit path rendered");
     assert!(rendered.contains("notes/dyn.md"), "second hit path rendered");
+}
+
+/// p9-fb-32: Search pane prefixes the rank/score header line with a
+/// Warning-styled `[STALE] ` Span when `hit.stale == true`. Pin the
+/// text-level signal (color is exercised via the cell scan below).
+#[test]
+fn search_pane_shows_stale_badge_for_old_doc() {
+    let mut app = fresh_app();
+    {
+        let s = app.search.as_mut().unwrap();
+        s.input.push_str("rust");
+        s.mode = SearchMode::Hybrid;
+        let mut stale_hit = make_hit(
+            1,
+            "notes/old.md",
+            "ancient trait dispatch\nstill relevant",
+            line_citation("notes/old.md", 7),
+        );
+        // Synthesize an indexed_at well past any threshold; combined
+        // with `stale: true` this matches the post-process output of
+        // `kebab_app::mark_stale_in_place`.
+        stale_hit.indexed_at = time::OffsetDateTime::UNIX_EPOCH;
+        stale_hit.stale = true;
+        let fresh_hit = make_hit(
+            2,
+            "notes/new.md",
+            "modern dispatch\nvtable",
+            line_citation("notes/new.md", 3),
+        );
+        s.hits = vec![stale_hit, fresh_hit];
+        s.selected_hit = 0;
+    }
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| {
+            let area = Rect::new(0, 0, 80, 24);
+            render_search(f, area, &app);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let rendered: String = (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        rendered.contains("[STALE]"),
+        "[STALE] badge must render as text on stale hit: {rendered}"
+    );
+    // The badge appears on the same line that begins with rank `1.`
+    // — the stale hit. The fresh `notes/new.md` row must NOT carry
+    // the badge.
+    let stale_line = rendered
+        .lines()
+        .find(|l| l.contains("notes/old.md"))
+        .expect("stale hit's header line must render");
+    assert!(
+        stale_line.contains("[STALE]"),
+        "stale row must carry [STALE] badge: {stale_line}"
+    );
+    let fresh_line = rendered
+        .lines()
+        .find(|l| l.contains("notes/new.md"))
+        .expect("fresh hit's header line must render");
+    assert!(
+        !fresh_line.contains("[STALE]"),
+        "fresh row must NOT carry [STALE] badge: {fresh_line}"
+    );
+    // Color side: the `[` of `[STALE]` must be Yellow (Warning role,
+    // dark palette default).
+    let mut stale_yellow_found = false;
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
+            let cell = &buffer[(x, y)];
+            if cell.symbol() == "[" {
+                // The cell to the right should be 'S' if this is the
+                // start of `[STALE]` — narrow check to avoid the
+                // rank/score `[` cells (there shouldn't be any there).
+                if x + 1 < buffer.area.width && buffer[(x + 1, y)].symbol() == "S" {
+                    if let ratatui::style::Color::Yellow = cell.fg {
+                        stale_yellow_found = true;
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        stale_yellow_found,
+        "[STALE] badge must be rendered with Yellow (Warning role) fg"
+    );
 }
 
 #[test]

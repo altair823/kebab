@@ -4,7 +4,7 @@
   "title": "Citation v1",
   "description": "Stub schema — declares the schema_version label and the always-present fields. Variant-discriminated property validation lands in a later phase.",
   "type": "object",
-  "required": ["schema_version", "kind", "path", "uri"],
+  "required": ["schema_version", "kind", "path", "uri", "indexed_at", "stale"],
   "properties": {
     "schema_version": { "const": "citation.v1" },
     "kind": { "enum": ["line", "page", "region", "caption", "time"] },
@@ -14,6 +14,8 @@
     "page":    { "type": "object" },
     "region":  { "type": "object" },
     "caption": { "type": "object" },
-    "time":    { "type": "object" }
+    "time":    { "type": "object" },
+    "indexed_at": { "type": "string", "format": "date-time" },
+    "stale":      { "type": "boolean" }
   }
 }

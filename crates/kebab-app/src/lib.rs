@@ -63,12 +63,14 @@ pub mod ingest_progress;
 pub mod logging;
 pub mod reset;
 pub mod schema;
+mod staleness;
 
 pub use app::App;
 pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
 pub use reset::{ResetReport, ResetScope};
 pub use error_wire::{ERROR_V1_ID, ErrorV1, classify};
 pub use schema::{Capabilities, Models, SCHEMA_V1_ID, SchemaV1, Stats, WireBlock, schema_with_config};
+pub use staleness::{compute_stale, mark_stale_in_place};
 
 /// p9-fb-25: sentinel for files without an extension in
 /// `IngestReport.skipped_by_extension` keys + `IngestItem.warnings`
