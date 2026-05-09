@@ -189,6 +189,12 @@ pub fn wire_error_v1(e: &kebab_app::ErrorV1) -> Value {
     tag_object(v, "error.v1")
 }
 
+/// p9-fb-35: tag a [`kebab_core::FetchResult`] as `fetch_result.v1`.
+pub fn wire_fetch_result(r: &kebab_core::FetchResult) -> Value {
+    let v = serde_json::to_value(r).expect("FetchResult serializes");
+    tag_object(v, "fetch_result.v1")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
