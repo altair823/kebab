@@ -18,6 +18,7 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — Claude Code 가 kebab CLI
 >
 > - Design: [`docs/superpowers/specs/2026-05-10-p9-fb-39-eval-foundation-design.md`](../../docs/superpowers/specs/2026-05-10-p9-fb-39-eval-foundation-design.md)
 > - Plan: [`docs/superpowers/plans/2026-05-10-p9-fb-39-eval-foundation.md`](../../docs/superpowers/plans/2026-05-10-p9-fb-39-eval-foundation.md)
+> - fb-39b (lever 적용 — embedding upgrade): [`tasks/p9/p9-fb-39b-embedding-upgrade.md`](./p9-fb-39b-embedding-upgrade.md) ✅
 
 ## 증상 / 동기
 

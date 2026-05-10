@@ -302,9 +302,9 @@ impl Config {
             models: ModelsCfg {
                 embedding: EmbeddingModelCfg {
                     provider: "fastembed".to_string(),
-                    model: "multilingual-e5-small".to_string(),
+                    model: "multilingual-e5-large".to_string(),
                     version: "v1".to_string(),
-                    dimensions: 384,
+                    dimensions: 1024,
                     batch_size: 64,
                 },
                 llm: LlmCfg {
@@ -764,7 +764,8 @@ mod tests {
         let c = Config::defaults();
         assert_eq!(c.rag.score_gate, 0.30);
         assert_eq!(c.chunking.target_tokens, 500);
-        assert_eq!(c.models.embedding.dimensions, 384);
+        assert_eq!(c.models.embedding.model, "multilingual-e5-large");
+        assert_eq!(c.models.embedding.dimensions, 1024);
         assert_eq!(c.search.rrf_k, 60);
     }
 
@@ -947,9 +948,9 @@ chunker_version = "md-heading-v1"
 
 [models.embedding]
 provider = "fastembed"
-model = "multilingual-e5-small"
+model = "multilingual-e5-large"
 version = "v1"
-dimensions = 384
+dimensions = 1024
 batch_size = 64
 
 [models.llm]

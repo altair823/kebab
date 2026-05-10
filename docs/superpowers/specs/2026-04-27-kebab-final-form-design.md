@@ -93,7 +93,7 @@ retrieval trace
 
 grounded ✓  qwen2.5:14b-instruct  rag-v1  3 chunks
 prompt   1184 tokens  completion 312 tokens  latency 1842 ms
-embedding multilingual-e5-small  index v1.0
+embedding multilingual-e5-large  index v1.0
 ```
 
 ### 1.3 `kebab ask` (refusal — score gate)
@@ -212,7 +212,7 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
     "vector_rank": 2
   },
   "index_version": "v1.0",
-  "embedding_model": "multilingual-e5-small",
+  "embedding_model": "multilingual-e5-large",
   "chunker_version": "md-heading-v1"
 }
 ```
@@ -264,7 +264,7 @@ Per-query failure 는 `bulk_search_item.v1.error` (error.v1) 에 격리, 다른 
   "grounded": true,
   "refusal_reason": null,
   "model": { "id": "qwen2.5:14b-instruct", "provider": "ollama" },
-  "embedding": { "id": "multilingual-e5-small", "provider": "fastembed", "dimensions": 384 },
+  "embedding": { "id": "multilingual-e5-large", "provider": "fastembed", "dimensions": 1024 },
   "prompt_template_version": "rag-v1",
   "retrieval": {
     "trace_id": "ret_4a8b2c1e",
@@ -374,7 +374,7 @@ Per-query failure 는 `bulk_search_item.v1.error` (error.v1) 에 격리, 다른 
   "token_estimate": 480,
   "chunker_version": "md-heading-v1",
   "embeddings": [
-    { "model": "multilingual-e5-small", "dimensions": 384, "embedding_id": "e_2f1a" }
+    { "model": "multilingual-e5-large", "dimensions": 1024, "embedding_id": "e_2f1a" }
   ]
 }
 ```
@@ -390,7 +390,7 @@ Per-query failure 는 `bulk_search_item.v1.error` (error.v1) 에 격리, 다른 
     { "name": "data_dir_writable", "ok": true, "detail": "~/.local/share/kebab" },
     { "name": "sqlite_open", "ok": true, "detail": "kebab.sqlite (schema v1)" },
     { "name": "lancedb_open", "ok": true, "detail": "lancedb/" },
-    { "name": "embedding_model", "ok": true, "detail": "multilingual-e5-small (384d)" },
+    { "name": "embedding_model", "ok": true, "detail": "multilingual-e5-large (1024d)" },
     { "name": "ollama_reachable", "ok": true, "detail": "http://127.0.0.1:11434" },
     { "name": "ollama_model_pulled", "ok": false, "detail": "qwen2.5:14b-instruct missing", "hint": "ollama pull qwen2.5:14b-instruct" }
   ]
@@ -1209,9 +1209,9 @@ chunker_version           = "md-heading-v1"
 
 [models.embedding]
 provider   = "fastembed"
-model      = "multilingual-e5-small"
+model      = "multilingual-e5-large"
 version    = "v1"
-dimensions = 384
+dimensions = 1024
 batch_size = 64
 
 [models.llm]
@@ -1474,7 +1474,7 @@ $ kebab doctor
 ✓ data_dir_writable     ~/.local/share/kebab
 ✓ sqlite_open           kebab.sqlite (schema v1)
 ✓ lancedb_open          lancedb/
-✓ embedding_model       multilingual-e5-small (384d)
+✓ embedding_model       multilingual-e5-large (1024d)
 ✓ ollama_reachable      http://127.0.0.1:11434
 ✗ ollama_model_pulled   qwen2.5:14b-instruct missing
                         hint: ollama pull qwen2.5:14b-instruct

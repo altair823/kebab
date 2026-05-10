@@ -14,6 +14,22 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-10 — p9-fb-39b: embedding upgrade UX
+
+**무엇이 바뀌었나**: default embedding 이 `multilingual-e5-small` (384 dim) 에서 `multilingual-e5-large` (1024 dim) 로 변경. LanceDB 테이블은 `(model, dim)` 으로 네임스페이스되어 새 모델은 fresh 테이블에 쓰고, 옛 `chunk_embeddings_multilingual-e5-small_384` 테이블은 orphan 상태 됨.
+
+**user TOML 에 small 명시한 경우**: backwards-compat 유지. 사용자가 `[models.embedding] model = "multilingual-e5-small"` 로 명시했으면 그대로 small 사용 (새 default 무시).
+
+**idempotent re-embed**: fb-23 incremental ingest 가 embedding_version mismatch 감지하면 자동으로 이전 chunk 를 새 모델로 re-embed. 다음 `kebab ingest` 호출 시 기존 chunk 의 embedding 을 새 테이블에 재작성.
+
+**disk 절약**: 이전 모델의 orphan 테이블을 먼저 정리하려면 `kebab reset --vector-only` 실행 (LanceDB + SQLite `embedding_records` 모두 wipe). 이후 `kebab ingest` 가 모든 chunk 를 새 모델로 re-embed 해 새 테이블 채움.
+
+**search/ask 결과**: re-embed 전까지는 empty hit (새 모델에 데이터가 없음). `kebab ingest` 후 정상 검색 가능.
+
+**Spec contract 와의 관계**: design §5 (storage) + §9 (versioning cascade) 의 embedding_model.id / dimensions 변경. wire 의 `embedding_version` 필드 (kebab-app schema.v1.models.embedding_version 가 config.models.embedding.model 값을 그대로 emit) 변경 — CLAUDE.md cascade rule 의 release 트리거. 본 PR 머지 후 `chore: bump version 0.5 → 0.6` + tag 필요.
+
+**Spec deviation**: design `2026-05-10-p9-fb-39b-embedding-upgrade-design.md` 의 §Migration policy + §Public surface delta 가 `LanceVectorStore::open` 안 신규 `error.v1.code = "embedding_dim_mismatch"` 명시했으나 구현 제외. 이유: LanceDB tables 가 `(model, dim)` namespaced — silent orphan + empty-hit 으로 surface (hard error 아님). 명시 error 필요 시 별도 startup health check 작업 필요 (fb-39c 후보 또는 doctor 확장).
+
 ## 2026-05-09 — p9-fb-34: search wire wrapped in search_response.v1
 
 **무엇이 바뀌었나**: `kebab search --json` stdout 이 기존 `search_hit.v1[]` 배열에서 신규 `search_response.v1` object 로 교체. wrapper 가 `hits`, `next_cursor`, `truncated` 세 필드를 가짐.
