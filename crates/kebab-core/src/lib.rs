@@ -51,9 +51,9 @@ pub use metadata::{
     TrustLevel,
 };
 pub use search::{
-    DocFilter, DocSummary, IndexBytes, MEDIA_KINDS, RetrievalDetail, ScoreKind, SearchFilters, SearchHit,
-    SearchMode, SearchOpts, SearchQuery, SearchTrace, TraceCandidate, TraceFusionInput,
-    TraceTiming,
+    BulkSearchItem, BulkSearchResponse, BulkSearchSummary, DocFilter, DocSummary, IndexBytes, MEDIA_KINDS,
+    RetrievalDetail, ScoreKind, SearchFilters, SearchHit, SearchMode, SearchOpts, SearchQuery, SearchTrace,
+    TraceCandidate, TraceFusionInput, TraceTiming,
 };
 pub use answer::{
     Answer, AnswerCitation, AnswerRetrievalSummary, ModelRef, RefusalReason, TokenUsage,
