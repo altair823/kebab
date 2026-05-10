@@ -245,6 +245,12 @@ normalize: rrf_score = raw_rrf / (2 / (k_rrf + 1))
 
 `score_kind` 는 wire schema v1 에 **optional** 필드로 추가 (additive, backwards-compat). 누락 시 historical default `rrf` 로 해석.
 
+#### Bulk multi-query (fb-42)
+
+`kebab search --bulk` (stdin ndjson) + `mcp__kebab__bulk_search` tool 신규. agent 가 N sub-query 한 번에 실행 — query decomposition 시 단일 round-trip. Cap 100 per call. Sequential for-loop, App instance 재사용 → 캐시 / embedder cold-start 비용 한 번만.
+
+Per-query failure 는 `bulk_search_item.v1.error` (error.v1) 에 격리, 다른 query 계속 진행. wire shape additive minor (`bulk_search_item.v1` + `bulk_search_response.v1` 신규).
+
 ### 2.3 Answer
 
 ```json

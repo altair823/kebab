@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/bulk_search_item.schema.json",
+  "title": "BulkSearchItem v1",
+  "description": "p9-fb-42: per-query result inside a bulk_search response. `response` XOR `error` — exactly one is non-null. `query` is the input echo so consumers can correlate without index tracking.",
+  "type": "object",
+  "required": ["schema_version", "query", "response", "error"],
+  "properties": {
+    "schema_version": { "const": "bulk_search_item.v1" },
+    "query":   { "type": "object", "description": "Input echo (verbatim JSON object)." },
+    "response":{
+      "type": ["object", "null"],
+      "description": "search_response.v1 payload on success; null when error is non-null."
+    },
+    "error":   {
+      "type": ["object", "null"],
+      "description": "error.v1 payload when this query failed; null on success."
+    }
+  }
+}

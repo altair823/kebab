@@ -134,7 +134,7 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
 
     ### 🎯 0.6.0 또는 P+ — reasoning
     - [p9-fb-41 multi-hop reasoning](p9/p9-fb-41-multi-hop-reasoning.md) — ⏳ 미구현, brainstorm 필요 (XL, eval 인프라 선행)
-    - [p9-fb-42 bulk multi-query + re-rank hint](p9/p9-fb-42-bulk-multi-query-rerank.md) — ⏳ 미구현, brainstorm 필요 (Nice)
+    - [p9-fb-42 bulk multi-query + re-rank hint](p9/p9-fb-42-bulk-multi-query-rerank.md) — ✅ 머지 (2026-05-10) — bulk only, rerank hint deferred
 
 ## Post-merge 핫픽스
 

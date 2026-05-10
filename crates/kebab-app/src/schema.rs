@@ -32,6 +32,7 @@ pub struct Capabilities {
     pub http_daemon: bool,
     pub mcp_server: bool,
     pub single_file_ingest: bool,
+    pub bulk_search: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +86,8 @@ const WIRE_SCHEMAS: &[&str] = &[
     "citation.v1",
     "schema.v1",
     "error.v1",
+    "bulk_search_item.v1",
+    "bulk_search_response.v1",
 ];
 
 /// Build a [`SchemaV1`] introspection report for the given config.
@@ -123,6 +126,7 @@ fn capabilities_snapshot() -> Capabilities {
         http_daemon: false,
         mcp_server: true,
         single_file_ingest: false,
+        bulk_search: true,
     }
 }
 

@@ -196,6 +196,32 @@ pub struct IndexBytes {
     pub lancedb: u64,
 }
 
+/// p9-fb-42: per-query result in bulk search. `response` XOR `error` —
+/// exactly one is `Some`. `query` is the input echo (raw JSON value)
+/// so consumers can correlate input to output without index tracking.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BulkSearchItem {
+    pub query: serde_json::Value,
+    pub response: Option<serde_json::Value>,
+    pub error: Option<serde_json::Value>,
+}
+
+/// p9-fb-42: bulk summary counts. Invariant: total == succeeded + failed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BulkSearchSummary {
+    pub total: u32,
+    pub succeeded: u32,
+    pub failed: u32,
+}
+
+/// p9-fb-42: MCP-only envelope. CLI emits raw ndjson without envelope.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BulkSearchResponse {
+    pub schema_version: String,
+    pub results: Vec<BulkSearchItem>,
+    pub summary: BulkSearchSummary,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,5 +381,52 @@ mod tests {
         });
         let hit: SearchHit = serde_json::from_value(json).unwrap();
         assert_eq!(hit.score_kind, ScoreKind::Rrf);
+    }
+
+    #[test]
+    fn bulk_search_summary_serde_roundtrip() {
+        let s = BulkSearchSummary {
+            total: 5,
+            succeeded: 4,
+            failed: 1,
+        };
+        let v = serde_json::to_value(s).unwrap();
+        assert_eq!(v["total"], 5);
+        assert_eq!(v["succeeded"], 4);
+        assert_eq!(v["failed"], 1);
+        let back: BulkSearchSummary = serde_json::from_value(v).unwrap();
+        assert_eq!(back, s);
+    }
+
+    #[test]
+    fn bulk_search_summary_default_is_zeros() {
+        let s = BulkSearchSummary::default();
+        assert_eq!(s.total, 0);
+        assert_eq!(s.succeeded, 0);
+        assert_eq!(s.failed, 0);
+    }
+
+    #[test]
+    fn bulk_search_item_serde_response_variant() {
+        let item = BulkSearchItem {
+            query: serde_json::json!({"query": "rust"}),
+            response: Some(serde_json::json!({"hits": []})),
+            error: None,
+        };
+        let v = serde_json::to_value(&item).unwrap();
+        assert!(v["response"].is_object());
+        assert!(v["error"].is_null());
+    }
+
+    #[test]
+    fn bulk_search_item_serde_error_variant() {
+        let item = BulkSearchItem {
+            query: serde_json::json!({"query": "rust"}),
+            response: None,
+            error: Some(serde_json::json!({"code": "config_invalid", "message": "bad"})),
+        };
+        let v = serde_json::to_value(&item).unwrap();
+        assert!(v["response"].is_null());
+        assert_eq!(v["error"]["code"], "config_invalid");
     }
 }

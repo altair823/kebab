@@ -94,7 +94,8 @@ enum Cmd {
 
     /// Lexical / vector / hybrid search over chunks.
     Search {
-        query: String,
+        /// Query text. Not required when `--bulk` is set (queries from stdin).
+        query: Option<String>,
 
         #[arg(long, default_value_t = 10)]
         k: usize,
@@ -171,6 +172,16 @@ enum Cmd {
         /// without embeddings via a no-op vector stub.
         #[arg(long)]
         trace: bool,
+
+        /// p9-fb-42: bulk multi-query mode. Reads ndjson from stdin —
+        /// one JSON object per line, each item shape mirrors the
+        /// single-query input. Output is per-query ndjson on stdout
+        /// (one `bulk_search_item.v1` per line) plus a summary line on
+        /// stderr. Single-query flags (`--mode`, `--k`, `--tag`, etc.)
+        /// are ignored when `--bulk` is set; pass them per-item in the
+        /// stdin JSON instead. Caps at 100 queries per call.
+        #[arg(long)]
+        bulk: bool,
     },
 
     /// Retrieval-augmented question answering.
@@ -678,8 +689,96 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             ingested_after,
             doc_id,
             trace,
+            bulk,
         } => {
+            // p9-fb-42: bulk mode — stdin ndjson → bulk_search_with_config
+            // → stdout ndjson per query + stderr summary. Single-query
+            // flags are ignored (each item supplies its own).
+            if *bulk {
+                use std::io::{BufRead, Write};
+
+                let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+
+                let stdin = std::io::stdin();
+                let stdin_locked = stdin.lock();
+                let mut raw_items: Vec<serde_json::Value> = Vec::new();
+                for (lineno, line) in stdin_locked.lines().enumerate() {
+                    let line = line?;
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    let v: serde_json::Value =
+                        serde_json::from_str(&line).map_err(|e| {
+                            anyhow::Error::new(kebab_app::StructuredError(
+                                kebab_app::ErrorV1 {
+                                    schema_version: kebab_app::ERROR_V1_ID
+                                        .to_string(),
+                                    code: "config_invalid".to_string(),
+                                    message: format!(
+                                        "stdin ndjson line {} parse error: {e}",
+                                        lineno + 1
+                                    ),
+                                    details: serde_json::Value::Null,
+                                    hint: Some(
+                                        "each line must be a JSON object with at least `query`"
+                                            .to_string(),
+                                    ),
+                                },
+                            ))
+                        })?;
+                    raw_items.push(v);
+                }
+
+                let (items, summary) =
+                    kebab_app::bulk_search_with_config(cfg, raw_items)?;
+
+                if cli.json {
+                    let mut stdout = std::io::stdout().lock();
+                    for item in &items {
+                        let v = wire::wire_bulk_search_item(item);
+                        writeln!(stdout, "{}", serde_json::to_string(&v)?)?;
+                    }
+                    eprintln!(
+                        "bulk_summary: total={} succeeded={} failed={}",
+                        summary.total, summary.succeeded, summary.failed,
+                    );
+                } else {
+                    let mut stdout = std::io::stdout().lock();
+                    for (idx, item) in items.iter().enumerate() {
+                        writeln!(
+                            stdout,
+                            "# Query {}: {}",
+                            idx + 1,
+                            serde_json::to_string(&item.query)?,
+                        )?;
+                        if let Some(err) = &item.error {
+                            writeln!(stdout, "error: {}", err)?;
+                        } else if let Some(resp) = &item.response {
+                            writeln!(
+                                stdout,
+                                "{}",
+                                serde_json::to_string_pretty(resp)?
+                            )?;
+                        }
+                        writeln!(stdout)?;
+                    }
+                    eprintln!(
+                        "bulk_summary: total={} succeeded={} failed={}",
+                        summary.total, summary.succeeded, summary.failed,
+                    );
+                }
+                return Ok(());
+            }
+
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+
+            // p9-fb-42: bulk mode requires no query; single-query mode requires query.
+            let query_text = match query.as_ref() {
+                Some(q) => q.clone(),
+                None => {
+                    return Err(anyhow::anyhow!("query is required unless --bulk is set"));
+                }
+            };
 
             // p9-fb-36: normalize --media aliases (md → markdown).
             fn normalize_media_alias(s: &str) -> String {
@@ -732,7 +831,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             };
 
             let q = kebab_core::SearchQuery {
-                text: query.clone(),
+                text: query_text,
                 mode: (*mode).into(),
                 k: *k,
                 filters,
@@ -1266,6 +1365,7 @@ fn print_schema_text(s: &kebab_app::SchemaV1) {
         ("http_daemon", s.capabilities.http_daemon),
         ("mcp_server", s.capabilities.mcp_server),
         ("single_file_ingest", s.capabilities.single_file_ingest),
+        ("bulk_search", s.capabilities.bulk_search),
     ];
     for (name, on) in caps {
         let mark = if on { "✓" } else { "✗" };
