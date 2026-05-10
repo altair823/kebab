@@ -31,6 +31,17 @@ pub struct SearchQuery {
 /// before populating this Vec.
 pub const MEDIA_KINDS: &[&str] = &["markdown", "pdf", "image", "audio", "other"];
 
+/// p9-fb-38: top-level `SearchHit.score` declaration.
+/// `Rrf` (hybrid) / `Bm25` (lexical-only) / `Cosine` (vector-only).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScoreKind {
+    #[default]
+    Rrf,
+    Bm25,
+    Cosine,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SearchFilters {
     pub tags_any: Vec<String>,
@@ -73,6 +84,11 @@ pub struct SearchHit {
     /// p9-fb-32: server-computed `now - indexed_at > threshold` per
     /// `config.search.stale_threshold_days`. `false` when threshold = 0.
     pub stale: bool,
+    /// p9-fb-38: declares the meaning of the top-level `score`.
+    /// `Rrf` (hybrid mode), `Bm25` (lexical-only), `Cosine` (vector-only).
+    /// 옛 wire (fb-38 미만) 부재 시 `Rrf` default — hybrid 가 기본 mode.
+    #[serde(default)]
+    pub score_kind: ScoreKind,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -214,6 +230,7 @@ mod tests {
             chunker_version: ChunkerVersion("c1".to_string()),
             indexed_at: datetime!(2026-05-09 12:00:00 UTC),
             stale: true,
+            score_kind: ScoreKind::Rrf,
         };
         let v = serde_json::to_value(&hit).unwrap();
         assert_eq!(v["indexed_at"], "2026-05-09T12:00:00Z");
@@ -293,5 +310,50 @@ mod tests {
     fn search_opts_trace_default_false() {
         let opts = SearchOpts::default();
         assert!(!opts.trace);
+    }
+
+    #[test]
+    fn score_kind_serde_roundtrip() {
+        use ScoreKind::*;
+        for (kind, expected) in [(Rrf, "rrf"), (Bm25, "bm25"), (Cosine, "cosine")] {
+            let v = serde_json::to_value(kind).unwrap();
+            assert_eq!(v.as_str(), Some(expected));
+            let back: ScoreKind = serde_json::from_value(v).unwrap();
+            assert_eq!(back, kind);
+        }
+    }
+
+    #[test]
+    fn score_kind_default_is_rrf() {
+        assert_eq!(ScoreKind::default(), ScoreKind::Rrf);
+    }
+
+    #[test]
+    fn search_hit_deserialize_without_score_kind_defaults_to_rrf() {
+        let json = serde_json::json!({
+            "rank": 1,
+            "chunk_id": "c1",
+            "doc_id": "d1",
+            "doc_path": "a.md",
+            "heading_path": [],
+            "section_label": null,
+            "snippet": "x",
+            "citation": { "kind": "line", "path": "a.md", "start": 1, "end": 1, "section": null },
+            "retrieval": {
+                "method": "lexical",
+                "fusion_score": 0.5,
+                "lexical_score": 0.5,
+                "vector_score": null,
+                "lexical_rank": 1,
+                "vector_rank": null
+            },
+            "index_version": "v1",
+            "embedding_model": null,
+            "chunker_version": "c1",
+            "indexed_at": "2026-05-10T12:00:00Z",
+            "stale": false
+        });
+        let hit: SearchHit = serde_json::from_value(json).unwrap();
+        assert_eq!(hit.score_kind, ScoreKind::Rrf);
     }
 }

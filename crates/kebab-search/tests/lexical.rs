@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use kebab_config::Config;
 use kebab_core::{
-    DocumentId, IndexVersion, Lang, MediaType, Retriever, SearchFilters, SearchHit, SearchMode,
-    SearchQuery, TrustLevel,
+    DocumentId, IndexVersion, Lang, MediaType, Retriever, ScoreKind, SearchFilters, SearchHit,
+    SearchMode, SearchQuery, TrustLevel,
 };
 use kebab_search::LexicalRetriever;
 use kebab_store_sqlite::SqliteStore;
@@ -681,6 +681,53 @@ fn search_hit_carries_indexed_at_from_documents_updated_at() {
     assert!(delta < 60, "indexed_at within ±60s of now, got {delta}s");
     // stale is a placeholder set by the retriever; the App layer overwrites.
     assert!(!hit.stale, "lexical retriever must default stale=false");
+}
+
+#[test]
+fn lexical_retriever_hits_carry_bm25_score_kind() {
+    // p9-fb-38: verify that every hit returned by LexicalRetriever
+    // has score_kind == ScoreKind::Bm25. This establishes the
+    // relationship: Lexical-only search → Bm25 score semantics.
+    let env = Env::new();
+    let conn = env.raw_conn();
+    insert_document(&conn, &id32("d"), "notes/bm25.md", "Bm25", "en", "primary", &[]);
+    for (cid, body) in [
+        ("c1", "alpha bravo charlie"),
+        ("c2", "alpha delta"),
+        ("c3", "bravo echo"),
+    ] {
+        insert_chunk(
+            &conn,
+            &id32(cid),
+            &id32("d"),
+            body,
+            &["Bm25"],
+            None,
+            r#"[{"kind":"line","start":1,"end":1}]"#,
+            "v1",
+        );
+    }
+    drop(conn);
+
+    let r = env.retriever();
+    let hits = r
+        .search(&SearchQuery {
+            text: "alpha".to_string(),
+            mode: SearchMode::Lexical,
+            k: 10,
+            filters: SearchFilters::default(),
+        })
+        .expect("search");
+    assert!(
+        !hits.is_empty(),
+        "fixture should produce at least one hit for 'alpha'"
+    );
+    for h in &hits {
+        assert_eq!(
+            h.score_kind, ScoreKind::Bm25,
+            "lexical retriever must label all hits with ScoreKind::Bm25"
+        );
+    }
 }
 
 // ── TestEnv helper for fb-36 filter tests ───────────────────────────────

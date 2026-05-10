@@ -26,6 +26,7 @@
       "vector_rank": null,
       "vector_score": null
     },
+    "score_kind": "bm25",
     "section_label": "Snap",
     "snippet": "alpha alpha",
     "stale": false
@@ -57,6 +58,7 @@
       "vector_rank": null,
       "vector_score": null
     },
+    "score_kind": "bm25",
     "section_label": "Snap",
     "snippet": "alpha bravo charlie",
     "stale": false

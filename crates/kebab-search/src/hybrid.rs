@@ -313,6 +313,9 @@ impl HybridRetriever {
                 lexical_rank: s.lex_rank,
                 vector_rank: s.vec_rank,
             };
+            // p9-fb-38: base was cloned from a lex/vec hit (Bm25/Cosine);
+            // fuse output is RRF-scored so override.
+            base.score_kind = kebab_core::ScoreKind::Rrf;
             hits.push(base);
         }
 
@@ -505,6 +508,7 @@ mod tests {
             // a fixed UNIX_EPOCH so synthetic hits remain deterministic.
             indexed_at: time::OffsetDateTime::UNIX_EPOCH,
             stale: false,
+            score_kind: kebab_core::ScoreKind::Rrf,
         }
     }
 
@@ -755,6 +759,7 @@ mod tests {
                 chunker_version: ChunkerVersion("c1".into()),
                 indexed_at: time::OffsetDateTime::UNIX_EPOCH,
                 stale: false,
+                score_kind: kebab_core::ScoreKind::Rrf,
             }
         }
 
@@ -821,5 +826,85 @@ mod tests {
         let (_hits, trace) = hybrid.search_with_trace(&q).unwrap();
         assert!(trace.vector.is_empty());
         assert_eq!(trace.timing.vector_ms, 0);
+    }
+
+    #[test]
+    fn hybrid_fuse_labels_hits_as_rrf() {
+        use kebab_core::{ScoreKind, SearchMode, SearchQuery};
+        use std::sync::Arc;
+
+        struct Stub {
+            hits: Vec<kebab_core::SearchHit>,
+        }
+        impl Retriever for Stub {
+            fn search(&self, _q: &SearchQuery) -> anyhow::Result<Vec<kebab_core::SearchHit>> {
+                Ok(self.hits.clone())
+            }
+            fn index_version(&self) -> kebab_core::IndexVersion {
+                kebab_core::IndexVersion("v1".into())
+            }
+        }
+
+        let lex = Arc::new(Stub {
+            hits: vec![mk_hit("c1", 1, SearchMode::Lexical, 0.9)],
+        });
+        let vec_r = Arc::new(Stub {
+            hits: vec![mk_hit("c1", 1, SearchMode::Vector, 0.8)],
+        });
+        let hybrid = HybridRetriever::with_policy(
+            lex,
+            vec_r,
+            FusionPolicy::Rrf { k_rrf: 60 },
+            2,
+        );
+        let q = SearchQuery {
+            text: "x".into(),
+            mode: SearchMode::Hybrid,
+            k: 1,
+            filters: Default::default(),
+        };
+        let hits = hybrid.search(&q).unwrap();
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].score_kind, ScoreKind::Rrf);
+    }
+
+    #[test]
+    fn hybrid_search_with_trace_lexical_mode_passes_through_bm25() {
+        use kebab_core::{ScoreKind, SearchMode, SearchQuery};
+        use std::sync::Arc;
+
+        struct Stub {
+            hits: Vec<kebab_core::SearchHit>,
+        }
+        impl Retriever for Stub {
+            fn search(&self, _q: &SearchQuery) -> anyhow::Result<Vec<kebab_core::SearchHit>> {
+                Ok(self.hits.clone())
+            }
+            fn index_version(&self) -> kebab_core::IndexVersion {
+                kebab_core::IndexVersion("v1".into())
+            }
+        }
+
+        // mk_hit defaults to Rrf; override per spec for this test.
+        let mut lex_hit = mk_hit("c1", 1, SearchMode::Lexical, 0.5);
+        lex_hit.score_kind = ScoreKind::Bm25;
+        let lex = Arc::new(Stub { hits: vec![lex_hit] });
+        let vec_r = Arc::new(Stub { hits: vec![] });
+        let hybrid = HybridRetriever::with_policy(
+            lex,
+            vec_r,
+            FusionPolicy::Rrf { k_rrf: 60 },
+            2,
+        );
+        let q = SearchQuery {
+            text: "x".into(),
+            mode: SearchMode::Lexical,
+            k: 1,
+            filters: Default::default(),
+        };
+        let (hits, _trace) = hybrid.search_with_trace(&q).unwrap();
+        assert!(!hits.is_empty());
+        // search_with_trace mode=Lexical passes through underlying hits.
+        assert_eq!(hits[0].score_kind, ScoreKind::Bm25);
     }
 }

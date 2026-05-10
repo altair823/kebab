@@ -51,7 +51,7 @@ pub use metadata::{
     TrustLevel,
 };
 pub use search::{
-    DocFilter, DocSummary, IndexBytes, MEDIA_KINDS, RetrievalDetail, SearchFilters, SearchHit,
+    DocFilter, DocSummary, IndexBytes, MEDIA_KINDS, RetrievalDetail, ScoreKind, SearchFilters, SearchHit,
     SearchMode, SearchOpts, SearchQuery, SearchTrace, TraceCandidate, TraceFusionInput,
     TraceTiming,
 };

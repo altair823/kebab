@@ -170,6 +170,7 @@ pub fn mk_hit_with_indexed_at(
         // + cfg threshold; tests configure both via this helper.
         indexed_at,
         stale: false,
+        score_kind: kebab_core::ScoreKind::Rrf,
     }
 }
 

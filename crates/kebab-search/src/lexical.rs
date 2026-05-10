@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use globset::GlobMatcher;
 use kebab_core::{
     ChunkId, ChunkerVersion, DocumentId, IndexVersion, RetrievalDetail, Retriever,
-    SearchFilters, SearchHit, SearchMode, SearchQuery, SourceSpan, TrustLevel,
+    ScoreKind, SearchFilters, SearchHit, SearchMode, SearchQuery, SourceSpan, TrustLevel,
     WorkspacePath,
 };
 use kebab_store_sqlite::SqliteStore;
@@ -469,6 +469,7 @@ fn build_hit(
         // (called from `App::search` / `App::search_uncached`) and the equivalent
         // in `RagPipeline::ask` against the configured threshold.
         stale: false,
+        score_kind: ScoreKind::Bm25,
     })
 }
 
