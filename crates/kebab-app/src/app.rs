@@ -347,26 +347,36 @@ impl App {
 
         // p9-fb-37: when --trace is requested, bypass the LRU cache and
         // run through `HybridRetriever::search_with_trace`, which
-        // dispatches by mode internally. This requires embeddings (same
-        // as `--mode hybrid`); `require_embeddings()` surfaces the
-        // existing "switch to --mode lexical" error otherwise.
+        // dispatches by mode internally. Vector / hybrid modes require
+        // embeddings (same as `--mode hybrid`); lexical mode skips
+        // embedder construction via `NoopRetriever` so lexical-only
+        // workspaces (provider = "none") can use `--trace` without
+        // surfacing the "switch to --mode lexical" error.
         if opts.trace {
             let lex = Arc::new(LexicalRetriever::with_settings(
                 self.sqlite.clone(),
                 lexical_index_version(&self.config),
                 self.config.search.snippet_chars,
             )) as Arc<dyn Retriever>;
-            let (emb, vec_store) = self.require_embeddings()?;
-            let vec_iv = vector_index_version(emb.as_ref());
-            let vec_dyn: Arc<dyn VectorStore + Send + Sync> = vec_store;
-            let emb_dyn: Arc<dyn Embedder> = emb;
-            let vec_retr = Arc::new(VectorRetriever::with_settings(
-                vec_dyn,
-                emb_dyn,
-                self.sqlite.clone(),
-                vec_iv,
-                self.config.search.snippet_chars,
-            )) as Arc<dyn Retriever>;
+            let vec_retr: Arc<dyn Retriever> = if matches!(query.mode, SearchMode::Lexical) {
+                // `HybridRetriever::search_with_trace` never invokes the
+                // vector retriever for `SearchMode::Lexical` (Task 4).
+                // A no-op stand-in lets us avoid the ~470 MB embedder
+                // load when the user only asked for lexical trace.
+                Arc::new(NoopRetriever)
+            } else {
+                let (emb, vec_store) = self.require_embeddings()?;
+                let vec_iv = vector_index_version(emb.as_ref());
+                let vec_dyn: Arc<dyn VectorStore + Send + Sync> = vec_store;
+                let emb_dyn: Arc<dyn Embedder> = emb;
+                Arc::new(VectorRetriever::with_settings(
+                    vec_dyn,
+                    emb_dyn,
+                    self.sqlite.clone(),
+                    vec_iv,
+                    self.config.search.snippet_chars,
+                )) as Arc<dyn Retriever>
+            };
             let hybrid = HybridRetriever::new(&self.config, lex, vec_retr);
             let (mut traced_hits, trace) = hybrid.search_with_trace(&fetch_query)?;
 
@@ -800,6 +810,24 @@ fn lexical_index_version(config: &kebab_config::Config) -> IndexVersion {
     IndexVersion(format!("lex:{}", config.chunking.chunker_version))
 }
 
+/// p9-fb-37: stand-in for the vector retriever in the trace path when
+/// `query.mode == SearchMode::Lexical`. `HybridRetriever::search_with_trace`'s
+/// Lexical branch never calls `vector.search()`, so returning an empty
+/// hit list here is safe and lets lexical-only workspaces (embedding
+/// `provider = "none"`) use `--trace` without paying the ~470 MB
+/// embedder load.
+struct NoopRetriever;
+
+impl Retriever for NoopRetriever {
+    fn search(&self, _q: &kebab_core::SearchQuery) -> anyhow::Result<Vec<kebab_core::SearchHit>> {
+        Ok(Vec::new())
+    }
+
+    fn index_version(&self) -> kebab_core::IndexVersion {
+        kebab_core::IndexVersion("noop:trace".into())
+    }
+}
+
 /// Compose a stable `IndexVersion` for the vector retriever. Tracks
 /// `(embedding_model, embedding_version, dimensions)` so a model swap
 /// flags drift via the existing index_version mismatch warning in
@@ -944,12 +972,11 @@ mod tests_trace {
     #[test]
     fn search_response_trace_some_when_opts_trace_true_lexical_mode() {
         // Lexical mode doesn't require embeddings — the trace path
-        // builds HybridRetriever which holds both retrievers, but
-        // for SearchMode::Lexical only the lexical side is invoked.
-        // require_embeddings will fail if no embedding provider is
-        // configured. Default Config has provider = "none" so this
-        // test will fail unless we tolerate that. Skip the assertion
-        // if the call returns the embedding-disabled error.
+        // builds HybridRetriever with a `NoopRetriever` stand-in for
+        // the vector side, since `HybridRetriever::search_with_trace`'s
+        // Lexical branch never invokes `vector.search()`. Default
+        // Config has embedding `provider = "none"`, and lexical-mode
+        // trace must succeed under that config (no embedder load).
         let (_dir, app) = open_app_with_temp_dir();
         let q = SearchQuery {
             text: "x".into(),
@@ -961,20 +988,9 @@ mod tests_trace {
             trace: true,
             ..Default::default()
         };
-        match app.search_with_opts(q, opts) {
-            Ok(resp) => {
-                assert!(resp.trace.is_some(), "trace populated when opts.trace=true");
-            }
-            Err(e) => {
-                // Acceptable in test environment without embeddings —
-                // verify the error is the expected embedding-disabled
-                // shape, not an unrelated panic.
-                let msg = format!("{e:#}");
-                assert!(
-                    msg.contains("embedding") || msg.contains("--mode lexical"),
-                    "unexpected error: {msg}"
-                );
-            }
-        }
+        let resp = app
+            .search_with_opts(q, opts)
+            .expect("lexical-mode trace must succeed without embeddings");
+        assert!(resp.trace.is_some(), "trace populated when opts.trace=true");
     }
 }
