@@ -3,7 +3,7 @@ phase: P9
 component: kebab-rag + kebab-llm
 task_id: p9-fb-40
 title: "Fact-grounded answer 강화 (citation 강제 + 근거 없음 fallback)"
-status: open
+status: completed
 target_version: 0.5.0
 depends_on: []
 unblocks: []
@@ -14,7 +14,10 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — Claude Code 가 kebab CLI
 
 # p9-fb-40 — Fact-grounded answer 강화
 
-> ⏳ **백로그 only — 미구현.** 본 spec 은 도그푸딩 피드백 skeleton. 구현 착수 전 [superpowers:brainstorming](../../docs/superpowers/) 으로 설계 단계 선행 필요. citation 강제 형식 / 검증 layer / "모름" fallback trigger / prompt_template_version cascade 영향 brainstorm 후 확정.
+> ✅ **구현 완료.** 본 spec 은 구현 시점의 frozen 상태.
+>
+> - Design: [`docs/superpowers/specs/2026-05-10-p9-fb-40-fact-grounded-answer-design.md`](../../docs/superpowers/specs/2026-05-10-p9-fb-40-fact-grounded-answer-design.md)
+> - Plan: [`docs/superpowers/plans/2026-05-10-p9-fb-40-fact-grounded-answer.md`](../../docs/superpowers/plans/2026-05-10-p9-fb-40-fact-grounded-answer.md)
 
 ## 증상 / 동기
 

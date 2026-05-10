@@ -72,6 +72,7 @@ Input:
 - Returns `answer.v1`: `answer` (markdown), `citations[]`, `grounded` (bool), `refusal_reason`, `model`, `conversation_id`, `turn_index`.
 - **If `grounded == false`** → KB doesn't have enough context. Don't paraphrase the refusal as if it were an answer. Tell the user the KB came up dry and fall back to your own knowledge or ask for the source.
 - For follow-up turns on the same topic, pass `session_id` (e.g. `"team-onboarding-2026-05"`) and reuse it across the conversation. Sessions persist until `kebab reset --data-only`.
+- p9-fb-40: 기본 `prompt_template_version = "rag-v2"`. 답변이 더 strict — fact 인용 시 verbatim span, 학습 지식 동원 금지, 근거 모호 시 "확실하지 않다" 출현 가능. user 가 `[rag] prompt_template_version = "rag-v1"` 명시 시 legacy 동작.
 
 ### `mcp__kebab__fetch` — when you need raw text
 
