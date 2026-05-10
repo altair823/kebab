@@ -124,6 +124,57 @@ pub struct SearchOpts {
     pub snippet_chars: Option<usize>,
     /// Opaque base64 cursor from a previous response. None = first page.
     pub cursor: Option<String>,
+    /// p9-fb-37: when true, capture pipeline trace (cache bypassed,
+    /// lex / vec pre-fusion lists + timing populated on the response).
+    #[serde(default)]
+    pub trace: bool,
+}
+
+/// p9-fb-37: search retrieval pipeline trace. Populated only when
+/// `SearchOpts.trace = true`; `None` on the wrapping `SearchResponse`
+/// otherwise. `lexical` / `vector` are pre-fusion candidate lists
+/// (each retriever's full output for the fanout query). `rrf_inputs`
+/// is the union (chunk_id) used by RRF, with each side's rank
+/// captured. `timing` is wall-clock per stage.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SearchTrace {
+    pub lexical: Vec<TraceCandidate>,
+    pub vector: Vec<TraceCandidate>,
+    pub rrf_inputs: Vec<TraceFusionInput>,
+    pub timing: TraceTiming,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceCandidate {
+    pub chunk_id: ChunkId,
+    pub doc_id: DocumentId,
+    pub doc_path: WorkspacePath,
+    pub rank: u32,
+    pub score: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TraceFusionInput {
+    pub chunk_id: ChunkId,
+    pub lexical_rank: Option<u32>,
+    pub vector_rank: Option<u32>,
+    pub fusion_score: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceTiming {
+    pub lexical_ms: u64,
+    pub vector_ms: u64,
+    pub fusion_ms: u64,
+    pub total_ms: u64,
+}
+
+/// p9-fb-37: on-disk index size breakdown. Mirrored on the
+/// wire `schema.v1.stats.index_bytes` block.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexBytes {
+    pub sqlite: u64,
+    pub lancedb: u64,
 }
 
 #[cfg(test)]
@@ -192,5 +243,52 @@ mod tests {
         assert!(old.media.is_empty());
         assert!(old.ingested_after.is_none());
         assert!(old.doc_id.is_none());
+    }
+
+    #[test]
+    fn search_trace_serde_roundtrip() {
+        let t = SearchTrace {
+            lexical: vec![TraceCandidate {
+                chunk_id: ChunkId("c1".into()),
+                doc_id: DocumentId("d1".into()),
+                doc_path: WorkspacePath::new("a.md".into()).unwrap(),
+                rank: 1,
+                score: 0.42,
+            }],
+            vector: vec![],
+            rrf_inputs: vec![TraceFusionInput {
+                chunk_id: ChunkId("c1".into()),
+                lexical_rank: Some(1),
+                vector_rank: None,
+                fusion_score: 0.0234,
+            }],
+            timing: TraceTiming {
+                lexical_ms: 12,
+                vector_ms: 0,
+                fusion_ms: 1,
+                total_ms: 14,
+            },
+        };
+        let v = serde_json::to_value(&t).unwrap();
+        assert_eq!(v["timing"]["lexical_ms"], 12);
+        assert_eq!(
+            v["lexical"][0]["score"].as_f64().unwrap() as f32,
+            0.42_f32
+        );
+        let back: SearchTrace = serde_json::from_value(v).unwrap();
+        assert_eq!(back, t);
+    }
+
+    #[test]
+    fn index_bytes_default_is_zero() {
+        let b = IndexBytes::default();
+        assert_eq!(b.sqlite, 0);
+        assert_eq!(b.lancedb, 0);
+    }
+
+    #[test]
+    fn search_opts_trace_default_false() {
+        let opts = SearchOpts::default();
+        assert!(!opts.trace);
     }
 }
