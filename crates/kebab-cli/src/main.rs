@@ -94,7 +94,8 @@ enum Cmd {
 
     /// Lexical / vector / hybrid search over chunks.
     Search {
-        query: String,
+        /// Query text. Not required when `--bulk` is set (queries from stdin).
+        query: Option<String>,
 
         #[arg(long, default_value_t = 10)]
         k: usize,
@@ -771,6 +772,14 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
 
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
 
+            // p9-fb-42: bulk mode requires no query; single-query mode requires query.
+            let query_text = match query.as_ref() {
+                Some(q) => q.clone(),
+                None => {
+                    return Err(anyhow::anyhow!("query is required unless --bulk is set"));
+                }
+            };
+
             // p9-fb-36: normalize --media aliases (md → markdown).
             fn normalize_media_alias(s: &str) -> String {
                 match s.to_ascii_lowercase().as_str() {
@@ -822,7 +831,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             };
 
             let q = kebab_core::SearchQuery {
-                text: query.clone(),
+                text: query_text,
                 mode: (*mode).into(),
                 k: *k,
                 filters,
