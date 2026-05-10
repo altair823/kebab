@@ -86,14 +86,15 @@ P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 
 P9-2/3/4 는 P9-1 의 parallel-safety contract (sub-state slot 패턴) 덕에 병렬 진행 가능 — 같은 `App` 손대지 않음.
 
-### P9 dogfooding 백로그 (fb-26 ~ fb-42) — 4 minor release 분할
+### P9 dogfooding 백로그 (fb-26 ~ fb-42) — release 분할
 
-2026-05-06 도그푸딩 누적 피드백 + "AI agent 가 kebab 을 쓰게 한다" 궁극 목표용 surface 확장. 17 항목 모두 **status: open + brainstorm 선행 필요**. 각 spec 상단 banner 명시. cascade 영향 / 분량 고려해 한 minor 에 묶지 않고 4 분할. 2026-05-06 renumber — **번호 = release 순서**:
+2026-05-06 도그푸딩 누적 피드백 + "AI agent 가 kebab 을 쓰게 한다" 궁극 목표용 surface 확장. cascade 영향 / 분량 고려해 한 minor 에 묶지 않고 분할.
 
-- **0.3.0+ — agent foundation**: fb-26 (log), fb-27 (introspection/error wire) ✅ 머지 + v0.3.0 cut (2026-05-07), fb-28 (readonly/quiet), ~~fb-29 (daemon)~~ → 🚫 **deferred (2026-05-07 brainstorm)** — fb-30 stdio MCP 가 동일 가치 (agent integration + session 동안 hot cache) 를 daemon 복잡도 (PID file / port lock / loopback security / lifecycle UX) 없이 제공, single-user local-first 환경에 비대. fb-30 (MCP, stdio-only — fb-29 의존 제거 → depends_on `[p9-fb-27]` 만), fb-31 (single-file ingest). 후속 fb 들은 0.3.x patch / 0.4.0 minor 로 누적.
-- **0.4.0 — agent surface refinement (additive)**: fb-32 (stale), fb-33 (streaming), fb-34 (budget), fb-35 (verbatim fetch), fb-36 (filters), fb-37 (trace/stats).
-- **0.5.0 — RAG quality (cascade 동반)**: fb-38 (score semantics), fb-39 (precision tuning, embedding_version cascade + V00X), fb-40 (fact-grounded, prompt_template_version cascade).
-- **0.6.0 또는 P+**: fb-41 (multi-hop, XL), fb-42 (bulk/rerank, Nice).
+- **0.3.0 — agent foundation** ✅ cut 2026-05-07: fb-26 (log), fb-27 (introspection/error wire), fb-28 (readonly/quiet). ~~fb-29 (daemon)~~ → 🚫 **deferred** — fb-30 stdio MCP 가 동일 가치를 daemon 복잡도 없이 제공.
+- **0.4.0 — agent integration (MCP)** ✅ cut: fb-30 (MCP stdio), fb-31 (single-file/stdin ingest).
+- **0.5.0 — agent surface refinement (additive)** ✅ cut 2026-05-10: fb-32 (stale doc indicator), fb-33 (streaming ask), fb-34 (output budget controls), fb-35 (verbatim fetch), fb-36 (search filter args), fb-37 (trace + stats). 모두 wire schema additive minor.
+- **0.6.0 — RAG quality** 🟡 진행: fb-38 (score semantics) ✅ 머지 (2026-05-10), fb-40 (fact-grounded answer / rag-v2 prompt) ✅ 머지 (2026-05-10), fb-39 (retrieval precision tuning, embedding_version cascade) — 미진행 (eval golden set 선행 필요).
+- **0.7.0 또는 P+**: fb-41 (multi-hop reasoning, XL), fb-42 (bulk multi-query / rerank, Nice).
 
 각 fb spec frontmatter 의 `target_version` 필드가 source of truth. INDEX.md 의 release subheader 도 동일 grouping.
 
