@@ -19,6 +19,7 @@
 mod citation_helper;
 mod hybrid;
 mod lexical;
+mod trace;
 mod vector;
 
 pub use hybrid::{FusionPolicy, HybridRetriever};
