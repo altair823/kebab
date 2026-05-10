@@ -59,7 +59,7 @@ fn make_answer(grounded: bool, refusal: Option<RefusalReason>, body: &str) -> An
             provider: "fastembed".into(),
             dimensions: Some(384),
         }),
-        prompt_template_version: PromptTemplateVersion("rag-v1".into()),
+        prompt_template_version: PromptTemplateVersion("rag-v2".into()),
         retrieval: AnswerRetrievalSummary {
             trace_id: TraceId("test-trace".into()),
             mode: SearchMode::Hybrid,

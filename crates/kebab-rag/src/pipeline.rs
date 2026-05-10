@@ -1197,7 +1197,7 @@ mod stream_event_serde_tests {
             refusal_reason: None,
             model: ModelRef { id: "m".into(), provider: "p".into(), dimensions: None },
             embedding: None,
-            prompt_template_version: PromptTemplateVersion("rag-v1".into()),
+            prompt_template_version: PromptTemplateVersion("rag-v2".into()),
             retrieval: AnswerRetrievalSummary {
                 trace_id: TraceId("t".into()),
                 mode: SearchMode::Hybrid,
