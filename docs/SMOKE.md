@@ -206,6 +206,22 @@ kebab search "rust" --doc-id "<doc-id>" --tag rust --json
 Bad `--ingested-after` → `error.v1.code = config_invalid`, exit 2.
 Unknown `--media` value → silently empty (no error).
 
+### Trace + stats (fb-37)
+
+Re-run a search with `--trace` to see per-stage candidate lists + timing:
+
+```bash
+kebab --config /tmp/kebab-smoke/config.toml search "rust async" --trace --json | jq .trace
+```
+
+Inspect the corpus health surface:
+
+```bash
+kebab --config /tmp/kebab-smoke/config.toml schema --json | jq .stats
+```
+
+Look for: `media_breakdown` (5 keys), `lang_breakdown`, `index_bytes`, `stale_doc_count`.
+
 ## P6-4 이미지 ingestion 옵션
 
 `config.toml` 에 다음 절을 추가하면 `kebab ingest` 가 `**/*.png` / `**/*.jpg` 등 이미지 자산도 함께 색인합니다 (텍스트만 색인하려면 생략):

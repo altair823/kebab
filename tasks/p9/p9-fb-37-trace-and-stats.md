@@ -3,7 +3,7 @@ phase: P9
 component: kebab-cli + kebab-search + kebab-rag
 task_id: p9-fb-37
 title: "Trace (--trace) + stats — pipeline 가시성"
-status: open
+status: completed
 target_version: 0.4.0
 depends_on: [p9-fb-27]
 unblocks: []
@@ -14,7 +14,10 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — agent / 사용자가 "왜
 
 # p9-fb-37 — Trace + stats
 
-> ⏳ **백로그 only — 미구현 (Nice-to-have).** 본 spec 은 도그푸딩 피드백 skeleton. 구현 착수 전 [superpowers:brainstorming](../../docs/superpowers/) 으로 설계 단계 선행 필요. trace 의 verbosity level / wire shape / stats 의 별도 명령 vs schema 통합 brainstorm 후 확정.
+> ✅ **구현 완료.** 본 spec 은 구현 시점의 frozen 상태.
+>
+> - Design: [`docs/superpowers/specs/2026-05-10-p9-fb-37-trace-and-stats-design.md`](../../docs/superpowers/specs/2026-05-10-p9-fb-37-trace-and-stats-design.md)
+> - Plan: [`docs/superpowers/plans/2026-05-10-p9-fb-37-trace-and-stats.md`](../../docs/superpowers/plans/2026-05-10-p9-fb-37-trace-and-stats.md)
 
 ## 증상 / 동기
 

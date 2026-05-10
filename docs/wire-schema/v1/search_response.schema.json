@@ -9,6 +9,26 @@
     "schema_version": { "const": "search_response.v1" },
     "hits":           { "type": "array", "description": "search_hit.v1[]" },
     "next_cursor":    { "type": ["string", "null"], "description": "Opaque base64 cursor for next page; null when no more hits." },
-    "truncated":      { "type": "boolean", "description": "True when budget forced snippet shortening or k reduction. Independent of `next_cursor`: caller may widen `max_tokens` (re-issue same query) or follow `next_cursor` (advance through more hits) or both." }
+    "truncated":      { "type": "boolean", "description": "True when budget forced snippet shortening or k reduction. Independent of `next_cursor`: caller may widen `max_tokens` (re-issue same query) or follow `next_cursor` (advance through more hits) or both." },
+    "trace": {
+      "type": "object",
+      "description": "p9-fb-37: present iff caller passed --trace / SearchOpts.trace=true. Lex/vec pre-fusion lists + RRF union + per-stage timing.",
+      "required": ["lexical", "vector", "rrf_inputs", "timing"],
+      "properties": {
+        "lexical":   { "type": "array", "items": { "type": "object" } },
+        "vector":    { "type": "array", "items": { "type": "object" } },
+        "rrf_inputs":{ "type": "array", "items": { "type": "object" } },
+        "timing": {
+          "type": "object",
+          "required": ["lexical_ms", "vector_ms", "fusion_ms", "total_ms"],
+          "properties": {
+            "lexical_ms": { "type": "integer", "minimum": 0 },
+            "vector_ms":  { "type": "integer", "minimum": 0 },
+            "fusion_ms":  { "type": "integer", "minimum": 0 },
+            "total_ms":   { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
   }
 }
