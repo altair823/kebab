@@ -50,6 +50,18 @@ pub struct Stats {
     pub chunk_count: u64,
     pub asset_count: u64,
     pub last_ingest_at: Option<String>,
+    /// p9-fb-37: per-media-kind doc count (5 keys, zero-padded).
+    #[serde(default)]
+    pub media_breakdown: std::collections::BTreeMap<String, u64>,
+    /// p9-fb-37: per-language doc count, NULL keyed as `"null"`.
+    #[serde(default)]
+    pub lang_breakdown: std::collections::BTreeMap<String, u64>,
+    /// p9-fb-37: on-disk byte sums.
+    #[serde(default)]
+    pub index_bytes: kebab_core::IndexBytes,
+    /// p9-fb-37: docs whose `updated_at` exceeds the staleness threshold.
+    #[serde(default)]
+    pub stale_doc_count: u64,
 }
 
 const KEBAB_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -85,7 +97,7 @@ const WIRE_SCHEMAS: &[&str] = &[
 #[doc(hidden)]
 pub fn schema_with_config(cfg: &Config) -> anyhow::Result<SchemaV1> {
     let store = open_store_for_stats(cfg)?;
-    let stats = collect_stats(&store)?;
+    let stats = collect_stats(cfg, &store)?;
     let models = collect_models(cfg, &store);
     Ok(SchemaV1 {
         schema_version: SCHEMA_V1_ID.to_string(),
@@ -124,13 +136,24 @@ fn open_store_for_stats(cfg: &Config) -> anyhow::Result<kebab_store_sqlite::Sqli
     kebab_store_sqlite::SqliteStore::open_existing(&db_path)
 }
 
-fn collect_stats(store: &kebab_store_sqlite::SqliteStore) -> anyhow::Result<Stats> {
-    let counts = store.count_summary()?;
+fn collect_stats(
+    cfg: &Config,
+    store: &kebab_store_sqlite::SqliteStore,
+) -> anyhow::Result<Stats> {
+    let counts = store
+        .count_summary_with_threshold(cfg.search.stale_threshold_days as u64)?;
+    let data_dir = kebab_config::expand_path(&cfg.storage.data_dir, "");
+    let index_bytes = kebab_store_sqlite::stats_ext::index_bytes(&data_dir)
+        .map_err(|e| anyhow::anyhow!("index_bytes: {e}"))?;
     Ok(Stats {
         doc_count: counts.doc_count,
         chunk_count: counts.chunk_count,
         asset_count: counts.asset_count,
         last_ingest_at: counts.last_ingest_at,
+        media_breakdown: counts.media_breakdown,
+        lang_breakdown: counts.lang_breakdown,
+        index_bytes,
+        stale_doc_count: counts.stale_doc_count,
     })
 }
 
@@ -148,5 +171,33 @@ fn collect_models(cfg: &Config, store: &kebab_store_sqlite::SqliteStore) -> Mode
         // corpus_revision returns u64 directly (no Result) — matches
         // existing impl; treat 0 as the default for a fresh/unrevised store.
         corpus_revision: store.corpus_revision(),
+    }
+}
+
+#[cfg(test)]
+mod tests_stats_ext {
+    use super::*;
+
+    #[test]
+    fn stats_includes_breakdowns_and_bytes_on_fresh_corpus() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = kebab_config::Config::defaults();
+        cfg.storage.data_dir = dir.path().to_string_lossy().into_owned();
+        // Bring up migrations so the sqlite file is created.
+        let store = kebab_store_sqlite::SqliteStore::open(&cfg).unwrap();
+        store.run_migrations().unwrap();
+        drop(store);
+
+        let s = schema_with_config(&cfg).unwrap();
+        // 5 keys padded.
+        assert_eq!(s.stats.media_breakdown.len(), 5);
+        assert_eq!(s.stats.media_breakdown.get("markdown"), Some(&0));
+        assert_eq!(s.stats.media_breakdown.get("pdf"), Some(&0));
+        // lang map empty on empty corpus.
+        assert!(s.stats.lang_breakdown.is_empty());
+        // sqlite bytes positive after migrations, lancedb 0.
+        assert!(s.stats.index_bytes.sqlite > 0);
+        assert_eq!(s.stats.index_bytes.lancedb, 0);
+        assert_eq!(s.stats.stale_doc_count, 0);
     }
 }

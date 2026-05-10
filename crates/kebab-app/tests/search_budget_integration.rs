@@ -47,6 +47,7 @@ fn budget_truncates_snippets_when_below_threshold() {
                 max_tokens: Some(50),
                 snippet_chars: None,
                 cursor: None,
+                trace: false,
             },
         )
         .unwrap();
@@ -78,6 +79,7 @@ fn cursor_paginates_to_next_page() {
                 max_tokens: None,
                 snippet_chars: None,
                 cursor: Some(cursor),
+                trace: false,
             },
         )
         .unwrap();
@@ -114,6 +116,7 @@ fn cursor_rejected_after_corpus_revision_bump() {
             max_tokens: None,
             snippet_chars: None,
             cursor: Some(c),
+            trace: false,
         },
     );
     let err = result.unwrap_err();
@@ -147,6 +150,7 @@ fn max_tokens_zero_returns_one_hit_truncated() {
                 max_tokens: Some(0),
                 snippet_chars: None,
                 cursor: None,
+                trace: false,
             },
         )
         .unwrap();
