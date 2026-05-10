@@ -1510,6 +1510,26 @@ agent 가 분기). HTTP-SSE transport 는 fb-29 deferral 따라 P+. classify
 모듈은 `kebab-app::error_wire` 에 single source — kebab-cli + kebab-mcp
 공유.
 
+### 10.3 Eval metrics (fb-39)
+
+#### Retrieval metrics (ground-truth curated)
+
+`kebab eval run` 이 golden query suite (`fixtures/golden_queries.yaml`) 대해 메트릭 계산. Curator 가 `expected_chunk_ids` 및 `expected_doc_ids` 설정 시에만 측정 가능 (shipped template 은 empty — workspace 별 자체 채움).
+
+| 메트릭 | 정의 | 조건 |
+|--------|------|------|
+| `hit_at_k` | top-k 안 expected chunk 존재 여부 (binary). P(hit@k=true) 평균 | `expected_chunk_ids` 채움 |
+| `MRR` | Mean Reciprocal Rank (첫 관련 chunk rank 역수 평균) | `expected_chunk_ids` 채움 |
+| `recall_at_k_doc` | top-k 안 expected doc 비율 (`|top-k_docs ∩ expected_doc_ids| / |expected_doc_ids|`) | `expected_doc_ids` 채움 |
+| `precision_at_k_chunk` (fb-39) | top-k 안 chunk_id 가 `expected_chunk_ids` 에 포함된 비율. 분모 = k (fixed) — `top-k` 부족도 precision 손실로 간주. 빈 `expected_chunk_ids` query 는 skip. | `expected_chunk_ids` 채움 |
+
+#### Groundedness metrics (rule-based)
+
+| 메트릭 | 정의 |
+|--------|------|
+| `must_contain` pass | answer 문자열 이 `golden.must_contain` 의 모든 substring 포함 |
+| `forbidden` pass | answer 문자열 이 `golden.forbidden` 의 substring 미포함 |
+
 ---
 
 ## 11. 동결 범위 / 변경 정책
