@@ -1117,6 +1117,7 @@ mod stream_event_serde_tests {
             chunker_version: ChunkerVersion("c@1".into()),
             indexed_at: datetime!(2026-05-09 12:00:00 UTC),
             stale: false,
+            score_kind: kebab_core::ScoreKind::Rrf,
         }
     }
 
