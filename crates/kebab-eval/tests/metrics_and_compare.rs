@@ -203,6 +203,7 @@ fn store_aggregate_rejects_missing_run() {
         hit_at_k: Default::default(),
         mrr: 0.0,
         recall_at_k_doc: Default::default(),
+        precision_at_k_chunk: Default::default(),
         citation_coverage: f32::NAN,
         groundedness: 0.0,
         empty_result_rate: 0.0,

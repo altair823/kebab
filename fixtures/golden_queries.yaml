@@ -1,4 +1,4 @@
-# Golden query suite for `kb eval run` (P5-1 / P5-2).
+# Golden query suite for `kebab eval run` (P5-1 / P5-2 / fb-39).
 #
 # Top-level: list of queries. Required fields: `id`, `query`. All
 # others are optional and default to empty / null.
@@ -7,8 +7,16 @@
 # real rows in the active workspace's SQLite store at run time. Stale
 # references make the runner bail at start. The shipped template
 # leaves them empty so the file is loadable on any fresh workspace —
-# fill them in after a `kb ingest` to enable hit@k / MRR metrics
-# (P5-2).
+# fill them in after a `kebab ingest` to enable the metrics that
+# require ground truth (P5-2 + fb-39):
+#
+#   - `expected_chunk_ids` →  hit_at_k, MRR, precision_at_k_chunk (fb-39)
+#   - `expected_doc_ids`   →  recall_at_k_doc
+#
+# `precision_at_k_chunk` (fb-39): of the top-k retrieved hits, what
+# fraction's `chunk_id` is in `expected_chunk_ids`. Denominator is k
+# (fixed) — `top-k` shortfall is treated as precision loss. Queries
+# with empty `expected_chunk_ids` are skipped from this metric.
 #
 # `must_contain` / `forbidden` drive the rule-based groundedness
 # metric (P5-2).

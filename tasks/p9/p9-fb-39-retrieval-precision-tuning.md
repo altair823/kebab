@@ -1,20 +1,23 @@
 ---
 phase: P9
-component: kebab-search + kebab-rag + kebab-chunk
+component: kebab-eval + docs
 task_id: p9-fb-39
 title: "Retrieval precision 튜닝 (rank 5+ 노이즈 완화)"
-status: open
-target_version: 0.5.0
+status: completed
+target_version: 0.7.0
 depends_on: []
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
-contract_sections: [§3 chunking, §4 search, §7 RAG]
+contract_sections: [§3 chunking, §4 search, §7 RAG, §10.3 eval metrics]
 source_feedback: 사용자 도그푸딩 2026-05-06 — Claude Code 가 kebab CLI 사용 후 "rank 5+ 부터 노이즈 섞임" 지적. precision-at-k 가 k=5 이후 떨어짐.
 ---
 
 # p9-fb-39 — Retrieval precision 튜닝
 
-> ⏳ **백로그 only — 미구현.** 본 spec 은 도그푸딩 피드백 skeleton. 구현 착수 전 [superpowers:brainstorming](../../docs/superpowers/) 으로 설계 단계 선행 필요. 어느 lever (chunk policy / RRF k / score gate / cross-encoder / embedding 업그레이드) 부터 손볼지, eval golden set 선행 여부 brainstorm 후 결정.
+> ✅ **Eval foundation 부분 구현 완료.** P@k metric (P@5, P@10) 추가. 본 spec 의 lever 적용 (chunk policy / RRF / cross-encoder / embedding 업그레이드) 은 별도 task 로 분리 (fb-39b 이후).
+>
+> - Design: [`docs/superpowers/specs/2026-05-10-p9-fb-39-eval-foundation-design.md`](../../docs/superpowers/specs/2026-05-10-p9-fb-39-eval-foundation-design.md)
+> - Plan: [`docs/superpowers/plans/2026-05-10-p9-fb-39-eval-foundation.md`](../../docs/superpowers/plans/2026-05-10-p9-fb-39-eval-foundation.md)
 
 ## 증상 / 동기
 
