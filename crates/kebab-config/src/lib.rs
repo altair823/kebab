@@ -329,7 +329,7 @@ impl Config {
                 stale_threshold_days: 30,
             },
             rag: RagCfg {
-                prompt_template_version: "rag-v1".to_string(),
+                prompt_template_version: "rag-v2".to_string(),
                 score_gate: 0.30,
                 explain_default: false,
                 max_context_tokens: 8000,
@@ -769,6 +769,12 @@ mod tests {
     }
 
     #[test]
+    fn defaults_rag_prompt_template_version_is_rag_v2() {
+        let c = Config::defaults();
+        assert_eq!(c.rag.prompt_template_version, "rag-v2");
+    }
+
+    #[test]
     fn env_override_score_gate() {
         let mut env = HashMap::new();
         env.insert("KEBAB_RAG_SCORE_GATE".to_string(), "0.5".to_string());
@@ -962,7 +968,7 @@ snippet_chars = 220
 stale_threshold_days = 30
 
 [rag]
-prompt_template_version = "rag-v1"
+prompt_template_version = "rag-v2"
 score_gate = 0.30
 explain_default = false
 max_context_tokens = 8000
