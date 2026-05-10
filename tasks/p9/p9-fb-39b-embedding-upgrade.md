@@ -4,7 +4,7 @@ component: kebab-embed-local + kebab-config + kebab-store-vector + docs
 task_id: p9-fb-39b
 title: "Embedding model upgrade (multilingual-e5-large)"
 status: completed
-target_version: 0.7.0
+target_version: 0.6.0
 depends_on: [p9-fb-39]
 unblocks: []
 contract_source: ../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md
@@ -24,7 +24,7 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — Claude Code 가 kebab CLI
 - `multilingual-e5-small` (384 dim) → `multilingual-e5-large` (1024 dim) default flip.
 - 기존 user TOML 이 small 명시 시 그대로 유지 (backwards-compat).
 - fb-23 incremental ingest 가 embedding_version mismatch 감지 → 자동 re-embed.
-- 0.6 → 0.7 minor bump 트리거 (design §9 cascade rule).
+- 0.5 → 0.6 minor bump 트리거 (design §9 cascade rule, current Cargo.toml = 0.5.0).
 
 ## 구현 항목
 
