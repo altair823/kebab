@@ -448,6 +448,7 @@ mod tests {
             // pin UNIX_EPOCH + stale=false so hits stay deterministic.
             indexed_at: OffsetDateTime::UNIX_EPOCH,
             stale: false,
+            score_kind: kebab_core::ScoreKind::Rrf,
         }
     }
 
