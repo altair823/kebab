@@ -27,7 +27,7 @@ cargo build --release                          # produces target/release/kebab
 
 `-j 1` for the full workspace test isn't optional: 18 integration-test binaries each link `lance` + `datafusion` + `arrow` + `tantivy` and the parallel link step exhausts memory (linker gets SIGKILL'd, build silently fails partway). Per-crate runs are fine in parallel.
 
-`target/` is 6–10 GB after a fresh build (DataFusion + Lance + fastembed + 18 × test-binary debug info). The dev/test profile is already trimmed (`debug = "line-tables-only"`, `split-debuginfo = "unpacked"` — see workspace `Cargo.toml`). Run `cargo clean` after phase merges if disk pressure shows up; backtraces still resolve to function + line.
+`target/` is 6–10 GB after a fresh build but **balloons to 90+ GB after a few task cycles** (each fb-* batch adds incremental compile artifacts on top of the existing 18 × test-binary debug info). The dev/test profile is already trimmed (`debug = "line-tables-only"`, `split-debuginfo = "unpacked"` — see workspace `Cargo.toml`). Run `cargo clean` **routinely after each merged PR**, not just "if pressure shows up" — disk space is tight and recovery via `cargo clean` is cheap (one re-link per crate on next build). Verified pattern: 92 GB → 0 GB in seconds, backtraces still resolve to function + line.
 
 ## The facade rule
 
