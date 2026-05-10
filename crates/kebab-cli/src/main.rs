@@ -1365,6 +1365,7 @@ fn print_schema_text(s: &kebab_app::SchemaV1) {
         ("http_daemon", s.capabilities.http_daemon),
         ("mcp_server", s.capabilities.mcp_server),
         ("single_file_ingest", s.capabilities.single_file_ingest),
+        ("bulk_search", s.capabilities.bulk_search),
     ];
     for (name, on) in caps {
         let mark = if on { "✓" } else { "✗" };

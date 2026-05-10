@@ -83,7 +83,7 @@ kebab doctor
 | `kebab schema [--json]` | introspection — wire schemas / capabilities / models / stats 한 번에. `--json` 은 `schema.v1` wire; 사람 모드는 서식 출력. **stats 에 (p9-fb-37) `media_breakdown` (5 keys: markdown / pdf / image / audio / other) + `lang_breakdown` (BCP-47 코드, NULL 은 literal `"null"`) + `index_bytes` (sqlite + lancedb on-disk 합계) + `stale_doc_count` (`config.search.stale_threshold_days` 초과 doc 수) 추가.** |
 | `kebab ingest-file <path>` | 단일 파일 ingest (workspace 외부 가능). 바이트는 `<workspace.root>/_external/<hash12>.<ext>` 로 copy. `.kebabignore` 매치 시 stderr warn 후 진행 (explicit ingest 가 bypass intent). |
 | `kebab ingest-stdin --title <T> [--source-uri <URI>]` | stdin 의 markdown 본문 ingest. frontmatter (title + source_uri) 자동 prepend. v1 markdown only. |
-| `kebab mcp` | MCP (Model Context Protocol) stdio server. agent host (Claude Code / Cursor / OpenAI Agents) 가 spawn 하여 tool 호출 (`search` / `bulk_search` / `ask` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`). `--config` honor. |
+| `kebab mcp` | MCP (Model Context Protocol) stdio server. agent host (Claude Code / Cursor / OpenAI Agents) 가 spawn 하여 tool 호출 (`search` / `bulk_search` / `ask` / `fetch` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`). `--config` honor. |
 
 모든 명령에 `--json` 플래그. 출력은 frozen wire schema v1 (`schema_version` 항상 포함, 예: `ingest_report.v1`, `ingest_progress.v1`, `search_hit.v1`, `answer.v1`, `doctor.v1`, `reset_report.v1`, `schema.v1`). `--json` 모드에서 fatal error 는 stderr 에 `error.v1` ndjson 으로 emit (exit code 0/1/2/3 unchanged).
 
@@ -198,7 +198,7 @@ config 예시는 [docs/SMOKE.md](docs/SMOKE.md) 의 `/tmp/kebab-smoke/config.tom
 
 ## MCP 사용
 
-`kebab mcp` 가 stdio MCP server. 7 tool: `search` / `bulk_search` (p9-fb-42 — N query 한 번에) / `ask` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`.
+`kebab mcp` 가 stdio MCP server. 8 tool: `search` / `bulk_search` (p9-fb-42 — N query 한 번에) / `ask` / `fetch` (p9-fb-35) / `schema` / `doctor` / `ingest_file` / `ingest_stdin`.
 
 Claude Code 빠른 등록 (`~/.claude/mcp.json` 또는 host 동등 위치):
 
