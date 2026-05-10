@@ -21,7 +21,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use kebab_core::{
     ChunkId, ChunkerVersion, DocumentId, Embedder, EmbeddingInput, EmbeddingKind,
-    IndexVersion, RetrievalDetail, Retriever, SearchHit, SearchMode, SearchQuery,
+    IndexVersion, RetrievalDetail, Retriever, ScoreKind, SearchHit, SearchMode, SearchQuery,
     SourceSpan, VectorHit, VectorStore, WorkspacePath,
 };
 use kebab_store_sqlite::SqliteStore;
@@ -326,6 +326,7 @@ fn build_hit(
         // (called from `App::search` / `App::search_uncached`) and the equivalent
         // in `RagPipeline::ask` against the configured threshold.
         stale: false,
+        score_kind: ScoreKind::Cosine,
     })
 }
 

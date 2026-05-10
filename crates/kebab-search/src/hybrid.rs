@@ -505,6 +505,7 @@ mod tests {
             // a fixed UNIX_EPOCH so synthetic hits remain deterministic.
             indexed_at: time::OffsetDateTime::UNIX_EPOCH,
             stale: false,
+            score_kind: kebab_core::ScoreKind::Rrf,
         }
     }
 
@@ -755,6 +756,7 @@ mod tests {
                 chunker_version: ChunkerVersion("c1".into()),
                 indexed_at: time::OffsetDateTime::UNIX_EPOCH,
                 stale: false,
+                score_kind: kebab_core::ScoreKind::Rrf,
             }
         }
 
