@@ -3,10 +3,11 @@
 //!
 //! ## Why every test in this file is `#[ignore]`
 //!
-//! The first call to `FastembedEmbedder::new` downloads ~470 MB of
-//! weights from Hugging Face into `data_dir/models/fastembed/`. Doing
-//! that on every `cargo test` invocation is wasteful, so the bare
-//! invocation skips this file entirely.
+//! The first call to `FastembedEmbedder::new` downloads ~1.3 GB of
+//! weights (multilingual-e5-large per p9-fb-39b default) from Hugging
+//! Face into `data_dir/models/fastembed/`. Doing that on every
+//! `cargo test` invocation is wasteful, so the bare invocation skips
+//! this file entirely.
 //!
 //! Run the full suite with:
 //! ```text
@@ -58,19 +59,20 @@ fn shared_embedder() -> &'static FastembedEmbedder {
 // ─── construction ─────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "downloads ~470MB ONNX model on first run; CI-only"]
-fn default_config_constructs_with_dims_384() {
+#[ignore = "downloads ~1.3GB ONNX model on first run; CI-only"]
+fn default_config_constructs_with_dims_1024() {
+    // p9-fb-39b: default flipped to multilingual-e5-large (1024 dim).
     let emb = shared_embedder();
-    assert_eq!(emb.dimensions(), 384);
-    assert_eq!(emb.model_id().0, "multilingual-e5-small");
+    assert_eq!(emb.dimensions(), 1024);
+    assert_eq!(emb.model_id().0, "multilingual-e5-large");
     assert_eq!(emb.model_version().0, "v1");
 }
 
 #[test]
-#[ignore = "downloads ~470MB ONNX model on first run; CI-only"]
+#[ignore = "downloads ~1.3GB ONNX model on first run; CI-only"]
 fn mismatched_dims_in_config_errors_at_construction() {
     let (mut cfg, _tmp) = test_config();
-    cfg.models.embedding.dimensions = 512; // model is 384
+    cfg.models.embedding.dimensions = 512; // model is 1024 (e5-large default)
     // `FastembedEmbedder` deliberately does not implement `Debug`
     // (its inner ONNX session has no useful debug shape), so we
     // can't use `expect_err`; match the Result manually.
@@ -80,7 +82,7 @@ fn mismatched_dims_in_config_errors_at_construction() {
     };
     let msg = format!("{err}");
     assert!(msg.contains("dimension mismatch"), "msg={msg}");
-    assert!(msg.contains("384"), "msg={msg}");
+    assert!(msg.contains("1024"), "msg={msg}");
     assert!(msg.contains("512"), "msg={msg}");
 }
 
@@ -104,8 +106,8 @@ fn document_and_query_yield_different_vectors() {
         ])
         .expect("embed two inputs");
     assert_eq!(out.len(), 2);
-    assert_eq!(out[0].len(), 384);
-    assert_eq!(out[1].len(), 384);
+    assert_eq!(out[0].len(), 1024);
+    assert_eq!(out[1].len(), 1024);
 
     // Both vectors are L2-normalized → cosine similarity == dot product.
     let cos: f32 = out[0]
@@ -142,11 +144,11 @@ fn output_vectors_are_l2_normalized() {
     ];
     let out = emb.embed(&inputs).expect("embed");
     // Per `kebab_embed::assert_unit_norm` docs: `5e-4` is the safe bound at
-    // 384 dims (f32::EPSILON × √384 ≈ 2.3e-6, but ONNX kernels add
+    // 1024 dims (f32::EPSILON × √1024 ≈ 2.3e-6, but ONNX kernels add
     // their own per-component noise; 1e-3 is very generous and matches
     // the spec's `± 1e-3`).
     kebab_embed::assert_unit_norm(&out, 1e-3);
-    kebab_embed::assert_vector_shape(&out, 384);
+    kebab_embed::assert_vector_shape(&out, 1024);
 }
 
 // ─── determinism ──────────────────────────────────────────────────────
@@ -254,7 +256,7 @@ fn snapshot_aggregate_hash_is_stable() {
     // Round every component to 4 decimal places, hash deterministically.
     let mut hasher = DefaultHasher::new();
     for (i, v) in out.iter().enumerate() {
-        assert_eq!(v.len(), 384, "row {i} dim mismatch");
+        assert_eq!(v.len(), 1024, "row {i} dim mismatch");
         for x in v {
             let rounded: i32 = (*x * 1.0e4).round() as i32;
             rounded.hash(&mut hasher);

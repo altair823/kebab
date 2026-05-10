@@ -1,8 +1,9 @@
 //! `kb-embed-local` — `FastembedEmbedder`, a local ONNX-backed
 //! [`Embedder`](kebab_embed::Embedder) implementation.
 //!
-//! Wraps [`fastembed::TextEmbedding`] for the default `multilingual-e5-small`
-//! (384-dim) model. Honors `config.models.embedding.batch_size` and applies
+//! Wraps [`fastembed::TextEmbedding`]. Default is `multilingual-e5-large`
+//! (1024-dim, p9-fb-39b); `multilingual-e5-small` (384-dim) is also supported
+//! for backwards-compat. Honors `config.models.embedding.batch_size` and applies
 //! the e5 prefix convention (§11.3 of the design report):
 //!
 //! * `EmbeddingKind::Document` → `"passage: "` prefix
@@ -69,9 +70,9 @@ impl FastembedEmbedder {
             .with_context(|| format!("create fastembed cache dir {}", cache_dir.display()))?;
 
         // 2. Resolve the fastembed enum variant from
-        //    `config.models.embedding.model`. Currently only the default
-        //    `multilingual-e5-small` is wired; other model names error
-        //    out with a clear message rather than silently misconfiguring.
+        //    `config.models.embedding.model`. Currently `multilingual-e5-large`
+        //    (default) and `multilingual-e5-small` are wired; other model names
+        //    error out with a clear message rather than silently misconfiguring.
         let model_name = resolve_model(&config.models.embedding.model)?;
 
         // 3. Verify dim match BEFORE loading the model — if the config
@@ -100,7 +101,7 @@ impl FastembedEmbedder {
             target: "kebab-embed-local",
             model = %config.models.embedding.model,
             cache_dir = %cache_dir.display(),
-            "loading embedding model (first run will download ~470MB)"
+            "loading embedding model (first run downloads model weights — ~470MB for e5-small, ~1.3GB for e5-large)"
         );
         let inner = TextEmbedding::try_new(opts)
             .context("fastembed: TextEmbedding::try_new")?;

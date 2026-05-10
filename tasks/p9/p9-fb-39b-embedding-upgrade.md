@@ -62,14 +62,15 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — Claude Code 가 kebab CLI
 ## Backward compat notes
 
 - Pre-fb-39b user 가 config 에서 명시하지 않은 embedding → new default (large) 자동 적용. TOML 에 `model = "multilingual-e5-small"` 명시하면 유지.
-- `kebab_app::config::Config` 의 `embedding_model` field 는 Optional 이므로 old config (small) 도 parse 성공 (v1 설계 §9 cascade 규칙).
+- `kebab-config` 의 `EmbeddingCfg.model` 은 String 필드 — TOML 에 명시한 값이 default 를 override (serde 기본 동작).
 - Orphan LanceDB table (`chunk_embeddings_multilingual-e5-small_384`) 은 다음 `kebab ingest` 실행 후 stale 취급 — 사용자가 수동 `kebab reset --vector-only` 로 정리 가능.
 
 ## Binary version bump
 
-- 0.6.0 → 0.7.0 (design §9 cascade rule: embedding_model change = minor bump).
+- 0.5.0 → 0.6.0 (current Cargo.toml = 0.5.0; embedding_version cascade triggers minor bump per design §9).
 - Release notes: `embedding default: multilingual-e5-small (384d) → multilingual-e5-large (1024d), P@k metric ↑`.
 
 ## Post-merge deviation
 
-None — 설계 contract 대로 구현 완료.
+- **`embedding_dim_mismatch` ErrorV1 dropped**: design spec §Migration policy 가 `LanceVectorStore::open` 안 dim mismatch 감지 + 신규 `error.v1.code = "embedding_dim_mismatch"` 를 명시했으나 구현에서 제외. 이유: LanceDB tables 가 `(model, dim)` namespaced (`crates/kebab-store-vector/src/paths.rs:21`) — 신규 model 변경 시 새 table 자동 생성, 옛 table orphan. dim mismatch 가 hard error 되지 않고 검색 결과 0건 (silent precision loss) 으로 surface. HOTFIXES 항목이 documentation source. 명시 error 가 의미 있으려면 별도 startup health check 필요 — fb-39c 후보 또는 v0.7.0 의 doctor 확장.
+- 영향: 사용자가 model 변경 후 `kebab ingest` 안 하면 검색 결과 0건. README + SMOKE walkthrough 가 reset --vector-only && ingest 시퀀스 안내.

@@ -5,14 +5,14 @@ edition       = { workspace = true }
 rust-version  = { workspace = true }
 license       = { workspace = true }
 repository    = { workspace = true }
-description   = "Local fastembed-rs adapter implementing kb_core::Embedder (multilingual-e5-small default)"
+description   = "Local fastembed-rs adapter implementing kb_core::Embedder (multilingual-e5-large default, e5-small backwards-compat)"
 
 [dependencies]
 kebab-config = { path = "../kebab-config" }
 kebab-embed = { path = "../kebab-embed" }
 # Default features bring `ort-download-binaries` (bundled ONNX runtime)
 # and `hf-hub-native-tls` (first-run model download). No extra features
-# needed for the multilingual-e5-small path.
+# needed for the multilingual-e5-{small,large} paths.
 fastembed = { workspace = true }
 tracing   = { workspace = true }
 anyhow    = { workspace = true }

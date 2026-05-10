@@ -26,7 +26,9 @@ git history.
 
 **search/ask 결과**: re-embed 전까지는 empty hit (새 모델에 데이터가 없음). `kebab ingest` 후 정상 검색 가능.
 
-**Spec contract 와의 관계**: design §5 (storage) + §9 (versioning cascade) 의 embedding_model.id / dimensions 변경. embedding_version bump 아님 — 동일 binary 에서 config 만 변경해도 진행 가능 (cascade rule 준수).
+**Spec contract 와의 관계**: design §5 (storage) + §9 (versioning cascade) 의 embedding_model.id / dimensions 변경. wire 의 `embedding_version` 필드 (kebab-app schema.v1.models.embedding_version 가 config.models.embedding.model 값을 그대로 emit) 변경 — CLAUDE.md cascade rule 의 release 트리거. 본 PR 머지 후 `chore: bump version 0.5 → 0.6` + tag 필요.
+
+**Spec deviation**: design `2026-05-10-p9-fb-39b-embedding-upgrade-design.md` 의 §Migration policy + §Public surface delta 가 `LanceVectorStore::open` 안 신규 `error.v1.code = "embedding_dim_mismatch"` 명시했으나 구현 제외. 이유: LanceDB tables 가 `(model, dim)` namespaced — silent orphan + empty-hit 으로 surface (hard error 아님). 명시 error 필요 시 별도 startup health check 작업 필요 (fb-39c 후보 또는 doctor 확장).
 
 ## 2026-05-09 — p9-fb-34: search wire wrapped in search_response.v1
 
