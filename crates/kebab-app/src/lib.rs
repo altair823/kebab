@@ -55,6 +55,7 @@ use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
 
 mod app;
+mod bulk;
 pub mod cursor;
 pub mod doctor_signal;
 pub mod error_signal;
@@ -72,6 +73,8 @@ pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown
 pub use reset::{ResetReport, ResetScope};
 pub use error_wire::{ERROR_V1_ID, ErrorV1, StructuredError, classify};
 pub use fetch::fetch_with_config;
+#[doc(hidden)]
+pub use bulk::{BULK_QUERIES_MAX, bulk_search_with_config};
 pub use schema::{Capabilities, Models, SCHEMA_V1_ID, SchemaV1, Stats, WireBlock, schema_with_config};
 pub use staleness::{compute_stale, mark_stale_in_place};
 
