@@ -201,6 +201,20 @@ pub fn wire_fetch_result(r: &kebab_core::FetchResult) -> Value {
     tag_object(v, "fetch_result.v1")
 }
 
+/// p9-fb-42: tag a `BulkSearchItem` (already serialized as a Value)
+/// as `bulk_search_item.v1`. The inner `query` / `response` / `error`
+/// fields stay verbatim — only the envelope gets the schema_version stamp.
+pub fn wire_bulk_search_item(item: &kebab_core::BulkSearchItem) -> Value {
+    let mut v = serde_json::to_value(item).expect("BulkSearchItem serializes");
+    if let Value::Object(ref mut map) = v {
+        map.insert(
+            "schema_version".to_string(),
+            Value::String("bulk_search_item.v1".to_string()),
+        );
+    }
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
