@@ -80,6 +80,7 @@ pub fn render_cheatsheet(f: &mut Frame, area: Rect, app: &App) {
         ("Delete", "remove char at cursor"),
         ("g", "open hit's citation in $EDITOR (Normal)"),
         ("o", "inspect selected hit's chunk (Normal — was `i` pre-fb-21)"),
+        ("t", "open retrieval trace popup (Normal — p9-fb-37)"),
         ("i", "Normal → Insert (toggle back to typing)"),
         ("Esc", "back to Library"),
     ]);

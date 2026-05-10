@@ -130,6 +130,21 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
         if event::poll(POLL_INTERVAL)? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    // p9-fb-37: trace popup eats keys while open.
+                    // Sits ahead of cheatsheet + mode + pane dispatch
+                    // so Esc / j / k / arrows route to the popup
+                    // instead of leaking through to the search pane.
+                    if app.trace_popup.is_some() {
+                        let close = if let Some(popup) = app.trace_popup.as_mut() {
+                            crate::trace_popup::handle_key_trace_popup(popup, key)
+                        } else {
+                            false
+                        };
+                        if close {
+                            app.trace_popup = None;
+                        }
+                        continue;
+                    }
                     // p9-fb-13: cheatsheet popup toggle takes
                     // precedence over both mode + pane dispatch.
                     // F1 toggles open/close. While visible, Esc
@@ -255,12 +270,40 @@ fn render_root(f: &mut Frame, app: &App) {
     }
     render_status_bar(f, outer[2], app);
     render_key_hints(f, outer[3], app);
+    // p9-fb-37: trace popup overlays on top of pane content but
+    // below the error overlay (errors are higher-priority modal).
+    if let Some(popup) = &app.trace_popup {
+        let popup_area = centered_rect(80, 80, f.area());
+        crate::trace_popup::render_trace_popup(f, popup_area, popup);
+    }
     if let Some(err) = &app.error_overlay {
         render_error_overlay(f, f.area(), err, &app.theme);
     }
     if app.cheatsheet_visible {
         crate::cheatsheet::render_cheatsheet(f, f.area(), app);
     }
+}
+
+/// p9-fb-37: centered sub-rect helper for the trace popup. Returns
+/// a rect of `percent_x` × `percent_y` percent of `r`, centered.
+fn centered_rect(percent_x: u16, percent_y: u16, r: ratatui::layout::Rect) -> ratatui::layout::Rect {
+    use ratatui::layout::{Constraint, Direction, Layout};
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }
 
 fn render_header(f: &mut Frame, area: Rect, app: &App) {

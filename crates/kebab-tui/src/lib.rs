@@ -27,6 +27,7 @@ mod run;
 mod search;
 mod terminal;
 mod theme;
+pub mod trace_popup;
 
 pub use input::{InputBuffer, display_width, place_cursor_x, truncate_to_display_width};
 pub use theme::{Palette, Role, Theme};

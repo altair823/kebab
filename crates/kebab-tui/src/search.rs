@@ -209,6 +209,49 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
     // pre-fb-12 SHIFT/none heuristic).
     let is_normal = state.mode == crate::app::Mode::Normal;
 
+    // p9-fb-37: `t` opens the trace popup. Re-runs the last submitted
+    // query with SearchOpts.trace = true. Bypasses cache by going
+    // through `search_with_opts_with_config` (Task 5 wires opts.trace
+    // to skip the LRU cache).
+    if is_normal
+        && matches!(
+            (key.code, key.modifiers),
+            (KeyCode::Char('t'), KeyModifiers::NONE)
+        )
+    {
+        let (last_query, has_results) = {
+            let s = state.search.as_ref().unwrap();
+            (s.last_query.clone(), !s.hits.is_empty())
+        };
+        if !has_results {
+            return KeyOutcome::Continue;
+        }
+        if let Some((q_text, q_mode)) = last_query {
+            let q = kebab_core::SearchQuery {
+                text: q_text,
+                mode: q_mode,
+                k: state.config.search.default_k,
+                filters: kebab_core::SearchFilters::default(),
+            };
+            let opts = kebab_core::SearchOpts {
+                trace: true,
+                ..Default::default()
+            };
+            match kebab_app::search_with_opts_with_config(state.config.clone(), q, opts) {
+                Ok(resp) => {
+                    if let Some(t) = resp.trace {
+                        state.trace_popup = Some(crate::trace_popup::TracePopupState::new(t));
+                    }
+                }
+                Err(_) => {
+                    // Silent failure — trace is debug-only; user
+                    // can still see search hits without it.
+                }
+            }
+        }
+        return KeyOutcome::Continue;
+    }
+
     // p9-fb-21: chunk-inspect rebound from `i` to `o` (vim "open").
     // The `i` key is now the universal Normal→Insert toggle (handled
     // in `mode_intercept`), so it cannot also mean "inspect chunk"
