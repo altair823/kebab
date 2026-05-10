@@ -118,6 +118,7 @@ pub fn handle(state: &KebabAppState, input: SearchInput) -> CallToolResult {
         max_tokens: input.max_tokens,
         snippet_chars: input.snippet_chars,
         cursor: input.cursor,
+        trace: false,
     };
     let cfg_clone = (*state.config).clone();
     match kebab_app::search_with_opts_with_config(cfg_clone, query, opts) {

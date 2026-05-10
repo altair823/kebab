@@ -732,6 +732,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 max_tokens: *max_tokens,
                 snippet_chars: *snippet_chars,
                 cursor: cursor.clone(),
+                trace: false,
             };
             // p9-fb-34: budget-aware path. --no-cache still bypasses the
             // App-level LRU; wire wrapper applies regardless.

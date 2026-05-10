@@ -264,6 +264,7 @@ mod tests {
             hits: vec![],
             next_cursor: Some("opaque-cursor-abc".to_string()),
             truncated: true,
+            trace: None,
         };
         let v = wire_search_response(&r);
         assert_eq!(schema_of(&v), Some("search_response.v1"));
@@ -303,6 +304,10 @@ mod tests {
             stats: Stats {
                 doc_count: 1, chunk_count: 2, asset_count: 1,
                 last_ingest_at: None,
+                media_breakdown: Default::default(),
+                lang_breakdown: Default::default(),
+                index_bytes: Default::default(),
+                stale_doc_count: 0,
             },
         };
         let v = wire_schema(&schema);
