@@ -604,6 +604,12 @@ pub struct CountSummary {
     /// ISO-8601 timestamp of the most-recently updated document row, or
     /// `None` when the store is empty.
     pub last_ingest_at: Option<String>,
+    /// p9-fb-37: per-media-kind doc count (5 keys, zero-padded).
+    pub media_breakdown: std::collections::BTreeMap<String, u64>,
+    /// p9-fb-37: per-language doc count, NULL keyed as `"null"`.
+    pub lang_breakdown: std::collections::BTreeMap<String, u64>,
+    /// p9-fb-37: docs whose `updated_at < now - threshold_days`. 0 when threshold=0.
+    pub stale_doc_count: u64,
 }
 
 impl SqliteStore {
@@ -611,38 +617,57 @@ impl SqliteStore {
     /// most-recent `documents.updated_at` timestamp.
     ///
     /// Uses `read_conn()` (no mutations) — mirrors the pattern used by
-    /// [`Self::corpus_revision`].
-    pub fn count_summary(&self) -> anyhow::Result<CountSummary> {
+    /// Shared helper: counts and breakdowns in a single pass with given threshold.
+    fn count_summary_inner(&self, threshold_days: u64) -> anyhow::Result<CountSummary> {
+        use anyhow::Context;
+        use rusqlite::OptionalExtension;
+
         let conn = self.read_conn();
 
         let doc_count: u64 = conn
             .query_row("SELECT COUNT(*) FROM documents", [], |r| r.get(0))
             .context("count documents")?;
-
         let chunk_count: u64 = conn
             .query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get(0))
             .context("count chunks")?;
-
         let asset_count: u64 = conn
             .query_row("SELECT COUNT(*) FROM assets", [], |r| r.get(0))
             .context("count assets")?;
-
         let last_ingest_at: Option<String> = conn
-            .query_row(
-                "SELECT MAX(updated_at) FROM documents",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT MAX(updated_at) FROM documents", [], |r| r.get(0))
             .optional()
             .context("max updated_at")?
             .flatten();
+
+        let bd = crate::stats_ext::breakdowns(&conn, threshold_days).context("breakdowns")?;
 
         Ok(CountSummary {
             doc_count,
             chunk_count,
             asset_count,
             last_ingest_at,
+            media_breakdown: bd.media,
+            lang_breakdown: bd.lang,
+            stale_doc_count: bd.stale_doc_count,
         })
+    }
+
+    /// [`Self::corpus_revision`].
+    pub fn count_summary(&self) -> anyhow::Result<CountSummary> {
+        // p9-fb-37: default uses threshold_days=0 (matches fb-32 disable
+        // semantics). Callers that need real stale_doc_count call
+        // count_summary_with_threshold.
+        self.count_summary_inner(0)
+    }
+
+    /// p9-fb-37: variant that honors `config.search.stale_threshold_days`.
+    /// Callers who need a meaningful `stale_doc_count` (e.g. `kebab schema`)
+    /// pass the configured threshold; the older `count_summary` returns 0.
+    pub fn count_summary_with_threshold(
+        &self,
+        threshold_days: u64,
+    ) -> anyhow::Result<CountSummary> {
+        self.count_summary_inner(threshold_days)
     }
 }
 
@@ -681,6 +706,9 @@ mod tests {
         assert_eq!(s.chunk_count, 0);
         assert_eq!(s.asset_count, 0);
         assert!(s.last_ingest_at.is_none());
+        assert_eq!(s.media_breakdown.len(), 5);
+        assert!(s.lang_breakdown.is_empty());
+        assert_eq!(s.stale_doc_count, 0);
     }
 }
 

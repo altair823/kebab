@@ -18,11 +18,14 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Result;
 use kebab_core::{
-    IndexVersion, RetrievalDetail, Retriever, SearchHit, SearchMode, SearchQuery,
+    IndexVersion, RetrievalDetail, Retriever, SearchHit, SearchMode, SearchQuery, SearchTrace,
 };
+
+use crate::trace::{build_fusion_input_skeleton, candidates_from_hits, ScoreKind, TraceBuilder};
 
 /// Default `k_rrf` if `kb-config::SearchCfg::rrf_k` is misconfigured.
 /// Matches §6.4's documented default (60).
@@ -145,20 +148,22 @@ impl Retriever for HybridRetriever {
 impl HybridRetriever {
     fn fuse(&self, query: &SearchQuery) -> Result<Vec<SearchHit>> {
         let target_k = if query.k == 0 { self.default_k } else { query.k };
-
-        // Fanout: ask each retriever for `target_k * MULTIPLIER` so
-        // the disjoint set of candidates is wide enough. The two
-        // per-side queries are identical (same text, k, mode, filters);
-        // only the dispatch differs, so we share one `SearchQuery`.
         let fanout_k = target_k.saturating_mul(HYBRID_FANOUT_MULTIPLIER);
         let lex_query = SearchQuery {
             k: fanout_k,
             ..query.clone()
         };
-
         let lex_hits = self.lexical.search(&lex_query)?;
         let vec_hits = self.vector.search(&lex_query)?;
+        self.fuse_with_inputs(&lex_hits, &vec_hits, target_k)
+    }
 
+    fn fuse_with_inputs(
+        &self,
+        lex_hits: &[SearchHit],
+        vec_hits: &[SearchHit],
+        target_k: usize,
+    ) -> Result<Vec<SearchHit>> {
         tracing::debug!(
             lex = lex_hits.len(),
             vec = vec_hits.len(),
@@ -171,11 +176,13 @@ impl HybridRetriever {
         // already 1-based by both LexicalRetriever and VectorRetriever
         // (and any well-behaved Retriever should mirror).
         let lex_index: HashMap<String, (u32, SearchHit)> = lex_hits
-            .into_iter()
+            .iter()
+            .cloned()
             .map(|h| (h.chunk_id.0.clone(), (h.rank, h)))
             .collect();
         let vec_index: HashMap<String, (u32, SearchHit)> = vec_hits
-            .into_iter()
+            .iter()
+            .cloned()
             .map(|h| (h.chunk_id.0.clone(), (h.rank, h)))
             .collect();
 
@@ -311,6 +318,85 @@ impl HybridRetriever {
 
         tracing::debug!(rows = hits.len(), "kb-search hybrid: search done");
         Ok(hits)
+    }
+
+    /// p9-fb-37: parallel to `Retriever::search` but additionally returns
+    /// a trace of pre-fusion lex/vec lists, RRF inputs (union with each
+    /// side's rank), and per-stage timing.
+    pub fn search_with_trace(
+        &self,
+        query: &SearchQuery,
+    ) -> anyhow::Result<(Vec<SearchHit>, SearchTrace)> {
+        let start_total = Instant::now();
+        let target_k = if query.k == 0 { self.default_k } else { query.k };
+        let fanout_k = target_k.saturating_mul(HYBRID_FANOUT_MULTIPLIER);
+        let fanout_query = SearchQuery {
+            k: fanout_k,
+            ..query.clone()
+        };
+
+        let mut tb = TraceBuilder::default();
+
+        let (lex_hits, vec_hits): (Vec<SearchHit>, Vec<SearchHit>) = match query.mode {
+            SearchMode::Lexical => {
+                let t0 = Instant::now();
+                let lh = self.lexical.search(&fanout_query)?;
+                tb.timing.lexical_ms = t0.elapsed().as_millis() as u64;
+                (lh, Vec::new())
+            }
+            SearchMode::Vector => {
+                let t0 = Instant::now();
+                let vh = self.vector.search(&fanout_query)?;
+                tb.timing.vector_ms = t0.elapsed().as_millis() as u64;
+                (Vec::new(), vh)
+            }
+            SearchMode::Hybrid => {
+                let t0 = Instant::now();
+                let lh = self.lexical.search(&fanout_query)?;
+                tb.timing.lexical_ms = t0.elapsed().as_millis() as u64;
+                let t1 = Instant::now();
+                let vh = self.vector.search(&fanout_query)?;
+                tb.timing.vector_ms = t1.elapsed().as_millis() as u64;
+                (lh, vh)
+            }
+        };
+
+        tb.lexical = candidates_from_hits(&lex_hits, ScoreKind::Lexical);
+        tb.vector = candidates_from_hits(&vec_hits, ScoreKind::Vector);
+        tb.rrf_inputs = build_fusion_input_skeleton(&lex_hits, &vec_hits);
+
+        let t_fusion = Instant::now();
+        let final_hits = match query.mode {
+            SearchMode::Lexical => {
+                let mut h = lex_hits.clone();
+                h.truncate(target_k);
+                h
+            }
+            SearchMode::Vector => {
+                let mut h = vec_hits.clone();
+                h.truncate(target_k);
+                h
+            }
+            SearchMode::Hybrid => self.fuse_with_inputs(&lex_hits, &vec_hits, target_k)?,
+        };
+        tb.timing.fusion_ms = t_fusion.elapsed().as_millis() as u64;
+
+        let score_by_chunk: std::collections::HashMap<String, f32> = final_hits
+            .iter()
+            .map(|h| (h.chunk_id.0.clone(), h.retrieval.fusion_score))
+            .collect();
+        for entry in &mut tb.rrf_inputs {
+            if let Some(s) = score_by_chunk.get(&entry.chunk_id.0) {
+                entry.fusion_score = *s;
+            }
+        }
+
+        // total_ms is wall-clock from start; per-stage `lexical_ms` /
+        // `vector_ms` / `fusion_ms` each truncate to whole millis via
+        // `as_millis() as u64`, so their sum can drift below total
+        // (sub-ms losses) — DO NOT assert `total_ms >= sum(stages)`.
+        tb.timing.total_ms = start_total.elapsed().as_millis() as u64;
+        Ok((final_hits, tb.into_trace()))
     }
 }
 
@@ -632,5 +718,108 @@ mod tests {
     fn parse_fusion_zero_k_falls_back_to_default() {
         let FusionPolicy::Rrf { k_rrf } = parse_fusion("rrf", 0);
         assert_eq!(k_rrf, DEFAULT_K_RRF);
+    }
+
+    #[test]
+    fn search_with_trace_returns_lex_and_vec_lists() {
+        use kebab_core::{ChunkId, DocumentId, IndexVersion, ChunkerVersion,
+                         RetrievalDetail, SearchHit, SearchMode, SearchQuery,
+                         WorkspacePath, Citation};
+        use std::sync::Arc;
+
+        fn mk_hit(rank: u32, chunk: &str, score: f32, mode: SearchMode) -> SearchHit {
+            SearchHit {
+                rank,
+                chunk_id: ChunkId(chunk.into()),
+                doc_id: DocumentId(format!("d-{chunk}")),
+                doc_path: WorkspacePath::new(format!("{chunk}.md")).unwrap(),
+                heading_path: vec![],
+                section_label: None,
+                snippet: chunk.into(),
+                citation: Citation::Line {
+                    path: WorkspacePath::new(format!("{chunk}.md")).unwrap(),
+                    start: 1,
+                    end: 1,
+                    section: None,
+                },
+                retrieval: RetrievalDetail {
+                    method: mode,
+                    fusion_score: score,
+                    lexical_score: if mode == SearchMode::Lexical { Some(score) } else { None },
+                    vector_score: if mode == SearchMode::Vector { Some(score) } else { None },
+                    lexical_rank: if mode == SearchMode::Lexical { Some(rank) } else { None },
+                    vector_rank: if mode == SearchMode::Vector { Some(rank) } else { None },
+                },
+                index_version: IndexVersion("v1".into()),
+                embedding_model: None,
+                chunker_version: ChunkerVersion("c1".into()),
+                indexed_at: time::OffsetDateTime::UNIX_EPOCH,
+                stale: false,
+            }
+        }
+
+        struct Stub { hits: Vec<SearchHit> }
+        impl Retriever for Stub {
+            fn search(&self, _q: &SearchQuery) -> anyhow::Result<Vec<SearchHit>> {
+                Ok(self.hits.clone())
+            }
+            fn index_version(&self) -> IndexVersion { IndexVersion("v1".into()) }
+        }
+
+        let lex = Arc::new(Stub {
+            hits: vec![
+                mk_hit(1, "c1", 0.9, SearchMode::Lexical),
+                mk_hit(2, "c2", 0.5, SearchMode::Lexical),
+            ],
+        });
+        let vec_r = Arc::new(Stub {
+            hits: vec![
+                mk_hit(1, "c2", 0.8, SearchMode::Vector),
+                mk_hit(2, "c3", 0.6, SearchMode::Vector),
+            ],
+        });
+        let hybrid = HybridRetriever::with_policy(
+            lex.clone(),
+            vec_r.clone(),
+            FusionPolicy::Rrf { k_rrf: 60 },
+            2,
+        );
+        let q = SearchQuery {
+            text: "x".into(),
+            mode: SearchMode::Hybrid,
+            k: 2,
+            filters: Default::default(),
+        };
+        let (hits, trace) = hybrid.search_with_trace(&q).unwrap();
+        assert!(!hits.is_empty());
+        assert_eq!(trace.lexical.len(), 2);
+        assert_eq!(trace.vector.len(), 2);
+        // Union: c1, c2, c3 → 3 entries.
+        assert_eq!(trace.rrf_inputs.len(), 3);
+    }
+
+    #[test]
+    fn search_with_trace_lexical_mode_empty_vector() {
+        use kebab_core::{IndexVersion, SearchMode, SearchQuery};
+        use std::sync::Arc;
+        struct EmptyR;
+        impl Retriever for EmptyR {
+            fn search(&self, _q: &SearchQuery) -> anyhow::Result<Vec<kebab_core::SearchHit>> {
+                Ok(vec![])
+            }
+            fn index_version(&self) -> IndexVersion { IndexVersion("v1".into()) }
+        }
+        let lex = Arc::new(EmptyR);
+        let vec_r = Arc::new(EmptyR);
+        let hybrid = HybridRetriever::with_policy(lex, vec_r, FusionPolicy::Rrf { k_rrf: 60 }, 2);
+        let q = SearchQuery {
+            text: "x".into(),
+            mode: SearchMode::Lexical,
+            k: 2,
+            filters: Default::default(),
+        };
+        let (_hits, trace) = hybrid.search_with_trace(&q).unwrap();
+        assert!(trace.vector.is_empty());
+        assert_eq!(trace.timing.vector_ms, 0);
     }
 }

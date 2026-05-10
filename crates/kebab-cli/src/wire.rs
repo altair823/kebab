@@ -81,11 +81,17 @@ pub fn wire_search_hit(h: &SearchHit) -> Value {
 /// array (`wire_search_hits`) — see HOTFIXES / fb-34 for the
 /// breaking shape change.
 pub fn wire_search_response(r: &kebab_app::SearchResponse) -> Value {
-    let v = serde_json::json!({
+    let mut v = serde_json::json!({
         "hits": r.hits.iter().map(wire_search_hit).collect::<Vec<_>>(),
         "next_cursor": r.next_cursor,
         "truncated": r.truncated,
     });
+    if let Some(trace) = &r.trace {
+        let trace_v = serde_json::to_value(trace).expect("SearchTrace serializes");
+        if let Value::Object(ref mut map) = v {
+            map.insert("trace".to_string(), trace_v);
+        }
+    }
     tag_object(v, "search_response.v1")
 }
 
@@ -264,6 +270,7 @@ mod tests {
             hits: vec![],
             next_cursor: Some("opaque-cursor-abc".to_string()),
             truncated: true,
+            trace: None,
         };
         let v = wire_search_response(&r);
         assert_eq!(schema_of(&v), Some("search_response.v1"));
@@ -303,6 +310,10 @@ mod tests {
             stats: Stats {
                 doc_count: 1, chunk_count: 2, asset_count: 1,
                 last_ingest_at: None,
+                media_breakdown: Default::default(),
+                lang_breakdown: Default::default(),
+                index_bytes: Default::default(),
+                stale_doc_count: 0,
             },
         };
         let v = wire_schema(&schema);
@@ -342,5 +353,50 @@ mod tests {
         let paths = v.get("removed_paths").and_then(Value::as_array).unwrap();
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].as_str(), Some("/tmp/x"));
+    }
+
+    #[test]
+    fn search_response_with_trace_serializes_trace_field() {
+        use kebab_core::{SearchTrace, TraceCandidate, TraceFusionInput,
+                         TraceTiming, ChunkId, DocumentId, WorkspacePath};
+        let r = kebab_app::SearchResponse {
+            hits: vec![],
+            next_cursor: None,
+            truncated: false,
+            trace: Some(SearchTrace {
+                lexical: vec![TraceCandidate {
+                    chunk_id: ChunkId("c1".into()),
+                    doc_id: DocumentId("d1".into()),
+                    doc_path: WorkspacePath::new("a.md".into()).unwrap(),
+                    rank: 1,
+                    score: 0.42,
+                }],
+                vector: vec![],
+                rrf_inputs: vec![TraceFusionInput {
+                    chunk_id: ChunkId("c1".into()),
+                    lexical_rank: Some(1),
+                    vector_rank: None,
+                    fusion_score: 0.0,
+                }],
+                timing: TraceTiming { lexical_ms: 5, vector_ms: 0, fusion_ms: 1, total_ms: 7 },
+            }),
+        };
+        let v = wire_search_response(&r);
+        assert_eq!(schema_of(&v), Some("search_response.v1"));
+        assert!(v["trace"].is_object());
+        assert_eq!(v["trace"]["timing"]["lexical_ms"], 5);
+        assert_eq!(v["trace"]["lexical"][0]["chunk_id"], "c1");
+    }
+
+    #[test]
+    fn search_response_without_trace_omits_field() {
+        let r = kebab_app::SearchResponse {
+            hits: vec![],
+            next_cursor: None,
+            truncated: false,
+            trace: None,
+        };
+        let v = wire_search_response(&r);
+        assert!(v.get("trace").is_none(), "trace field absent when None");
     }
 }

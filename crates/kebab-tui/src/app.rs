@@ -387,6 +387,8 @@ pub struct App {
     pub ask: Option<AskState>,
     /// Populated by p9-4.
     pub inspect: Option<InspectState>,
+    /// p9-fb-37: trace popup state, `Some` while open.
+    pub trace_popup: Option<crate::trace_popup::TracePopupState>,
     /// Populated by p9-fb-03 when the user kicks off an in-shell
     /// ingest (Library `r`). Cleared by the run loop a few seconds
     /// after the run reaches a terminal event.
@@ -461,6 +463,7 @@ impl App {
             search: None,
             ask: None,
             inspect: None,
+            trace_popup: None,
             ingest_state: None,
             error_overlay: None,
             should_quit: false,

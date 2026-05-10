@@ -48,7 +48,7 @@ Use when the user wants to **find** a doc, or when you (the model) need raw chun
 
 Input:
 ```json
-{ "query": "<query>", "mode": "hybrid", "k": 10, "max_tokens": null, "snippet_chars": null, "cursor": null, "tags": null, "lang": null, "path_glob": null, "trust_min": null, "media": null, "ingested_after": null, "doc_id": null }
+{ "query": "<query>", "mode": "hybrid", "k": 10, "max_tokens": null, "snippet_chars": null, "cursor": null, "tags": null, "lang": null, "path_glob": null, "trust_min": null, "media": null, "ingested_after": null, "doc_id": null, "trace": null }
 ```
 
 - `mode = "hybrid"` is the default-correct choice. Use `"vector"` for semantic-only ("docs about X concept"), `"lexical"` for exact strings ("the literal flag `--foo-bar`").
@@ -57,6 +57,7 @@ Input:
 - Output is `search_response.v1`: `{ hits: search_hit.v1[], next_cursor: string|null, truncated: bool }`. Iterate `response.hits[]` for individual hits. Key hit fields: `rank`, `score`, `doc_path`, `heading_path[]`, `section_label`, `snippet`, `citation` (line range / page), `chunk_id`.
 - Cite back to the user as `doc_path § heading_path[-1]` so they can open the source.
 - When `truncated: true`, the budget loop modified the page (snippet shortening or k reduction). `next_cursor` is **independent** — non-null whenever more hits may be reachable. Caller may widen `max_tokens` (re-issue same query for fuller snippets / more hits per page) or follow `next_cursor` (advance through more hits) or both. Mismatched cursor (corpus_revision changed) returns `error.v1.code = stale_cursor` — re-issue the search to obtain a fresh one.
+- **`trace: true` (p9-fb-37)** — debug aid. Response carries an extra `trace` block: `lexical[]` + `vector[]` (pre-fusion candidates), `rrf_inputs[]` (RRF union before final cut), and `timing` (`lexical_ms`, `vector_ms`, `fusion_ms`, `total_ms`). Trace bypasses the search cache (always cold). Use sparingly — it bloats the wire response and is for diagnosing "why did this hit / not hit", not normal retrieval.
 
 ### `mcp__kebab__ask` — when you need the answer
 
@@ -133,7 +134,7 @@ Claude Code spawns `kebab mcp` at session start; the process stays alive across 
 
 Before using streaming or multi-turn features, probe what this binary supports — call `mcp__kebab__schema` (or CLI `kebab schema --json`):
 
-Returns `schema.v1`: `wire.schemas` (supported wire ids), `capabilities` (bool flags — e.g. `streaming_ask`, `rag_multi_turn`), `models` (version cascade 6-axis), `stats` (doc/chunk/asset count + last_ingest_at). Gate streaming / session flows on `capabilities.streaming_ask` / `capabilities.rag_multi_turn` being `true`. Cheap call (no LLM), once per session.
+Returns `schema.v1`: `wire.schemas` (supported wire ids), `capabilities` (bool flags — e.g. `streaming_ask`, `rag_multi_turn`), `models` (version cascade 6-axis), `stats` (doc/chunk/asset count + last_ingest_at, plus p9-fb-37 health surface: `media_breakdown` per-kind doc counts (5 zero-padded keys: markdown / pdf / image / audio / other), `lang_breakdown` per BCP-47 lang (NULL keyed as the literal string `"null"`), `index_bytes.{sqlite,lancedb}` on-disk byte sums, `stale_doc_count` for docs older than `config.search.stale_threshold_days`). Gate streaming / session flows on `capabilities.streaming_ask` / `capabilities.rag_multi_turn` being `true`. Cheap call (no LLM), once per session.
 
 ## Quick health check
 

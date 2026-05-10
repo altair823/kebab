@@ -54,6 +54,30 @@
             { "type": "string", "format": "date-time" },
             { "type": "null" }
           ]
+        },
+        "media_breakdown": {
+          "type": "object",
+          "description": "p9-fb-37: per-media-kind doc count. 5 keys (markdown/pdf/image/audio/other), zero-padded.",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "lang_breakdown": {
+          "type": "object",
+          "description": "p9-fb-37: per-language doc count. NULL lang keyed as the literal string 'null'. Map may be empty on empty corpus.",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "index_bytes": {
+          "type": "object",
+          "description": "p9-fb-37: on-disk byte sums.",
+          "required": ["sqlite", "lancedb"],
+          "properties": {
+            "sqlite":  { "type": "integer", "minimum": 0 },
+            "lancedb": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "stale_doc_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "p9-fb-37: docs whose updated_at exceeds config.search.stale_threshold_days. 0 when threshold=0."
         }
       }
     }

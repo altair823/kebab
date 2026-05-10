@@ -163,6 +163,14 @@ enum Cmd {
         /// p9-fb-36: filter to a single doc by id.
         #[arg(long)]
         doc_id: Option<String>,
+
+        /// p9-fb-37: emit pre-fusion lexical / vector / RRF candidate
+        /// lists + per-stage timing in the response. Bypasses cache
+        /// (debug intent — fresh run guaranteed). Requires embeddings
+        /// when `--mode hybrid` or `--mode vector`; lexical mode runs
+        /// without embeddings via a no-op vector stub.
+        #[arg(long)]
+        trace: bool,
     },
 
     /// Retrieval-augmented question answering.
@@ -669,6 +677,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             media,
             ingested_after,
             doc_id,
+            trace,
         } => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
 
@@ -732,6 +741,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 max_tokens: *max_tokens,
                 snippet_chars: *snippet_chars,
                 cursor: cursor.clone(),
+                trace: *trace,
             };
             // p9-fb-34: budget-aware path. --no-cache still bypasses the
             // App-level LRU; wire wrapper applies regardless.
@@ -788,6 +798,22 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 if resp.truncated {
                     let next = resp.next_cursor.as_deref().unwrap_or("(none)");
                     eprintln!("[truncated; use --cursor {next} for the next page]");
+                }
+                if *trace {
+                    if let Some(t) = &resp.trace {
+                        eprintln!();
+                        eprintln!("Trace:");
+                        eprintln!("  lexical ({} hits, {}ms):", t.lexical.len(), t.timing.lexical_ms);
+                        for c in t.lexical.iter().take(3) {
+                            eprintln!("    rank={} score={:.4} chunk={}", c.rank, c.score, c.chunk_id.0);
+                        }
+                        eprintln!("  vector ({} hits, {}ms):", t.vector.len(), t.timing.vector_ms);
+                        for c in t.vector.iter().take(3) {
+                            eprintln!("    rank={} score={:.4} chunk={}", c.rank, c.score, c.chunk_id.0);
+                        }
+                        eprintln!("  fusion ({} inputs, {}ms)", t.rrf_inputs.len(), t.timing.fusion_ms);
+                        eprintln!("  total: {}ms", t.timing.total_ms);
+                    }
                 }
             }
             Ok(())

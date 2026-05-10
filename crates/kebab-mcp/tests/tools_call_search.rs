@@ -65,6 +65,7 @@ async fn search_tool_returns_search_response_v1() {
             media: None,
             ingested_after: None,
             doc_id: None,
+            trace: None,
         },
     );
 
@@ -166,6 +167,7 @@ async fn search_with_doc_id_filter_returns_only_target() {
             media: None,
             ingested_after: None,
             doc_id: None,
+            trace: None,
         },
     );
     assert!(
@@ -204,6 +206,7 @@ async fn search_with_doc_id_filter_returns_only_target() {
             media: None,
             ingested_after: None,
             doc_id: Some(target_doc_id.clone()),
+            trace: None,
         },
     );
     assert!(
@@ -260,6 +263,7 @@ async fn search_with_invalid_ingested_after_returns_invalid_input() {
             media: None,
             ingested_after: Some("garbage".to_string()),
             doc_id: None,
+            trace: None,
         },
     );
 
