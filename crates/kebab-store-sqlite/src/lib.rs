@@ -28,6 +28,7 @@ mod fts;
 mod jobs;
 mod schema;
 mod store;
+pub mod stats_ext;
 
 pub use embeddings::EmbeddingRecordRow;
 pub use error::StoreError;
