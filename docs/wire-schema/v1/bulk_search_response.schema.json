@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/bulk_search_response.schema.json",
+  "title": "BulkSearchResponse v1",
+  "description": "p9-fb-42: MCP envelope for bulk_search. CLI emits raw `bulk_search_item.v1` ndjson without this envelope (summary on stderr).",
+  "type": "object",
+  "required": ["schema_version", "results", "summary"],
+  "properties": {
+    "schema_version": { "const": "bulk_search_response.v1" },
+    "results": {
+      "type": "array",
+      "items": { "type": "object", "description": "bulk_search_item.v1" }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total", "succeeded", "failed"],
+      "properties": {
+        "total":     { "type": "integer", "minimum": 0 },
+        "succeeded": { "type": "integer", "minimum": 0 },
+        "failed":    { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

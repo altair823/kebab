@@ -28,11 +28,12 @@ User-specific trigger keywords (team names, system names, internal acronyms) bel
 
 ## MCP tools (preferred)
 
-When `kebab` is registered as an MCP server (see `~/.claude/mcp.json` example below), seven tools are exposed as `mcp__kebab__<name>`:
+When `kebab` is registered as an MCP server (see `~/.claude/mcp.json` example below), eight tools are exposed as `mcp__kebab__<name>`:
 
 | tool | purpose | mutation |
 |------|---------|----------|
 | `mcp__kebab__search` | corpus search → `search_response.v1` (`{hits, next_cursor, truncated}`) | no |
+| `mcp__kebab__bulk_search` | N queries in one call → `bulk_search_response.v1` (`{results, summary}`) | no |
 | `mcp__kebab__ask` | RAG answer → `answer.v1` | no |
 | `mcp__kebab__fetch` | verbatim text → `fetch_result.v1` (chunk / doc / span) | no |
 | `mcp__kebab__schema` | capability discovery → `schema.v1` | no |
@@ -59,6 +60,17 @@ Input:
 - Cite back to the user as `doc_path § heading_path[-1]` so they can open the source.
 - When `truncated: true`, the budget loop modified the page (snippet shortening or k reduction). `next_cursor` is **independent** — non-null whenever more hits may be reachable. Caller may widen `max_tokens` (re-issue same query for fuller snippets / more hits per page) or follow `next_cursor` (advance through more hits) or both. Mismatched cursor (corpus_revision changed) returns `error.v1.code = stale_cursor` — re-issue the search to obtain a fresh one.
 - **`trace: true` (p9-fb-37)** — debug aid. Response carries an extra `trace` block: `lexical[]` + `vector[]` (pre-fusion candidates), `rrf_inputs[]` (RRF union before final cut), and `timing` (`lexical_ms`, `vector_ms`, `fusion_ms`, `total_ms`). Trace bypasses the search cache (always cold). Use sparingly — it bloats the wire response and is for diagnosing "why did this hit / not hit", not normal retrieval.
+
+### `mcp__kebab__bulk_search`
+
+N개 query 한 번에 — agent loop 효율 개선. 각 query 는 `mcp__kebab__search` 와 동일 input shape (query 필수, 나머지 optional). Cap 100.
+
+Input:
+```json
+{"queries": [{"query": "..."}, {"query": "...", "mode": "lexical"}, ...]}
+```
+
+Output: `bulk_search_response.v1` envelope — `results: [bulk_search_item.v1]` (각 item = `{query, response | null, error | null}`) + `summary: {total, succeeded, failed}`. Per-query 실패는 item 의 error 에 격리, 다른 query 계속 진행.
 
 ### `mcp__kebab__ask` — when you need the answer
 

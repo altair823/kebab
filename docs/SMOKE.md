@@ -222,6 +222,23 @@ kebab --config /tmp/kebab-smoke/config.toml schema --json | jq .stats
 
 Look for: `media_breakdown` (5 keys), `lang_breakdown`, `index_bytes`, `stale_doc_count`.
 
+### Bulk multi-query (fb-42)
+
+Stdin ndjson으로 N query 한 번에:
+
+```bash
+printf '{"query":"rust","mode":"lexical"}\n{"query":"async","mode":"lexical"}\n' \
+  | kebab --config /tmp/kebab-smoke/config.toml search --bulk --json
+```
+
+stdout: per-query ndjson (`bulk_search_item.v1`). stderr: `bulk_summary: total=2 succeeded=2 failed=0`.
+
+MCP tool 동등:
+
+```json
+{"name":"kebab__bulk_search","arguments":{"queries":[{"query":"rust"},{"query":"async"}]}}
+```
+
 ## P6-4 이미지 ingestion 옵션
 
 `config.toml` 에 다음 절을 추가하면 `kebab ingest` 가 `**/*.png` / `**/*.jpg` 등 이미지 자산도 함께 색인합니다 (텍스트만 색인하려면 생략):

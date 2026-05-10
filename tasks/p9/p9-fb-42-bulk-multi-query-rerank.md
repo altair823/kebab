@@ -3,7 +3,7 @@ phase: P9
 component: kebab-cli + kebab-search
 task_id: p9-fb-42
 title: "Bulk multi-query + re-rank hint — agent loop 효율"
-status: open
+status: completed
 target_version: 0.6.0+
 depends_on: []
 unblocks: []
@@ -14,7 +14,10 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — agent 가 N 개 query 동
 
 # p9-fb-42 — Bulk multi-query + re-rank hint
 
-> ⏳ **백로그 only — 미구현 (Nice-to-have).** 본 spec 은 도그푸딩 피드백 skeleton. 구현 착수 전 [superpowers:brainstorming](../../docs/superpowers/) 으로 설계 단계 선행 필요. multi-query input 형식 / 결과 합성 정책 / re-rank hint 의 LLM 호출 비용 brainstorm 후 확정.
+> ✅ **Bulk multi-query 부분 구현 완료.** 본 spec 의 rerank hint lever 는 별도 task 로 분리 (fb-39 cross-encoder 설계 후).
+>
+> - Design: [`docs/superpowers/specs/2026-05-10-p9-fb-42-bulk-multi-query-design.md`](../../docs/superpowers/specs/2026-05-10-p9-fb-42-bulk-multi-query-design.md)
+> - Plan: [`docs/superpowers/plans/2026-05-10-p9-fb-42-bulk-multi-query.md`](../../docs/superpowers/plans/2026-05-10-p9-fb-42-bulk-multi-query.md)
 
 ## 증상 / 동기
 

@@ -86,6 +86,8 @@ const WIRE_SCHEMAS: &[&str] = &[
     "citation.v1",
     "schema.v1",
     "error.v1",
+    "bulk_search_item.v1",
+    "bulk_search_response.v1",
 ];
 
 /// Build a [`SchemaV1`] introspection report for the given config.

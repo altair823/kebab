@@ -311,7 +311,7 @@ mod tests {
                 json_mode: true, ingest_progress: true, ingest_cancellation: true,
                 rag_multi_turn: true, search_cache: true, incremental_ingest: true,
                 streaming_ask: false, http_daemon: false, mcp_server: false,
-                single_file_ingest: false,
+                single_file_ingest: false, bulk_search: true,
             },
             models: Models {
                 parser_version: "x".to_string(),
