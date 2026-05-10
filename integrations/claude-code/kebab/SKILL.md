@@ -48,11 +48,12 @@ Use when the user wants to **find** a doc, or when you (the model) need raw chun
 
 Input:
 ```json
-{ "query": "<query>", "mode": "hybrid", "k": 10, "max_tokens": null, "snippet_chars": null, "cursor": null }
+{ "query": "<query>", "mode": "hybrid", "k": 10, "max_tokens": null, "snippet_chars": null, "cursor": null, "tags": null, "lang": null, "path_glob": null, "trust_min": null, "media": null, "ingested_after": null, "doc_id": null }
 ```
 
 - `mode = "hybrid"` is the default-correct choice. Use `"vector"` for semantic-only ("docs about X concept"), `"lexical"` for exact strings ("the literal flag `--foo-bar`").
 - **`max_tokens` / `snippet_chars` / `cursor` (p9-fb-34)** — agent budget controls. Set `max_tokens` to cap result wire size (chars/4 estimate); set `cursor` to the previous response's `next_cursor` to fetch the next page.
+- **p9-fb-36 filter inputs:** `tags` (string array — OR-within, AND across keys), `lang` (BCP-47 language code), `path_glob` (glob pattern matched against doc path), `trust_min` (`"primary"` | `"secondary"` | `"generated"` — includes that level and above), `media` (string array — IN-list of `"markdown"` | `"pdf"` | `"image"` | `"audio"` | `"other"`; alias `"md"` → `"markdown"`), `ingested_after` (RFC3339 UTC string), `doc_id` (exact doc UUID). AND combinator across keys. Invalid `ingested_after` or unknown `trust_min` → `error.v1.code = invalid_input`. Unknown `media` value → empty hits, no error.
 - Output is `search_response.v1`: `{ hits: search_hit.v1[], next_cursor: string|null, truncated: bool }`. Iterate `response.hits[]` for individual hits. Key hit fields: `rank`, `score`, `doc_path`, `heading_path[]`, `section_label`, `snippet`, `citation` (line range / page), `chunk_id`.
 - Cite back to the user as `doc_path § heading_path[-1]` so they can open the source.
 - When `truncated: true`, the budget loop modified the page (snippet shortening or k reduction). `next_cursor` is **independent** — non-null whenever more hits may be reachable. Caller may widen `max_tokens` (re-issue same query for fuller snippets / more hits per page) or follow `next_cursor` (advance through more hits) or both. Mismatched cursor (corpus_revision changed) returns `error.v1.code = stale_cursor` — re-issue the search to obtain a fresh one.

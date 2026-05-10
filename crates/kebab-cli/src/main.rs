@@ -131,6 +131,38 @@ enum Cmd {
         /// `corpus_revision` returns `error.v1.code = stale_cursor`.
         #[arg(long)]
         cursor: Option<String>,
+
+        /// p9-fb-36: filter by `metadata.tags`. Repeatable; OR-within (any tag).
+        #[arg(long)]
+        tag: Vec<String>,
+
+        /// p9-fb-36: filter by `documents.lang` (ISO code).
+        #[arg(long)]
+        lang: Option<String>,
+
+        /// p9-fb-36: filter by `documents.workspace_path` glob.
+        #[arg(long)]
+        path_glob: Option<String>,
+
+        /// p9-fb-36: filter by minimum `documents.trust_level`.
+        #[arg(long, value_enum)]
+        trust_min: Option<TrustLevelFlag>,
+
+        /// p9-fb-36: filter by `assets.media_type` kind. Comma-separated.
+        /// Aliases: `md` → `markdown`. Other accepted: `markdown`, `pdf`,
+        /// `image`, `audio`, `other`. Unknown values match nothing.
+        #[arg(long, value_delimiter = ',')]
+        media: Vec<String>,
+
+        /// p9-fb-36: filter to docs whose `updated_at` is >= this RFC3339
+        /// timestamp (UTC). Invalid format → exit 2 with error.v1
+        /// code = config_invalid.
+        #[arg(long)]
+        ingested_after: Option<String>,
+
+        /// p9-fb-36: filter to a single doc by id.
+        #[arg(long)]
+        doc_id: Option<String>,
     },
 
     /// Retrieval-augmented question answering.
@@ -347,6 +379,25 @@ impl From<ModeFlag> for kebab_core::SearchMode {
             ModeFlag::Lexical => kebab_core::SearchMode::Lexical,
             ModeFlag::Vector => kebab_core::SearchMode::Vector,
             ModeFlag::Hybrid => kebab_core::SearchMode::Hybrid,
+        }
+    }
+}
+
+/// p9-fb-36: clap value enum for `--trust-min`. Maps to
+/// `kebab_core::TrustLevel` via `From`.
+#[derive(clap::ValueEnum, Clone, Debug)]
+enum TrustLevelFlag {
+    Primary,
+    Secondary,
+    Generated,
+}
+
+impl From<TrustLevelFlag> for kebab_core::TrustLevel {
+    fn from(f: TrustLevelFlag) -> Self {
+        match f {
+            TrustLevelFlag::Primary => kebab_core::TrustLevel::Primary,
+            TrustLevelFlag::Secondary => kebab_core::TrustLevel::Secondary,
+            TrustLevelFlag::Generated => kebab_core::TrustLevel::Generated,
         }
     }
 }
@@ -611,13 +662,71 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             max_tokens,
             snippet_chars,
             cursor,
+            tag,
+            lang,
+            path_glob,
+            trust_min,
+            media,
+            ingested_after,
+            doc_id,
         } => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+
+            // p9-fb-36: normalize --media aliases (md → markdown).
+            fn normalize_media_alias(s: &str) -> String {
+                match s.to_ascii_lowercase().as_str() {
+                    "md" => "markdown".to_string(),
+                    other => other.to_string(),
+                }
+            }
+            let media_norm: Vec<String> =
+                media.iter().map(|s| normalize_media_alias(s)).collect();
+
+            // p9-fb-36: parse --ingested-after as RFC3339; structured error on failure.
+            let ingested_after_parsed: Option<time::OffsetDateTime> =
+                match ingested_after.as_deref() {
+                    Some(s) => {
+                        match time::OffsetDateTime::parse(
+                            s,
+                            &time::format_description::well_known::Rfc3339,
+                        ) {
+                            Ok(ts) => Some(ts),
+                            Err(e) => {
+                                return Err(anyhow::Error::new(
+                                    kebab_app::StructuredError(kebab_app::ErrorV1 {
+                                        schema_version: kebab_app::ERROR_V1_ID.to_string(),
+                                        code: "config_invalid".to_string(),
+                                        message: format!(
+                                            "--ingested-after: invalid RFC3339 timestamp '{s}': {e}"
+                                        ),
+                                        details: serde_json::Value::Null,
+                                        hint: Some(
+                                            "expected format like 2026-04-01T00:00:00Z".to_string(),
+                                        ),
+                                    }),
+                                ));
+                            }
+                        }
+                    }
+                    None => None,
+                };
+
+            // p9-fb-36: build SearchFilters from the 7 new flags.
+            let filters = kebab_core::SearchFilters {
+                tags_any: tag.clone(),
+                lang: lang.as_ref().map(|s| kebab_core::Lang(s.clone())),
+                path_glob: path_glob.clone(),
+                trust_min: trust_min.clone().map(Into::into),
+                media: media_norm,
+                ingested_after: ingested_after_parsed,
+                doc_id: doc_id.as_ref().map(|s| kebab_core::DocumentId(s.clone())),
+            };
+
             let q = kebab_core::SearchQuery {
                 text: query.clone(),
                 mode: (*mode).into(),
                 k: *k,
-                filters: kebab_core::SearchFilters::default(),
+                filters,
             };
             let opts = kebab_core::SearchOpts {
                 max_tokens: *max_tokens,

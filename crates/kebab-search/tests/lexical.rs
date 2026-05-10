@@ -8,11 +8,15 @@
 use std::sync::Arc;
 
 use kebab_config::Config;
-use kebab_core::{IndexVersion, Lang, Retriever, SearchFilters, SearchMode, SearchQuery, TrustLevel};
+use kebab_core::{
+    DocumentId, IndexVersion, Lang, MediaType, Retriever, SearchFilters, SearchHit, SearchMode,
+    SearchQuery, TrustLevel,
+};
 use kebab_search::LexicalRetriever;
 use kebab_store_sqlite::SqliteStore;
 use rusqlite::Connection;
 use tempfile::TempDir;
+use time::OffsetDateTime;
 
 // ── Test scaffolding ─────────────────────────────────────────────────────
 
@@ -677,6 +681,210 @@ fn search_hit_carries_indexed_at_from_documents_updated_at() {
     assert!(delta < 60, "indexed_at within ±60s of now, got {delta}s");
     // stale is a placeholder set by the retriever; the App layer overwrites.
     assert!(!hit.stale, "lexical retriever must default stale=false");
+}
+
+// ── TestEnv helper for fb-36 filter tests ───────────────────────────────
+
+/// Convenience wrapper over `Env` that exposes higher-level fixture helpers
+/// for the fb-36 filter tests.  Intentionally kept separate from `Env` so
+/// the original tests are untouched.
+struct TestEnv {
+    inner: Env,
+    counter: std::cell::Cell<u32>,
+}
+
+impl TestEnv {
+    fn new() -> Self {
+        Self {
+            inner: Env::new(),
+            counter: std::cell::Cell::new(0),
+        }
+    }
+
+    /// Allocate a fresh monotone counter suffix so every inserted doc / chunk
+    /// gets a unique 32-hex ID without the caller worrying about collisions.
+    fn next_id(&self, prefix: &str) -> String {
+        let n = self.counter.get();
+        self.counter.set(n + 1);
+        let suffix = format!("{prefix}{n:04}");
+        id32(&suffix)
+    }
+
+    /// Insert a markdown doc with the given `body` and return its `DocumentId`.
+    fn insert_doc(&self, path: &str, body: &str) -> DocumentId {
+        self.insert_doc_with_media(path, body, MediaType::Markdown)
+    }
+
+    /// Insert a doc whose `assets.media_type` JSON is set to the serialized
+    /// form of `media`.  The `documents.updated_at` defaults to now.
+    fn insert_doc_with_media(&self, path: &str, body: &str, media: MediaType) -> DocumentId {
+        self.insert_doc_full(path, body, media, OffsetDateTime::now_utc())
+    }
+
+    /// Insert a doc with an explicit `updated_at` timestamp (for
+    /// `ingested_after` filter tests).
+    fn insert_doc_with_updated_at(
+        &self,
+        path: &str,
+        body: &str,
+        updated_at: OffsetDateTime,
+    ) -> DocumentId {
+        self.insert_doc_full(path, body, MediaType::Markdown, updated_at)
+    }
+
+    fn insert_doc_full(
+        &self,
+        path: &str,
+        body: &str,
+        media: MediaType,
+        updated_at: OffsetDateTime,
+    ) -> DocumentId {
+        use time::format_description::well_known::Rfc3339;
+        let doc_id = self.next_id("doc");
+        let chunk_id = self.next_id("chk");
+        let asset_id = self.next_id("ast");
+        let media_json = serde_json::to_string(&media).expect("serialize MediaType");
+        let updated_at_str = updated_at.format(&Rfc3339).expect("format updated_at");
+
+        let conn = self.inner.raw_conn();
+        conn.execute(
+            "INSERT OR IGNORE INTO assets (
+                asset_id, source_uri, workspace_path, media_type, byte_len,
+                checksum, storage_kind, storage_path, discovered_at
+            ) VALUES (?, ?, ?, ?, 0,
+                      'd0', 'reference', ?, '2024-01-01T00:00:00Z')",
+            rusqlite::params![asset_id, format!("file:///{path}"), path, media_json, path],
+        )
+        .expect("insert asset");
+
+        conn.execute(
+            "INSERT INTO documents (
+                doc_id, asset_id, workspace_path, title, lang,
+                source_type, trust_level, parser_version,
+                doc_version, schema_version, metadata_json,
+                provenance_json, created_at, updated_at
+            ) VALUES (?, ?, ?, NULL, 'en', 'markdown', 'primary', 'pv1', 1, 1,
+                      '{}', '{\"events\":[]}',
+                      '2024-01-01T00:00:00Z', ?)",
+            rusqlite::params![doc_id, asset_id, path, updated_at_str],
+        )
+        .expect("insert document");
+
+        let empty_headings: Vec<&str> = vec![];
+        let heading_json = serde_json::to_string(&empty_headings).unwrap();
+        conn.execute(
+            "INSERT INTO chunks (
+                chunk_id, doc_id, text, heading_path_json, section_label,
+                source_spans_json, token_estimate, chunker_version,
+                policy_hash, block_ids_json, created_at
+            ) VALUES (?, ?, ?, ?, NULL,
+                      '[{\"kind\":\"line\",\"start\":1,\"end\":1}]',
+                      1, 'v1', 'h', '[]', '2024-01-01T00:00:00Z')",
+            rusqlite::params![chunk_id, doc_id, body, heading_json],
+        )
+        .expect("insert chunk");
+
+        DocumentId(doc_id)
+    }
+
+    fn run_search(&self, query: &str, filters: &SearchFilters) -> Vec<SearchHit> {
+        let r = self.inner.retriever();
+        let q = SearchQuery {
+            text: query.to_string(),
+            mode: SearchMode::Lexical,
+            k: 10,
+            filters: filters.clone(),
+        };
+        r.search(&q).expect("search")
+    }
+}
+
+// ── fb-36 filter tests ───────────────────────────────────────────────────
+
+#[test]
+fn lexical_filter_by_media() {
+    let env = TestEnv::new();
+    env.insert_doc_with_media("md1.md", "rust ownership", MediaType::Markdown);
+    env.insert_doc_with_media("doc.pdf", "rust pdf body", MediaType::Pdf);
+    let filters = SearchFilters {
+        media: vec!["pdf".to_string()],
+        ..Default::default()
+    };
+    let hits = env.run_search("rust", &filters);
+    assert_eq!(hits.len(), 1, "only pdf doc should match");
+    assert!(hits[0].doc_path.0.ends_with(".pdf"), "got: {}", hits[0].doc_path.0);
+}
+
+#[test]
+fn lexical_filter_by_ingested_after() {
+    let env = TestEnv::new();
+    env.insert_doc_with_updated_at(
+        "old.md",
+        "ingest test",
+        time::macros::datetime!(2020-01-01 00:00:00 UTC),
+    );
+    env.insert_doc_with_updated_at(
+        "new.md",
+        "ingest test",
+        time::macros::datetime!(2026-01-01 00:00:00 UTC),
+    );
+    let filters = SearchFilters {
+        ingested_after: Some(time::macros::datetime!(2025-01-01 00:00:00 UTC)),
+        ..Default::default()
+    };
+    let hits = env.run_search("ingest", &filters);
+    assert_eq!(hits.len(), 1, "only post-2025 doc matches");
+}
+
+#[test]
+fn lexical_filter_by_doc_id() {
+    let env = TestEnv::new();
+    let target = env.insert_doc("a.md", "shared term");
+    env.insert_doc("b.md", "shared term");
+    let filters = SearchFilters {
+        doc_id: Some(target.clone()),
+        ..Default::default()
+    };
+    let hits = env.run_search("shared", &filters);
+    assert!(!hits.is_empty(), "should get at least one hit for target doc");
+    for h in &hits {
+        assert_eq!(h.doc_id, target, "all hits must be from target doc");
+    }
+}
+
+#[test]
+fn lexical_filter_combinator_is_and() {
+    let env = TestEnv::new();
+    let target = env.insert_doc_with_media("a.md", "rust", MediaType::Markdown);
+    env.insert_doc_with_media("b.pdf", "rust", MediaType::Pdf);
+    let filters = SearchFilters {
+        media: vec!["markdown".to_string()],
+        doc_id: Some(target.clone()),
+        ..Default::default()
+    };
+    let hits = env.run_search("rust", &filters);
+    assert!(!hits.is_empty(), "target doc should match combined filter");
+    assert!(hits.iter().all(|h| h.doc_id == target));
+}
+
+#[test]
+fn lexical_filter_unknown_media_returns_empty() {
+    let env = TestEnv::new();
+    env.insert_doc("a.md", "rust");
+    let filters = SearchFilters {
+        media: vec!["nonexistent_kind".to_string()],
+        ..Default::default()
+    };
+    let hits = env.run_search("rust", &filters);
+    assert!(hits.is_empty(), "unknown media → no hits, no error");
+}
+
+#[test]
+fn lexical_empty_filters_match_default_behavior() {
+    let env = TestEnv::new();
+    env.insert_doc("a.md", "rust");
+    let with_default = env.run_search("rust", &SearchFilters::default());
+    assert!(!with_default.is_empty());
 }
 
 #[test]
