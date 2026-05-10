@@ -227,6 +227,8 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
             return KeyOutcome::Continue;
         }
         if let Some((q_text, q_mode)) = last_query {
+            // TODO: thread filters when TUI gains a filter UI (currently
+            // mirrors fire_search which also passes default filters).
             let q = kebab_core::SearchQuery {
                 text: q_text,
                 mode: q_mode,

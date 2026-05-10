@@ -158,6 +158,9 @@ pub struct TraceFusionInput {
     pub chunk_id: ChunkId,
     pub lexical_rank: Option<u32>,
     pub vector_rank: Option<u32>,
+    /// Hybrid mode: normalized RRF score in `[0, 1]`.
+    /// Lexical / Vector mode: equals the underlying retriever's score
+    /// (no fusion ran). 0.0 for chunks dropped past `target_k`.
     pub fusion_score: f32,
 }
 

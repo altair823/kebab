@@ -391,6 +391,10 @@ impl HybridRetriever {
             }
         }
 
+        // total_ms is wall-clock from start; per-stage `lexical_ms` /
+        // `vector_ms` / `fusion_ms` each truncate to whole millis via
+        // `as_millis() as u64`, so their sum can drift below total
+        // (sub-ms losses) — DO NOT assert `total_ms >= sum(stages)`.
         tb.timing.total_ms = start_total.elapsed().as_millis() as u64;
         Ok((final_hits, tb.into_trace()))
     }
