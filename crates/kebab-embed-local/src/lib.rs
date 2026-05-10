@@ -193,17 +193,18 @@ fn prefix_input(input: &EmbeddingInput<'_>) -> String {
 }
 
 /// Resolve a `config.models.embedding.model` string to a fastembed
-/// `EmbeddingModel` enum variant. Only `multilingual-e5-small` is wired
-/// for p3-2; additional model names should be added (and their dims
-/// pinned in tests) as needed.
+/// `EmbeddingModel` enum variant. Currently supports `multilingual-e5-small`
+/// (384-dim) and `multilingual-e5-large` (1024-dim); additional model names
+/// should be added (and their dims pinned in tests) as needed.
 fn resolve_model(name: &str) -> Result<EmbeddingModel> {
     match name {
         "multilingual-e5-small" => Ok(EmbeddingModel::MultilingualE5Small),
+        "multilingual-e5-large" => Ok(EmbeddingModel::MultilingualE5Large),
         other => anyhow::bail!(
             "kb-embed-local: unsupported embedding model {other:?}; \
-             this adapter currently only ships `multilingual-e5-small`. \
-             Add a new arm to `resolve_model` (and a fastembed feature \
-             flag if needed) to support more."
+             this adapter currently ships `multilingual-e5-small` and \
+             `multilingual-e5-large`. Add a new arm to `resolve_model` \
+             (and a fastembed feature flag if needed) to support more."
         ),
     }
 }
@@ -295,10 +296,31 @@ mod tests {
     }
 
     #[test]
+    fn resolve_model_supports_e5_large() {
+        let m = resolve_model("multilingual-e5-large").expect("e5-large should resolve");
+        let _ = m;
+    }
+
+    #[test]
     fn resolve_unknown_model_errors() {
         let err = resolve_model("not-a-real-model").expect_err("unknown model errors");
         let msg = format!("{err}");
         assert!(msg.contains("unsupported embedding model"), "msg={msg}");
+    }
+
+    // ── check_dim ────────────────────────────────────────────────────
+
+    #[test]
+    fn check_dim_passes_for_1024() {
+        check_dim(1024, 1024).expect("matching dims must pass");
+    }
+
+    #[test]
+    fn check_dim_rejects_384_vs_1024() {
+        let err = check_dim(384, 1024).expect_err("dim mismatch must error");
+        let msg = format!("{err}");
+        assert!(msg.contains("384") && msg.contains("1024"),
+            "error must mention both dims, got: {msg}");
     }
 
     // expand_path tests live in `kb-config::paths`. The adapter imports
