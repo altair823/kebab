@@ -184,6 +184,18 @@ pub fn render_report_md(report: &CompareReport) -> String {
             ),
         );
     }
+    for k in crate::metrics::TOP_K_VARIANTS {
+        let _ = writeln!(
+            out,
+            "| precision@{k}_chunk | {} | {} | {} |",
+            fmt(a.precision_at_k_chunk.get(k).copied().unwrap_or(f32::NAN)),
+            fmt(b.precision_at_k_chunk.get(k).copied().unwrap_or(f32::NAN)),
+            fmt_delta(
+                a.precision_at_k_chunk.get(k).copied().unwrap_or(f32::NAN),
+                b.precision_at_k_chunk.get(k).copied().unwrap_or(f32::NAN),
+            ),
+        );
+    }
     let _ = writeln!(
         out,
         "| citation_coverage | {} | {} | {} |",
@@ -419,6 +431,7 @@ fn build_deltas(
     }
     let mut hit = serde_json::Map::new();
     let mut recall = serde_json::Map::new();
+    let mut precision = serde_json::Map::new();
     for k in crate::metrics::TOP_K_VARIANTS {
         hit.insert(
             k.to_string(),
@@ -434,11 +447,19 @@ fn build_deltas(
                 b.recall_at_k_doc.get(k).copied().unwrap_or(f32::NAN),
             ),
         );
+        precision.insert(
+            k.to_string(),
+            d(
+                a.precision_at_k_chunk.get(k).copied().unwrap_or(f32::NAN),
+                b.precision_at_k_chunk.get(k).copied().unwrap_or(f32::NAN),
+            ),
+        );
     }
     serde_json::json!({
         "hit_at_k": hit,
         "mrr": d(a.mrr, b.mrr),
         "recall_at_k_doc": recall,
+        "precision_at_k_chunk": precision,
         "citation_coverage": d(a.citation_coverage, b.citation_coverage),
         "groundedness": d(a.groundedness, b.groundedness),
         "empty_result_rate": d(a.empty_result_rate, b.empty_result_rate),
