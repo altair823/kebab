@@ -26,7 +26,7 @@ fn make_session(id: &str) -> ChatSessionRow {
         created_at: 1_700_000_000,
         updated_at: 1_700_000_000,
         title: Some(format!("Title for {id}")),
-        config_snapshot_json: r#"{"prompt_template_version":"rag-v1","llm.model":"gemma4:e4b"}"#
+        config_snapshot_json: r#"{"prompt_template_version":"rag-v2","llm.model":"gemma4:e4b"}"#
             .to_string(),
     }
 }

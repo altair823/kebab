@@ -1395,7 +1395,7 @@ mod tests {
                 dimensions: None,
             },
             embedding: None,
-            prompt_template_version: PromptTemplateVersion("rag-v1".into()),
+            prompt_template_version: PromptTemplateVersion("rag-v2".into()),
             retrieval: AnswerRetrievalSummary {
                 trace_id: TraceId("ret_test".into()),
                 mode: SearchMode::Lexical,
