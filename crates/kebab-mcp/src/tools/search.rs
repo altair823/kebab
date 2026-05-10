@@ -47,6 +47,10 @@ pub struct SearchInput {
     pub ingested_after: Option<String>,
     /// p9-fb-36: filter to a single doc.
     pub doc_id: Option<String>,
+    /// p9-fb-37: when true, include a `trace` field on the response
+    /// with pre-fusion lexical/vector candidate lists + per-stage timing.
+    /// Bypasses cache (debug intent — fresh run guaranteed). Default false.
+    pub trace: Option<bool>,
 }
 
 pub fn handle(state: &KebabAppState, input: SearchInput) -> CallToolResult {
@@ -118,7 +122,7 @@ pub fn handle(state: &KebabAppState, input: SearchInput) -> CallToolResult {
         max_tokens: input.max_tokens,
         snippet_chars: input.snippet_chars,
         cursor: input.cursor,
-        trace: false,
+        trace: input.trace.unwrap_or(false),
     };
     let cfg_clone = (*state.config).clone();
     match kebab_app::search_with_opts_with_config(cfg_clone, query, opts) {
@@ -139,12 +143,19 @@ pub fn handle(state: &KebabAppState, input: SearchInput) -> CallToolResult {
                     v
                 })
                 .collect();
-            let envelope = serde_json::json!({
+            let mut envelope = serde_json::json!({
                 "schema_version": "search_response.v1",
                 "hits": tagged,
                 "next_cursor": resp.next_cursor,
                 "truncated": resp.truncated,
             });
+            if let Some(trace) = &resp.trace {
+                let trace_v =
+                    serde_json::to_value(trace).unwrap_or(serde_json::Value::Null);
+                if let serde_json::Value::Object(ref mut map) = envelope {
+                    map.insert("trace".to_string(), trace_v);
+                }
+            }
             match serde_json::to_string(&envelope) {
                 Ok(json) => to_tool_success(json),
                 Err(e) => to_tool_error(&anyhow::anyhow!(e)),

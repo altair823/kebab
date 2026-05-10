@@ -69,6 +69,7 @@ async fn fetch_tool_chunk_returns_fetch_result_v1() {
             media: None,
             ingested_after: None,
             doc_id: None,
+            trace: None,
         },
     );
     let search_text = match &search_result.content.first().unwrap().raw {
