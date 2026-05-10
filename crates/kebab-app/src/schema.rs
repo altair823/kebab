@@ -32,6 +32,7 @@ pub struct Capabilities {
     pub http_daemon: bool,
     pub mcp_server: bool,
     pub single_file_ingest: bool,
+    pub bulk_search: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,6 +124,7 @@ fn capabilities_snapshot() -> Capabilities {
         http_daemon: false,
         mcp_server: true,
         single_file_ingest: false,
+        bulk_search: true,
     }
 }
 

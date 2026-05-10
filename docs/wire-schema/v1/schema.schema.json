@@ -24,7 +24,7 @@
       "required": [
         "json_mode", "ingest_progress", "ingest_cancellation",
         "rag_multi_turn", "search_cache", "incremental_ingest",
-        "streaming_ask", "http_daemon", "mcp_server", "single_file_ingest"
+        "streaming_ask", "http_daemon", "mcp_server", "single_file_ingest", "bulk_search"
       ]
     },
     "models": {
