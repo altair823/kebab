@@ -3,7 +3,7 @@ phase: P9
 component: kebab-search + kebab-app + wire-schema
 task_id: p9-fb-38
 title: "Score semantics 노출 + 문서화 (RRF score 천장 / 채널별 score 분리)"
-status: open
+status: completed
 target_version: 0.5.0
 depends_on: []
 unblocks: []
@@ -14,7 +14,10 @@ source_feedback: 사용자 도그푸딩 2026-05-06 — Claude Code 가 kebab CLI
 
 # p9-fb-38 — Score semantics 노출 + 문서화
 
-> ⏳ **백로그 only — 미구현.** 본 spec 은 도그푸딩 피드백 skeleton. 구현 착수 전 [superpowers:brainstorming](../../docs/superpowers/) 으로 설계 단계 선행 필요. score field naming / wire schema 변경 범위 / 채널별 score 노출 정책 brainstorm 후 확정.
+> ✅ **구현 완료.** 본 spec 은 구현 시점의 frozen 상태.
+>
+> - Design: [`docs/superpowers/specs/2026-05-10-p9-fb-38-score-semantics-design.md`](../../docs/superpowers/specs/2026-05-10-p9-fb-38-score-semantics-design.md)
+> - Plan: [`docs/superpowers/plans/2026-05-10-p9-fb-38-score-semantics.md`](../../docs/superpowers/plans/2026-05-10-p9-fb-38-score-semantics.md)
 
 ## 증상 / 동기
 

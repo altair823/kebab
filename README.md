@@ -89,6 +89,32 @@ kebab doctor
 
 글로벌 플래그: `--readonly` (또는 `KEBAB_READONLY=1`) — 모든 write-path 명령 (`ingest` / `ingest-file` / `ingest-stdin` / `reset`) 을 비활성화, exit 1. `--quiet` — 진행 바 / hint 등 human-readable stderr 억제 (exit code / stdout 출력은 그대로). `KEBAB_PROGRESS=plain` — TTY 가 없는 환경에서도 진행 상황을 plain-text 한 줄씩 stderr 로 출력 (spinner 대신).
 
+### Score 해석 (fb-38)
+
+`search_hit.v1.score` 는 **ranking signal** 이지 confidence 가 아니다. `score_kind` 필드로 의미 선언:
+
+| `score_kind` | 의미 | 범위 |
+|--------------|------|------|
+| `rrf` (hybrid) | RRF normalized | `[0, 1]`, ceiling = 1.0 (양 채널 rank=1) |
+| `bm25` (lexical) | raw BM25 | unbounded (≥ 0) |
+| `cosine` (vector) | cosine sim | `[-1, 1]` |
+
+#### RRF 수식 (hybrid mode)
+
+```
+chunk c 의 raw RRF = Σ_m  1 / (k_rrf + rank_m(c))
+
+여기서 m ∈ {lexical, vector}, k_rrf = config.search.rrf_k (default 60).
+양 채널 모두 rank=1 일 때 raw RRF = 2 / (k_rrf + 1) ≈ 0.0328.
+
+normalize: rrf_score = raw_rrf / (2 / (k_rrf + 1))
+       → rrf_score ∈ [0, 1]. 양쪽 rank=1 → 1.0, 한 쪽만 등장 → ≈ 0.5 천장.
+```
+
+`rrf_score = 0.5` 의 의미: chunk 가 한 채널 (lexical 또는 vector) 에서만 rank 1 로 등장. confidence 50% 가 아님 — RRF 수식의 산술적 천장.
+
+agent 가 trust threshold 가 필요하면 top-level `score` 가 아닌 nested `retrieval.lexical_score` (BM25 raw) / `retrieval.vector_score` (cosine raw) 사용.
+
 ## 논리 아키텍처
 
 ```mermaid

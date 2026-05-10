@@ -24,6 +24,11 @@
     "schema_version": { "const": "search_hit.v1" },
     "rank":            { "type": "integer", "minimum": 1 },
     "score":           { "type": "number" },
+    "score_kind": {
+      "type": "string",
+      "enum": ["rrf", "bm25", "cosine"],
+      "description": "p9-fb-38: kind of `score` value. `rrf` = RRF normalized [0,1] (hybrid mode); `bm25` = raw BM25 score (lexical-only); `cosine` = raw cosine similarity (vector-only). Older clients that omit this field can treat absence as `rrf` (the historical default)."
+    },
     "chunk_id":        { "type": "string" },
     "doc_id":          { "type": "string" },
     "doc_path":        { "type": "string" },

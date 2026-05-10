@@ -194,6 +194,7 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
   "schema_version": "search_hit.v1",
   "rank": 1,
   "score": 0.82,
+  "score_kind": "rrf",
   "chunk_id": "9b4a8c1e7d3f2a05",
   "doc_id":   "3f9a2c10ee4d6b78",
   "doc_path": "notes/rust/kebab-architecture.md",
@@ -217,6 +218,32 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
 ```
 
 `retrieval.method ∈ {lexical, vector, hybrid}`. 단독 모드 시 다른 score/rank 는 null.
+
+#### Score scale (fb-38)
+
+`score_kind` ∈ {`rrf`, `bm25`, `cosine`} 가 top-level `score` 의 의미를 선언. **ranking signal** 이지 confidence 가 아니다.
+
+| `score_kind` | mode | 의미 | 범위 |
+|--------------|------|------|------|
+| `rrf` | hybrid | RRF normalized | `[0, 1]`, ceiling = 1.0 (양 채널 rank=1) |
+| `bm25` | lexical | raw BM25 | unbounded (≥ 0) |
+| `cosine` | vector | cosine similarity | `[-1, 1]` |
+
+RRF 수식 (hybrid mode):
+
+```text
+chunk c 의 raw RRF = Σ_m  1 / (k_rrf + rank_m(c))
+
+여기서 m ∈ {lexical, vector}, k_rrf = config.search.rrf_k (default 60).
+양 채널 모두 rank=1 일 때 raw RRF = 2 / (k_rrf + 1) ≈ 0.0328.
+
+normalize: rrf_score = raw_rrf / (2 / (k_rrf + 1))
+       → rrf_score ∈ [0, 1]. 양쪽 rank=1 → 1.0, 한 쪽만 등장 → ≈ 0.5 천장.
+```
+
+`rrf_score = 0.5` = chunk 가 한 채널에서만 rank 1 로 등장 (산술적 천장). confidence 50% 아님. agent 가 trust threshold 가 필요하면 nested `retrieval.lexical_score` (BM25 raw) / `retrieval.vector_score` (cosine raw) 사용.
+
+`score_kind` 는 wire schema v1 에 **optional** 필드로 추가 (additive, backwards-compat). 누락 시 historical default `rrf` 로 해석.
 
 ### 2.3 Answer
 
