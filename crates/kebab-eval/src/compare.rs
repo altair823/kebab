@@ -484,6 +484,7 @@ mod tests {
             hit_at_k: Default::default(),
             mrr: 0.5,
             recall_at_k_doc: Default::default(),
+            precision_at_k_chunk: Default::default(),
             citation_coverage: f32::NAN,
             groundedness: 0.0,
             empty_result_rate: 0.0,

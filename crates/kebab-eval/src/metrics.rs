@@ -58,6 +58,14 @@ pub struct AggregateMetrics {
     pub hit_at_k: BTreeMap<u32, f32>,
     pub mrr: f32,
     pub recall_at_k_doc: BTreeMap<u32, f32>,
+    /// p9-fb-39: chunk-level precision at k. Binary relevance via
+    /// `expected_chunk_ids` (a hit is "relevant" if its chunk_id is
+    /// in the golden's `expected_chunk_ids`). Denominator is k (fixed)
+    /// — `hits.len() < k` still divides by k, treating shortfall as
+    /// precision loss (mirrors `hit_at_k`). Queries with empty
+    /// `expected_chunk_ids` are skipped (mirrors `hit_at_k_chunk`).
+    #[serde(default)]
+    pub precision_at_k_chunk: BTreeMap<u32, f32>,
     #[serde(
         serialize_with = "serialize_f32_nan_as_null",
         deserialize_with = "deserialize_f32_or_nan"
@@ -187,6 +195,8 @@ pub(crate) fn aggregate_from_rows(
         TOP_K_VARIANTS.iter().map(|k| (*k, (0_u32, 0_u32))).collect();
     let mut recall_at_k_doc: BTreeMap<u32, (f64, u32)> =
         TOP_K_VARIANTS.iter().map(|k| (*k, (0.0_f64, 0_u32))).collect();
+    let mut precision_at_k_chunk: BTreeMap<u32, (f64, u32)> =
+        TOP_K_VARIANTS.iter().map(|k| (*k, (0.0_f64, 0_u32))).collect();
 
     let mut mrr_sum: f64 = 0.0;
     let mut mrr_denom: u32 = 0;
@@ -242,6 +252,18 @@ pub(crate) fn aggregate_from_rows(
                 && rank <= MRR_TOP
             {
                 mrr_sum += 1.0 / f64::from(rank);
+            }
+            // p9-fb-39: precision@k_chunk — count of top-k hits whose
+            // chunk_id is in `expected`, divided by k (fixed denominator).
+            for k in TOP_K_VARIANTS {
+                let hits_in_topk_relevant = qr
+                    .hits_top_k
+                    .iter()
+                    .filter(|h| h.rank <= *k && expected.contains(&h.chunk_id))
+                    .count();
+                let entry = precision_at_k_chunk.get_mut(k).expect("init");
+                entry.0 += hits_in_topk_relevant as f64 / f64::from(*k);
+                entry.1 += 1;
             }
         }
 
@@ -333,6 +355,7 @@ pub(crate) fn aggregate_from_rows(
             mrr_sum / f64::from(mrr_denom)
         }),
         recall_at_k_doc: round_recall_map(&recall_at_k_doc),
+        precision_at_k_chunk: round_recall_map(&precision_at_k_chunk),
         citation_coverage: ratio_or_nan(citation_num, citation_denom),
         groundedness: ratio_or_zero(groundedness_num, groundedness_denom),
         empty_result_rate: ratio_or_zero(empty_result_count, total_queries),
@@ -673,5 +696,115 @@ mod tests {
         let agg = aggregate_from_rows(&queries, &rows).unwrap();
         assert_eq!(agg.failed_queries, 1);
         assert_eq!(agg.total_queries, 1);
+    }
+
+    #[test]
+    fn precision_at_k_chunk_field_default_empty_on_old_json() {
+        // Old eval_runs.metrics_json predates fb-39 — no precision_at_k_chunk field.
+        // serde(default) yields empty BTreeMap.
+        let old = serde_json::json!({
+            "hit_at_k": {"1": 0.5, "3": 0.5, "5": 0.5, "10": 0.5},
+            "mrr": 0.5,
+            "recall_at_k_doc": {"1": 0.0, "3": 0.0, "5": 0.0, "10": 0.0},
+            "citation_coverage": null,
+            "groundedness": 0.0,
+            "empty_result_rate": 0.0,
+            "refusal_correctness": null,
+            "total_queries": 1,
+            "failed_queries": 0
+        });
+        let parsed: AggregateMetrics =
+            serde_json::from_value(old).expect("backwards-compat deserialize");
+        assert!(parsed.precision_at_k_chunk.is_empty());
+    }
+
+    #[test]
+    fn precision_at_k_chunk_exact_match() {
+        // expected = [c1, c2, c3]. Top-5 hits: [c1@1, c2@2, c3@3, x@4, y@5].
+        // P@5 = 3/5 = 0.6. P@10 = 3/10 = 0.3.
+        let queries = vec![gq("q1", &["c1", "c2", "c3"], &["d1"])];
+        let rows = vec![record(
+            "q1",
+            vec![
+                hit(1, "c1", "d1"),
+                hit(2, "c2", "d1"),
+                hit(3, "c3", "d1"),
+                hit(4, "x", "d1"),
+                hit(5, "y", "d1"),
+            ],
+            None,
+            None,
+        )];
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
+        assert_eq!(agg.precision_at_k_chunk[&5], 0.6);
+        assert_eq!(agg.precision_at_k_chunk[&10], 0.3);
+    }
+
+    #[test]
+    fn precision_at_k_chunk_partial_topk_divides_by_k() {
+        // expected = [c1, c2]. Hits: only [c1@1, c2@2, x@3] (3 results).
+        // P@5 = 2/5 = 0.4 (denominator is k, not hits.len()).
+        let queries = vec![gq("q1", &["c1", "c2"], &["d1"])];
+        let rows = vec![record(
+            "q1",
+            vec![hit(1, "c1", "d1"), hit(2, "c2", "d1"), hit(3, "x", "d1")],
+            None,
+            None,
+        )];
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
+        assert_eq!(agg.precision_at_k_chunk[&5], 0.4);
+        assert_eq!(agg.precision_at_k_chunk[&10], 0.2);
+    }
+
+    #[test]
+    fn precision_at_k_chunk_zero_relevant_in_topk() {
+        // expected = [c1]. Hits: [x@1, y@2, z@3] (none relevant).
+        // P@5 = 0/5 = 0.0.
+        let queries = vec![gq("q1", &["c1"], &["d1"])];
+        let rows = vec![record(
+            "q1",
+            vec![hit(1, "x", "d1"), hit(2, "y", "d1"), hit(3, "z", "d1")],
+            None,
+            None,
+        )];
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
+        assert_eq!(agg.precision_at_k_chunk[&5], 0.0);
+    }
+
+    #[test]
+    fn precision_at_k_chunk_empty_expected_skipped() {
+        // expected_chunk_ids = []. Skipped → final BTreeMap entry value = 0.0
+        // (zero-denom path in round_recall_map). Mirrors recall_at_k_doc behavior.
+        let queries = vec![gq("q1", &[], &["d1"])];
+        let rows = vec![record("q1", vec![hit(1, "c1", "d1")], None, None)];
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
+        assert_eq!(agg.precision_at_k_chunk[&5], 0.0);
+    }
+
+    #[test]
+    fn precision_at_k_chunk_two_queries_averaged() {
+        // q1: expected=[c1], hits=[c1@1, x@2, y@3]   → P@5 = 1/5 = 0.2
+        // q2: expected=[c1, c2], hits=[c1@1, c2@2]  → P@5 = 2/5 = 0.4
+        // Avg P@5 = 0.3.
+        let queries = vec![
+            gq("q1", &["c1"], &["d1"]),
+            gq("q2", &["c1", "c2"], &["d2"]),
+        ];
+        let rows = vec![
+            record(
+                "q1",
+                vec![hit(1, "c1", "d1"), hit(2, "x", "d1"), hit(3, "y", "d1")],
+                None,
+                None,
+            ),
+            record(
+                "q2",
+                vec![hit(1, "c1", "d2"), hit(2, "c2", "d2")],
+                None,
+                None,
+            ),
+        ];
+        let agg = aggregate_from_rows(&queries, &rows).unwrap();
+        assert_eq!(agg.precision_at_k_chunk[&5], 0.3);
     }
 }
