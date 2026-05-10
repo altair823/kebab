@@ -1,7 +1,7 @@
-//! MCP (Model Context Protocol) server over stdio. Exposes 7 tools
+//! MCP (Model Context Protocol) server over stdio. Exposes 8 tools
 //! (`search` / `ask` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`
-//! / `fetch`) backed by `kebab-app` facade methods. Used by `kebab-cli`'s
-//! `Cmd::Mcp` arm.
+//! / `fetch` / `bulk_search`) backed by `kebab-app` facade methods. Used by
+//! `kebab-cli`'s `Cmd::Mcp` arm.
 //!
 //! See spec `docs/superpowers/specs/2026-05-07-p9-fb-30-mcp-server-design.md`.
 
@@ -66,6 +66,11 @@ pub fn build_tools_vec() -> Vec<Tool> {
             "fetch",
             "Verbatim fetch — chunk / doc / span modes. Returns fetch_result.v1 with the indexed text (no LLM rewrite).",
             schema_for_type::<tools::fetch::FetchInput>(),
+        ),
+        Tool::new(
+            "bulk_search",
+            "Bulk multi-query search — N queries per call (cap 100). Each query mirrors the `search` input shape; returns `bulk_search_response.v1` with per-query results + summary. Sequential execution reuses one App instance so cache / embedder cold-start cost amortizes.",
+            schema_for_type::<tools::bulk_search::BulkSearchInput>(),
         ),
     ]
 }
@@ -167,6 +172,13 @@ impl ServerHandler for KebabHandler {
                 let args = request.arguments.unwrap_or_default();
                 self.spawn_tool(args, |state, input| {
                     tools::fetch::handle(&state, input)
+                })
+                .await
+            }
+            "bulk_search" => {
+                let args = request.arguments.unwrap_or_default();
+                self.spawn_tool(args, |state, input| {
+                    tools::bulk_search::handle(&state, input)
                 })
                 .await
             }
