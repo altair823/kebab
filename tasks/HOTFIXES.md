@@ -14,6 +14,20 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-10 — p9-fb-39b: embedding upgrade UX
+
+**무엇이 바뀌었나**: default embedding 이 `multilingual-e5-small` (384 dim) 에서 `multilingual-e5-large` (1024 dim) 로 변경. LanceDB 테이블은 `(model, dim)` 으로 네임스페이스되어 새 모델은 fresh 테이블에 쓰고, 옛 `chunk_embeddings_multilingual-e5-small_384` 테이블은 orphan 상태 됨.
+
+**user TOML 에 small 명시한 경우**: backwards-compat 유지. 사용자가 `[models.embedding] model = "multilingual-e5-small"` 로 명시했으면 그대로 small 사용 (새 default 무시).
+
+**idempotent re-embed**: fb-23 incremental ingest 가 embedding_version mismatch 감지하면 자동으로 이전 chunk 를 새 모델로 re-embed. 다음 `kebab ingest` 호출 시 기존 chunk 의 embedding 을 새 테이블에 재작성.
+
+**disk 절약**: 이전 모델의 orphan 테이블을 먼저 정리하려면 `kebab reset --vector-only` 실행 (LanceDB + SQLite `embedding_records` 모두 wipe). 이후 `kebab ingest` 가 모든 chunk 를 새 모델로 re-embed 해 새 테이블 채움.
+
+**search/ask 결과**: re-embed 전까지는 empty hit (새 모델에 데이터가 없음). `kebab ingest` 후 정상 검색 가능.
+
+**Spec contract 와의 관계**: design §5 (storage) + §9 (versioning cascade) 의 embedding_model.id / dimensions 변경. embedding_version bump 아님 — 동일 binary 에서 config 만 변경해도 진행 가능 (cascade rule 준수).
+
 ## 2026-05-09 — p9-fb-34: search wire wrapped in search_response.v1
 
 **무엇이 바뀌었나**: `kebab search --json` stdout 이 기존 `search_hit.v1[]` 배열에서 신규 `search_response.v1` object 로 교체. wrapper 가 `hits`, `next_cursor`, `truncated` 세 필드를 가짐.

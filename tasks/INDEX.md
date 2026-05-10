@@ -130,6 +130,7 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
     ### 🎯 0.5.0 — RAG quality (cascade 동반: V00X + reindex)
     - [p9-fb-38 score semantics](p9/p9-fb-38-score-semantics.md) — ✅ 머지 (2026-05-10)
     - [p9-fb-39 retrieval precision 튜닝](p9/p9-fb-39-retrieval-precision-tuning.md) — ✅ 머지 (2026-05-10) — eval foundation only, lever 적용 deferred
+    - [p9-fb-39b embedding upgrade](p9/p9-fb-39b-embedding-upgrade.md) — ✅ 머지 (2026-05-10) — multilingual-e5-large default
     - [p9-fb-40 fact-grounded answer](p9/p9-fb-40-fact-grounded-answer.md) — ✅ 머지 (2026-05-10)
 
     ### 🎯 0.6.0 또는 P+ — reasoning

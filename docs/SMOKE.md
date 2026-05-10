@@ -329,4 +329,24 @@ rm -rf /tmp/kebab-smoke              # 통째로 정리
 - (P7-3) 한 PDF 가 N 페이지면 `kebab ingest` 가 N 개 (또는 그 이상의, 페이지 길면 multi-chunk) 의 chunk 를 한 transaction 안에서 commit. 500 페이지 책 → 500+ chunk 한 번에 → embedding throughput 가 bottleneck. 임베딩 활성 워크스페이스에서 큰 PDF 를 처음 ingest 하면 분-단위 시간 + WAL 크기 증가 가능 — P+ 스케일 hardening task 까지 정상 동작이지만 비용은 측정 가능.
 - (P7-3 + follow-up) 동일 path 에 byte 가 다른 PDF 를 두 번째 ingest 하면 `purge_vector_orphans_for_workspace_path` 가 옛 chunk_id 를 LanceDB 에서 먼저 삭제, 이어서 `purge_orphan_at_workspace_path` 가 옛 doc / chunks / embedding_records 를 SQLite 에서 sweep. 새 byte 가 새 `doc_id` 로 색인됨. `IngestReport` 에 그 자산만 `new+=1` (다른 자산은 `updated`). 두 store 모두 정합 — 옛 본문 검색 시 옛 chunks 가 더 이상 surface 되지 않음.
 
+### Embedding upgrade (fb-39b)
+
+`multilingual-e5-small` 에서 `multilingual-e5-large` 로 업그레이드 시퀀스:
+
+```bash
+# 기존 vector index 정리 (orphan table 회피)
+kebab --config /tmp/kebab-smoke/config.toml reset --vector-only
+
+# config.toml 의 [models.embedding] 갱신:
+#   model = "multilingual-e5-large"
+#   dimensions = 1024
+
+# 재-ingest — fastembed 가 첫 실행 시 e5-large ONNX (~1.3 GB) 자동 다운로드.
+# 다운로드 시간 + 모든 chunk re-embed 시간 (e5-small 대비 ~3-4×).
+kebab --config /tmp/kebab-smoke/config.toml ingest
+
+# fb-39 의 P@k metric 으로 small vs large 비교:
+kebab --config /tmp/kebab-smoke/config.toml eval run
+```
+
 자세한 history 와 발견된 버그는 [tasks/HOTFIXES.md](../tasks/HOTFIXES.md) 참조.

@@ -7,7 +7,7 @@
 - **Rust toolchain** ≥ 1.85 (workspace 가 edition 2024 + resolver 3 사용). [rustup](https://rustup.rs) 권장.
 - **Ollama** — `kebab ask` 와 이미지 OCR/caption 가 사용. `https://ollama.com/download` 에서 설치 후 `ollama serve` 실행. 기본 LLM 은 gemma4 계열 (`ollama pull gemma4:e4b`) — OCR / caption 도 같은 family 라 모델 하나만 pull 하면 됨. 더 큰 variant 원하면 `gemma4:26b` 등으로 config override. config 의 `[models.llm].endpoint` 에 host:port 명시.
 - **빌드 디스크** — 첫 빌드 시 `target/` 가 6–10 GB (Lance + DataFusion + fastembed). 여유 확인.
-- **fastembed 모델** — 첫 `kebab ingest` 시 `multilingual-e5-small` (~470 MB) 자동 다운로드.
+- **fastembed 모델** — 첫 `kebab ingest` 시 `multilingual-e5-large` (~1.3 GB, fb-39b) 자동 다운로드. `config.toml` 에서 `model = "multilingual-e5-small"` 로 명시하면 이전 모델 사용.
 
 ## 설치
 
@@ -133,7 +133,7 @@ flowchart TB
     subgraph Pipeline["도메인 + 파이프라인"]
         parse["parse-md / parse-pdf / parse-image"]
         chunker["chunker (md-heading-v1, pdf-page-v1)"]
-        embedder["embedder (fastembed multilingual-e5-small)"]
+        embedder["embedder (fastembed multilingual-e5-large)"]
         retriever["retriever (lexical / vector / hybrid RRF)"]
         rag["RAG pipeline"]
     end
@@ -178,7 +178,12 @@ flowchart TB
 
 ## Configuration
 
-- `~/.config/kebab/config.toml` — `kebab init` 가 XDG 경로에 생성. `[workspace]` (root, exclude — include 필드는 제거됨, 지원 형식은 자동 결정), `[storage]`, `[chunking]`, `[models.embedding]`, `[models.llm]`, `[image.ocr]`, `[image.caption]`, `[search]`, `[rag]`, `[ui]` 절. `[ui] theme = "dark" | "light"` 로 TUI 팔레트 선택 (default `"dark"`, 알 수 없는 값은 dark fallback). `[search] stale_threshold_days = 30` (p9-fb-32) — search hit / RAG citation 의 `stale` 플래그 기준 (default 30 일, `0` 으로 비활성화). 옛 config 의 `workspace.include = [...]` 은 silently 무시 + 단발 deprecation warning (p9-fb-25).
+- `~/.config/kebab/config.toml` — `kebab init` 가 XDG 경로에 생성. `[workspace]` (root, exclude — include 필드는 제거됨, 지원 형식은 자동 결정), `[storage]`, `[chunking]`, `[models.embedding]`, `[models.llm]`, `[image.ocr]`, `[image.caption]`, `[search]`, `[rag]`, `[ui]` 절. 
+  - `[models.embedding]` — 
+    - `model` (default `"multilingual-e5-large"`, fb-39b) — 다국어 sentence embedding 모델. 1024-dim. ONNX (~1.3 GB) 첫 실행 시 fastembed cache (`config.storage.model_dir/fastembed/`) 에 자동 다운로드. `"multilingual-e5-small"` (384 dim) 는 backwards-compat 으로 사용 가능 — TOML 에 명시.
+    - `dimensions` (default `1024`) — 모델의 embedding 차원. config 와 LanceDB stored dim 불일치 시 검색 결과 0 건 (orphan table). 모델 변경 시 `kebab reset --vector-only && kebab ingest` 로 vector index 재구축 권장.
+  - `[ui] theme = "dark" | "light"` 로 TUI 팔레트 선택 (default `"dark"`, 알 수 없는 값은 dark fallback). 
+  - `[search] stale_threshold_days = 30` (p9-fb-32) — search hit / RAG citation 의 `stale` 플래그 기준 (default 30 일, `0` 으로 비활성화). 옛 config 의 `workspace.include = [...]` 은 silently 무시 + 단발 deprecation warning (p9-fb-25).
 - `[rag] prompt_template_version` (default `"rag-v2"`) — RAG system prompt version. `"rag-v1"` 은 legacy backwards-compat (사용자 명시 시 유지). v2 강화 규칙: (1) fact 인용 시 [#번호] 앞에 chunk 속 원문 큰따옴표 표기, (2) 학습 지식 동원 금지, (3) 근거 모호 시 "확실하지 않다" 명시.
 - `--config <path>` flag — 임시 워크스페이스 / 격리 테스트 시 사용. CLI / TUI 모두 honor.
 - `KEBAB_*` env — 일부 키 override (`KEBAB_RAG_SCORE_GATE`, `KEBAB_EVAL_GOLDEN`, `KEBAB_COMMIT_HASH` 등).
