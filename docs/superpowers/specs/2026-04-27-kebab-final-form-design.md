@@ -182,12 +182,15 @@ $ kebab search "Markdown chunking 규칙"
   "page":    { "page": 13, "section": "Experiment Setup" },
   "region":  { "x": 120, "y": 40, "w": 520, "h": 180 },
   "caption": { "model": "qwen2.5-vl:7b" },
-  "time":    { "start_ms": 822000, "end_ms": 850000, "speaker": "S1" },
-  "code":    { "start": 10, "end": 42, "lang": "rust", "repo": "kebab", "symbol": "fn ingest" }
+  "time":    { "start_ms": 822000, "end_ms": 850000, "speaker": "S1" }
 }
 ```
 
-code variant example (p10-1A-1):
+variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 path + W3C Media Fragments 합본).
+
+**구현 노트 (wire 실제 형태):** 위 nested form 은 illustrative 구조. 실제 wire 는 `#[serde(tag = "kind")]` 외부 tag enum 이라 variant 별 필드가 *top-level* 에 들어감 (e.g. `Line` → `{"kind":"line", "start":12, "end":34, ...}`, nested 형태 아님). 모든 6 variant 동일.
+
+**code variant (p10-1A-1, flat wire form):** 자세한 contract 은 2026-05-15 code ingest spec §3.1 참조. 5 필드 — `path`, `line_start`, `line_end`, `symbol` (Option<String>, AST 결과면 채움), `lang` (Option<String>, lowercase canonical). `repo` 는 Citation 이 아니라 `SearchHit` / `Metadata` 에 surface.
 
 ```json
 {
@@ -195,11 +198,12 @@ code variant example (p10-1A-1):
   "kind": "code",
   "path": "crates/kebab-app/src/ingest.rs",
   "uri":  "crates/kebab-app/src/ingest.rs#L10-L42",
-  "code": { "start": 10, "end": 42, "lang": "rust", "repo": "kebab", "symbol": "fn ingest" }
+  "line_start": 10,
+  "line_end": 42,
+  "symbol": "fn ingest",
+  "lang": "rust"
 }
 ```
-
-variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 path + W3C Media Fragments 합본).
 
 ### 2.2 SearchHit
 
@@ -227,9 +231,8 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
   },
   "index_version": "v1.0",
   "embedding_model": "multilingual-e5-large",
-  "chunker_version": "md-heading-v1",
-  "repo": null,        // p10-1A-1: optional, omitted when null (code corpus only)
-  "code_lang": null    // p10-1A-1: optional, omitted when null (code corpus only)
+  "chunker_version": "md-heading-v1"
+  // p10-1A-1: 코드 hit 에만 surface — `"repo": "kebab"` / `"code_lang": "rust"` 같은 키 추가됨. markdown hit 에는 키 자체 absent (skip_serializing_if).
 }
 ```
 
