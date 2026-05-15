@@ -334,6 +334,8 @@ mod tests {
                 lang_breakdown: Default::default(),
                 index_bytes: Default::default(),
                 stale_doc_count: 0,
+                // p10-1A-1: new fields added to Stats; use Default for the test fixture.
+                ..Default::default()
             },
         };
         let v = wire_schema(&schema);
