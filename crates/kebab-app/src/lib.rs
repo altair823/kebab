@@ -44,7 +44,7 @@ use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
     EmbeddingKind, ExtractContext, Extractor, IngestReport, Lang, LanguageModel, MediaType,
-    ParserVersion, RawAsset, SearchHit, SearchQuery, SourceConnector, SourceScope,
+    ParserVersion, RawAsset, SearchHit, SearchQuery, SkipExamples, SourceConnector, SourceScope,
     SourceUri, VectorRecord, VectorStore,
 };
 use kebab_llm_local::OllamaLanguageModel;
@@ -675,6 +675,12 @@ pub fn ingest_with_config_opts(
         errors: error_count,
         duration_ms,
         skipped_by_extension,
+        skipped_gitignore: 0,
+        skipped_kebabignore: 0,
+        skipped_builtin_blacklist: 0,
+        skipped_generated: 0,
+        skipped_size_exceeded: 0,
+        skip_examples: SkipExamples::default(),
         items: if summary_only { None } else { Some(items) },
     })
 }

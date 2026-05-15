@@ -25,8 +25,44 @@ pub struct IngestReport {
     /// extension key under "<no-ext>". `BTreeMap` so the wire JSON
     /// has stable key order across runs.
     pub skipped_by_extension: std::collections::BTreeMap<String, u32>,
+    /// p10-1A-1: files skipped because they matched a repo-local `.gitignore`.
+    #[serde(default)]
+    pub skipped_gitignore: u32,
+    /// p10-1A-1: files skipped because they matched a `.kebabignore` entry.
+    #[serde(default)]
+    pub skipped_kebabignore: u32,
+    /// p10-1A-1: files skipped because they matched the built-in safety-net
+    /// blacklist (`node_modules/`, `target/`, `__pycache__/`, `.venv/`,
+    /// `venv/`, `env/`).
+    #[serde(default)]
+    pub skipped_builtin_blacklist: u32,
+    /// p10-1A-1: files skipped because their first ~512 bytes contained a
+    /// generated-file marker (`@generated`, `do not edit`, …).
+    #[serde(default)]
+    pub skipped_generated: u32,
+    /// p10-1A-1: files skipped because they exceeded `max_file_bytes` or
+    /// `max_file_lines` in `[ingest.code]`.
+    #[serde(default)]
+    pub skipped_size_exceeded: u32,
+    /// p10-1A-1: sample file paths per skip category (≤ 5 each).
+    #[serde(default)]
+    pub skip_examples: SkipExamples,
     /// `None` ↔ wire `items: null` (`--summary-only`).
     pub items: Option<Vec<IngestItem>>,
+}
+
+/// p10-1A-1: per-category sample of skipped file paths. Each category caps at
+/// 5 entries (oldest-first). Used for debugging "why was X not indexed?"
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SkipExamples {
+    #[serde(default)]
+    pub generated: Vec<String>,
+    #[serde(default)]
+    pub size_exceeded: Vec<String>,
+    #[serde(default)]
+    pub builtin_blacklist: Vec<String>,
+    #[serde(default)]
+    pub gitignore: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -57,4 +93,56 @@ pub enum IngestItemKind {
     /// / embed / vector upsert all skipped.
     Unchanged,
     Error,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::SourceScope;
+
+    #[test]
+    fn skip_examples_default_is_empty() {
+        let s = SkipExamples::default();
+        assert!(s.generated.is_empty());
+        assert!(s.size_exceeded.is_empty());
+        assert!(s.builtin_blacklist.is_empty());
+        assert!(s.gitignore.is_empty());
+    }
+
+    #[test]
+    fn ingest_report_skip_counters_serialize() {
+        let r = IngestReport {
+            scope: SourceScope {
+                root: std::path::PathBuf::from("/tmp"),
+                include: vec![],
+                exclude: vec![],
+            },
+            scanned: 100,
+            new: 50,
+            updated: 0,
+            skipped: 0,
+            unchanged: 0,
+            errors: 0,
+            duration_ms: 1234,
+            skipped_by_extension: Default::default(),
+            skipped_gitignore: 30,
+            skipped_kebabignore: 5,
+            skipped_builtin_blacklist: 10,
+            skipped_generated: 3,
+            skipped_size_exceeded: 2,
+            skip_examples: SkipExamples {
+                generated: vec!["a/b.pb.rs".into()],
+                size_exceeded: vec![],
+                builtin_blacklist: vec!["node_modules/x.js".into()],
+                gitignore: vec![],
+            },
+            items: None,
+        };
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(v["skipped_gitignore"], 30);
+        assert_eq!(v["skipped_builtin_blacklist"], 10);
+        assert_eq!(v["skipped_generated"], 3);
+        assert_eq!(v["skipped_size_exceeded"], 2);
+        assert_eq!(v["skip_examples"]["generated"][0], "a/b.pb.rs");
+    }
 }

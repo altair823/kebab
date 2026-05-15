@@ -59,7 +59,7 @@ pub use answer::{
     Answer, AnswerCitation, AnswerRetrievalSummary, ModelRef, RefusalReason, TokenUsage,
     TraceId, Turn,
 };
-pub use ingest::{IngestItem, IngestItemKind, IngestReport};
+pub use ingest::{IngestItem, IngestItemKind, IngestReport, SkipExamples};
 pub use jobs::{JobFilter, JobId, JobKind, JobRow, JobStatus};
 pub use vector::{VectorHit, VectorRecord};
 pub use errors::CoreError;
