@@ -84,7 +84,52 @@ pub(crate) fn build_overrides(
             .with_context(|| format!("built-in blacklist pattern: {pat}"))?;
     }
 
+    // p10-1A-1: honor repo-root `.gitignore` (spec §5.2). Read once,
+    // merge with same convention as user `.kebabignore`. Nested
+    // cascade deferred to P+.
+    let gitignore_patterns = read_gitignore(root)?;
+    for pat in &gitignore_patterns {
+        builder
+            .add(&format!("!{pat}"))
+            .with_context(|| format!(".gitignore pattern: {pat}"))?;
+    }
+
     builder.build().context("failed to compile override set")
+}
+
+/// Read `<root>/.gitignore` (single-file, root-only — nested cascade is P+).
+/// Missing file → empty Vec. Comments / blanks stripped.
+///
+/// Trailing-slash patterns (`dist/`) in real gitignore mean "match the
+/// directory AND everything inside it". `OverrideBuilder::matched(path,
+/// is_dir=false)` only checks `is_dir` for the trailing-slash variant, so
+/// `dist/bundle.js` would not be matched. We normalize by also emitting a
+/// `<stem>/**` variant so files inside the directory are caught.
+pub(crate) fn read_gitignore(root: &Path) -> Result<Vec<String>> {
+    let p = root.join(".gitignore");
+    if !p.exists() {
+        return Ok(vec![]);
+    }
+    let s = std::fs::read_to_string(&p)
+        .with_context(|| format!("read .gitignore at {}", p.display()))?;
+    let mut out = Vec::new();
+    for line in s.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some(stem) = trimmed.strip_suffix('/') {
+            // Keep the dir-only form so `is_dir=true` matches are still
+            // excluded (e.g., for skip_current_dir in the walker).
+            out.push(trimmed.to_string());
+            // Also emit a glob that catches files inside the directory,
+            // since `is_dir=false` won't satisfy the trailing-slash form.
+            out.push(format!("{stem}/**"));
+        } else {
+            out.push(trimmed.to_string());
+        }
+    }
+    Ok(out)
 }
 
 /// Read `<root>/.kebabignore` if it exists. Each non-blank, non-comment line is
@@ -315,5 +360,42 @@ mod tests {
         }
         let m_ok = overrides.matched(Path::new("ok/z.txt"), false);
         assert!(!m_ok.is_ignore(), "ok/z.txt should not be ignored");
+    }
+
+    #[test]
+    fn gitignore_at_repo_root_excludes_matching_files() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join(".gitignore"), "*.log\ndist/\n").unwrap();
+        fs::write(root.join("a.log"), "x").unwrap();
+        fs::write(root.join("src/main.rs"), "x").unwrap();
+        fs::create_dir_all(root.join("dist")).unwrap();
+        fs::write(root.join("dist/bundle.js"), "x").unwrap();
+
+        let overrides = build_overrides(root, &[], &[]).unwrap();
+        assert!(overrides.matched(Path::new("a.log"), false).is_ignore());
+        assert!(overrides.matched(Path::new("dist/bundle.js"), false).is_ignore());
+        assert!(!overrides.matched(Path::new("src/main.rs"), false).is_ignore());
+    }
+
+    #[test]
+    fn gitignore_missing_is_no_op() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::write(root.join("a.log"), "x").unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "x").unwrap();
+
+        // No .gitignore present — patterns from .gitignore should not affect overrides.
+        let overrides = build_overrides(root, &[], &[]).unwrap();
+        assert!(!overrides.matched(Path::new("a.log"), false).is_ignore());
+        assert!(!overrides.matched(Path::new("src/main.rs"), false).is_ignore());
     }
 }
