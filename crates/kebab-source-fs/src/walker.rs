@@ -1,12 +1,15 @@
 //! Directory walker with gitignore-style filtering and symlink-cycle
 //! protection.
 //!
-//! Filter set (per task spec, design §6.2):
-//!   - `config.workspace.exclude` (passed in by `FsSourceConnector`)
-//!   - `<root>/.kebabignore` (optional file at workspace root)
-//!   - default-excludes for `.DS_Store` and macOS resource forks (`._*`)
+//! Filter set, in order of application:
+//!   - DEFAULT_EXCLUDES (constants — VCS dirs, build artifacts, never-useful)
+//!   - `config.workspace.exclude` (user-supplied per workspace)
+//!   - `<root>/.kebabignore` (user-supplied kebab-specific exclude)
+//!   - Built-in safety-net blacklist (`node_modules/`, `target/`, etc. —
+//!     spec §5.2, applied via `kebab_parse_code::BUILTIN_BLACKLIST`)
+//!   - `<root>/.gitignore` (repo-root only, no nested cascade — spec §5.2)
 //!
-//! All three are merged via `ignore::overrides::OverrideBuilder`, which
+//! All five are merged via `ignore::overrides::OverrideBuilder`, which
 //! gives full gitignore semantics (anchors, `!` negation, `**`, etc.). We
 //! prepend `!` to each pattern because `OverrideBuilder` treats positive
 //! patterns as "include" and negative as "exclude" — see §"Filter set"
@@ -46,8 +49,10 @@ const DEFAULT_EXCLUDES: &[&str] = &[
     "**/._*",
 ];
 
-/// Build the merged `Override` from `config.workspace.exclude` ∪ `.kebabignore`
-/// ∪ baked-in default excludes.
+/// Build the merged `Override` from all five filter sources, in order:
+/// DEFAULT_EXCLUDES, `config.workspace.exclude`, `.kebabignore`,
+/// built-in safety-net blacklist (`kebab_parse_code::BUILTIN_BLACKLIST`),
+/// and `<root>/.gitignore` (root-only, no nested cascade).
 ///
 /// Each input pattern is registered as an *exclude* (gitignore-style: a
 /// leading `!` flips a positive match to a negative one in the
@@ -116,6 +121,13 @@ pub(crate) fn read_gitignore(root: &Path) -> Result<Vec<String>> {
     for line in s.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        // If the pattern starts with `!` (gitignore negation/un-ignore), pass through
+        // as-is. Trailing-slash normalization is unsafe here — the `!`-prefix and `/`-
+        // suffix combined confuse OverrideBuilder (would produce double-`!`).
+        if trimmed.starts_with('!') {
+            out.push(trimmed.to_string());
             continue;
         }
         if let Some(stem) = trimmed.strip_suffix('/') {
@@ -397,5 +409,19 @@ mod tests {
         let overrides = build_overrides(root, &[], &[]).unwrap();
         assert!(!overrides.matched(Path::new("a.log"), false).is_ignore());
         assert!(!overrides.matched(Path::new("src/main.rs"), false).is_ignore());
+    }
+
+    #[test]
+    fn gitignore_negation_with_trailing_slash_passes_through() {
+        use std::fs;
+        use tempfile::TempDir;
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        // Negation pattern. We don't fully implement gitignore negation
+        // semantics, but at minimum it must not produce double-`!` corruption.
+        fs::write(root.join(".gitignore"), "!keep/\n").unwrap();
+        // Just verify build_overrides doesn't error.
+        let result = build_overrides(root, &[], &[]);
+        assert!(result.is_ok(), "should not error on negation pattern: {:?}", result.err());
     }
 }
