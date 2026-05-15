@@ -48,6 +48,7 @@ fn special_filenames_map_to_identifiers() {
     assert_eq!(code_lang_for_path(Path::new("Dockerfile")), Some("dockerfile"));
     assert_eq!(code_lang_for_path(Path::new("foo.dockerfile")), Some("dockerfile"));
     assert_eq!(code_lang_for_path(Path::new("Makefile")), Some("make"));
+    assert_eq!(code_lang_for_path(Path::new("GNUmakefile")), Some("make"));
 }
 
 #[test]

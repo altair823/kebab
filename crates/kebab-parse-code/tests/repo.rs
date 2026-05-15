@@ -46,7 +46,7 @@ fn detect_repo_walks_up_to_git_dir() {
 }
 
 #[test]
-fn detect_repo_caches_per_path_call_for_repeated_files_in_same_repo() {
+fn detect_repo_returns_consistent_metadata_for_paths_in_same_repo() {
     let tmp = TempDir::new().unwrap();
     let repo_root = tmp.path().join("myrepo");
     fs::create_dir_all(&repo_root).unwrap();
