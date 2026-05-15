@@ -76,6 +76,14 @@ pub(crate) fn build_overrides(
             .with_context(|| format!("invalid .kebabignore pattern: {pat}"))?;
     }
 
+    // p10-1A-1: built-in safety-net blacklist (spec §5.2). 6 patterns
+    // universal across ecosystems. User can negate via `.kebabignore`.
+    for pat in kebab_parse_code::BUILTIN_BLACKLIST {
+        builder
+            .add(&format!("!{pat}"))
+            .with_context(|| format!("built-in blacklist pattern: {pat}"))?;
+    }
+
     builder.build().context("failed to compile override set")
 }
 
@@ -256,5 +264,56 @@ mod tests {
         .unwrap();
         let v = read_kbignore(dir.path()).unwrap();
         assert_eq!(v, vec!["*.tmp".to_string(), "ignored/**".to_string()]);
+    }
+
+    #[test]
+    fn built_in_blacklist_excludes_node_modules() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("node_modules/foo")).unwrap();
+        fs::write(root.join("src/main.rs"), "x").unwrap();
+        fs::write(root.join("node_modules/foo/bar.js"), "x").unwrap();
+
+        let overrides = build_overrides(root, &[], &[]).unwrap();
+        // Override::matched expects paths relative to the builder's root.
+        let m_in = overrides.matched(Path::new("src/main.rs"), false);
+        let m_out = overrides.matched(Path::new("node_modules/foo/bar.js"), false);
+
+        assert!(!m_in.is_ignore(), "src/main.rs should NOT be ignored");
+        assert!(m_out.is_ignore(), "node_modules/foo/bar.js SHOULD be ignored");
+    }
+
+    #[test]
+    fn built_in_blacklist_excludes_target_pycache_venv() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        for dir in ["target/x", "__pycache__/x", ".venv/x", "venv/x", "env/x"] {
+            fs::create_dir_all(root.join(dir)).unwrap();
+            fs::write(root.join(dir).join("y.txt"), "z").unwrap();
+        }
+        fs::create_dir_all(root.join("ok")).unwrap();
+        fs::write(root.join("ok/z.txt"), "z").unwrap();
+
+        let overrides = build_overrides(root, &[], &[]).unwrap();
+        // Override::matched expects paths relative to the builder's root.
+        for blacklisted in [
+            "target/x/y.txt",
+            "__pycache__/x/y.txt",
+            ".venv/x/y.txt",
+            "venv/x/y.txt",
+            "env/x/y.txt",
+        ] {
+            let m = overrides.matched(Path::new(blacklisted), false);
+            assert!(m.is_ignore(), "{blacklisted} should be ignored");
+        }
+        let m_ok = overrides.matched(Path::new("ok/z.txt"), false);
+        assert!(!m_ok.is_ignore(), "ok/z.txt should not be ignored");
     }
 }
