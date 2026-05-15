@@ -10,20 +10,20 @@
 //! }
 //! ```
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use time::OffsetDateTime;
 
 use kebab_config::Config;
 use kebab_core::{
-    AssetStorage, Checksum, RawAsset, SourceConnector, SourceScope, SourceUri,
+    AssetStorage, Checksum, RawAsset, SkipExamples, SourceConnector, SourceScope, SourceUri,
     id_for_asset, to_posix,
 };
 
 use crate::hash::hash_file;
 use crate::media::media_type_for;
-use crate::walker::{build_overrides, read_kbignore, walk_files};
+use crate::walker::{SkipCategory, WalkOverrides, build_overrides, read_kbignore, walk_files_with_skips};
 
 /// Local-filesystem `SourceConnector`. Constructed once from `Config`,
 /// reused across `scan` calls.
@@ -61,107 +61,179 @@ impl FsSourceConnector {
             copy_threshold_bytes,
         })
     }
-}
 
-impl SourceConnector for FsSourceConnector {
-    fn scan(&self, scope: &SourceScope) -> Result<Vec<RawAsset>> {
-        // `SourceScope::root` overrides config root when non-empty. This
-        // matches the design's "scope is the per-call lens; config is the
-        // default" split (§7.1).
+    /// Resolve the effective root and build the merged + per-source overrides.
+    fn resolve_scan_params(
+        &self,
+        scope: &SourceScope,
+    ) -> Result<(PathBuf, Vec<String>, WalkOverrides)> {
         let root = if scope.root.as_os_str().is_empty() {
             self.default_root.clone()
         } else {
             scope.root.clone()
         };
 
-        // Union: config.workspace.exclude ∪ scope.exclude ∪ .kebabignore.
-        // Per §6.2 the union of `.kebabignore` and `config.workspace.exclude`
-        // is the filter set. `scope.exclude` is added on top so a caller
-        // can layer a per-call narrowing.
         let mut excludes = self.default_exclude.clone();
         excludes.extend(scope.exclude.iter().cloned());
-        // .kebabignore is re-read on every scan() so users can edit it without
-        // restarting any long-running process.
         let kbignore = read_kbignore(&root)?;
 
         let overrides = build_overrides(&root, &excludes, &kbignore)?;
+        Ok((root, kbignore, overrides))
+    }
 
-        // TODO(P1-2/P1-3 router): apply SourceScope::include glob filter at the
-        // extractor router layer once that crate lands. SourceConnector emits all
-        // non-excluded files; routing by include-glob is a downstream concern
-        // (design §6.2 + §7.2 are silent on this split, treat it as router work).
-        //
-        // `scope.include` is intentionally ignored at this stage of the
-        // pipeline: per §6.2 the workspace-level include lives in
-        // `WorkspaceCfg` and is enforced by the asset writer / extractors.
-        // Surfacing it here would double-filter Markdown vs PDF before the
-        // extractor router gets to see them.
-        if !scope.include.is_empty() {
-            tracing::debug!(
-                count = scope.include.len(),
-                "FsSourceConnector ignores scope.include — handled by extractor router"
-            );
-        }
+    /// Scan the workspace and return the accepted assets together with
+    /// per-category skip counts and sample paths for `IngestReport`.
+    ///
+    /// This is the **preferred entry point** for `kebab-app`: it provides
+    /// all the information needed to populate `IngestReport.skipped_gitignore`,
+    /// `skipped_kebabignore`, `skipped_builtin_blacklist`, and `skip_examples`
+    /// without a second walker pass.
+    pub fn scan_with_skips(
+        &self,
+        scope: &SourceScope,
+    ) -> Result<(Vec<RawAsset>, FsScanSkips)> {
+        let (root, _kbignore, overrides) = self.resolve_scan_params(scope)?;
 
-        let files = walk_files(&root, &overrides)?;
+        // Suppress unused-variable warning — kbignore patterns are already
+        // baked into `overrides`; we don't need them again here.
 
-        let mut assets = Vec::with_capacity(files.len());
-        for abs in &files {
-            // `to_posix` does NFC + leading `./` strip + `#` rejection.
-            // Compute the workspace-relative path before handing to it so
-            // emitted `WorkspacePath` is always relative.
-            let rel = abs.strip_prefix(&root).unwrap_or(abs);
-            let workspace_path = match to_posix(rel) {
-                Ok(p) => p,
-                Err(e) => {
-                    // A path containing `#` is the only documented reason
-                    // `to_posix` fails today. Drop the file with a warning
-                    // rather than aborting the entire scan — a single bad
-                    // filename should not nuke a 10 000-file ingest.
-                    tracing::warn!(
-                        path = %abs.display(),
-                        error = %e,
-                        "skipping file: path is not a valid WorkspacePath",
+        log_scope_include_warning(scope);
+
+        let (files, skipped_entries) = walk_files_with_skips(&root, &overrides)?;
+
+        // Accumulate per-category skip counts and sample paths.
+        let mut fs_skips = FsScanSkips::default();
+        for entry in &skipped_entries {
+            match entry.category {
+                SkipCategory::BuiltinBlacklist => {
+                    fs_skips.skipped_builtin_blacklist =
+                        fs_skips.skipped_builtin_blacklist.saturating_add(1);
+                    push_sample(
+                        &mut fs_skips.skip_examples.builtin_blacklist,
+                        &entry.path,
+                        &root,
                     );
-                    continue;
                 }
-            };
-
-            let media_type = media_type_for(abs);
-            let (byte_len, full_hex) = hash_file(abs)
-                .with_context(|| format!("hashing {}", abs.display()))?;
-            let checksum = Checksum(full_hex.clone());
-            let asset_id = id_for_asset(&full_hex);
-
-            // Storage variant signals *intent*, not an actual copy.
-            // P1-6 (asset writer) is responsible for the on-disk copy.
-            let stored = if byte_len > self.copy_threshold_bytes {
-                AssetStorage::Reference {
-                    path: abs.clone(),
-                    sha: checksum.clone(),
+                SkipCategory::Gitignore => {
+                    fs_skips.skipped_gitignore =
+                        fs_skips.skipped_gitignore.saturating_add(1);
+                    push_sample(
+                        &mut fs_skips.skip_examples.gitignore,
+                        &entry.path,
+                        &root,
+                    );
                 }
-            } else {
-                AssetStorage::Copied { path: abs.clone() }
-            };
-
-            assets.push(RawAsset {
-                asset_id,
-                source_uri: SourceUri::File(abs.clone()),
-                workspace_path,
-                media_type,
-                byte_len,
-                checksum,
-                discovered_at: OffsetDateTime::now_utc(),
-                stored,
-            });
+                SkipCategory::Kebabignore => {
+                    fs_skips.skipped_kebabignore =
+                        fs_skips.skipped_kebabignore.saturating_add(1);
+                    // kebabignore intentionally NOT in skip_examples per spec §5.5.
+                }
+                SkipCategory::Other => {
+                    // DEFAULT_EXCLUDES or config.workspace.exclude — no dedicated
+                    // IngestReport counter; these are lumped into the existing
+                    // `skipped` field by kebab-app.
+                }
+            }
         }
 
-        // Determinism: sort by workspace_path. WorkspacePath is a String
-        // newtype with stable lexicographic ordering. Two scans of the
-        // same tree must produce identical Vec<RawAsset> modulo the
-        // wall-clock `discovered_at` field.
-        assets.sort_by(|a, b| a.workspace_path.0.cmp(&b.workspace_path.0));
+        let assets = build_assets(&files, &root, self.copy_threshold_bytes)?;
+        Ok((assets, fs_skips))
+    }
+}
 
+/// Per-category skip counts and sample paths returned alongside the asset list
+/// by [`FsSourceConnector::scan_with_skips`].
+///
+/// Populated from the walker's per-source matchers without a second pass.
+#[derive(Debug, Default)]
+pub struct FsScanSkips {
+    pub skipped_gitignore: u32,
+    pub skipped_kebabignore: u32,
+    pub skipped_builtin_blacklist: u32,
+    /// Sample paths per spec §5.5 (≤ 5 per category). Paths are
+    /// workspace-relative POSIX strings when available, absolute otherwise.
+    pub skip_examples: SkipExamples,
+}
+
+/// Push a path into a sample vec (cap = 5) as a workspace-relative POSIX
+/// string. Falls back to the lossy absolute path if relativisation fails.
+fn push_sample(samples: &mut Vec<String>, abs: &Path, root: &Path) {
+    if samples.len() >= 5 {
+        return;
+    }
+    let rel = abs.strip_prefix(root).unwrap_or(abs);
+    // Best-effort POSIX string; any non-UTF8 char → replacement char.
+    let s = rel.to_string_lossy().replace('\\', "/");
+    samples.push(s);
+}
+
+/// Convert a list of absolute file paths to `Vec<RawAsset>`, sorted by
+/// workspace-relative POSIX path for determinism.
+fn build_assets(
+    files: &[PathBuf],
+    root: &Path,
+    copy_threshold_bytes: u64,
+) -> Result<Vec<RawAsset>> {
+    let mut assets = Vec::with_capacity(files.len());
+    for abs in files {
+        let rel = abs.strip_prefix(root).unwrap_or(abs);
+        let workspace_path = match to_posix(rel) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(
+                    path = %abs.display(),
+                    error = %e,
+                    "skipping file: path is not a valid WorkspacePath",
+                );
+                continue;
+            }
+        };
+
+        let media_type = media_type_for(abs);
+        let (byte_len, full_hex) = hash_file(abs)
+            .with_context(|| format!("hashing {}", abs.display()))?;
+        let checksum = Checksum(full_hex.clone());
+        let asset_id = id_for_asset(&full_hex);
+
+        let stored = if byte_len > copy_threshold_bytes {
+            AssetStorage::Reference {
+                path: abs.clone(),
+                sha: checksum.clone(),
+            }
+        } else {
+            AssetStorage::Copied { path: abs.clone() }
+        };
+
+        assets.push(RawAsset {
+            asset_id,
+            source_uri: SourceUri::File(abs.clone()),
+            workspace_path,
+            media_type,
+            byte_len,
+            checksum,
+            discovered_at: OffsetDateTime::now_utc(),
+            stored,
+        });
+    }
+
+    assets.sort_by(|a, b| a.workspace_path.0.cmp(&b.workspace_path.0));
+    Ok(assets)
+}
+
+fn log_scope_include_warning(scope: &SourceScope) {
+    if !scope.include.is_empty() {
+        tracing::debug!(
+            count = scope.include.len(),
+            "FsSourceConnector ignores scope.include — handled by extractor router"
+        );
+    }
+}
+
+impl SourceConnector for FsSourceConnector {
+    fn scan(&self, scope: &SourceScope) -> Result<Vec<RawAsset>> {
+        // Delegate to scan_with_skips; discard the skip counts.
+        // Callers that need skip attribution should call scan_with_skips directly.
+        let (assets, _skips) = self.scan_with_skips(scope)?;
         Ok(assets)
     }
 }
@@ -400,5 +472,143 @@ mod tests {
         let conn2 = FsSourceConnector::new(&cfg2).unwrap();
         let v2 = conn2.scan(&SourceScope::default()).unwrap();
         assert!(matches!(v2[0].stored, AssetStorage::Copied { .. }));
+    }
+
+    // ── IngestReport skip counter wiring tests ───────────────────────────────
+
+    #[test]
+    fn scan_with_skips_counts_gitignored_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join(".gitignore"), "*.log\n").unwrap();
+        std::fs::write(root.join("ok.md"), b"# ok").unwrap();
+        std::fs::write(root.join("skipme.log"), b"x").unwrap();
+
+        let conn =
+            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
+                .unwrap();
+        let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
+
+        assert!(
+            skips.skipped_gitignore >= 1,
+            "skipped_gitignore should be >= 1; got {}",
+            skips.skipped_gitignore
+        );
+        assert!(
+            skips.skip_examples.gitignore.iter().any(|p| p.contains("skipme.log")),
+            "skip_examples.gitignore should contain 'skipme.log'; got: {:?}",
+            skips.skip_examples.gitignore
+        );
+        // kebabignore counter must be 0 — file matched gitignore, not kebabignore.
+        assert_eq!(skips.skipped_kebabignore, 0);
+    }
+
+    #[test]
+    fn scan_with_skips_counts_builtin_blacklist_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("node_modules/foo")).unwrap();
+        std::fs::write(root.join("node_modules/foo/bar.js"), b"x").unwrap();
+        std::fs::write(root.join("ok.md"), b"# ok").unwrap();
+
+        let conn =
+            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
+                .unwrap();
+        let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
+
+        assert!(
+            skips.skipped_builtin_blacklist >= 1,
+            "skipped_builtin_blacklist should be >= 1; got {}",
+            skips.skipped_builtin_blacklist
+        );
+        assert!(
+            skips.skip_examples.builtin_blacklist.iter().any(|p| p.contains("node_modules")),
+            "skip_examples.builtin_blacklist should contain a node_modules path; got: {:?}",
+            skips.skip_examples.builtin_blacklist
+        );
+    }
+
+    #[test]
+    fn scan_with_skips_kebabignore_increments_counter_no_example() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join(".kebabignore"), "*.secret\n").unwrap();
+        std::fs::write(root.join("ok.md"), b"x").unwrap();
+        std::fs::write(root.join("creds.secret"), b"pw").unwrap();
+
+        let conn =
+            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
+                .unwrap();
+        let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
+
+        assert!(
+            skips.skipped_kebabignore >= 1,
+            "skipped_kebabignore should be >= 1; got {}",
+            skips.skipped_kebabignore
+        );
+        // Per spec §5.5: kebabignore is intentionally NOT in skip_examples.
+        assert!(
+            skips.skip_examples.gitignore.is_empty(),
+            "gitignore examples should be empty; got: {:?}",
+            skips.skip_examples.gitignore
+        );
+        assert!(
+            skips.skip_examples.builtin_blacklist.is_empty(),
+            "builtin_blacklist examples should be empty; got: {:?}",
+            skips.skip_examples.builtin_blacklist
+        );
+    }
+
+    #[test]
+    fn scan_with_skips_builtin_priority_over_gitignore() {
+        // node_modules/ matches both BUILTIN_BLACKLIST and a .gitignore entry.
+        // It must be attributed to builtin (spec §5.2 priority order).
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join(".gitignore"), "node_modules/\n").unwrap();
+        std::fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
+        std::fs::write(root.join("node_modules/pkg/index.js"), b"x").unwrap();
+        std::fs::write(root.join("ok.md"), b"x").unwrap();
+
+        let conn =
+            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
+                .unwrap();
+        let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
+
+        assert!(
+            skips.skipped_builtin_blacklist >= 1,
+            "builtin counter should be >= 1; got {}",
+            skips.skipped_builtin_blacklist
+        );
+        assert_eq!(
+            skips.skipped_gitignore, 0,
+            "gitignore counter must be 0 when builtin wins; got {}",
+            skips.skipped_gitignore
+        );
+    }
+
+    #[test]
+    fn skip_examples_cap_at_five() {
+        // Write 7 .log files — skip_examples.gitignore must cap at 5.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join(".gitignore"), "*.log\n").unwrap();
+        for i in 0..7 {
+            std::fs::write(root.join(format!("f{i}.log")), b"x").unwrap();
+        }
+        std::fs::write(root.join("ok.md"), b"x").unwrap();
+
+        let conn =
+            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
+                .unwrap();
+        let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
+
+        assert_eq!(skips.skipped_gitignore, 7, "should count all 7");
+        assert_eq!(
+            skips.skip_examples.gitignore.len(),
+            5,
+            "skip_examples.gitignore must cap at 5; got: {:?}",
+            skips.skip_examples.gitignore
+        );
     }
 }

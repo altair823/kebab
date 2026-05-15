@@ -13,4 +13,4 @@ mod hash;
 mod media;
 mod walker;
 
-pub use connector::FsSourceConnector;
+pub use connector::{FsScanSkips, FsSourceConnector};
