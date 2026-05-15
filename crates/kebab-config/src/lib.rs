@@ -272,18 +272,10 @@ impl UiCfg {
 
 /// p10-1A-1: top-level ingest configuration wrapper. Contains per-media-type
 /// sub-sections; currently only `code` is defined.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IngestCfg {
     pub code: IngestCodeCfg,
-}
-
-impl Default for IngestCfg {
-    fn default() -> Self {
-        Self {
-            code: IngestCodeCfg::default(),
-        }
-    }
 }
 
 /// p10-1A-1: settings for the code ingest pipeline. All fields have

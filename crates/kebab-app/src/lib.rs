@@ -678,8 +678,8 @@ pub fn ingest_with_config_opts(
         skipped_gitignore: fs_skips.skipped_gitignore,
         skipped_kebabignore: fs_skips.skipped_kebabignore,
         skipped_builtin_blacklist: fs_skips.skipped_builtin_blacklist,
-        skipped_generated: 0,
-        skipped_size_exceeded: 0,
+        skipped_generated: fs_skips.skipped_generated,
+        skipped_size_exceeded: fs_skips.skipped_size_exceeded,
         skip_examples: fs_skips.skip_examples,
         items: if summary_only { None } else { Some(items) },
     })

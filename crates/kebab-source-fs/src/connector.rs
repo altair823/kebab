@@ -36,10 +36,16 @@ use crate::walker::{SkipCategory, WalkOverrides, build_overrides, read_kbignore,
 ///     construction time.
 ///   - `copy_threshold_bytes`: `config.storage.copy_threshold_mb * 1 MiB`
 ///     pre-multiplied so we don't recompute per file.
+///   - `skip_generated_header`: `config.ingest.code.skip_generated_header`.
+///   - `max_file_bytes`: `config.ingest.code.max_file_bytes`.
+///   - `max_file_lines`: `config.ingest.code.max_file_lines`.
 pub struct FsSourceConnector {
     default_root: PathBuf,
     default_exclude: Vec<String>,
     copy_threshold_bytes: u64,
+    skip_generated_header: bool,
+    max_file_bytes: u64,
+    max_file_lines: u32,
 }
 
 impl FsSourceConnector {
@@ -59,6 +65,9 @@ impl FsSourceConnector {
             default_root: root,
             default_exclude: config.workspace.exclude.clone(),
             copy_threshold_bytes,
+            skip_generated_header: config.ingest.code.skip_generated_header,
+            max_file_bytes: config.ingest.code.max_file_bytes,
+            max_file_lines: config.ingest.code.max_file_lines,
         })
     }
 
@@ -133,7 +142,59 @@ impl FsSourceConnector {
             }
         }
 
-        let assets = build_assets(&files, &root, self.copy_threshold_bytes)?;
+        // p10-1A-1: apply per-file generated-header + size-cap checks on files
+        // that passed the override (gitignore/builtin/kebabignore) matching.
+        // These run AFTER the walk-level skip attribution, BEFORE parse dispatch.
+        let mut accepted_files: Vec<PathBuf> = Vec::with_capacity(files.len());
+        for abs_path in files {
+            let rel_path = abs_path.strip_prefix(&root).unwrap_or(&abs_path);
+
+            // Generated-header sniff (config-gated).
+            if self.skip_generated_header
+                && kebab_parse_code::is_generated_file(&abs_path).unwrap_or(false)
+            {
+                fs_skips.skipped_generated =
+                    fs_skips.skipped_generated.saturating_add(1);
+                push_sample(
+                    &mut fs_skips.skip_examples.generated,
+                    &abs_path,
+                    &root,
+                );
+                tracing::debug!(
+                    path = %rel_path.display(),
+                    "skip: generated-file marker detected"
+                );
+                continue;
+            }
+
+            // Size-cap check (byte or line limit).
+            if kebab_parse_code::is_oversized(
+                &abs_path,
+                self.max_file_bytes,
+                self.max_file_lines,
+            )
+            .unwrap_or(false)
+            {
+                fs_skips.skipped_size_exceeded =
+                    fs_skips.skipped_size_exceeded.saturating_add(1);
+                push_sample(
+                    &mut fs_skips.skip_examples.size_exceeded,
+                    &abs_path,
+                    &root,
+                );
+                tracing::debug!(
+                    path = %rel_path.display(),
+                    max_bytes = self.max_file_bytes,
+                    max_lines = self.max_file_lines,
+                    "skip: file exceeds size cap"
+                );
+                continue;
+            }
+
+            accepted_files.push(abs_path);
+        }
+
+        let assets = build_assets(&accepted_files, &root, self.copy_threshold_bytes)?;
         Ok((assets, fs_skips))
     }
 }
@@ -147,6 +208,12 @@ pub struct FsScanSkips {
     pub skipped_gitignore: u32,
     pub skipped_kebabignore: u32,
     pub skipped_builtin_blacklist: u32,
+    /// p10-1A-1: files skipped because their first ~512 bytes contained a
+    /// generated-file marker (`@generated`, `do not edit`, …).
+    pub skipped_generated: u32,
+    /// p10-1A-1: files skipped because they exceeded `max_file_bytes` or
+    /// `max_file_lines` in `[ingest.code]`.
+    pub skipped_size_exceeded: u32,
     /// Sample paths per spec §5.5 (≤ 5 per category). Paths are
     /// workspace-relative POSIX strings when available, absolute otherwise.
     pub skip_examples: SkipExamples,
@@ -606,6 +673,105 @@ mod tests {
             5,
             "skip_examples.gitignore must cap at 5; got: {:?}",
             skips.skip_examples.gitignore
+        );
+    }
+
+    // ── p10-1A-1: generated-header + size-cap skip tests ────────────────────
+
+    /// Helper: connector with default ingest.code settings.
+    fn cfg_with_root_defaults(root: &str) -> Config {
+        // cfg_with_root already uses Config::defaults() which has
+        // skip_generated_header=true, max_file_bytes=262144, max_file_lines=5000.
+        cfg_with_root(root)
+    }
+
+    /// Helper: connector with overridden size caps.
+    fn cfg_with_size_cap(root: &str, max_bytes: u64, max_lines: u32) -> Config {
+        let mut c = cfg_with_root(root);
+        c.ingest.code.max_file_bytes = max_bytes;
+        c.ingest.code.max_file_lines = max_lines;
+        c
+    }
+
+    #[test]
+    fn ingest_report_counts_generated_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("normal.md"), "# hi").unwrap();
+        std::fs::write(root.join("autogen.rs"), "// @generated\nfn x() {}\n").unwrap();
+
+        let conn = FsSourceConnector::new(
+            &cfg_with_root_defaults(root.to_str().unwrap()),
+        )
+        .unwrap();
+        let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
+
+        assert!(
+            skips.skipped_generated >= 1,
+            "skipped_generated should be >= 1; got {}",
+            skips.skipped_generated
+        );
+        assert!(
+            skips.skip_examples.generated.iter().any(|p| p.contains("autogen")),
+            "skip_examples.generated should contain 'autogen'; got: {:?}",
+            skips.skip_examples.generated
+        );
+        // The normal.md file must NOT be skipped.
+        let asset_paths: Vec<_> = _assets
+            .iter()
+            .map(|a| a.workspace_path.0.clone())
+            .collect();
+        assert!(
+            asset_paths.iter().any(|p| p.contains("normal")),
+            "normal.md should still be emitted; assets: {asset_paths:?}"
+        );
+    }
+
+    #[test]
+    fn ingest_report_counts_oversized_files_by_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("normal.md"), "# hi").unwrap();
+        // Write a file larger than the 1024-byte cap.
+        let big: String = "x\n".repeat(1_000);
+        std::fs::write(root.join("huge.rs"), &big).unwrap();
+
+        let conn = FsSourceConnector::new(
+            &cfg_with_size_cap(root.to_str().unwrap(), 1024, 5_000),
+        )
+        .unwrap();
+        let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
+
+        assert!(
+            skips.skipped_size_exceeded >= 1,
+            "skipped_size_exceeded should be >= 1; got {}",
+            skips.skipped_size_exceeded
+        );
+        assert!(
+            skips.skip_examples.size_exceeded.iter().any(|p| p.contains("huge")),
+            "skip_examples.size_exceeded should contain 'huge'; got: {:?}",
+            skips.skip_examples.size_exceeded
+        );
+    }
+
+    #[test]
+    fn ingest_report_size_cap_by_line_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // 6000 lines but small per-line — line cap of 5000 should trigger.
+        let body: String = "x\n".repeat(6_000);
+        std::fs::write(root.join("longfile.rs"), &body).unwrap();
+
+        let conn = FsSourceConnector::new(
+            &cfg_with_size_cap(root.to_str().unwrap(), 262_144, 5_000),
+        )
+        .unwrap();
+        let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
+
+        assert!(
+            skips.skipped_size_exceeded >= 1,
+            "skipped_size_exceeded should be >= 1 (line cap); got {}",
+            skips.skipped_size_exceeded
         );
     }
 }
