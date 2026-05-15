@@ -338,7 +338,8 @@ pub(crate) fn aggregate_from_rows(
                         | Citation::Page { path, .. }
                         | Citation::Region { path, .. }
                         | Citation::Caption { path, .. }
-                        | Citation::Time { path, .. } => !path.0.is_empty(),
+                        | Citation::Time { path, .. }
+                        | Citation::Code { path, .. } => !path.0.is_empty(),
                     });
                 if covered {
                     citation_num += 1;
@@ -472,6 +473,8 @@ mod tests {
             indexed_at: OffsetDateTime::UNIX_EPOCH,
             stale: false,
             score_kind: kebab_core::ScoreKind::Rrf,
+            repo: None,
+            code_lang: None,
         }
     }
 

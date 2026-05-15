@@ -87,6 +87,8 @@ fn hit(rank: u32, chunk_id: &str, doc_id: &str) -> SearchHit {
         indexed_at: OffsetDateTime::UNIX_EPOCH,
         stale: false,
         score_kind: kebab_core::ScoreKind::Rrf,
+        repo: None,
+        code_lang: None,
     }
 }
 

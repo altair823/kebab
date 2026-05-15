@@ -110,6 +110,8 @@ pub fn handle(state: &KebabAppState, input: SearchInput) -> CallToolResult {
         media,
         ingested_after,
         doc_id: input.doc_id.clone().map(kebab_core::DocumentId),
+        repo: vec![],
+        code_lang: vec![],
     };
 
     let query = kebab_core::SearchQuery {

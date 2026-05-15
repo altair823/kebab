@@ -828,6 +828,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 media: media_norm,
                 ingested_after: ingested_after_parsed,
                 doc_id: doc_id.as_ref().map(|s| kebab_core::DocumentId(s.clone())),
+                repo: vec![],
+                code_lang: vec![],
             };
 
             let q = kebab_core::SearchQuery {
