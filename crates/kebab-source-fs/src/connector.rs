@@ -66,7 +66,7 @@ impl FsSourceConnector {
     fn resolve_scan_params(
         &self,
         scope: &SourceScope,
-    ) -> Result<(PathBuf, Vec<String>, WalkOverrides)> {
+    ) -> Result<(PathBuf, WalkOverrides)> {
         let root = if scope.root.as_os_str().is_empty() {
             self.default_root.clone()
         } else {
@@ -78,7 +78,7 @@ impl FsSourceConnector {
         let kbignore = read_kbignore(&root)?;
 
         let overrides = build_overrides(&root, &excludes, &kbignore)?;
-        Ok((root, kbignore, overrides))
+        Ok((root, overrides))
     }
 
     /// Scan the workspace and return the accepted assets together with
@@ -92,10 +92,7 @@ impl FsSourceConnector {
         &self,
         scope: &SourceScope,
     ) -> Result<(Vec<RawAsset>, FsScanSkips)> {
-        let (root, _kbignore, overrides) = self.resolve_scan_params(scope)?;
-
-        // Suppress unused-variable warning — kbignore patterns are already
-        // baked into `overrides`; we don't need them again here.
+        let (root, overrides) = self.resolve_scan_params(scope)?;
 
         log_scope_include_warning(scope);
 

@@ -9,7 +9,7 @@
 //! Expected: `scan` returns in O(seconds), every emitted path is unique,
 //! and `alpha.md` appears at least once.
 //!
-//! The cycle guard lives in `walker::walk_files`; this test exists to
+//! The cycle guard lives in `walker::walk_files_with_skips`; this test exists to
 //! prove it catches the realistic shape (cycle through one or more
 //! symlinks) end-to-end via the public API.
 
@@ -100,7 +100,7 @@ fn two_step_directory_cycle_visited_set_breaks_loop() {
     //
     // Without the visited-set, walkdir would descend
     //   a → a/loop (=b) → a/loop/loop (=a) → … forever.
-    // The canonical-path visited-set in `walker::walk_files` must break
+    // The canonical-path visited-set in `walker::walk_files_with_skips` must break
     // the loop and yield a finite, deterministic result.
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();

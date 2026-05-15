@@ -21,6 +21,16 @@
 //! `follow_links(true)`; we layer our own visited-set on top, keyed by the
 //! canonical path of every entry, and skip any entry we've already seen.
 //!
+//! ## Per-source skip attribution (spec §5.5)
+//!
+//! `walk_files_with_skips` returns a `WalkOverrides` struct that carries
+//! both a `combined` matcher (used for the actual walk decision) and three
+//! per-source matchers (`gitignore`, `kebabignore`, `builtin`). When an
+//! entry is excluded, `classify_skip` probes the per-source matchers in
+//! priority order (built-in > gitignore > kebabignore) to determine which
+//! `IngestReport` counter should be incremented — without requiring a
+//! second walker pass over the filesystem.
+//!
 //! ## Why `walkdir` instead of `ignore::WalkBuilder`?
 //!
 //! `ignore::WalkBuilder` bundles gitignore semantics + cycle detection in
