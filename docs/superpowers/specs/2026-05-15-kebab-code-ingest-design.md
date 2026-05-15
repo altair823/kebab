@@ -101,18 +101,17 @@ frozen design §2.1 의 5 variant (`line` / `page` / `region` / `caption` / `tim
   "kind": "code",
   "path": "kebab/crates/kebab-chunk/src/md_heading_v1.rs",
   "uri":  "kebab/crates/kebab-chunk/src/md_heading_v1.rs#L142-L168",
-
-  "code": {
-    "line_start": 142,
-    "line_end": 168,
-    "symbol": "MdHeadingV1Chunker::chunk_doc",
-    "lang": "rust"
-  }
+  "line_start": 142,
+  "line_end": 168,
+  "symbol": "MdHeadingV1Chunker::chunk_doc",
+  "lang": "rust"
 }
 ```
 
-`code.symbol` 은 nullable — Tier 1 AST chunk 면 채움, Tier 2/3 면 비움 (`null`).
-`code.lang` 은 `--code-lang` filter 와 같은 식별자 (lowercase). null 가능.
+**Wire 형태 — flat**: 기존 5 variants 와 동일한 패턴 (`Citation::Line` 도 `start` / `end` / `section` 이 top-level, 중첩 없음). serde `#[serde(tag = "kind")]` 외부 tag enum 이라 variant 별 필드가 top-level 에 들어감.
+
+`symbol` 은 nullable — Tier 1 AST chunk 면 채움, Tier 2/3 면 `null`.
+`lang` 은 `--code-lang` filter 와 같은 식별자 (lowercase). null 가능.
 
 기존 5 variant 와 마찬가지로 `path` + `uri` 는 항상 채움. `uri` 는 `path#L<start>-L<end>` (W3C Media Fragments) 그대로.
 
