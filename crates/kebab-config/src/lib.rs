@@ -45,6 +45,11 @@ pub struct Config {
     /// `dark`).
     #[serde(default = "UiCfg::defaults")]
     pub ui: UiCfg,
+    /// p10-1A-1: code ingest settings. `#[serde(default)]` so existing
+    /// config files without an `[ingest]` / `[ingest.code]` section
+    /// load cleanly with built-in defaults.
+    #[serde(default)]
+    pub ingest: IngestCfg,
     /// p9-fb-05: directory of the on-disk config file this `Config`
     /// was loaded from, if any. Populated by `Config::from_file` /
     /// `Config::load` — never serialized (`#[serde(skip)]`). Used by
@@ -265,6 +270,60 @@ impl UiCfg {
     }
 }
 
+/// p10-1A-1: top-level ingest configuration wrapper. Contains per-media-type
+/// sub-sections; currently only `code` is defined.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IngestCfg {
+    pub code: IngestCodeCfg,
+}
+
+impl Default for IngestCfg {
+    fn default() -> Self {
+        Self {
+            code: IngestCodeCfg::default(),
+        }
+    }
+}
+
+/// p10-1A-1: settings for the code ingest pipeline. All fields have
+/// reasonable defaults so the user need not set anything in `config.toml`
+/// to get working code ingest.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IngestCodeCfg {
+    /// Generated header sniff. Reads first ~512 bytes, checks 7 markers.
+    pub skip_generated_header: bool,
+    /// Max byte size per file. Bigger files skipped.
+    pub max_file_bytes: u64,
+    /// Max line count per file. Bigger files skipped (byte cap checked first).
+    pub max_file_lines: u32,
+    /// User extra skip globs (gitignore syntax). Applied on top of built-in
+    /// + `.gitignore` + `.kebabignore`.
+    pub extra_skip_globs: Vec<String>,
+    /// AST chunk size cap. Functions/classes longer than this fall back to
+    /// paragraph-based split (1A-2 and later).
+    pub ast_chunk_max_lines: u32,
+    /// Tier 3 fallback chunker: lines per chunk.
+    pub fallback_lines_per_chunk: u32,
+    /// Tier 3 fallback chunker: line overlap between adjacent chunks.
+    pub fallback_lines_overlap: u32,
+}
+
+impl Default for IngestCodeCfg {
+    fn default() -> Self {
+        Self {
+            skip_generated_header: true,
+            max_file_bytes: 262_144,
+            max_file_lines: 5_000,
+            extra_skip_globs: vec![],
+            ast_chunk_max_lines: 200,
+            fallback_lines_per_chunk: 80,
+            fallback_lines_overlap: 20,
+        }
+    }
+}
+
 impl Config {
     /// Defaults per design §6.4.
     pub fn defaults() -> Self {
@@ -336,6 +395,7 @@ impl Config {
             },
             image: ImageCfg::defaults(),
             ui: UiCfg::defaults(),
+            ingest: IngestCfg::default(),
             // p9-fb-05: defaults are not loaded from disk, so no
             // source_dir. Relative `workspace.root` (rare with
             // defaults) falls back to caller `cwd` via the
@@ -1059,6 +1119,49 @@ max_context_tokens = 8000
                 None => std::env::remove_var("XDG_CONFIG_HOME"),
             }
         }
+    }
+
+    #[test]
+    fn ingest_code_cfg_defaults() {
+        let cfg: IngestCodeCfg = toml::from_str("").unwrap();
+        assert_eq!(cfg.max_file_bytes, 262_144);
+        assert_eq!(cfg.max_file_lines, 5_000);
+        assert!(cfg.skip_generated_header);
+        assert!(cfg.extra_skip_globs.is_empty());
+        assert_eq!(cfg.ast_chunk_max_lines, 200);
+        assert_eq!(cfg.fallback_lines_per_chunk, 80);
+        assert_eq!(cfg.fallback_lines_overlap, 20);
+    }
+
+    #[test]
+    fn ingest_code_cfg_user_override() {
+        let toml = r#"
+            max_file_bytes = 1048576
+            max_file_lines = 20000
+            skip_generated_header = false
+            extra_skip_globs = ["**/fixtures/**", "**/snapshots/**"]
+        "#;
+        let cfg: IngestCodeCfg = toml::from_str(toml).unwrap();
+        assert_eq!(cfg.max_file_bytes, 1_048_576);
+        assert_eq!(cfg.max_file_lines, 20_000);
+        assert!(!cfg.skip_generated_header);
+        assert_eq!(cfg.extra_skip_globs.len(), 2);
+    }
+
+    #[test]
+    fn config_with_ingest_code_section() {
+        // Build a full valid Config serialization and patch only the
+        // [ingest.code] field we care about — avoids having to enumerate
+        // every required Config field in the test fixture.
+        let base = Config::defaults();
+        let mut toml_text = toml::to_string(&base).unwrap();
+        // Inject max_file_bytes override into the [ingest.code] table.
+        toml_text = toml_text.replace(
+            "max_file_bytes = 262144",
+            "max_file_bytes = 524288",
+        );
+        let cfg: Config = toml::from_str(&toml_text).unwrap();
+        assert_eq!(cfg.ingest.code.max_file_bytes, 524_288);
     }
 }
 
