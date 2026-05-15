@@ -7,7 +7,7 @@
   "required": ["schema_version", "kind", "path", "uri", "indexed_at", "stale"],
   "properties": {
     "schema_version": { "const": "citation.v1" },
-    "kind": { "enum": ["line", "page", "region", "caption", "time"] },
+    "kind": { "enum": ["line", "page", "region", "caption", "time", "code"] },
     "path": { "type": "string" },
     "uri":  { "type": "string" },
     "line":    { "type": "object" },
@@ -15,6 +15,7 @@
     "region":  { "type": "object" },
     "caption": { "type": "object" },
     "time":    { "type": "object" },
+    "code":    { "type": "object" },
     "indexed_at": { "type": "string", "format": "date-time" },
     "stale":      { "type": "boolean" }
   }

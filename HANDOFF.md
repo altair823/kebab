@@ -20,6 +20,7 @@ P0–P5 + P6 + P7 + P9-1/2/3/4 (Library / Search / Ask / Inspect) 머지 완료.
 | **P7** | PDF text + page citation | `kebab-parse-pdf` | P5 | ✅ 완료 (3/3 component, page-level chunker + ingest wiring) |
 | **P8** | 음성 transcription + timestamp citation | `kebab-parse-audio` | P5 | ⏸ 보류 (whisper-rs 시스템 dep brainstorm 필요) |
 | **P9** | TUI + desktop app | `kebab-tui`, `kebab-desktop` | P5 | 🟡 진행 (4/5 component — P9-1/2/3/4 완료 [Library / Search / Ask / Inspect], P9-5 desktop 예정 · 도그푸딩 피드백 **20/20 ✅**) |
+| **10** | code ingest framework | `kebab-parse-code` | P5 | 🟡 진행 중 (1A-1 머지 직전) — 1A-1 머지 시점 wire schema additive minor + 새 crate kebab-parse-code skeleton 동결, 실제 code chunker 는 1A-2 부터 |
 
 P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 

@@ -35,6 +35,7 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
 | P7 | [phase-7-pdf.md](phase-7-pdf.md) | PDF text + page citation | kebab-parse-pdf | P5 |
 | P8 | [phase-8-audio.md](phase-8-audio.md) | 음성 transcription + timestamp citation | kebab-parse-audio | P5 |
 | P9 | [phase-9-ui.md](phase-9-ui.md) | TUI + desktop app | kebab-tui, kebab-desktop | P5 |
+| P10 | [p10/INDEX.md](p10/INDEX.md) | Code ingest framework + AST chunkers | kebab-parse-code, kebab-source-fs (code walk) | P5 |
 
 ## Component task decomposition (per phase)
 
@@ -136,6 +137,15 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
     ### 🎯 0.6.0 또는 P+ — reasoning
     - [p9-fb-41 multi-hop reasoning](p9/p9-fb-41-multi-hop-reasoning.md) — ⏳ 미구현, brainstorm 필요 (XL, eval 인프라 선행)
     - [p9-fb-42 bulk multi-query + re-rank hint](p9/p9-fb-42-bulk-multi-query-rerank.md) — ✅ 머지 (2026-05-10) — bulk only, rerank hint deferred
+
+- P10 — [p10/](p10/) — code ingest (multi-task, sub-indexed in [p10/INDEX.md](p10/INDEX.md))
+  - [p10-1A-1 code ingest framework](p10/p10-1a-1-code-ingest-framework.md) — 🟡 진행 중
+  - p10-1A-2 Rust AST chunker — ⏳
+  - p10-1B Python + TS/JS AST chunkers — ⏳
+  - p10-1C Go + Java + Kotlin AST chunkers — ⏳
+  - p10-1D C + C++ AST chunkers — ⏳
+  - p10-2 Tier 2 resource-aware — ⏳
+  - p10-3 Tier 3 paragraph + line-window fallback — ⏳
 
 ## Post-merge 핫픽스
 

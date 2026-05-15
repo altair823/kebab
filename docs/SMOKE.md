@@ -113,6 +113,11 @@ max_context_tokens = 6000
 
 [ui]
 theme = "dark"                       # p9-fb-14 — TUI palette ("dark" / "light", default "dark")
+
+[ingest.code]
+skip_generated_header = true
+max_file_bytes = 262144
+max_file_lines = 5000
 ```
 
 `KEBAB_*` 환경변수로 override 가능 (`KEBAB_MODELS_LLM_MODEL=gemma4:26b kebab …` 등). 자세한 키 목록은 `crates/kebab-config/src/lib.rs` 의 `apply_env` 매치 암. `KEBAB_READONLY=1` — write-path 비활성화 (CI 안전망). `KEBAB_PROGRESS=plain` — non-TTY 환경에서 진행 상황을 plain 한 줄씩 stderr 출력 (spinner 대신).

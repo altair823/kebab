@@ -38,6 +38,20 @@
       },
       "description": "p9-fb-25: per-extension skip count. Key = lowercase extension without leading dot (e.g. 'docx'). Files without extension key under '<no-ext>'."
     },
-    "items":          { "type": ["array", "null"] }
+    "items":          { "type": ["array", "null"] },
+    "skipped_gitignore":         { "type": "integer", "minimum": 0 },
+    "skipped_kebabignore":       { "type": "integer", "minimum": 0 },
+    "skipped_builtin_blacklist": { "type": "integer", "minimum": 0 },
+    "skipped_generated":         { "type": "integer", "minimum": 0 },
+    "skipped_size_exceeded":     { "type": "integer", "minimum": 0 },
+    "skip_examples": {
+      "type": "object",
+      "properties": {
+        "generated":         { "type": "array", "items": { "type": "string" }, "maxItems": 5 },
+        "size_exceeded":     { "type": "array", "items": { "type": "string" }, "maxItems": 5 },
+        "builtin_blacklist": { "type": "array", "items": { "type": "string" }, "maxItems": 5 },
+        "gitignore":         { "type": "array", "items": { "type": "string" }, "maxItems": 5 }
+      }
+    }
   }
 }

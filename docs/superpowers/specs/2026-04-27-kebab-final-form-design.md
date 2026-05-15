@@ -37,6 +37,7 @@ related_tasks: ../../../tasks/INDEX.md
 | – | ignore | gitignore 문법 + `.kebabignore` | 익숙함 |
 | – | 에러 | thiserror per crate, anyhow at boundary | 추적성 + UX |
 | – | sync | watch=false default | v1 명시 ingest |
+| C+ | code ingest 추가 | Tier 1/2/3 fan-out, e5-large 유지, 새 Citation `code` variant | 2026-05-15 spec |
 
 ---
 
@@ -168,12 +169,12 @@ $ kebab search "Markdown chunking 규칙"
 
 `docs/wire-schema/v1/*.schema.json` 으로 동결. internal Rust struct ↔ wire 변환은 `From`/`TryFrom`. 모든 wire 객체는 `schema_version` 필드 필수.
 
-### 2.1 Citation (5 variants — discriminated by `kind`)
+### 2.1 Citation (6 variants — discriminated by `kind`)
 
 ```json
 {
   "schema_version": "citation.v1",
-  "kind": "line|page|region|caption|time",
+  "kind": "line|page|region|caption|time|code",
   "path": "notes/rust/kebab.md",
   "uri":  "notes/rust/kebab.md#L12-L34",
 
@@ -181,7 +182,20 @@ $ kebab search "Markdown chunking 규칙"
   "page":    { "page": 13, "section": "Experiment Setup" },
   "region":  { "x": 120, "y": 40, "w": 520, "h": 180 },
   "caption": { "model": "qwen2.5-vl:7b" },
-  "time":    { "start_ms": 822000, "end_ms": 850000, "speaker": "S1" }
+  "time":    { "start_ms": 822000, "end_ms": 850000, "speaker": "S1" },
+  "code":    { "start": 10, "end": 42, "lang": "rust", "repo": "kebab", "symbol": "fn ingest" }
+}
+```
+
+code variant example (p10-1A-1):
+
+```json
+{
+  "schema_version": "citation.v1",
+  "kind": "code",
+  "path": "crates/kebab-app/src/ingest.rs",
+  "uri":  "crates/kebab-app/src/ingest.rs#L10-L42",
+  "code": { "start": 10, "end": 42, "lang": "rust", "repo": "kebab", "symbol": "fn ingest" }
 }
 ```
 
@@ -213,7 +227,9 @@ variant 별 해당 키만 채움. `path` 와 `uri` 는 항상 채움 (`uri` 는 
   },
   "index_version": "v1.0",
   "embedding_model": "multilingual-e5-large",
-  "chunker_version": "md-heading-v1"
+  "chunker_version": "md-heading-v1",
+  "repo": null,        // p10-1A-1: optional, omitted when null (code corpus only)
+  "code_lang": null    // p10-1A-1: optional, omitted when null (code corpus only)
 }
 ```
 
@@ -297,6 +313,17 @@ Per-query failure 는 `bulk_search_item.v1.error` (error.v1) 에 격리, 다른 
   "scope": { "root": "/home/altair/KnowledgeBase", "include": ["**/*.md"], "exclude": [".git/**"] },
   "scanned": 142, "new": 12, "updated": 3, "skipped": 127, "errors": 0,
   "duration_ms": 4231,
+  "skipped_gitignore": 40,
+  "skipped_kebabignore": 5,
+  "skipped_builtin_blacklist": 80,
+  "skipped_generated": 2,
+  "skipped_size_exceeded": 1,
+  "skip_examples": {
+    "generated": ["crates/kebab-app/src/generated.rs"],
+    "size_exceeded": ["crates/kebab-app/fixtures/huge.rs"],
+    "builtin_blacklist": ["target/release/kebab"],
+    "gitignore": ["node_modules/lodash/index.js"]
+  },
   "items": [
     {
       "kind": "new|updated|skipped|error",
@@ -433,6 +460,8 @@ pub struct IndexVersion(pub String);
 pub struct PromptTemplateVersion(pub String);
 pub struct SchemaVersion(pub &'static str);
 ```
+
+Note: `chunker_version` family extended in phase 10 (per-language pattern, see 2026-05-15 spec §3.3 for canonical list). Each new language AST chunker registers its own `ChunkerVersion` label (e.g. `code-rust-ast-v1`, `code-python-ast-v1`). The existing `md-heading-v1` / `pdf-page-v1` labels are unaffected.
 
 ### 3.3 RawAsset
 
@@ -577,6 +606,11 @@ pub struct Metadata {
     pub trust_level: TrustLevel,
     pub user_id_alias: Option<String>,
     pub user: serde_json::Map<String, serde_json::Value>,
+    // p10-1A-1: code corpus fields — None for non-code assets.
+    pub repo: Option<String>,         // git repo name (top-level dir or remote basename)
+    pub git_branch: Option<String>,   // HEAD branch name at ingest time
+    pub git_commit: Option<String>,   // HEAD commit SHA (short, 12 chars) at ingest time
+    pub code_lang: Option<String>,    // lowercase language name (e.g. "rust", "python")
 }
 
 pub enum SourceType { Markdown, Note, Paper, Reference, Inbox }
@@ -1370,8 +1404,11 @@ pub trait JobRepo {
 kebab-cli, kebab-tui, kebab-desktop
    └─> kebab-app
          ├─> kebab-source-fs
+         │     └─> kebab-parse-code (p10-1A-1: lang detect / repo detect / skip policy)
          ├─> kebab-parse-md / kebab-parse-pdf / kebab-parse-image / kebab-parse-audio
          │     └─> kebab-parse-types (parser intermediate)
+         ├─> kebab-parse-code
+         │     └─> kebab-core (domain types only — NO store/embed/llm/rag/UI)
          ├─> kebab-normalize
          │     └─> kebab-parse-types
          ├─> kebab-chunk
@@ -1554,6 +1591,8 @@ agent 가 분기). HTTP-SSE transport 는 fb-29 deferral 따라 P+. classify
 - visual embedding (CLIP)
 - real-time collab
 - enterprise auth
+
+코드 ingest 는 더 이상 비-스코프 아님 (2026-05-15 spec). 단 multi-workspace / watch mode / history aware (git blame 기반 citation, diff-aware re-chunking) 는 그대로 비-스코프.
 
 ---
 
