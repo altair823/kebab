@@ -54,6 +54,10 @@ fn make_doc(
         trust_level: trust,
         user_id_alias: None,
         user: Default::default(),
+        repo: None,
+        git_branch: None,
+        git_commit: None,
+        code_lang: None,
     };
     let doc = CanonicalDocument {
         doc_id,
