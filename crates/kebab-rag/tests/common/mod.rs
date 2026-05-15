@@ -171,6 +171,8 @@ pub fn mk_hit_with_indexed_at(
         indexed_at,
         stale: false,
         score_kind: kebab_core::ScoreKind::Rrf,
+        repo: None,
+        code_lang: None,
     }
 }
 

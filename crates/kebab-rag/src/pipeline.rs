@@ -1170,6 +1170,8 @@ mod stream_event_serde_tests {
             indexed_at: datetime!(2026-05-09 12:00:00 UTC),
             stale: false,
             score_kind: kebab_core::ScoreKind::Rrf,
+            repo: None,
+            code_lang: None,
         }
     }
 
