@@ -1,0 +1,13 @@
+[package]
+name = "kebab-parse-code"
+version       = { workspace = true }
+edition       = { workspace = true }
+license       = { workspace = true }
+
+[dependencies]
+anyhow      = { workspace = true }
+gix         = { workspace = true }
+kebab-core  = { path = "../kebab-core" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
