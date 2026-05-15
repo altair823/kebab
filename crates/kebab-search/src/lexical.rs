@@ -470,6 +470,8 @@ fn build_hit(
         // in `RagPipeline::ask` against the configured threshold.
         stale: false,
         score_kind: ScoreKind::Bm25,
+        repo: None,
+        code_lang: None,
     })
 }
 

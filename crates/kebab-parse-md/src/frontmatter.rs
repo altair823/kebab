@@ -471,6 +471,10 @@ fn derive_metadata(
         trust_level,
         user_id_alias,
         user,
+        repo: None,
+        git_branch: None,
+        git_commit: None,
+        code_lang: None,
     }
 }
 

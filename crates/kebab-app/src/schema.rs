@@ -45,7 +45,7 @@ pub struct Models {
     pub corpus_revision: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Stats {
     pub doc_count: u64,
     pub chunk_count: u64,
@@ -63,6 +63,14 @@ pub struct Stats {
     /// p9-fb-37: docs whose `updated_at` exceeds the staleness threshold.
     #[serde(default)]
     pub stale_doc_count: u64,
+    /// p10-1A-1: code language breakdown (chunk counts by canonical lowercase
+    /// language identifier). Empty until 1A-2 produces code chunks.
+    #[serde(default)]
+    pub code_lang_breakdown: std::collections::BTreeMap<String, u32>,
+    /// p10-1A-1: repo breakdown (chunk counts by `metadata.repo` value).
+    /// Empty until 1A-2 produces code chunks.
+    #[serde(default)]
+    pub repo_breakdown: std::collections::BTreeMap<String, u32>,
 }
 
 const KEBAB_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -158,6 +166,9 @@ fn collect_stats(
         lang_breakdown: counts.lang_breakdown,
         index_bytes,
         stale_doc_count: counts.stale_doc_count,
+        // p10-1A-1: populated by 1A-2 code ingest; empty until then.
+        code_lang_breakdown: std::collections::BTreeMap::new(),
+        repo_breakdown: std::collections::BTreeMap::new(),
     })
 }
 
@@ -181,6 +192,32 @@ fn collect_models(cfg: &Config, store: &kebab_store_sqlite::SqliteStore) -> Mode
 #[cfg(test)]
 mod tests_stats_ext {
     use super::*;
+
+    /// p10-1A-1: Stats must serialize `code_lang_breakdown` and
+    /// `repo_breakdown` so downstream consumers (MCP skill, Claude Code)
+    /// can branch on their presence.
+    #[test]
+    fn stats_includes_code_lang_and_repo_breakdown_fields() {
+        let stats = Stats::default();
+        let v = serde_json::to_value(&stats).unwrap();
+        assert!(
+            v.get("code_lang_breakdown").is_some(),
+            "Stats JSON must include code_lang_breakdown: {v}"
+        );
+        assert!(
+            v.get("repo_breakdown").is_some(),
+            "Stats JSON must include repo_breakdown: {v}"
+        );
+        // Empty BTreeMap serializes as `{}` — confirm it's an object, not null.
+        assert!(
+            v["code_lang_breakdown"].is_object(),
+            "code_lang_breakdown must be an object: {v}"
+        );
+        assert!(
+            v["repo_breakdown"].is_object(),
+            "repo_breakdown must be an object: {v}"
+        );
+    }
 
     #[test]
     fn stats_includes_breakdowns_and_bytes_on_fresh_corpus() {

@@ -61,6 +61,14 @@ pub struct SearchFilters {
     /// p9-fb-36: restrict hits to a single document. None = no filter.
     #[serde(default)]
     pub doc_id: Option<DocumentId>,
+    /// p10-1A-1: filter by `metadata.repo`. Empty = no filter; multi-value = OR.
+    #[serde(default)]
+    pub repo: Vec<String>,
+    /// p10-1A-1: filter by `metadata.code_lang`. Empty = no filter; multi-value = OR.
+    /// Identifiers are lowercase canonical names (`rust`, `python`, `typescript`, ...).
+    /// Unknown values produce empty hits (consistent with `media` policy).
+    #[serde(default)]
+    pub code_lang: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -89,6 +97,15 @@ pub struct SearchHit {
     /// 옛 wire (fb-38 미만) 부재 시 `Rrf` default — hybrid 가 기본 mode.
     #[serde(default)]
     pub score_kind: ScoreKind,
+    /// p10-1A-1: optional. Filled when the source file lives in a git repo
+    /// (`.git/` walk-up). null for markdown / pdf / image hits and for code
+    /// hits ingested via `kebab ingest-file` outside a repo boundary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    /// p10-1A-1: optional. Programming language identifier (lowercase). Set for
+    /// every code/manifest/k8s chunk; null for markdown / pdf / image hits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_lang: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -99,6 +116,19 @@ pub struct RetrievalDetail {
     pub vector_score: Option<f32>,
     pub lexical_rank: Option<u32>,
     pub vector_rank: Option<u32>,
+}
+
+impl Default for RetrievalDetail {
+    fn default() -> Self {
+        Self {
+            method: SearchMode::Hybrid,
+            fusion_score: 0.0,
+            lexical_score: None,
+            vector_score: None,
+            lexical_rank: None,
+            vector_rank: None,
+        }
+    }
 }
 
 /// Filter for `kb-app::list_docs` (§7.2 DocumentStore::list_documents).
@@ -257,6 +287,8 @@ mod tests {
             indexed_at: datetime!(2026-05-09 12:00:00 UTC),
             stale: true,
             score_kind: ScoreKind::Rrf,
+            repo: None,
+            code_lang: None,
         };
         let v = serde_json::to_value(&hit).unwrap();
         assert_eq!(v["indexed_at"], "2026-05-09T12:00:00Z");
@@ -428,5 +460,75 @@ mod tests {
         let v = serde_json::to_value(&item).unwrap();
         assert!(v["response"].is_null());
         assert_eq!(v["error"]["code"], "config_invalid");
+    }
+
+    #[test]
+    fn search_hit_repo_and_code_lang_are_optional_and_omit_when_none() {
+        let hit = SearchHit {
+            rank: 1,
+            chunk_id: ChunkId("c1".into()),
+            doc_id: DocumentId("d1".into()),
+            doc_path: WorkspacePath("a.md".into()),
+            heading_path: vec![],
+            section_label: None,
+            snippet: "".into(),
+            citation: Citation::Line {
+                path: WorkspacePath("a.md".into()),
+                start: 1,
+                end: 2,
+                section: None,
+            },
+            retrieval: RetrievalDetail::default(),
+            index_version: IndexVersion("v1".into()),
+            embedding_model: None,
+            chunker_version: ChunkerVersion("md-heading-v1".into()),
+            indexed_at: time::OffsetDateTime::UNIX_EPOCH,
+            stale: false,
+            score_kind: ScoreKind::Rrf,
+            repo: None,
+            code_lang: None,
+        };
+        let v = serde_json::to_value(&hit).unwrap();
+        assert!(v.get("repo").is_none(), "repo should be omitted when None");
+        assert!(v.get("code_lang").is_none(), "code_lang should be omitted when None");
+    }
+
+    #[test]
+    fn search_hit_repo_and_code_lang_present_when_some() {
+        let hit = SearchHit {
+            rank: 1,
+            chunk_id: ChunkId("c1".into()),
+            doc_id: DocumentId("d1".into()),
+            doc_path: WorkspacePath("a.rs".into()),
+            heading_path: vec![],
+            section_label: None,
+            snippet: "".into(),
+            citation: Citation::Code {
+                path: WorkspacePath("a.rs".into()),
+                line_start: 1,
+                line_end: 2,
+                symbol: None,
+                lang: Some("rust".into()),
+            },
+            retrieval: RetrievalDetail::default(),
+            index_version: IndexVersion("v1".into()),
+            embedding_model: None,
+            chunker_version: ChunkerVersion("code-rust-ast-v1".into()),
+            indexed_at: time::OffsetDateTime::UNIX_EPOCH,
+            stale: false,
+            score_kind: ScoreKind::Rrf,
+            repo: Some("kebab".into()),
+            code_lang: Some("rust".into()),
+        };
+        let v = serde_json::to_value(&hit).unwrap();
+        assert_eq!(v["repo"], "kebab");
+        assert_eq!(v["code_lang"], "rust");
+    }
+
+    #[test]
+    fn search_filters_repo_and_code_lang_default_to_empty_vec() {
+        let f = SearchFilters::default();
+        assert!(f.repo.is_empty());
+        assert!(f.code_lang.is_empty());
     }
 }

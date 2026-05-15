@@ -44,7 +44,7 @@ use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
     EmbeddingKind, ExtractContext, Extractor, IngestReport, Lang, LanguageModel, MediaType,
-    ParserVersion, RawAsset, SearchHit, SearchQuery, SourceConnector, SourceScope,
+    ParserVersion, RawAsset, SearchHit, SearchQuery, SourceScope,
     SourceUri, VectorRecord, VectorStore,
 };
 use kebab_llm_local::OllamaLanguageModel;
@@ -305,8 +305,8 @@ pub fn ingest_with_config_opts(
     );
     let connector = FsSourceConnector::new(&app.config)
         .context("kb-app::ingest: build FsSourceConnector")?;
-    let assets = connector
-        .scan(&scope)
+    let (assets, fs_skips) = connector
+        .scan_with_skips(&scope)
         .context("kb-app::ingest: scan workspace")?;
     crate::ingest_progress::emit(
         progress,
@@ -675,6 +675,12 @@ pub fn ingest_with_config_opts(
         errors: error_count,
         duration_ms,
         skipped_by_extension,
+        skipped_gitignore: fs_skips.skipped_gitignore,
+        skipped_kebabignore: fs_skips.skipped_kebabignore,
+        skipped_builtin_blacklist: fs_skips.skipped_builtin_blacklist,
+        skipped_generated: fs_skips.skipped_generated,
+        skipped_size_exceeded: fs_skips.skipped_size_exceeded,
+        skip_examples: fs_skips.skip_examples,
         items: if summary_only { None } else { Some(items) },
     })
 }

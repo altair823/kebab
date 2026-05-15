@@ -56,6 +56,8 @@ fn make_hit(rank: u32, path: &str, snippet: &str, citation: Citation) -> SearchH
         indexed_at: time::OffsetDateTime::UNIX_EPOCH,
         stale: false,
         score_kind: kebab_core::ScoreKind::Rrf,
+        repo: None,
+        code_lang: None,
     }
 }
 

@@ -51,6 +51,10 @@ fn make_doc() -> CanonicalDocument {
         trust_level: TrustLevel::Primary,
         user_id_alias: None,
         user: Default::default(),
+        repo: None,
+        git_branch: None,
+        git_commit: None,
+        code_lang: None,
     };
     CanonicalDocument {
         doc_id,

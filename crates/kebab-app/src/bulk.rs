@@ -197,6 +197,8 @@ fn parse_one(raw: &Value) -> Result<(SearchQuery, SearchOpts), String> {
         media,
         ingested_after,
         doc_id,
+        repo: vec![],
+        code_lang: vec![],
     };
 
     let opts = SearchOpts {

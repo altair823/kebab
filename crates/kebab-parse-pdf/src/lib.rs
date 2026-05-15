@@ -194,6 +194,10 @@ impl Extractor for PdfTextExtractor {
             trust_level: TrustLevel::Primary,
             user_id_alias: None,
             user,
+            repo: None,
+            git_branch: None,
+            git_commit: None,
+            code_lang: None,
         };
 
         tracing::debug!(

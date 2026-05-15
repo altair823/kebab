@@ -42,6 +42,8 @@
     "embedding_model": { "type": ["string", "null"] },
     "chunker_version": { "type": "string" },
     "indexed_at":      { "type": "string", "format": "date-time" },
-    "stale":           { "type": "boolean" }
+    "stale":           { "type": "boolean" },
+    "repo":            { "type": ["string", "null"] },
+    "code_lang":       { "type": ["string", "null"] }
   }
 }

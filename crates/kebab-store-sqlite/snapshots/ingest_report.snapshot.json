@@ -42,8 +42,19 @@
     ],
     "root": "/home/u/KB"
   },
+  "skip_examples": {
+    "builtin_blacklist": [],
+    "generated": [],
+    "gitignore": [],
+    "size_exceeded": []
+  },
   "skipped": 0,
+  "skipped_builtin_blacklist": 0,
   "skipped_by_extension": {},
+  "skipped_generated": 0,
+  "skipped_gitignore": 0,
+  "skipped_kebabignore": 0,
+  "skipped_size_exceeded": 0,
   "unchanged": 0,
   "updated": 1
 }

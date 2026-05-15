@@ -37,6 +37,13 @@ pub enum Citation {
         end_ms: u64,
         speaker: Option<String>,
     },
+    Code {
+        path: WorkspacePath,
+        line_start: u32,
+        line_end: u32,
+        symbol: Option<String>,
+        lang: Option<String>,
+    },
 }
 
 impl Citation {
@@ -46,7 +53,8 @@ impl Citation {
             | Citation::Page { path, .. }
             | Citation::Region { path, .. }
             | Citation::Caption { path, .. }
-            | Citation::Time { path, .. } => path,
+            | Citation::Time { path, .. }
+            | Citation::Code { path, .. } => path,
         }
     }
 
@@ -78,6 +86,18 @@ impl Citation {
                 match speaker {
                     Some(sp) => format!("{}#t={},{}&speaker={}", path.0, s, e, sp),
                     None => format!("{}#t={},{}", path.0, s, e),
+                }
+            }
+            Citation::Code {
+                path,
+                line_start,
+                line_end,
+                ..
+            } => {
+                if line_start == line_end {
+                    format!("{}#L{}", path.0, line_start)
+                } else {
+                    format!("{}#L{}-L{}", path.0, line_start, line_end)
                 }
             }
         }
@@ -353,5 +373,65 @@ mod tests {
         // `notes/x#evil.md` on the path side. WorkspacePath::new must reject.
         let r = Citation::parse("notes/x#evil.md#L7");
         assert!(r.is_err(), "path with embedded '#' must be rejected");
+    }
+
+    #[test]
+    fn citation_code_variant_serializes_with_kind_tag() {
+        let c = Citation::Code {
+            path: WorkspacePath("crates/kebab-chunk/src/md_heading_v1.rs".into()),
+            line_start: 142,
+            line_end: 168,
+            symbol: Some("MdHeadingV1Chunker::chunk_doc".into()),
+            lang: Some("rust".into()),
+        };
+        let v = serde_json::to_value(&c).unwrap();
+        assert_eq!(v["kind"], "code");
+        assert_eq!(v["line_start"], 142);
+        assert_eq!(v["line_end"], 168);
+        assert_eq!(v["symbol"], "MdHeadingV1Chunker::chunk_doc");
+        assert_eq!(v["lang"], "rust");
+        // Existing 5 variants must NOT pick up these fields.
+        let line = Citation::Line {
+            path: WorkspacePath("notes/foo.md".into()),
+            start: 1,
+            end: 10,
+            section: None,
+        };
+        let lv = serde_json::to_value(&line).unwrap();
+        assert!(lv.get("line_start").is_none());
+        assert!(lv.get("symbol").is_none());
+    }
+
+    #[test]
+    fn citation_code_uri_format() {
+        let c = Citation::Code {
+            path: WorkspacePath("a/b.rs".into()),
+            line_start: 10,
+            line_end: 20,
+            symbol: None,
+            lang: Some("rust".into()),
+        };
+        assert_eq!(c.to_uri(), "a/b.rs#L10-L20");
+        // Single-line uses `#L10`.
+        let single = Citation::Code {
+            path: WorkspacePath("a/b.rs".into()),
+            line_start: 5,
+            line_end: 5,
+            symbol: None,
+            lang: None,
+        };
+        assert_eq!(single.to_uri(), "a/b.rs#L5");
+    }
+
+    #[test]
+    fn citation_code_path_accessor() {
+        let c = Citation::Code {
+            path: WorkspacePath("x.rs".into()),
+            line_start: 1,
+            line_end: 1,
+            symbol: None,
+            lang: None,
+        };
+        assert_eq!(c.path().0, "x.rs");
     }
 }

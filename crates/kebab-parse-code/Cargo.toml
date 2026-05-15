@@ -1,0 +1,15 @@
+[package]
+name = "kebab-parse-code"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "Language-aware code parsing infrastructure (lang dispatch, .git/ detect, skip helpers) for the kebab pipeline (P10-1A-1)"
+
+[dependencies]
+anyhow      = { workspace = true }
+gix         = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

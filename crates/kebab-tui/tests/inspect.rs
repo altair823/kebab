@@ -79,6 +79,10 @@ fn make_doc() -> CanonicalDocument {
             trust_level: TrustLevel::Primary,
             user_id_alias: None,
             user,
+            repo: None,
+            git_branch: None,
+            git_commit: None,
+            code_lang: None,
         },
         provenance: Provenance {
             events: vec![ProvenanceEvent {

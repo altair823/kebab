@@ -46,6 +46,11 @@ struct Cli {
     command: Cmd,
 }
 
+// p10-1A-1: adding `repo` and `code_lang` Vec<String> fields pushed `Cmd`
+// over clippy's large_enum_variant threshold. The enum is short-lived
+// (parsed once at startup, never cloned in a hot path) — boxing would add
+// noise with no real benefit.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand, Debug)]
 enum Cmd {
     /// Initialise XDG dirs + workspace + `config.toml`.
@@ -164,6 +169,18 @@ enum Cmd {
         /// p9-fb-36: filter to a single doc by id.
         #[arg(long)]
         doc_id: Option<String>,
+
+        /// p10-1A-1: filter by repo name (`metadata.repo`). Repeatable;
+        /// multi-value = OR.  Empty = no filter (all repos returned).
+        #[arg(long = "repo", value_name = "NAME", num_args = 1)]
+        repo: Vec<String>,
+
+        /// p10-1A-1: filter by code language identifier (lowercase
+        /// canonical).  Repeatable or comma-separated.
+        /// Examples: `rust`, `python`, `typescript`.
+        /// Unknown values produce empty hits.
+        #[arg(long = "code-lang", value_name = "LANG", num_args = 1, value_delimiter = ',')]
+        code_lang: Vec<String>,
 
         /// p9-fb-37: emit pre-fusion lexical / vector / RRF candidate
         /// lists + per-stage timing in the response. Bypasses cache
@@ -688,6 +705,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             media,
             ingested_after,
             doc_id,
+            repo,
+            code_lang,
             trace,
             bulk,
         } => {
@@ -819,7 +838,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     None => None,
                 };
 
-            // p9-fb-36: build SearchFilters from the 7 new flags.
+            // p9-fb-36 + p10-1A-1: build SearchFilters from CLI flags.
             let filters = kebab_core::SearchFilters {
                 tags_any: tag.clone(),
                 lang: lang.as_ref().map(|s| kebab_core::Lang(s.clone())),
@@ -828,6 +847,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 media: media_norm,
                 ingested_after: ingested_after_parsed,
                 doc_id: doc_id.as_ref().map(|s| kebab_core::DocumentId(s.clone())),
+                repo: repo.clone(),
+                code_lang: code_lang.clone(),
             };
 
             let q = kebab_core::SearchQuery {

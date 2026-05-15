@@ -78,6 +78,16 @@
           "type": "integer",
           "minimum": 0,
           "description": "p9-fb-37: docs whose updated_at exceeds config.search.stale_threshold_days. 0 when threshold=0."
+        },
+        "code_lang_breakdown": {
+          "type": "object",
+          "description": "p10-1A-1: per-language code chunk count. Key = lowercase language name (e.g. 'rust', 'python'). Populated after 1A-2 lands; empty on markdown-only corpora.",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "repo_breakdown": {
+          "type": "object",
+          "description": "p10-1A-1: per-repo code chunk count. Key = repo name as detected by kebab-parse-code::repo. Empty on markdown-only corpora.",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
         }
       }
     }

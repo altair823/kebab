@@ -35,6 +35,12 @@ fn fixture_report() -> IngestReport {
         errors: 0,
         duration_ms: 187,
         skipped_by_extension: std::collections::BTreeMap::new(),
+        skipped_gitignore: 0,
+        skipped_kebabignore: 0,
+        skipped_builtin_blacklist: 0,
+        skipped_generated: 0,
+        skipped_size_exceeded: 0,
+        skip_examples: kebab_core::SkipExamples::default(),
         items: Some(vec![
             IngestItem {
                 kind: IngestItemKind::New,

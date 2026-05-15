@@ -509,6 +509,8 @@ mod tests {
             indexed_at: time::OffsetDateTime::UNIX_EPOCH,
             stale: false,
             score_kind: kebab_core::ScoreKind::Rrf,
+            repo: None,
+            code_lang: None,
         }
     }
 
@@ -760,6 +762,8 @@ mod tests {
                 indexed_at: time::OffsetDateTime::UNIX_EPOCH,
                 stale: false,
                 score_kind: kebab_core::ScoreKind::Rrf,
+                repo: None,
+                code_lang: None,
             }
         }
 

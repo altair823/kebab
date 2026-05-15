@@ -23,6 +23,7 @@ members = [
     "crates/kebab-parse-pdf",
     "crates/kebab-tui",
     "crates/kebab-mcp",
+    "crates/kebab-parse-code",
 ]
 
 [workspace.package]
@@ -81,6 +82,10 @@ rmcp         = { version = "1.6", default-features = false, features = ["server"
 # sync via reqwest::blocking — wiremock is dev-only there).
 wiremock     = "0.6"
 base64       = "0.22"
+# Pure-Rust git library for repo metadata detection (kebab-parse-code).
+# No `git` binary required. Default features include thread-safety + most
+# object-reading capabilities needed for HEAD name + commit SHA queries.
+gix          = { version = "0.70", default-features = false, features = ["revision"] }
 
 # Disk-footprint trim for dev / test builds. Codegen, opt-level, and
 # behavior are unchanged — only DWARF debug info is reduced (line

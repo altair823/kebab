@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn ingest_wrapper_tags_schema_version() {
-        use kebab_core::SourceScope;
+        use kebab_core::{SkipExamples, SourceScope};
         let r = IngestReport {
             scope: SourceScope {
                 root: std::path::PathBuf::from("/tmp"),
@@ -254,6 +254,12 @@ mod tests {
             errors: 0,
             duration_ms: 0,
             skipped_by_extension: std::collections::BTreeMap::new(),
+            skipped_gitignore: 0,
+            skipped_kebabignore: 0,
+            skipped_builtin_blacklist: 0,
+            skipped_generated: 0,
+            skipped_size_exceeded: 0,
+            skip_examples: SkipExamples::default(),
             items: None,
         };
         let v = wire_ingest(&r);
@@ -328,6 +334,8 @@ mod tests {
                 lang_breakdown: Default::default(),
                 index_bytes: Default::default(),
                 stale_doc_count: 0,
+                // p10-1A-1: new fields added to Stats; use Default for the test fixture.
+                ..Default::default()
             },
         };
         let v = wire_schema(&schema);
