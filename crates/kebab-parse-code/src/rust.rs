@@ -182,7 +182,10 @@ fn build_blocks(
         .ok_or_else(|| anyhow::anyhow!("tree-sitter failed to parse Rust source"))?;
     let lines: Vec<&str> = source.split('\n').collect();
 
-    let mut units: Vec<(String, u32, u32)> = Vec::new();
+    // units: (symbol, line_start, line_end, is_real_semantic_unit).
+    // Glue groups are pushed with a sentinel symbol + is_real=false so a
+    // post-pass can decide `<module>` vs `<top-level>` (Gap 1).
+    let mut units: Vec<(String, u32, u32, bool)> = Vec::new();
     let mut glue: Vec<(usize, u32, u32)> = Vec::new(); // (is_mod_decl 0/1, s, e)
 
     fn node_name<'a>(n: &tree_sitter::Node, src: &'a str) -> Option<&'a str> {
@@ -207,7 +210,7 @@ fn build_blocks(
         node: tree_sitter::Node,
         src: &str,
         mod_path: &[String],
-        units: &mut Vec<(String, u32, u32)>,
+        units: &mut Vec<(String, u32, u32, bool)>,
         glue: &mut Vec<(usize, u32, u32)>,
     ) {
         let mut cur = node.walk();
@@ -223,17 +226,25 @@ fn build_blocks(
                 "function_item" | "struct_item" | "enum_item" | "union_item"
                 | "trait_item" | "type_item" => {
                     if let Some(name) = node_name(&child, src) {
+                        // Gap 2: a leading attribute/comment that this unit
+                        // re-absorbs (via `unit_start`'s upward extension to
+                        // `s`) must not also remain in the glue group, or it
+                        // would be emitted in both chunks. Drop glue entries
+                        // at/after the unit's extended start.
+                        glue.retain(|(_, gs, _)| *gs < s);
                         flush_glue(glue, units);
-                        units.push((format!("{prefix}{name}"), s, e));
+                        units.push((format!("{prefix}{name}"), s, e, true));
                     }
                 }
                 "macro_definition" => {
                     if let Some(name) = node_name(&child, src) {
+                        glue.retain(|(_, gs, _)| *gs < s);
                         flush_glue(glue, units);
-                        units.push((format!("{prefix}{name}!"), s, e));
+                        units.push((format!("{prefix}{name}!"), s, e, true));
                     }
                 }
                 "impl_item" => {
+                    glue.retain(|(_, gs, _)| *gs < s);
                     flush_glue(glue, units);
                     let ty = child
                         .child_by_field_name("type")
@@ -249,7 +260,7 @@ fn build_blocks(
                                 if let Some(mn) = node_name(&m, src) {
                                     let ms = unit_start(&m);
                                     let me = m.end_position().row as u32 + 1;
-                                    units.push((format!("{prefix}{owner}::{mn}"), ms, me));
+                                    units.push((format!("{prefix}{owner}::{mn}"), ms, me, true));
                                 }
                             }
                         }
@@ -275,23 +286,39 @@ fn build_blocks(
         }
         flush_glue(glue, units);
     }
-    fn flush_glue(glue: &mut Vec<(usize, u32, u32)>, units: &mut Vec<(String, u32, u32)>) {
+    fn flush_glue(glue: &mut Vec<(usize, u32, u32)>, units: &mut Vec<(String, u32, u32, bool)>) {
         if glue.is_empty() {
             return;
         }
         let s = glue.iter().map(|(_, a, _)| *a).min().unwrap();
         let e = glue.iter().map(|(_, _, b)| *b).max().unwrap();
+        // Provisional label: `<module>` only if this group is exclusively
+        // bodyless `mod foo;` declarations. The final decision (Gap 1) also
+        // requires the *whole file* to have produced zero real units; that
+        // demotion to `<top-level>` happens in the post-pass below.
         let only_mod_decls = glue.iter().all(|(is_mod, _, _)| *is_mod == 1);
         let sym = if only_mod_decls { "<module>" } else { "<top-level>" };
-        units.push((sym.to_string(), s, e));
+        units.push((sym.to_string(), s, e, false));
         glue.clear();
     }
 
     walk(tree.root_node(), source, &[], &mut units, &mut glue);
 
+    // Gap 1: `<module>` is correct only when the file produced no real
+    // (non-glue) semantic unit at all. If any real unit exists, every glue
+    // group is `<top-level>`, even a pure mod-decl group.
+    let has_real_unit = units.iter().any(|(_, _, _, is_real)| *is_real);
+    if has_real_unit {
+        for (sym, _, _, is_real) in units.iter_mut() {
+            if !*is_real && sym == "<module>" {
+                *sym = "<top-level>".to_string();
+            }
+        }
+    }
+
     let total_lines = lines.len() as u32;
     let mut blocks = Vec::with_capacity(units.len());
-    for (ordinal, (symbol, ls, le)) in units.into_iter().enumerate() {
+    for (ordinal, (symbol, ls, le, _is_real)) in units.into_iter().enumerate() {
         let line_start = ls.max(1);
         let line_end = le.min(total_lines.max(1));
         let span = SourceSpan::Code {
@@ -371,6 +398,68 @@ mod tests {
             _ => None,
         }).unwrap();
         assert!(parse_src.contains("/// Doc comment on a free fn."), "doc comment folded in: {parse_src}");
+    }
+
+    /// Run the extractor on an in-memory Rust source string (no fixture
+    /// file) and return (symbol, code) for every emitted block.
+    fn extract_inline(source: &str) -> Vec<(String, String)> {
+        let asset = kebab_parse_code_test_support::fixed_rust_asset("crates/x/src/inline.rs");
+        let cfg = kebab_core::ExtractConfig::default();
+        let root = std::path::PathBuf::from("/tmp");
+        let ctx = kebab_core::ExtractContext { asset: &asset, workspace_root: &root, config: &cfg };
+        let doc = RustAstExtractor::new()
+            .extract(&ctx, source.as_bytes())
+            .unwrap();
+        doc.blocks
+            .iter()
+            .map(|b| match b {
+                Block::Code(c) => match &c.common.source_span {
+                    SourceSpan::Code { symbol, .. } => {
+                        (symbol.clone().unwrap(), c.code.clone())
+                    }
+                    _ => panic!("code block must carry SourceSpan::Code"),
+                },
+                other => panic!("expected Block::Code, got {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn module_label_scope_and_attribute_dedup() {
+        // Source A (Gap 2): leading attribute is re-absorbed into the unit
+        // and must NOT also form a separate <top-level> glue chunk.
+        let a = extract_inline("#[derive(Debug)]\npub struct Tagged { x: u32 }\n");
+        assert_eq!(a.len(), 1, "Gap 2: exactly one block, got {a:?}");
+        assert_eq!(a[0].0, "Tagged");
+        assert!(
+            a[0].1.contains("#[derive(Debug)]"),
+            "attribute folded into unit: {:?}",
+            a[0].1
+        );
+        assert!(
+            !a.iter().any(|(s, _)| s == "<top-level>"),
+            "attribute must not also form a glue chunk: {a:?}"
+        );
+
+        // Source B (Gap 1): file has no real units, only bodyless mod
+        // decls -> the glue group is <module>.
+        let b = extract_inline("mod a;\nmod b;\n");
+        assert_eq!(b.len(), 1, "one glue block, got {b:?}");
+        assert_eq!(b[0].0, "<module>");
+
+        // Source C (Gap 1): mod decls + a real unit -> the glue group is
+        // <top-level>, NOT <module>, because the file has a real unit.
+        let c = extract_inline("mod a;\nmod b;\npub fn f() {}\n");
+        let syms: Vec<&str> = c.iter().map(|(s, _)| s.as_str()).collect();
+        assert!(syms.contains(&"f"), "real unit present: {c:?}");
+        assert!(
+            syms.contains(&"<top-level>"),
+            "mod-decl glue demoted to <top-level>: {c:?}"
+        );
+        assert!(
+            !syms.contains(&"<module>"),
+            "must not be <module> when file has a real unit: {c:?}"
+        );
     }
 
     #[test]
