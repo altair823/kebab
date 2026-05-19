@@ -426,6 +426,9 @@ impl App {
             });
         }
 
+        // backfill_code_lang + backfill_repo are applied inside `search`
+        // via `search_uncached` — no explicit call needed here. Trace
+        // branch above calls them directly because it bypasses `search`.
         let mut all_hits = self.search(fetch_query)?;
 
         // Skip offset.
