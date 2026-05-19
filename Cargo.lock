@@ -4345,7 +4345,11 @@ version = "0.6.0"
 dependencies = [
  "anyhow",
  "gix",
+ "kebab-core",
+ "serde_json",
  "tempfile",
+ "time",
+ "tracing",
  "tree-sitter",
  "tree-sitter-rust",
 ]
