@@ -488,6 +488,7 @@ pub enum MediaType {
     Pdf,
     Image(ImageType),
     Audio(AudioType),
+    Code(String), // p10-1A-2: source-code file; inner = canonical code_lang (e.g. "rust")
     Other(String),
 }
 

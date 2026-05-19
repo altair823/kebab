@@ -917,7 +917,8 @@ fn ingest_one_asset(
                 force_reingest,
             );
         }
-        _ => {
+        // p10-1A-2: Code dispatch wired in Task 8; skip until then.
+        MediaType::Code(_) | MediaType::Audio(_) | MediaType::Other(_) => {
             return Ok(kebab_core::IngestItem {
                 kind: kebab_core::IngestItemKind::Skipped,
                 doc_id: None,

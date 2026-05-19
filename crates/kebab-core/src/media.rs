@@ -40,5 +40,23 @@ pub enum MediaType {
     Pdf,
     Image(ImageType),
     Audio(AudioType),
+    /// p10-1A-2: a source-code file. Inner string is the canonical
+    /// code_lang (design §3.5). 1A activates `"rust"` only; other
+    /// recognized code langs are still routed `Other` until their phase.
+    Code(String),
     Other(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn media_type_code_serializes_lowercase_tagged() {
+        let m = MediaType::Code("rust".to_string());
+        let v = serde_json::to_value(&m).unwrap();
+        assert_eq!(v, serde_json::json!({ "code": "rust" }));
+        let back: MediaType = serde_json::from_value(v).unwrap();
+        assert_eq!(back, m);
+    }
 }
