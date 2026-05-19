@@ -49,6 +49,13 @@ pub(crate) fn citation_from_first_span(
             end_ms: *end_ms,
             speaker: None,
         },
+        Some(SourceSpan::Code { line_start, line_end, symbol, lang }) => Citation::Code {
+            path,
+            line_start: *line_start,
+            line_end: *line_end,
+            symbol: symbol.clone(),
+            lang: lang.clone(),
+        },
         // Byte-spans don't have a Citation variant. Fall back to a
         // Line citation pointing at the document head — better than
         // fabricating a position. Spans-empty falls into the same
@@ -69,6 +76,46 @@ pub(crate) fn citation_from_first_span(
                 end: 1,
                 section,
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use kebab_core::{Citation, SourceSpan, WorkspacePath};
+
+    #[test]
+    fn build_citation_code_maps_symbol_and_lang() {
+        let span = SourceSpan::Code {
+            line_start: 5,
+            line_end: 30,
+            symbol: Some("chunk::md_heading_v1::MdHeadingV1Chunker::chunk".into()),
+            lang: Some("rust".into()),
+        };
+        let c = super::citation_from_first_span(
+            "c1",
+            WorkspacePath::new("crates/kebab-chunk/src/md_heading_v1.rs".to_string()).unwrap(),
+            None,
+            Some(&span),
+        );
+        match c {
+            Citation::Code {
+                path,
+                line_start,
+                line_end,
+                symbol,
+                lang,
+            } => {
+                assert_eq!(path.0, "crates/kebab-chunk/src/md_heading_v1.rs");
+                assert_eq!(line_start, 5);
+                assert_eq!(line_end, 30);
+                assert_eq!(
+                    symbol.as_deref(),
+                    Some("chunk::md_heading_v1::MdHeadingV1Chunker::chunk")
+                );
+                assert_eq!(lang.as_deref(), Some("rust"));
+            }
+            other => panic!("expected Citation::Code, got {other:?}"),
         }
     }
 }

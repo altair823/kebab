@@ -15,8 +15,10 @@
 
 pub mod lang;
 pub mod repo;
+pub mod rust;
 pub mod skip;
 
 pub use lang::code_lang_for_path;
 pub use repo::{RepoMeta, detect_repo};
+pub use rust::{PARSER_VERSION as RUST_PARSER_VERSION, RustAstExtractor};
 pub use skip::{BUILTIN_BLACKLIST, is_generated_file, is_oversized};

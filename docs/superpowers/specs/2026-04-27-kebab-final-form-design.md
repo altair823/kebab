@@ -488,6 +488,7 @@ pub enum MediaType {
     Pdf,
     Image(ImageType),
     Audio(AudioType),
+    Code(String), // p10-1A-2: source-code file; inner = canonical code_lang (e.g. "rust")
     Other(String),
 }
 
@@ -565,6 +566,7 @@ pub enum SourceSpan {
     Page   { page: u32, char_start: Option<u32>, char_end: Option<u32> },
     Region { x: u32, y: u32, w: u32, h: u32 },
     Time   { start_ms: u64, end_ms: u64 },
+    Code   { line_start: u32, line_end: u32, symbol: Option<String>, lang: Option<String> }, // p10-1A-2: internal code-unit span (see tasks/p10/p10-1a-2)
 }
 ```
 
@@ -1538,6 +1540,8 @@ agent 분기 source. 자세한 details shape per code 는
 HOTFIXES 의 `2026-05-07 — p9-fb-27` 항목이 details shape 의
 interim deviation (IoFailure / OpTimeout 신규 typed signal 도입 전까지의
 transitional 형태) 의 source of truth.
+
+**p10-1A-2 surface 활성화 (2026-05-19)**: Rust 소스코드 ingest (`code-rust-ast-v1` chunker, `tree-sitter-rust`) 가 활성화됨. `.rs` 파일을 워크스페이스에 두면 `kebab ingest` 가 AST 단위로 chunk 생성 + `citation.kind = "code"` 로 검색 가능. `kebab schema --json` 의 `stats.code_lang_breakdown` 에 `"rust": N` 이 표시됨. 본 activation 으로 kebab 자기 crate 를 dogfooding KB 에 색인 가능. `SourceSpan::Code` (§3.4) 와 `MediaType::Code` (§3.5) 는 1A-1 에서 이미 spec 에 반영됨. 두 deferred deviation (`AST_CHUNK_MAX_LINES` 상수 고정, `SourceType::Code` 미존재) 은 `tasks/HOTFIXES.md` (2026-05-19) 에 기록.
 
 ### 10.2 MCP server transport (fb-30)
 

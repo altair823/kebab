@@ -40,8 +40,8 @@ use anyhow::{Context, Result, anyhow};
 use lru::LruCache;
 
 use kebab_core::{
-    Answer, Embedder, IndexVersion, LanguageModel, Retriever, SearchHit, SearchMode,
-    SearchOpts, SearchQuery, VectorStore,
+    Answer, DocumentStore, Embedder, IndexVersion, LanguageModel, Retriever, SearchHit,
+    SearchMode, SearchOpts, SearchQuery, VectorStore,
 };
 use kebab_embed_local::FastembedEmbedder;
 use kebab_llm_local::OllamaLanguageModel;
@@ -296,6 +296,15 @@ impl App {
             now,
             self.config.search.stale_threshold_days,
         );
+        // p10-1A-2: backfill `code_lang` from the Citation::Code `lang`
+        // field. The search layer (kebab-search) constructs SearchHit with
+        // `code_lang: None`; we own the post-processing here in kebab-app
+        // and can fill it cheaply from data already present in the hit.
+        backfill_code_lang(&mut hits);
+        // p10-1A-2 Task 8b: backfill `repo` from the document's
+        // `Metadata.repo`. Unlike `code_lang`, this cannot be derived from
+        // the Citation alone — it requires a store lookup by `doc_id`.
+        self.backfill_repo(&mut hits);
         Ok(hits)
     }
 
@@ -387,6 +396,10 @@ impl App {
                 now,
                 self.config.search.stale_threshold_days,
             );
+            // p10-1A-2: backfill code_lang — same as search_uncached.
+            backfill_code_lang(&mut traced_hits);
+            // p10-1A-2 Task 8b: backfill repo — same as search_uncached.
+            self.backfill_repo(&mut traced_hits);
 
             // Apply offset + k_effective truncation (mirrors non-trace path).
             let drop_n = offset.min(traced_hits.len());
@@ -413,6 +426,9 @@ impl App {
             });
         }
 
+        // backfill_code_lang + backfill_repo are applied inside `search`
+        // via `search_uncached` — no explicit call needed here. Trace
+        // branch above calls them directly because it bypasses `search`.
         let mut all_hits = self.search(fetch_query)?;
 
         // Skip offset.
@@ -777,6 +793,58 @@ impl App {
         }
     }
 
+    /// p10-1A-2 Task 8b: back-fill `SearchHit.repo` from the originating
+    /// document's `Metadata.repo` for every hit whose `repo` field is
+    /// currently `None`. The search layer (kebab-search) constructs hits
+    /// with `repo: None` because it has no store access; we fill it here
+    /// in kebab-app post-retrieval via a per-distinct-`doc_id` store lookup.
+    ///
+    /// Deduplication: a small `HashMap` accumulates the
+    /// `(doc_id → Option<String>)` mapping so each unique document is
+    /// fetched at most once. Search result sets are small (default k ≤ 20),
+    /// so the map overhead is negligible. A `None` entry is cached too
+    /// (document not found or no repo in metadata) to avoid re-querying.
+    ///
+    /// Non-repo documents (markdown, PDF, plain text, code files outside a
+    /// git tree) correctly keep `repo: None` — `Metadata.repo` is already
+    /// `None` for those, so the assignment is a no-op.
+    fn backfill_repo(&self, hits: &mut [SearchHit]) {
+        use std::collections::HashMap;
+        use kebab_core::DocumentId;
+
+        // doc_id → Option<String> where None means "not found / no repo"
+        let mut cache: HashMap<DocumentId, Option<String>> = HashMap::new();
+
+        for hit in hits.iter_mut() {
+            if hit.repo.is_some() {
+                continue;
+            }
+            let repo_val = cache
+                .entry(hit.doc_id.clone())
+                .or_insert_with(|| {
+                    // Deliberately non-aborting: a failed store lookup for
+                    // one hit must not abort the whole search response. Log
+                    // the error so it's observable rather than silently
+                    // dropped (review #140 round 1).
+                    match self.sqlite.get_document(&hit.doc_id) {
+                        Ok(opt) => opt.and_then(|doc| doc.metadata.repo),
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "kebab-app",
+                                doc_id = %hit.doc_id,
+                                error = %e,
+                                "backfill_repo: get_document failed; leaving hit.repo = None"
+                            );
+                            None
+                        }
+                    }
+                });
+            if let Some(r) = repo_val {
+                hit.repo = Some(r.clone());
+            }
+        }
+    }
+
     /// Resolve the embedder + vector store, surfacing the user-friendly
     /// "switch to --mode lexical" error when embeddings are disabled.
     fn require_embeddings(
@@ -894,6 +962,21 @@ fn estimate_chars(hits: &[SearchHit]) -> usize {
     hits.iter()
         .map(|h| serde_json::to_string(h).map(|s| s.len()).unwrap_or(0))
         .sum()
+}
+
+/// p10-1A-2: back-fill `SearchHit.code_lang` from `Citation::Code.lang`
+/// for every code hit in the list. The search layer (kebab-search)
+/// constructs hits with `code_lang: None`; we fill it here in kebab-app
+/// post-retrieval so callers see the correct language identifier without
+/// requiring a second SQL query.
+fn backfill_code_lang(hits: &mut [SearchHit]) {
+    for hit in hits.iter_mut() {
+        if let kebab_core::Citation::Code { lang, .. } = &hit.citation {
+            if hit.code_lang.is_none() {
+                hit.code_lang = lang.clone();
+            }
+        }
+    }
 }
 
 #[cfg(test)]

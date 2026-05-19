@@ -118,6 +118,7 @@ theme = "dark"                       # p9-fb-14 — TUI palette ("dark" / "light
 skip_generated_header = true
 max_file_bytes = 262144
 max_file_lines = 5000
+extra_skip_globs = []                # 사용자 추가 skip 패턴 (gitignore syntax)
 ```
 
 `KEBAB_*` 환경변수로 override 가능 (`KEBAB_MODELS_LLM_MODEL=gemma4:26b kebab …` 등). 자세한 키 목록은 `crates/kebab-config/src/lib.rs` 의 `apply_env` 매치 암. `KEBAB_READONLY=1` — write-path 비활성화 (CI 안전망). `KEBAB_PROGRESS=plain` — non-TTY 환경에서 진행 상황을 plain 한 줄씩 stderr 출력 (spinner 대신).
@@ -302,6 +303,43 @@ kebab --config /tmp/kebab-smoke/config.toml ask "<PDF 본문에 관한 질문>" 
 
 각 명령은 0 종료 코드면 정상. `kebab ask` 는 거절 시 종료 코드 1 (`RefusalSignal`) — 의도된 동작.
 
+## P10-1A-2 Rust 코드 색인
+
+`kebab-parse-code` 의 tree-sitter Rust AST extractor + `code-rust-ast-v1` chunker 를 격리된 TempDir KB 에서 검증하는 절차.
+
+```bash
+# 1) 워크스페이스에 Rust 소스 파일 추가 (crate 하나 복사 또는 단일 .rs 파일)
+cp -r crates/kebab-parse-code /tmp/kebab-smoke/workspace/kebab-parse-code
+
+# 2) ingest — .rs 가 code-rust-ast-v1 로 처리됨
+KB ingest
+
+# 3) 결과 검증 — IngestReport.items 에 .rs 자산이 "new" 로 분류, parser_version = "code-rust-v1" (chunker_version = "code-rust-ast-v1")
+KB --json ingest | jq '[.items[] | select(.doc_path | endswith(".rs"))]'
+
+# 4) 코드 검색 — code_lang 필터 (wire: lang 은 citation.lang, code_lang 은 SearchHit top-level)
+KB search --mode hybrid "RustAstExtractor" --code-lang rust --json | jq '{hits: [.hits[] | {symbol: .citation.symbol, code_lang: .citation.lang, repo: .repo}]}'
+
+# 5) citation 확인 — kind="code", symbol 이 함수명 / 타입명, line range 가 포함
+KB search --mode lexical "pub fn extract" --code-lang rust --json | jq '.hits[0].citation'
+```
+
+`[ingest.code]` 설정 (config.toml 에 이미 포함됨 — 위 격리 config 블록 참조):
+
+```toml
+[ingest.code]
+skip_generated_header = true   # @generated / DO NOT EDIT 감지 시 skip
+max_file_bytes = 262144        # 256 KiB cap — 초과 시 skip
+max_file_lines = 5000          # 5000 줄 cap — 초과 시 skip
+extra_skip_globs = []          # 사용자 추가 skip 패턴
+```
+
+**알려진 동작 (2026-05-19 기준)**:
+
+- `ast_chunk_max_lines = 200` 은 config 가 아닌 chunker 모듈 상수. 현재 기본값과 동일하므로 user-visible 차이 없음. 자세한 내용: `tasks/HOTFIXES.md` (2026-05-19 `AST_CHUNK_MAX_LINES` 항목).
+- `.rs` 파일은 `SourceType::Note` 로 분류됨 (kebab-core `SourceType::Code` variant 미존재). `--media code` filter 는 정상 동작 — `MediaType::Code("rust")` 로 별도 분류됨. 자세한 내용: `tasks/HOTFIXES.md` (2026-05-19 `SourceType::Code` 항목).
+- `.gitignore` 가 honor 됨 — `target/` / `node_modules/` 등은 built-in 안전망으로 자동 skip.
+
 ## 검증 체크리스트
 
 - `kebab doctor` 가 `--config` path 를 honor 하고 그 안의 `storage.data_dir` 를 출력 (XDG default 가 아님).
@@ -332,6 +370,7 @@ rm -rf /tmp/kebab-smoke              # 통째로 정리
 - (P6-4) `image.ocr.enabled = true` + `image.caption.enabled = true` 인 워크스페이스에 PNG 가 N장 있으면 ingest 시간 ≈ markdown_time + N × (OCR + Caption latency). `gemma4:e4b` + 192.168.0.47 로 자산당 ~5-10초. 다수의 책 페이지를 이미지로 넣지 말 것 — 책은 P7 PDF 라인 사용 권장.
 - (P7-3) `config.chunking.chunker_version` 는 markdown 만 represent — PDF 자산은 `pdf-page-v1` 하드코딩. `config.toml` 의 `chunker_version = "md-heading-v1"` 을 봐도 PDF 는 영향 안 받음. HOTFIXES `2026-05-02 P7-3` entry 참조 (P+ chunker registry task 까지 유지).
 - (P7-3) 한 PDF 가 N 페이지면 `kebab ingest` 가 N 개 (또는 그 이상의, 페이지 길면 multi-chunk) 의 chunk 를 한 transaction 안에서 commit. 500 페이지 책 → 500+ chunk 한 번에 → embedding throughput 가 bottleneck. 임베딩 활성 워크스페이스에서 큰 PDF 를 처음 ingest 하면 분-단위 시간 + WAL 크기 증가 가능 — P+ 스케일 hardening task 까지 정상 동작이지만 비용은 측정 가능.
+- (P10-1A-2) `.rs` 파일을 워크스페이스에 두면 `kebab ingest` 결과에 `new` 카운터에 포함. `kebab search --mode hybrid "<함수명>" --code-lang rust --json` 가 `citation.kind = "code"`, `citation.lang = "rust"` (SearchHit top-level `code_lang` 도 동일), `citation.symbol` (함수/타입 이름), `citation.line_start` / `citation.line_end` 를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"rust": N` 이 나오면 chunk 가 색인됨.
 - (P7-3 + follow-up) 동일 path 에 byte 가 다른 PDF 를 두 번째 ingest 하면 `purge_vector_orphans_for_workspace_path` 가 옛 chunk_id 를 LanceDB 에서 먼저 삭제, 이어서 `purge_orphan_at_workspace_path` 가 옛 doc / chunks / embedding_records 를 SQLite 에서 sweep. 새 byte 가 새 `doc_id` 로 색인됨. `IngestReport` 에 그 자산만 `new+=1` (다른 자산은 `updated`). 두 store 모두 정합 — 옛 본문 검색 시 옛 chunks 가 더 이상 surface 되지 않음.
 
 ### Embedding upgrade (fb-39b)

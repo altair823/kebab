@@ -96,6 +96,7 @@ pub fn media_label(media: &kebab_core::MediaType) -> &'static str {
         kebab_core::MediaType::Pdf => "pdf",
         kebab_core::MediaType::Image(_) => "image",
         kebab_core::MediaType::Audio(_) => "audio",
+        kebab_core::MediaType::Code(_) => "code",
         kebab_core::MediaType::Other(_) => "other",
     }
 }
@@ -148,6 +149,7 @@ mod tests {
             media_label(&MediaType::Audio(kebab_core::AudioType::Wav)),
             "audio"
         );
+        assert_eq!(media_label(&MediaType::Code("rust".into())), "code");
         assert_eq!(media_label(&MediaType::Other("x".into())), "other");
     }
 

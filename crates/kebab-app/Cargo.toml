@@ -32,6 +32,10 @@ kebab-parse-image = { path = "../kebab-parse-image" }
 # per-asset dispatch (see `ingest_one_asset` PDF branch) and runs the
 # resulting `CanonicalDocument` through `kebab-chunk::PdfPageV1Chunker`.
 kebab-parse-pdf = { path = "../kebab-parse-pdf" }
+# p10-1A-2: Rust AST extractor lives here. App threads it into the
+# per-asset dispatch (see `ingest_one_asset` Code branch) and runs the
+# resulting `CanonicalDocument` through `kebab-chunk::CodeRustAstV1Chunker`.
+kebab-parse-code = { path = "../kebab-parse-code" }
 anyhow               = { workspace = true }
 blake3               = { workspace = true }
 serde                = { workspace = true }

@@ -14,6 +14,30 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-19 — p10-1A-2: AST_CHUNK_MAX_LINES constant vs config deviation
+
+**무엇이 바뀌었나**: `kebab-chunk/src/code_rust_ast_v1.rs` 가 `IngestCodeCfg.ast_chunk_max_lines` config 값을 읽지 않고 모듈 상수 `AST_CHUNK_MAX_LINES = 200` 으로 고정함.
+
+**원인**: 현행 `Chunker` trait 이 per-medium config 를 인자로 받지 않는다. PDF 선례 (`pdf-page-v1` 의 pinned `chunker_version`) 와 같은 패턴 — chunker 가 config 를 bolt-on 으로 받을 수 있는 per-medium chunker registry 는 P+ task.
+
+**사용자 가시적 영향**: 없음 (상수 200 이 `IngestCodeCfg::default().ast_chunk_max_lines` 와 동일). 사용자가 config 에서 `ast_chunk_max_lines` 를 변경해도 Rust AST chunker 에는 반영 안 됨.
+
+**proper fix**: per-medium chunker registry 도입 시 `RustAstV1Chunker` 가 `IngestCodeCfg` 를 주입받도록 변경. 별도 P+ task.
+
+**cross-link**: `tasks/p10/p10-1a-2-rust-ast-chunker.md` Risks / notes 섹션 참조.
+
+## 2026-05-19 — p10-1A-2: SourceType::Code deferred — code files classified SourceType::Note
+
+**무엇이 바뀌었나**: `kebab-core` 의 `SourceType` enum 에 `Code` variant 가 없어 `kebab-parse-code::RustAstExtractor` 가 `SourceType::Note` 로 fallback 함.
+
+**원인**: `SourceType::Code` 추가는 additive (소규모) 변경이지만, 1A-2 PR 스코프를 넓히지 않기 위해 명시적으로 deferred. Plan 이 이 fallback 을 예상했음 — 기능 회귀 아님.
+
+**사용자 가시적 영향**: 없음. `--media code` / `--code-lang rust` filter 는 `MediaType::Code("rust")` 기반으로 동작 (SourceType 과 독립). 현재 code 파일에 source_type 기반 필터링 표면 없음.
+
+**proper fix**: `kebab-core::SourceType` 에 `Code` variant 추가 + `citation_helper` + `store-sqlite` 의 exhaustive match 갱신. 별도 소규모 task (P10-1A-2 follow-up).
+
+**cross-link**: `tasks/p10/p10-1a-2-rust-ast-chunker.md` Risks / notes 섹션 참조.
+
 ## 2026-05-10 — p9-fb-39b: embedding upgrade UX
 
 **무엇이 바뀌었나**: default embedding 이 `multilingual-e5-small` (384 dim) 에서 `multilingual-e5-large` (1024 dim) 로 변경. LanceDB 테이블은 `(model, dim)` 으로 네임스페이스되어 새 모델은 fresh 테이블에 쓰고, 옛 `chunk_embeddings_multilingual-e5-small_384` 테이블은 orphan 상태 됨.

@@ -2,8 +2,8 @@
 
 | ID | Subject | Status |
 |----|---------|--------|
-| 1A-1 | code ingest framework (wire schema, parse-code crate skeleton, filter flags, skip policy, config 절) | 🟡 진행 중 |
-| 1A-2 | Rust AST chunker | ⏳ |
+| 1A-1 | code ingest framework (wire schema, parse-code crate skeleton, filter flags, skip policy, config 절) | ✅ 머지 |
+| 1A-2 | Rust AST chunker | 🟡 PR 오픈 (코드 완성, 머지 대기) |
 | 1B | Python + TS/JS AST chunkers | ⏳ |
 | 1C | Go + Java + Kotlin AST chunkers | ⏳ |
 | 1D | C + C++ AST chunkers | ⏳ |

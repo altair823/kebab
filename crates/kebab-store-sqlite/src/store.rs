@@ -669,6 +669,38 @@ impl SqliteStore {
     ) -> anyhow::Result<CountSummary> {
         self.count_summary_inner(threshold_days)
     }
+
+    /// p10-1A-2: per-code-language doc count for `schema.v1`.
+    ///
+    /// Reads `metadata_json->'$.code_lang'`, groups by the value, and
+    /// skips rows where `code_lang` is NULL (i.e. non-code documents).
+    /// Returns `BTreeMap<String, u32>` — key is the canonical lowercase
+    /// language identifier (e.g. `"rust"`), value is the doc count.
+    pub fn code_lang_breakdown(
+        &self,
+    ) -> anyhow::Result<std::collections::BTreeMap<String, u32>> {
+        use anyhow::Context;
+        let conn = self.read_conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT json_extract(metadata_json, '$.code_lang') AS cl, COUNT(*) \
+                 FROM documents \
+                 WHERE cl IS NOT NULL \
+                 GROUP BY cl",
+            )
+            .context("prepare code_lang_breakdown")?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u32))
+            })
+            .context("query code_lang_breakdown")?;
+        let mut out = std::collections::BTreeMap::new();
+        for row in rows {
+            let (k, v) = row.context("read code_lang_breakdown row")?;
+            out.insert(k, v);
+        }
+        Ok(out)
+    }
 }
 
 /// Apply the design §5 / task-spec pragmas. Called once per connection.
@@ -709,6 +741,81 @@ mod tests {
         assert_eq!(s.media_breakdown.len(), 5);
         assert!(s.lang_breakdown.is_empty());
         assert_eq!(s.stale_doc_count, 0);
+    }
+
+    /// p10-1A-2: `code_lang_breakdown` counts docs by `metadata_json.code_lang`.
+    ///
+    /// Inserts:
+    /// - one doc with `code_lang = "rust"` → must appear with count 1
+    /// - one doc with `code_lang = null`   → must NOT appear (NULL skipped)
+    ///
+    /// Uses a side rusqlite connection that bypasses the `assets` FK via
+    /// `PRAGMA foreign_keys = OFF` so the test is self-contained.
+    #[test]
+    fn code_lang_breakdown_counts_by_code_lang() {
+        let (dir, store) = open_fresh_store();
+
+        // Insert two document rows directly. Disabling FK enforcement lets
+        // us skip the companion `assets` insert.
+        let db_path = dir.path().join("kebab.sqlite");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
+
+        // Doc 1: Rust code file — code_lang = "rust"
+        conn.execute(
+            "INSERT INTO documents (
+                doc_id, asset_id, workspace_path,
+                source_type, trust_level, parser_version,
+                doc_version, schema_version,
+                metadata_json, provenance_json,
+                created_at, updated_at
+            ) VALUES (
+                'doc-rust-1', 'asset-1', 'src/main.rs',
+                'reference', 'primary', 'test-v1',
+                1, 1,
+                '{\"code_lang\":\"rust\"}', '{}',
+                '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z'
+            )",
+            [],
+        )
+        .unwrap();
+
+        // Doc 2: Markdown doc — code_lang absent (null in JSON)
+        conn.execute(
+            "INSERT INTO documents (
+                doc_id, asset_id, workspace_path,
+                source_type, trust_level, parser_version,
+                doc_version, schema_version,
+                metadata_json, provenance_json,
+                created_at, updated_at
+            ) VALUES (
+                'doc-md-1', 'asset-2', 'notes/readme.md',
+                'markdown', 'primary', 'test-v1',
+                1, 1,
+                '{\"code_lang\":null}', '{}',
+                '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z'
+            )",
+            [],
+        )
+        .unwrap();
+
+        drop(conn); // release side connection before querying via store
+
+        let bd = store.code_lang_breakdown().unwrap();
+
+        // rust must appear with count 1
+        assert_eq!(
+            bd.get("rust"),
+            Some(&1u32),
+            "expected rust=1 in code_lang_breakdown, got: {bd:?}"
+        );
+        // null code_lang must NOT appear as any key
+        assert!(
+            !bd.contains_key("null"),
+            "null code_lang must not appear in breakdown, got: {bd:?}"
+        );
+        // only one key total
+        assert_eq!(bd.len(), 1, "expected exactly 1 entry, got: {bd:?}");
     }
 }
 
