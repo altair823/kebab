@@ -8,8 +8,10 @@ repository    = { workspace = true }
 description   = "Language-aware code parsing infrastructure (lang dispatch, .git/ detect, skip helpers) for the kebab pipeline (P10-1A-1)"
 
 [dependencies]
-anyhow      = { workspace = true }
-gix         = { workspace = true }
+anyhow           = { workspace = true }
+gix              = { workspace = true }
+tree-sitter      = { workspace = true }
+tree-sitter-rust = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

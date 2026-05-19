@@ -86,6 +86,10 @@ base64       = "0.22"
 # No `git` binary required. Default features include thread-safety + most
 # object-reading capabilities needed for HEAD name + commit SHA queries.
 gix          = { version = "0.70", default-features = false, features = ["revision"] }
+# Rust source parsing for code ingest (kebab-parse-code, p10-1A-2). The
+# chunker stays tree-sitter-free — AST work is parser-side per design §6.3.
+tree-sitter      = "0.26"
+tree-sitter-rust = "0.24"
 
 # Disk-footprint trim for dev / test builds. Codegen, opt-level, and
 # behavior are unchanged — only DWARF debug info is reduced (line
