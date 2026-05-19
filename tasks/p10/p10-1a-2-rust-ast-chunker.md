@@ -45,3 +45,5 @@
 - `SourceSpan::Code` 추가로 `SourceSpan` 의 모든 exhaustive match (citation_helper, store-sqlite serde, search) 가 영향 — 컴파일러가 non-exhaustive 를 잡아주므로 전수 대응.
 - oversize fallback (단일 fn > `ast_chunk_max_lines`) 의 `symbol [part i/N]` 표기는 1A-2 chunker 내부 한정. 일반 Tier-3 `code-text-paragraph-v1` 은 Phase 3.
 - 머지 후 동작 deviation 은 `tasks/HOTFIXES.md` 에 dated 로그 + 본 spec `Risks / notes` 에 one-line cross-link.
+- AST_CHUNK_MAX_LINES deviation logged in HOTFIXES.md (2026-05-19): `Chunker` trait 이 per-medium config 미노출 — 상수 200 고정, default 와 동일하므로 user-visible 영향 없음.
+- SourceType::Code deferred logged in HOTFIXES.md (2026-05-19): code 파일이 `SourceType::Note` 로 분류됨, `MediaType::Code` 기반 filter 는 정상 동작.
