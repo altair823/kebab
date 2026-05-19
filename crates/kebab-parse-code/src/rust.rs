@@ -249,6 +249,10 @@ fn build_blocks(
                         units.push((format!("{prefix}{name}!"), s, e, true));
                     }
                 }
+                // `impl` blocks: emit one unit per inner `function_item`.
+                // Associated consts / types / non-fn members do not become
+                // their own units in 1A (plan §1A scope; HOTFIXES will log
+                // if a future need arises). See inner comment below.
                 "impl_item" => {
                     glue.retain(|(_, gs, _)| *gs < s);
                     flush_glue(glue, units, &prefix);

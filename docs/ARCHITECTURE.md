@@ -98,7 +98,7 @@ flowchart TB
     ppdf --> ptypes
     pimg --> ptypes
     paud --> ptypes
-    pcode --> ptypes
+    pcode --> core
     norm --> ptypes
     embedlocal --> embed
     llmlocal --> llm
@@ -172,7 +172,7 @@ kebab/
 │   ├── kebab-eval/                                    # golden query runner + metrics (P5-1, P5-2)
 │   ├── kebab-parse-image/                             # ImageExtractor + Ollama OCR + caption (P6)
 │   ├── kebab-parse-pdf/                               # lopdf per-page text extractor (P7-1)
-│   ├── kebab-parse-code/                              # tree-sitter Rust AST extractor + code-rust-ast-v1 chunker (P10-1A-2)
+│   ├── kebab-parse-code/                              # tree-sitter Rust AST extractor (P10-1A-2); chunker lives in kebab-chunk
 │   ├── kebab-app/                                     # facade (P0 시그니처 + P3-5/P6-4/P7-3 본체)
 │   ├── kebab-tui/                                     # Ratatui shell + Library 패널 (P9-1)
 │   ├── kebab-mcp/                                     # stdio MCP server — tools: schema, doctor, search, ask (P9-FB-30)

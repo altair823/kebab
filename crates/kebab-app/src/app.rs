@@ -822,11 +822,22 @@ impl App {
             let repo_val = cache
                 .entry(hit.doc_id.clone())
                 .or_insert_with(|| {
-                    self.sqlite
-                        .get_document(&hit.doc_id)
-                        .ok()
-                        .flatten()
-                        .and_then(|doc| doc.metadata.repo)
+                    // Deliberately non-aborting: a failed store lookup for
+                    // one hit must not abort the whole search response. Log
+                    // the error so it's observable rather than silently
+                    // dropped (review #140 round 1).
+                    match self.sqlite.get_document(&hit.doc_id) {
+                        Ok(opt) => opt.and_then(|doc| doc.metadata.repo),
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "kebab-app",
+                                doc_id = %hit.doc_id,
+                                error = %e,
+                                "backfill_repo: get_document failed; leaving hit.repo = None"
+                            );
+                            None
+                        }
+                    }
                 });
             if let Some(r) = repo_val {
                 hit.repo = Some(r.clone());
