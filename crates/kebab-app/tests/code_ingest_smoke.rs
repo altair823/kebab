@@ -101,6 +101,64 @@ fn rust_file_ingests_and_searches_as_code_citation() {
     );
 }
 
+/// p10-1A-2 Task 8b: a code search hit must carry `SearchHit.repo` filled
+/// from the document's `Metadata.repo` (which is set by `detect_repo` during
+/// ingest). `detect_repo` returns the name of the directory that contains
+/// `.git/`, so we `git init` the workspace root before ingesting and then
+/// assert that `h.repo == Some("workspace")`.
+#[test]
+fn rust_code_search_hit_has_repo() {
+    let env = TestEnv::lexical_only();
+
+    // `detect_repo` walks up from the file looking for `.git/`.
+    // Initialise a bare git repo at the workspace root so it is
+    // discoverable. We only need the `.git/` directory — no commits
+    // required.
+    let git_status = std::process::Command::new("git")
+        .args(["init", "--quiet"])
+        .arg(env.workspace_root.as_os_str())
+        .status()
+        .expect("git init");
+    assert!(git_status.success(), "git init must succeed");
+
+    std::fs::write(
+        env.workspace_root.join("repo_demo.rs"),
+        "/// multiplies two integers\npub fn mul(a: i32, b: i32) -> i32 {\n    a * b\n}\n",
+    )
+    .unwrap();
+
+    let report =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+            .expect("ingest must succeed");
+    assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
+
+    let hits = kebab_app::search_with_config(env.config.clone(), lexical_query("mul"))
+        .expect("search must succeed");
+
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, Citation::Code { .. }))
+        .expect("at least one Citation::Code hit for 'mul'");
+
+    // The workspace root directory is named "workspace" by `TestEnv`.
+    let expected_repo = env
+        .workspace_root
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(str::to_owned);
+    assert_eq!(
+        h.repo,
+        expected_repo,
+        "SearchHit.repo must match the workspace dir name (detect_repo result)"
+    );
+    // Also sanity-check code_lang is still filled.
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("rust"),
+        "SearchHit.code_lang must be 'rust'"
+    );
+}
+
 /// Re-ingesting the same `.rs` file without changes must report
 /// `Unchanged` (incremental-skip path exercised).
 #[test]
