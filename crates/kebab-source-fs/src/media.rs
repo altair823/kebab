@@ -34,6 +34,10 @@ pub(crate) fn media_type_for(path: &Path) -> MediaType {
         "flac" => MediaType::Audio(AudioType::Flac),
         "ogg" => MediaType::Audio(AudioType::Ogg),
 
+        // p10-1A-2: Rust is the only code lang activated in 1A. Other
+        // recognized code langs stay Other until their phase (1B+).
+        "rs" => MediaType::Code("rust".to_string()),
+
         // Empty string (no extension) and any other extension: bucket as
         // Other and let downstream extractors decide if they support it.
         _ => MediaType::Other(ext),
@@ -69,6 +73,17 @@ mod tests {
             media_type_for(Path::new("a.flac")),
             MediaType::Audio(AudioType::Flac)
         );
+    }
+
+    #[test]
+    fn rust_files_map_to_media_code_rust() {
+        assert_eq!(
+            media_type_for(Path::new("crates/kebab-core/src/lib.rs")),
+            MediaType::Code("rust".to_string())
+        );
+        // non-Rust code extensions stay Other in 1A
+        assert_eq!(media_type_for(Path::new("a/b.py")), MediaType::Other("py".to_string()));
+        assert_eq!(media_type_for(Path::new("Cargo.toml")), MediaType::Other("toml".to_string()));
     }
 
     #[test]
