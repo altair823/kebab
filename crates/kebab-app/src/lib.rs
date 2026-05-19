@@ -39,7 +39,7 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
-use kebab_chunk::{MdHeadingV1Chunker, PdfPageV1Chunker};
+use kebab_chunk::{CodeRustAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
@@ -50,6 +50,7 @@ use kebab_core::{
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_normalize::build_canonical_document;
 use kebab_parse_image::{ImageExtractor, OllamaVisionOcr, apply_caption, apply_ocr};
+use kebab_parse_code::RustAstExtractor;
 use kebab_parse_pdf::PdfTextExtractor;
 use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
@@ -917,7 +918,20 @@ fn ingest_one_asset(
                 force_reingest,
             );
         }
-        // p10-1A-2: Code dispatch wired in Task 8; skip until then.
+        // p10-1A-2 Task 8: Rust code ingest.
+        MediaType::Code(lang) if lang == "rust" => {
+            return ingest_one_code_asset(
+                app,
+                asset,
+                chunk_policy,
+                embedder,
+                vector_store,
+                existing_doc_ids,
+                force_reingest,
+            );
+        }
+        // p10-1A-2: non-Rust Code, Audio, and Other are not yet wired;
+        // skip until their respective phases.
         MediaType::Code(_) | MediaType::Audio(_) | MediaType::Other(_) => {
             return Ok(kebab_core::IngestItem {
                 kind: kebab_core::IngestItemKind::Skipped,
@@ -1595,6 +1609,174 @@ fn ingest_one_pdf_asset(
     // empty (scanned candidate)") without forcing the operator into
     // `kebab inspect doc <id>`. Mirrors how the markdown path threads
     // frontmatter / block warnings up to the same field.
+    let warnings: Vec<String> = canonical
+        .provenance
+        .events
+        .iter()
+        .filter(|e| e.kind == kebab_core::ProvenanceKind::Warning)
+        .filter_map(|e| e.note.clone())
+        .collect();
+
+    Ok(kebab_core::IngestItem {
+        kind,
+        doc_id: Some(canonical.doc_id.clone()),
+        doc_path: asset.workspace_path.clone(),
+        asset_id: Some(asset.asset_id.clone()),
+        byte_len: Some(asset.byte_len),
+        block_count: u32::try_from(canonical.blocks.len()).ok(),
+        chunk_count: u32::try_from(chunks.len()).ok(),
+        parser_version: Some(canonical.parser_version.clone()),
+        chunker_version: Some(chunker.chunker_version()),
+        warnings,
+        error: None,
+    })
+}
+
+/// p10-1A-2 Task 8: process one `MediaType::Code("rust")` asset end-to-end.
+///
+/// Mirrors `ingest_one_pdf_asset` line-for-line with the substitutions
+/// documented in the task spec:
+///   - parser_version → `code-rust-v1` (via `RUST_PARSER_VERSION`)
+///   - extractor     → `RustAstExtractor`
+///   - chunker       → `CodeRustAstV1Chunker`
+///
+/// All other steps (incremental skip, byte read, ExtractContext, put_*,
+/// embed, purge_vector_orphans) are identical to the PDF function.
+fn ingest_one_code_asset(
+    app: &App,
+    asset: &RawAsset,
+    chunk_policy: &ChunkPolicy,
+    embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
+    vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
+    existing_doc_ids: &std::collections::HashSet<String>,
+    force_reingest: bool,
+) -> anyhow::Result<kebab_core::IngestItem> {
+    let path = match &asset.source_uri {
+        SourceUri::File(p) => p.clone(),
+        SourceUri::Kb(_) => {
+            return Ok(kebab_core::IngestItem {
+                kind: kebab_core::IngestItemKind::Skipped,
+                doc_id: None,
+                doc_path: asset.workspace_path.clone(),
+                asset_id: Some(asset.asset_id.clone()),
+                byte_len: Some(asset.byte_len),
+                block_count: None,
+                chunk_count: None,
+                parser_version: None,
+                chunker_version: None,
+                warnings: vec![
+                    "kb:// URI not yet supported".to_string(),
+                ],
+                error: None,
+            });
+        }
+    };
+    // p10-1A-2 task 8: incremental-ingest early-skip for the code flow.
+    // Code docs use `code-rust-v1` as the parser_version and
+    // `CodeRustAstV1Chunker` as the chunker — both pinned per-medium
+    // today (no config knob).
+    let code_parser_version =
+        ParserVersion(kebab_parse_code::RUST_PARSER_VERSION.to_string());
+    if let Some(item) = try_skip_unchanged(
+        app,
+        asset,
+        &code_parser_version,
+        &CodeRustAstV1Chunker.chunker_version(),
+        embedder.map(|e| e.model_version()).as_ref(),
+        force_reingest,
+    )? {
+        return Ok(item);
+    }
+    let bytes = std::fs::read(&path)
+        .with_context(|| format!("read code asset bytes from {}", path.display()))?;
+
+    let extract_config = kebab_core::ExtractConfig::default();
+    let workspace_root = app.config.resolve_workspace_root();
+    let ctx = ExtractContext {
+        asset,
+        workspace_root: &workspace_root,
+        config: &extract_config,
+    };
+    let mut canonical = RustAstExtractor::new()
+        .extract(&ctx, &bytes)
+        .context("kb-parse-code::RustAstExtractor::extract")?;
+
+    // Per-medium chunker selection: Rust code always uses code-rust-ast-v1
+    // regardless of `config.chunking.chunker_version`.
+    let chunker = CodeRustAstV1Chunker;
+    let chunks = chunker
+        .chunk(&canonical, chunk_policy)
+        .context("kb-chunk::CodeRustAstV1Chunker::chunk")?;
+
+    // Stamp chunker + embedding versions so incremental skip detection has
+    // data on the second run.
+    canonical.last_chunker_version = Some(chunker.chunker_version());
+    if let Some(emb) = embedder {
+        canonical.last_embedding_version = Some(emb.model_version());
+    }
+
+    purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
+    app.sqlite
+        .put_asset_with_bytes(asset, &bytes)
+        .context("DocumentStore::put_asset_with_bytes (code)")?;
+    app.sqlite
+        .put_document(&canonical)
+        .context("DocumentStore::put_document (code)")?;
+    app.sqlite
+        .put_blocks(&canonical.doc_id, &canonical.blocks)
+        .context("DocumentStore::put_blocks (code)")?;
+    app.sqlite
+        .put_chunks(&canonical.doc_id, &chunks)
+        .context("DocumentStore::put_chunks (code)")?;
+
+    if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
+        && !chunks.is_empty()
+    {
+        let inputs: Vec<EmbeddingInput<'_>> = chunks
+            .iter()
+            .map(|c| EmbeddingInput {
+                text: c.text.as_str(),
+                kind: EmbeddingKind::Document,
+            })
+            .collect();
+        let vectors = emb
+            .embed(&inputs)
+            .context("Embedder::embed (code chunks)")?;
+        let model_id = emb.model_id();
+        let model_version = emb.model_version();
+        let dimensions = emb.dimensions();
+        let records: Vec<VectorRecord> = chunks
+            .iter()
+            .zip(vectors)
+            .map(|(c, v)| VectorRecord {
+                embedding_id: kebab_core::id_for_embedding(
+                    &c.chunk_id,
+                    &model_id,
+                    &model_version,
+                    dimensions,
+                ),
+                chunk_id: c.chunk_id.clone(),
+                vector: v,
+                doc_id: canonical.doc_id.clone(),
+                text: c.text.clone(),
+                heading_path: c.heading_path.clone(),
+                model_id: model_id.clone(),
+                model_version: model_version.clone(),
+                dimensions,
+            })
+            .collect();
+        vec_store
+            .upsert(&records)
+            .context("VectorStore::upsert (code)")?;
+    }
+
+    let kind = if existing_doc_ids.contains(&canonical.doc_id.0) {
+        kebab_core::IngestItemKind::Updated
+    } else {
+        kebab_core::IngestItemKind::New
+    };
+
+    // Surface every `Provenance::Warning` note onto `IngestItem.warnings`.
     let warnings: Vec<String> = canonical
         .provenance
         .events

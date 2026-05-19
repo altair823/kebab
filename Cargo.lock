@@ -4143,6 +4143,7 @@ dependencies = [
  "kebab-llm",
  "kebab-llm-local",
  "kebab-normalize",
+ "kebab-parse-code",
  "kebab-parse-image",
  "kebab-parse-md",
  "kebab-parse-pdf",

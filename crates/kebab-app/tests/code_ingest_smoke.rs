@@ -1,0 +1,142 @@
+//! p10-1A-2 Task 8: smoke test for Rust code ingest dispatch.
+//!
+//! Writes a single `.rs` file into a TempDir workspace, ingests it via
+//! `kebab_app::ingest_with_config`, then searches for the symbol name and
+//! asserts that the resulting `SearchHit` carries a `Citation::Code`
+//! with the expected `lang`, `symbol`, and `line_start`.
+//!
+//! Mirrors the `pdf_pipeline.rs` harness: lexical-only (no AVX/fastembed),
+//! no OCR / caption adapters needed.
+
+mod common;
+
+use common::{TestEnv, lexical_query};
+
+use kebab_core::{Citation, IngestItemKind};
+
+/// A `.rs` file with a single `pub fn add` symbol is ingested, and a
+/// lexical search for "add" must return at least one `Citation::Code`
+/// hit whose `lang == "rust"`, `symbol == Some("add")`, and
+/// `line_start >= 1`.
+#[test]
+fn rust_file_ingests_and_searches_as_code_citation() {
+    let env = TestEnv::lexical_only();
+
+    // Write a minimal Rust file into the workspace root.
+    std::fs::write(
+        env.workspace_root.join("demo.rs"),
+        "/// adds two integers\npub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n",
+    )
+    .unwrap();
+
+    let report =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+            .expect("ingest must succeed");
+
+    assert_eq!(report.errors, 0, "no errors expected: {report:?}");
+    let items = report.items.as_ref().expect("items present");
+    let code_item = items
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("demo.rs"))
+        .expect("demo.rs item present");
+    assert_eq!(
+        code_item.kind,
+        IngestItemKind::New,
+        "first ingest must be New: {code_item:?}"
+    );
+    assert!(
+        code_item.block_count.unwrap_or(0) >= 1,
+        "at least one block expected: {code_item:?}"
+    );
+    assert!(
+        code_item.chunk_count.unwrap_or(0) >= 1,
+        "at least one chunk expected: {code_item:?}"
+    );
+    assert_eq!(
+        code_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        Some("code-rust-v1"),
+        "parser_version must be code-rust-v1"
+    );
+    assert_eq!(
+        code_item.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("code-rust-ast-v1"),
+        "chunker_version must be code-rust-ast-v1"
+    );
+
+    // Lexical search for the symbol name "add".
+    let hits = kebab_app::search_with_config(env.config.clone(), lexical_query("add"))
+        .expect("search must succeed");
+
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, Citation::Code { .. }))
+        .expect("at least one Citation::Code hit for 'add'");
+
+    match &h.citation {
+        Citation::Code {
+            lang,
+            symbol,
+            line_start,
+            ..
+        } => {
+            assert_eq!(
+                lang.as_deref(),
+                Some("rust"),
+                "citation.lang must be 'rust'"
+            );
+            assert_eq!(
+                symbol.as_deref(),
+                Some("add"),
+                "citation.symbol must be 'add'"
+            );
+            assert!(*line_start >= 1, "line_start must be ≥1");
+        }
+        _ => unreachable!(),
+    }
+
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("rust"),
+        "SearchHit.code_lang must be 'rust'"
+    );
+}
+
+/// Re-ingesting the same `.rs` file without changes must report
+/// `Unchanged` (incremental-skip path exercised).
+#[test]
+fn rust_file_re_ingest_is_unchanged() {
+    let env = TestEnv::lexical_only();
+
+    std::fs::write(
+        env.workspace_root.join("stable.rs"),
+        "pub fn noop() {}\n",
+    )
+    .unwrap();
+
+    let r1 =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let item1 = r1
+        .items
+        .as_ref()
+        .unwrap()
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("stable.rs"))
+        .cloned()
+        .unwrap();
+    assert_eq!(item1.kind, IngestItemKind::New);
+
+    let r2 =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let item2 = r2
+        .items
+        .unwrap()
+        .into_iter()
+        .find(|i| i.doc_path.0.ends_with("stable.rs"))
+        .unwrap();
+    assert_eq!(
+        item2.kind,
+        IngestItemKind::Unchanged,
+        "identical bytes → Unchanged"
+    );
+    assert_eq!(item2.doc_id, item1.doc_id);
+}

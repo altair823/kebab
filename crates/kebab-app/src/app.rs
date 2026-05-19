@@ -296,6 +296,11 @@ impl App {
             now,
             self.config.search.stale_threshold_days,
         );
+        // p10-1A-2: backfill `code_lang` from the Citation::Code `lang`
+        // field. The search layer (kebab-search) constructs SearchHit with
+        // `code_lang: None`; we own the post-processing here in kebab-app
+        // and can fill it cheaply from data already present in the hit.
+        backfill_code_lang(&mut hits);
         Ok(hits)
     }
 
@@ -387,6 +392,8 @@ impl App {
                 now,
                 self.config.search.stale_threshold_days,
             );
+            // p10-1A-2: backfill code_lang — same as search_uncached.
+            backfill_code_lang(&mut traced_hits);
 
             // Apply offset + k_effective truncation (mirrors non-trace path).
             let drop_n = offset.min(traced_hits.len());
@@ -894,6 +901,21 @@ fn estimate_chars(hits: &[SearchHit]) -> usize {
     hits.iter()
         .map(|h| serde_json::to_string(h).map(|s| s.len()).unwrap_or(0))
         .sum()
+}
+
+/// p10-1A-2: back-fill `SearchHit.code_lang` from `Citation::Code.lang`
+/// for every code hit in the list. The search layer (kebab-search)
+/// constructs hits with `code_lang: None`; we fill it here in kebab-app
+/// post-retrieval so callers see the correct language identifier without
+/// requiring a second SQL query.
+fn backfill_code_lang(hits: &mut [SearchHit]) {
+    for hit in hits.iter_mut() {
+        if let kebab_core::Citation::Code { lang, .. } = &hit.citation {
+            if hit.code_lang.is_none() {
+                hit.code_lang = lang.clone();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
