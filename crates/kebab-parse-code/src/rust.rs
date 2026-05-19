@@ -213,15 +213,21 @@ fn build_blocks(
         units: &mut Vec<(String, u32, u32, bool)>,
         glue: &mut Vec<(usize, u32, u32)>,
     ) {
+        // Module-path prefix for this scope. Used for both real units
+        // (`format!("{prefix}{name}")`) and glue group labels
+        // (`format!("{prefix}<top-level>")`) so glue from `mod inner`
+        // doesn't collide on symbol with file-top-level glue and keeps
+        // module context downstream. Empty at file top level -> glue
+        // stays exactly `<top-level>` / `<module>`.
+        let prefix = if mod_path.is_empty() {
+            String::new()
+        } else {
+            format!("{}::", mod_path.join("::"))
+        };
         let mut cur = node.walk();
         for child in node.named_children(&mut cur) {
             let s = unit_start(&child);
             let e = child.end_position().row as u32 + 1;
-            let prefix = if mod_path.is_empty() {
-                String::new()
-            } else {
-                format!("{}::", mod_path.join("::"))
-            };
             match child.kind() {
                 "function_item" | "struct_item" | "enum_item" | "union_item"
                 | "trait_item" | "type_item" => {
@@ -232,20 +238,20 @@ fn build_blocks(
                         // would be emitted in both chunks. Drop glue entries
                         // at/after the unit's extended start.
                         glue.retain(|(_, gs, _)| *gs < s);
-                        flush_glue(glue, units);
+                        flush_glue(glue, units, &prefix);
                         units.push((format!("{prefix}{name}"), s, e, true));
                     }
                 }
                 "macro_definition" => {
                     if let Some(name) = node_name(&child, src) {
                         glue.retain(|(_, gs, _)| *gs < s);
-                        flush_glue(glue, units);
+                        flush_glue(glue, units, &prefix);
                         units.push((format!("{prefix}{name}!"), s, e, true));
                     }
                 }
                 "impl_item" => {
                     glue.retain(|(_, gs, _)| *gs < s);
-                    flush_glue(glue, units);
+                    flush_glue(glue, units, &prefix);
                     let ty = child
                         .child_by_field_name("type")
                         .map(|c| src[c.start_byte()..c.end_byte()].trim().to_string());
@@ -255,6 +261,11 @@ fn build_blocks(
                     let owner = tr.or(ty).unwrap_or_else(|| "<impl>".to_string());
                     if let Some(body) = child.child_by_field_name("body") {
                         let mut bc = body.walk();
+                        // 1A scope: only inner `function_item` children
+                        // become units. Associated consts / types and other
+                        // non-fn impl members are intentionally NOT emitted
+                        // as separate units in 1A (plan spec: "1 per inner
+                        // function_item").
                         for m in body.named_children(&mut bc) {
                             if m.kind() == "function_item" {
                                 if let Some(mn) = node_name(&m, src) {
@@ -268,11 +279,20 @@ fn build_blocks(
                 }
                 "mod_item" => {
                     if let Some(body) = child.child_by_field_name("body") {
-                        flush_glue(glue, units);
+                        flush_glue(glue, units, &prefix);
                         let name = node_name(&child, src).unwrap_or("mod").to_string();
                         let mut np = mod_path.to_vec();
                         np.push(name);
                         walk(body, src, &np, units, glue);
+                        // Invariant: `glue` is shared by `&mut` across
+                        // recursive `walk` calls; every `walk` path ends with
+                        // a `flush_glue`, so inner-scope glue can never leak
+                        // into this outer scope's group. Assert it structurally
+                        // rather than relying on that being incidental.
+                        debug_assert!(
+                            glue.is_empty(),
+                            "inner walk must flush its glue before returning"
+                        );
                     } else {
                         glue.push((1, s, e));
                     }
@@ -284,9 +304,13 @@ fn build_blocks(
                 _ => {}
             }
         }
-        flush_glue(glue, units);
+        flush_glue(glue, units, &prefix);
     }
-    fn flush_glue(glue: &mut Vec<(usize, u32, u32)>, units: &mut Vec<(String, u32, u32, bool)>) {
+    fn flush_glue(
+        glue: &mut Vec<(usize, u32, u32)>,
+        units: &mut Vec<(String, u32, u32, bool)>,
+        prefix: &str,
+    ) {
         if glue.is_empty() {
             return;
         }
@@ -297,8 +321,12 @@ fn build_blocks(
         // requires the *whole file* to have produced zero real units; that
         // demotion to `<top-level>` happens in the post-pass below.
         let only_mod_decls = glue.iter().all(|(is_mod, _, _)| *is_mod == 1);
-        let sym = if only_mod_decls { "<module>" } else { "<top-level>" };
-        units.push((sym.to_string(), s, e, false));
+        let label = if only_mod_decls { "<module>" } else { "<top-level>" };
+        // Module-path-prefix the label so glue from `mod inner` carries
+        // module context (`inner::<top-level>`) and doesn't collide with
+        // file-top-level glue. `prefix` is empty at file top level, so the
+        // symbol stays exactly `<top-level>` / `<module>` there.
+        units.push((format!("{prefix}{label}"), s, e, false));
         glue.clear();
     }
 
@@ -310,8 +338,12 @@ fn build_blocks(
     let has_real_unit = units.iter().any(|(_, _, _, is_real)| *is_real);
     if has_real_unit {
         for (sym, _, _, is_real) in units.iter_mut() {
-            if !*is_real && sym == "<module>" {
-                *sym = "<top-level>".to_string();
+            // Match on the *suffix*: a glue group may now carry a module
+            // prefix (`inner::<module>`), so demote any `…<module>` to the
+            // same-prefixed `…<top-level>` rather than only the bare form.
+            if !*is_real && sym.ends_with("<module>") {
+                let pre = &sym[..sym.len() - "<module>".len()];
+                *sym = format!("{pre}<top-level>");
             }
         }
     }
@@ -459,6 +491,24 @@ mod tests {
         assert!(
             !syms.contains(&"<module>"),
             "must not be <module> when file has a real unit: {c:?}"
+        );
+
+        // Source D (Fix 1): glue inside a bodied `mod inner` must carry the
+        // module-path prefix so it doesn't collide with file-top-level glue
+        // and keeps module context downstream.
+        let d = extract_inline("mod inner {\n    use std::fmt;\n    pub fn helper() {}\n}\n");
+        let dsyms: Vec<&str> = d.iter().map(|(s, _)| s.as_str()).collect();
+        assert!(
+            dsyms.contains(&"inner::helper"),
+            "real unit inside mod is prefixed: {d:?}"
+        );
+        assert!(
+            dsyms.contains(&"inner::<top-level>"),
+            "glue inside mod inner is module-prefixed, not bare: {d:?}"
+        );
+        assert!(
+            !dsyms.contains(&"<top-level>"),
+            "glue inside mod inner must NOT be the bare top-level symbol: {d:?}"
         );
     }
 

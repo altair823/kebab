@@ -5,7 +5,7 @@ edition       = { workspace = true }
 rust-version  = { workspace = true }
 license       = { workspace = true }
 repository    = { workspace = true }
-description   = "Language-aware code parsing infrastructure (lang dispatch, .git/ detect, skip helpers) for the kebab pipeline (P10-1A-1)"
+description   = "Language-aware code parsing for the kebab pipeline: lang dispatch / .git detect / skip helpers (P10-1A-1) + tree-sitter Rust AST extractor (P10-1A-2)"
 
 [dependencies]
 kebab-core       = { path = "../kebab-core" }
