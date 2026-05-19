@@ -455,6 +455,15 @@ fn describe_span(span: &kebab_core::SourceSpan) -> String {
         SourceSpan::Time { start_ms, end_ms } => {
             format!("Time {start_ms}-{end_ms} ms")
         }
+        SourceSpan::Code {
+            line_start,
+            line_end,
+            symbol,
+            ..
+        } => match symbol {
+            Some(sym) => format!("Code {line_start}-{line_end} ({sym})"),
+            None => format!("Code {line_start}-{line_end}"),
+        },
     }
 }
 

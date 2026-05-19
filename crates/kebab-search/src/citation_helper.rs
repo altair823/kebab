@@ -49,6 +49,13 @@ pub(crate) fn citation_from_first_span(
             end_ms: *end_ms,
             speaker: None,
         },
+        // TODO(p10-1a-2 Task 3): map to Citation::Code
+        Some(SourceSpan::Code { .. }) => Citation::Line {
+            path,
+            start: 1,
+            end: 1,
+            section,
+        },
         // Byte-spans don't have a Citation variant. Fall back to a
         // Line citation pointing at the document head — better than
         // fabricating a position. Spans-empty falls into the same

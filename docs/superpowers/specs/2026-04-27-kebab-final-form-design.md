@@ -565,6 +565,7 @@ pub enum SourceSpan {
     Page   { page: u32, char_start: Option<u32>, char_end: Option<u32> },
     Region { x: u32, y: u32, w: u32, h: u32 },
     Time   { start_ms: u64, end_ms: u64 },
+    Code   { line_start: u32, line_end: u32, symbol: Option<String>, lang: Option<String> }, // p10-1A-2: internal code-unit span (see tasks/p10/p10-1a-2)
 }
 ```
 

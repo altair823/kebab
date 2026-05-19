@@ -142,6 +142,18 @@ pub enum SourceSpan {
         start_ms: u64,
         end_ms: u64,
     },
+    /// p10-1A-2: AST-unit span for code ingest. Internal storage shape
+    /// (chunks.source_spans_json) — `citation_helper` maps this to the
+    /// wire `Citation::Code` (added 1A-1). `symbol` is the per-language
+    /// self-reference path (design §3.4); `<top-level>` / `<module>` for
+    /// glue regions, never null for an identified unit. `lang` is the
+    /// canonical code_lang.
+    Code {
+        line_start: u32,
+        line_end: u32,
+        symbol: Option<String>,
+        lang: Option<String>,
+    },
 }
 
 // ── Forward-declared stubs (§3.7a). Bodies are final per design. ────────
@@ -195,6 +207,24 @@ mod tests {
     /// previously failed at serde runtime because `tag = "kind"` cannot
     /// describe a newtype carrying a non-struct value. The struct-variant
     /// shape used here is the §9 schema migration.
+    #[test]
+    fn source_span_code_round_trips_and_tags_lowercase() {
+        let s = SourceSpan::Code {
+            line_start: 10,
+            line_end: 42,
+            symbol: Some("foo::Bar::baz".to_string()),
+            lang: Some("rust".to_string()),
+        };
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["kind"], "code");
+        assert_eq!(v["line_start"], 10);
+        assert_eq!(v["line_end"], 42);
+        assert_eq!(v["symbol"], "foo::Bar::baz");
+        assert_eq!(v["lang"], "rust");
+        let back: SourceSpan = serde_json::from_value(v).unwrap();
+        assert_eq!(back, s);
+    }
+
     #[test]
     fn inline_serde_round_trip() {
         let cases = vec![
