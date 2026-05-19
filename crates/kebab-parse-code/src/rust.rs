@@ -15,6 +15,11 @@
 //! Scope is intentionally narrow: AST unit extraction + symbol paths +
 //! line ranges for Rust. The `CanonicalDocument` scaffold mirrors
 //! `kebab-parse-pdf`. Per design §3.4 / §9.1 / §9 versioning.
+//!
+//! Edge cases: a Rust file consisting solely of comments / whitespace
+//! (no fn / type / impl / mod / glue items) yields zero blocks → zero
+//! chunks → not surfaced in search. Safe (no panic) and consistent with
+//! "an empty page produces no chunks" in `pdf-page-v1`.
 
 use anyhow::Result;
 use kebab_core::{
