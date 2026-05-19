@@ -1,0 +1,170 @@
+[
+  {
+    "block_ids": [
+      "7a43438772cdada66439790d2b5bed52"
+    ],
+    "chunk_id": "e15e12ab50571a649d3125230a110418",
+    "chunker_version": "code-rust-ast-v1",
+    "doc_id": "2e30aba9077a15e6fadd2881b41180ad",
+    "heading_path": [],
+    "policy_hash": "f5359c99c7a7d273",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "rust",
+        "line_end": 5,
+        "line_start": 1,
+        "symbol": "use+const"
+      }
+    ],
+    "text": "use std::collections::HashMap;\nuse std::fmt;\n\nconst MAX: usize = 1024;\nconst MIN: usize = 0;",
+    "token_estimate": 31
+  },
+  {
+    "block_ids": [
+      "b362849d469e23a4939022720ecb53d6"
+    ],
+    "chunk_id": "3dd2e2e5b1d083838da173852c456bd9",
+    "chunker_version": "code-rust-ast-v1",
+    "doc_id": "2e30aba9077a15e6fadd2881b41180ad",
+    "heading_path": [],
+    "policy_hash": "f5359c99c7a7d273",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "rust",
+        "line_end": 12,
+        "line_start": 7,
+        "symbol": "parse"
+      }
+    ],
+    "text": "pub fn parse(input: &str) -> Option<u32> {\n    input\n        .trim()\n        .parse()\n        .ok()\n}",
+    "token_estimate": 34
+  },
+  {
+    "block_ids": [
+      "f4ad850ca5808ab8b6cc4f06d489cfc6"
+    ],
+    "chunk_id": "ae1593b190c37754b6b5e0d6496107fe",
+    "chunker_version": "code-rust-ast-v1",
+    "doc_id": "2e30aba9077a15e6fadd2881b41180ad",
+    "heading_path": [],
+    "policy_hash": "f5359c99c7a7d273",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "rust",
+        "line_end": 20,
+        "line_start": 14,
+        "symbol": "Foo"
+      }
+    ],
+    "text": "pub struct Foo {\n    pub name: String,\n    pub value: u32,\n    pub tags: Vec<String>,\n    pub meta: Option<String>,\n    pub count: usize,\n}",
+    "token_estimate": 47
+  },
+  {
+    "block_ids": [
+      "88ce619db53971c7f384769d96277c65"
+    ],
+    "chunk_id": "03f02c87f81990cca3390d66925b1a78",
+    "chunker_version": "code-rust-ast-v1",
+    "doc_id": "2e30aba9077a15e6fadd2881b41180ad",
+    "heading_path": [],
+    "policy_hash": "f5359c99c7a7d273",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "rust",
+        "line_end": 30,
+        "line_start": 22,
+        "symbol": "Frobable"
+      }
+    ],
+    "text": "pub trait Frobable {\n    fn frob(&self) -> String;\n    fn frob_twice(&self) -> String {\n        let a = self.frob();\n        let b = self.frob();\n        format!(\"{a}{b}\")\n    }\n    fn name(&self) -> &str;\n}",
+    "token_estimate": 69
+  },
+  {
+    "block_ids": [
+      "47ca198facaf74c1959ac8b8ceb5ab2a"
+    ],
+    "chunk_id": "d6390ef0becde6d508b8812a617f9006",
+    "chunker_version": "code-rust-ast-v1",
+    "doc_id": "2e30aba9077a15e6fadd2881b41180ad",
+    "heading_path": [],
+    "policy_hash": "f5359c99c7a7d273",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "rust",
+        "line_end": 38,
+        "line_start": 32,
+        "symbol": "Foo::double"
+      }
+    ],
+    "text": "impl Foo {\n    pub fn double(&self) -> u32 {\n        self.value\n            .checked_mul(2)\n            .unwrap_or(u32::MAX)\n    }\n}",
+    "token_estimate": 44
+  },
+  {
+    "block_ids": [
+      "cc16070e62953f7ec6aebff00db0f21d"
+    ],
+    "chunk_id": "64c748e790199586fab6fbf59b81d169",
+    "chunker_version": "code-rust-ast-v1",
+    "doc_id": "2e30aba9077a15e6fadd2881b41180ad",
+    "heading_path": [],
+    "policy_hash": "f5359c99c7a7d273",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "rust",
+        "line_end": 46,
+        "line_start": 40,
+        "symbol": "Foo::triple"
+      }
+    ],
+    "text": "impl Foo {\n    pub fn triple(&self) -> u32 {\n        self.value\n            .checked_mul(3)\n            .unwrap_or(u32::MAX)\n    }\n}",
+    "token_estimate": 44
+  },
+  {
+    "block_ids": [
+      "e03092fec8a585435fd3f077df76503f"
+    ],
+    "chunk_id": "2f0d20bd50585f8d82610856d954a7d3",
+    "chunker_version": "code-rust-ast-v1",
+    "doc_id": "2e30aba9077a15e6fadd2881b41180ad",
+    "heading_path": [],
+    "policy_hash": "f5359c99c7a7d273",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "rust",
+        "line_end": 247,
+        "line_start": 48,
+        "symbol": "big_fn [part 1/2]"
+      }
+    ],
+    "text": "pub fn big_fn(input: &[u8]) -> Vec<u8> {\n    let v0 = input.get(0 as usize).copied().unwrap_or(0);\n    let v1 = input.get(1 as usize).copied().unwrap_or(0);\n    let v2 = input.get(2 as usize).copied().unwrap_or(0);\n    let v3 = input.get(3 as usize).copied().unwrap_or(0);\n    let v4 = input.get(4 as usize).copied().unwrap_or(0);\n    let v5 = input.get(5 as usize).copied().unwrap_or(0);\n    let v6 = input.get(6 as usize).copied().unwrap_or(0);\n    let v7 = input.get(7 as usize).copied().unwrap_or(0);\n    let v8 = input.get(8 as usize).copied().unwrap_or(0);\n    let v9 = input.get(9 as usize).copied().unwrap_or(0);\n    let v10 = input.get(10 as usize).copied().unwrap_or(0);\n    let v11 = input.get(11 as usize).copied().unwrap_or(0);\n    let v12 = input.get(12 as usize).copied().unwrap_or(0);\n    let v13 = input.get(13 as usize).copied().unwrap_or(0);\n    let v14 = input.get(14 as usize).copied().unwrap_or(0);\n    let v15 = input.get(15 as usize).copied().unwrap_or(0);\n    let v16 = input.get(16 as usize).copied().unwrap_or(0);\n    let v17 = input.get(17 as usize).copied().unwrap_or(0);\n    let v18 = input.get(18 as usize).copied().unwrap_or(0);\n    let v19 = input.get(19 as usize).copied().unwrap_or(0);\n    let v20 = input.get(20 as usize).copied().unwrap_or(0);\n    let v21 = input.get(21 as usize).copied().unwrap_or(0);\n    let v22 = input.get(22 as usize).copied().unwrap_or(0);\n    let v23 = input.get(23 as usize).copied().unwrap_or(0);\n    let v24 = input.get(24 as usize).copied().unwrap_or(0);\n    let v25 = input.get(25 as usize).copied().unwrap_or(0);\n    let v26 = input.get(26 as usize).copied().unwrap_or(0);\n    let v27 = input.get(27 as usize).copied().unwrap_or(0);\n    let v28 = input.get(28 as usize).copied().unwrap_or(0);\n    let v29 = input.get(29 as usize).copied().unwrap_or(0);\n    let v30 = input.get(30 as usize).copied().unwrap_or(0);\n    let v31 = input.get(31 as usize).copied().unwrap_or(0);\n    let v32 = input.get(32 as usize).copied().unwrap_or(0);\n    let v33 = input.get(33 as usize).copied().unwrap_or(0);\n    let v34 = input.get(34 as usize).copied().unwrap_or(0);\n    let v35 = input.get(35 as usize).copied().unwrap_or(0);\n    let v36 = input.get(36 as usize).copied().unwrap_or(0);\n    let v37 = input.get(37 as usize).copied().unwrap_or(0);\n    let v38 = input.get(38 as usize).copied().unwrap_or(0);\n    let v39 = input.get(39 as usize).copied().unwrap_or(0);\n    let v40 = input.get(40 as usize).copied().unwrap_or(0);\n    let v41 = input.get(41 as usize).copied().unwrap_or(0);\n    let v42 = input.get(42 as usize).copied().unwrap_or(0);\n    let v43 = input.get(43 as usize).copied().unwrap_or(0);\n    let v44 = input.get(44 as usize).copied().unwrap_or(0);\n    let v45 = input.get(45 as usize).copied().unwrap_or(0);\n    let v46 = input.get(46 as usize).copied().unwrap_or(0);\n    let v47 = input.get(47 as usize).copied().unwrap_or(0);\n    let v48 = input.get(48 as usize).copied().unwrap_or(0);\n    let v49 = input.get(49 as usize).copied().unwrap_or(0);\n    let v50 = input.get(50 as usize).copied().unwrap_or(0);\n    let v51 = input.get(51 as usize).copied().unwrap_or(0);\n    let v52 = input.get(52 as usize).copied().unwrap_or(0);\n    let v53 = input.get(53 as usize).copied().unwrap_or(0);\n    let v54 = input.get(54 as usize).copied().unwrap_or(0);\n    let v55 = input.get(55 as usize).copied().unwrap_or(0);\n    let v56 = input.get(56 as usize).copied().unwrap_or(0);\n    let v57 = input.get(57 as usize).copied().unwrap_or(0);\n    let v58 = input.get(58 as usize).copied().unwrap_or(0);\n    let v59 = input.get(59 as usize).copied().unwrap_or(0);\n    let v60 = input.get(60 as usize).copied().unwrap_or(0);\n    let v61 = input.get(61 as usize).copied().unwrap_or(0);\n    let v62 = input.get(62 as usize).copied().unwrap_or(0);\n    let v63 = input.get(63 as usize).copied().unwrap_or(0);\n    let v64 = input.get(64 as usize).copied().unwrap_or(0);\n    let v65 = input.get(65 as usize).copied().unwrap_or(0);\n    let v66 = input.get(66 as usize).copied().unwrap_or(0);\n    let v67 = input.get(67 as usize).copied().unwrap_or(0);\n    let v68 = input.get(68 as usize).copied().unwrap_or(0);\n    let v69 = input.get(69 as usize).copied().unwrap_or(0);\n    let v70 = input.get(70 as usize).copied().unwrap_or(0);\n    let v71 = input.get(71 as usize).copied().unwrap_or(0);\n    let v72 = input.get(72 as usize).copied().unwrap_or(0);\n    let v73 = input.get(73 as usize).copied().unwrap_or(0);\n    let v74 = input.get(74 as usize).copied().unwrap_or(0);\n    let v75 = input.get(75 as usize).copied().unwrap_or(0);\n    let v76 = input.get(76 as usize).copied().unwrap_or(0);\n    let v77 = input.get(77 as usize).copied().unwrap_or(0);\n    let v78 = input.get(78 as usize).copied().unwrap_or(0);\n    let v79 = input.get(79 as usize).copied().unwrap_or(0);\n    let v80 = input.get(80 as usize).copied().unwrap_or(0);\n    let v81 = input.get(81 as usize).copied().unwrap_or(0);\n    let v82 = input.get(82 as usize).copied().unwrap_or(0);\n    let v83 = input.get(83 as usize).copied().unwrap_or(0);\n    let v84 = input.get(84 as usize).copied().unwrap_or(0);\n    let v85 = input.get(85 as usize).copied().unwrap_or(0);\n    let v86 = input.get(86 as usize).copied().unwrap_or(0);\n    let v87 = input.get(87 as usize).copied().unwrap_or(0);\n    let v88 = input.get(88 as usize).copied().unwrap_or(0);\n    let v89 = input.get(89 as usize).copied().unwrap_or(0);\n    let v90 = input.get(90 as usize).copied().unwrap_or(0);\n    let v91 = input.get(91 as usize).copied().unwrap_or(0);\n    let v92 = input.get(92 as usize).copied().unwrap_or(0);\n    let v93 = input.get(93 as usize).copied().unwrap_or(0);\n    let v94 = input.get(94 as usize).copied().unwrap_or(0);\n    let v95 = input.get(95 as usize).copied().unwrap_or(0);\n    let v96 = input.get(96 as usize).copied().unwrap_or(0);\n    let v97 = input.get(97 as usize).copied().unwrap_or(0);\n    let v98 = input.get(98 as usize).copied().unwrap_or(0);\n    let v99 = input.get(99 as usize).copied().unwrap_or(0);\n    let v100 = input.get(100 as usize).copied().unwrap_or(0);\n    let v101 = input.get(101 as usize).copied().unwrap_or(0);\n    let v102 = input.get(102 as usize).copied().unwrap_or(0);\n    let v103 = input.get(103 as usize).copied().unwrap_or(0);\n    let v104 = input.get(104 as usize).copied().unwrap_or(0);\n    let v105 = input.get(105 as usize).copied().unwrap_or(0);\n    let v106 = input.get(106 as usize).copied().unwrap_or(0);\n    let v107 = input.get(107 as usize).copied().unwrap_or(0);\n    let v108 = input.get(108 as usize).copied().unwrap_or(0);\n    let v109 = input.get(109 as usize).copied().unwrap_or(0);\n    let v110 = input.get(110 as usize).copied().unwrap_or(0);\n    let v111 = input.get(111 as usize).copied().unwrap_or(0);\n    let v112 = input.get(112 as usize).copied().unwrap_or(0);\n    let v113 = input.get(113 as usize).copied().unwrap_or(0);\n    let v114 = input.get(114 as usize).copied().unwrap_or(0);\n    let v115 = input.get(115 as usize).copied().unwrap_or(0);\n    let v116 = input.get(116 as usize).copied().unwrap_or(0);\n    let v117 = input.get(117 as usize).copied().unwrap_or(0);\n    let v118 = input.get(118 as usize).copied().unwrap_or(0);\n    let v119 = input.get(119 as usize).copied().unwrap_or(0);\n    let v120 = input.get(120 as usize).copied().unwrap_or(0);\n    let v121 = input.get(121 as usize).copied().unwrap_or(0);\n    let v122 = input.get(122 as usize).copied().unwrap_or(0);\n    let v123 = input.get(123 as usize).copied().unwrap_or(0);\n    let v124 = input.get(124 as usize).copied().unwrap_or(0);\n    let v125 = input.get(125 as usize).copied().unwrap_or(0);\n    let v126 = input.get(126 as usize).copied().unwrap_or(0);\n    let v127 = input.get(127 as usize).copied().unwrap_or(0);\n    let v128 = input.get(128 as usize).copied().unwrap_or(0);\n    let v129 = input.get(129 as usize).copied().unwrap_or(0);\n    let v130 = input.get(130 as usize).copied().unwrap_or(0);\n    let v131 = input.get(131 as usize).copied().unwrap_or(0);\n    let v132 = input.get(132 as usize).copied().unwrap_or(0);\n    let v133 = input.get(133 as usize).copied().unwrap_or(0);\n    let v134 = input.get(134 as usize).copied().unwrap_or(0);\n    let v135 = input.get(135 as usize).copied().unwrap_or(0);\n    let v136 = input.get(136 as usize).copied().unwrap_or(0);\n    let v137 = input.get(137 as usize).copied().unwrap_or(0);\n    let v138 = input.get(138 as usize).copied().unwrap_or(0);\n    let v139 = input.get(139 as usize).copied().unwrap_or(0);\n    let v140 = input.get(140 as usize).copied().unwrap_or(0);\n    let v141 = input.get(141 as usize).copied().unwrap_or(0);\n    let v142 = input.get(142 as usize).copied().unwrap_or(0);\n    let v143 = input.get(143 as usize).copied().unwrap_or(0);\n    let v144 = input.get(144 as usize).copied().unwrap_or(0);\n    let v145 = input.get(145 as usize).copied().unwrap_or(0);\n    let v146 = input.get(146 as usize).copied().unwrap_or(0);\n    let v147 = input.get(147 as usize).copied().unwrap_or(0);\n    let v148 = input.get(148 as usize).copied().unwrap_or(0);\n    let v149 = input.get(149 as usize).copied().unwrap_or(0);\n    let v150 = input.get(150 as usize).copied().unwrap_or(0);\n    let v151 = input.get(151 as usize).copied().unwrap_or(0);\n    let v152 = input.get(152 as usize).copied().unwrap_or(0);\n    let v153 = input.get(153 as usize).copied().unwrap_or(0);\n    let v154 = input.get(154 as usize).copied().unwrap_or(0);\n    let v155 = input.get(155 as usize).copied().unwrap_or(0);\n    let v156 = input.get(156 as usize).copied().unwrap_or(0);\n    let v157 = input.get(157 as usize).copied().unwrap_or(0);\n    let v158 = input.get(158 as usize).copied().unwrap_or(0);\n    let v159 = input.get(159 as usize).copied().unwrap_or(0);\n    let v160 = input.get(160 as usize).copied().unwrap_or(0);\n    let v161 = input.get(161 as usize).copied().unwrap_or(0);\n    let v162 = input.get(162 as usize).copied().unwrap_or(0);\n    let v163 = input.get(163 as usize).copied().unwrap_or(0);\n    let v164 = input.get(164 as usize).copied().unwrap_or(0);\n    let v165 = input.get(165 as usize).copied().unwrap_or(0);\n    let v166 = input.get(166 as usize).copied().unwrap_or(0);\n    let v167 = input.get(167 as usize).copied().unwrap_or(0);\n    let v168 = input.get(168 as usize).copied().unwrap_or(0);\n    let v169 = input.get(169 as usize).copied().unwrap_or(0);\n    let v170 = input.get(170 as usize).copied().unwrap_or(0);\n    let v171 = input.get(171 as usize).copied().unwrap_or(0);\n    let v172 = input.get(172 as usize).copied().unwrap_or(0);\n    let v173 = input.get(173 as usize).copied().unwrap_or(0);\n    let v174 = input.get(174 as usize).copied().unwrap_or(0);\n    let v175 = input.get(175 as usize).copied().unwrap_or(0);\n    let v176 = input.get(176 as usize).copied().unwrap_or(0);\n    let v177 = input.get(177 as usize).copied().unwrap_or(0);\n    let v178 = input.get(178 as usize).copied().unwrap_or(0);\n    let v179 = input.get(179 as usize).copied().unwrap_or(0);\n    let v180 = input.get(180 as usize).copied().unwrap_or(0);\n    let v181 = input.get(181 as usize).copied().unwrap_or(0);\n    let v182 = input.get(182 as usize).copied().unwrap_or(0);\n    let v183 = input.get(183 as usize).copied().unwrap_or(0);\n    let v184 = input.get(184 as usize).copied().unwrap_or(0);\n    let v185 = input.get(185 as usize).copied().unwrap_or(0);\n    let v186 = input.get(186 as usize).copied().unwrap_or(0);\n    let v187 = input.get(187 as usize).copied().unwrap_or(0);\n    let v188 = input.get(188 as usize).copied().unwrap_or(0);\n    let v189 = input.get(189 as usize).copied().unwrap_or(0);\n    let v190 = input.get(190 as usize).copied().unwrap_or(0);\n    let v191 = input.get(191 as usize).copied().unwrap_or(0);\n    let v192 = input.get(192 as usize).copied().unwrap_or(0);\n    let v193 = input.get(193 as usize).copied().unwrap_or(0);\n    let v194 = input.get(194 as usize).copied().unwrap_or(0);\n    let v195 = input.get(195 as usize).copied().unwrap_or(0);\n    let v196 = input.get(196 as usize).copied().unwrap_or(0);\n    let v197 = input.get(197 as usize).copied().unwrap_or(0);\n    let v198 = input.get(198 as usize).copied().unwrap_or(0);",
+    "token_estimate": 4053
+  },
+  {
+    "block_ids": [
+      "e03092fec8a585435fd3f077df76503f"
+    ],
+    "chunk_id": "0966f2dc05138ab2419af9d0de1cb8e1",
+    "chunker_version": "code-rust-ast-v1",
+    "doc_id": "2e30aba9077a15e6fadd2881b41180ad",
+    "heading_path": [],
+    "policy_hash": "f5359c99c7a7d273",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "rust",
+        "line_end": 260,
+        "line_start": 248,
+        "symbol": "big_fn [part 2/2]"
+      }
+    ],
+    "text": "    let v199 = input.get(199 as usize).copied().unwrap_or(0);\n    let v200 = input.get(200 as usize).copied().unwrap_or(0);\n    let v201 = input.get(201 as usize).copied().unwrap_or(0);\n    let v202 = input.get(202 as usize).copied().unwrap_or(0);\n    let v203 = input.get(203 as usize).copied().unwrap_or(0);\n    let v204 = input.get(204 as usize).copied().unwrap_or(0);\n    let v205 = input.get(205 as usize).copied().unwrap_or(0);\n    let v206 = input.get(206 as usize).copied().unwrap_or(0);\n    let v207 = input.get(207 as usize).copied().unwrap_or(0);\n    let v208 = input.get(208 as usize).copied().unwrap_or(0);\n    let v209 = input.get(209 as usize).copied().unwrap_or(0);\n    vec![0u8]\n}",
+    "token_estimate": 233
+  }
+]
