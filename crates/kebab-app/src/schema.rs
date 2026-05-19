@@ -166,8 +166,8 @@ fn collect_stats(
         lang_breakdown: counts.lang_breakdown,
         index_bytes,
         stale_doc_count: counts.stale_doc_count,
-        // p10-1A-1: populated by 1A-2 code ingest; empty until then.
-        code_lang_breakdown: std::collections::BTreeMap::new(),
+        // p10-1A-2: populated by the store query added in this task.
+        code_lang_breakdown: store.code_lang_breakdown()?,
         repo_breakdown: std::collections::BTreeMap::new(),
     })
 }
