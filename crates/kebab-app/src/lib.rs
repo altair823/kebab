@@ -950,7 +950,8 @@ fn ingest_one_asset(
         }
         // p10-1A-2 / 1B: code ingest dispatch.
         MediaType::Code(lang)
-            if matches!(lang.as_str(), "rust" | "python" | "typescript" | "javascript" | "go") =>
+            if matches!(lang.as_str(),
+                "rust" | "python" | "typescript" | "javascript" | "go" | "java" | "kotlin") =>
         {
             return ingest_one_code_asset(
                 app,
@@ -1828,6 +1829,8 @@ fn ingest_one_code_asset(
         "typescript" => ParserVersion(kebab_parse_code::TS_PARSER_VERSION.to_string()),
         "javascript" => ParserVersion(kebab_parse_code::JS_PARSER_VERSION.to_string()),
         "go" => ParserVersion(kebab_parse_code::GO_PARSER_VERSION.to_string()),
+        "java" => anyhow::bail!("java ingest not yet wired (p10-1c-jk Task F)"),
+        "kotlin" => anyhow::bail!("kotlin ingest not yet wired (p10-1c-jk Task I)"),
         other => anyhow::bail!("unsupported code_lang: {other}"),
     };
 
@@ -1838,6 +1841,8 @@ fn ingest_one_code_asset(
         "typescript" => CodeTsAstV1Chunker.chunker_version(),
         "javascript" => CodeJsAstV1Chunker.chunker_version(),
         "go" => CodeGoAstV1Chunker.chunker_version(),
+        "java" => anyhow::bail!("java ingest not yet wired (p10-1c-jk Task F)"),
+        "kotlin" => anyhow::bail!("kotlin ingest not yet wired (p10-1c-jk Task I)"),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -1879,6 +1884,8 @@ fn ingest_one_code_asset(
         "go" => GoAstExtractor::new()
             .extract(&ctx, &bytes)
             .context("kb-parse-code::GoAstExtractor::extract (code:go)")?,
+        "java" => anyhow::bail!("java ingest not yet wired (p10-1c-jk Task F)"),
+        "kotlin" => anyhow::bail!("kotlin ingest not yet wired (p10-1c-jk Task I)"),
         other => anyhow::bail!("unreachable (extract): {other}"),
     };
 
@@ -1899,6 +1906,8 @@ fn ingest_one_code_asset(
         "go" => CodeGoAstV1Chunker
             .chunk(&canonical, chunk_policy)
             .context("kb-chunk::CodeGoAstV1Chunker::chunk (code:go)")?,
+        "java" => anyhow::bail!("java ingest not yet wired (p10-1c-jk Task F)"),
+        "kotlin" => anyhow::bail!("kotlin ingest not yet wired (p10-1c-jk Task I)"),
         other => anyhow::bail!("unreachable (chunk): {other}"),
     };
 
