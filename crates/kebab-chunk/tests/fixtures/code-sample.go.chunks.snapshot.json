@@ -1,0 +1,233 @@
+[
+  {
+    "block_ids": [
+      "c182bf37e32c7fc1b868bd617f8eaf66"
+    ],
+    "chunk_id": "43de518d946dc18ec040ae20d74e0cff",
+    "chunker_version": "code-go-ast-v1",
+    "doc_id": "83daba5fbb026e7a400d68a1c4bd36db",
+    "heading_path": [],
+    "policy_hash": "6cfe77abe2b0e5c3",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "go",
+        "line_end": 5,
+        "line_start": 1,
+        "symbol": "imports"
+      }
+    ],
+    "text": "import (\n\t\"fmt\"\n\t\"os\"\n\t\"strings\"\n)",
+    "token_estimate": 12
+  },
+  {
+    "block_ids": [
+      "c9992cdcfdf3c2a7700a4abc4782a8a4"
+    ],
+    "chunk_id": "af4c382a83f1e8cdea495d8b33c11abc",
+    "chunker_version": "code-go-ast-v1",
+    "doc_id": "83daba5fbb026e7a400d68a1c4bd36db",
+    "heading_path": [],
+    "policy_hash": "6cfe77abe2b0e5c3",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "go",
+        "line_end": 12,
+        "line_start": 7,
+        "symbol": "ComputeMRR"
+      }
+    ],
+    "text": "func ComputeMRR(scores []float64) float64 {\n\tif len(scores) == 0 {\n\t\treturn 0.0\n\t}\n\t_ = fmt.Sprintf(\"%v\", scores)\n\treturn 1.0 / float64(len(scores))\n}",
+    "token_estimate": 50
+  },
+  {
+    "block_ids": [
+      "5f18dc3e79fe946ba05d32c3bfc00684"
+    ],
+    "chunk_id": "4be6d8f180bc19b8651877e5264852ac",
+    "chunker_version": "code-go-ast-v1",
+    "doc_id": "83daba5fbb026e7a400d68a1c4bd36db",
+    "heading_path": [],
+    "policy_hash": "6cfe77abe2b0e5c3",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "go",
+        "line_end": 20,
+        "line_start": 14,
+        "symbol": "MetricsCollector"
+      }
+    ],
+    "text": "type MetricsCollector struct {\n\tScores []float64\n\tLabels []string\n\tCounts map[string]int\n\tTotals map[string]float64\n\tTags   []string\n}",
+    "token_estimate": 45
+  },
+  {
+    "block_ids": [
+      "3009cc022ca832c323393e4f9bcdb388"
+    ],
+    "chunk_id": "3ae182f4c6d304ee7f0aaf447142f948",
+    "chunker_version": "code-go-ast-v1",
+    "doc_id": "83daba5fbb026e7a400d68a1c4bd36db",
+    "heading_path": [],
+    "policy_hash": "6cfe77abe2b0e5c3",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "go",
+        "line_end": 30,
+        "line_start": 22,
+        "symbol": "BaseEvaluator"
+      }
+    ],
+    "text": "type BaseEvaluator struct {\n\tName string\n}\n\nfunc (e *BaseEvaluator) Evaluate(data []string) error {\n\t_ = os.Stderr\n\t_ = strings.Join(data, \",\")\n\treturn nil\n}",
+    "token_estimate": 53
+  },
+  {
+    "block_ids": [
+      "e0e83d1d7f9327a1902ae9a8f67c1f1c"
+    ],
+    "chunk_id": "b962f14980e756bb8ba514e2282756cd",
+    "chunker_version": "code-go-ast-v1",
+    "doc_id": "83daba5fbb026e7a400d68a1c4bd36db",
+    "heading_path": [],
+    "policy_hash": "6cfe77abe2b0e5c3",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "go",
+        "line_end": 38,
+        "line_start": 32,
+        "symbol": "MetricsCollector.Run"
+      }
+    ],
+    "text": "func (m *MetricsCollector) Run(inputs []float64) {\n\tfor _, inp := range inputs {\n\t\tm.Scores = append(\n\t\t\tm.Scores,\n\t\t\tinp,\n\t\t)\n\t}\n}",
+    "token_estimate": 44
+  },
+  {
+    "block_ids": [
+      "0e6a572bc3fe2bd6d173fe614bd1b763"
+    ],
+    "chunk_id": "441c695e990e7f49188068433e313e87",
+    "chunker_version": "code-go-ast-v1",
+    "doc_id": "83daba5fbb026e7a400d68a1c4bd36db",
+    "heading_path": [],
+    "policy_hash": "6cfe77abe2b0e5c3",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "go",
+        "line_end": 46,
+        "line_start": 40,
+        "symbol": "MetricsCollector.Report"
+      }
+    ],
+    "text": "func (m *MetricsCollector) Report() map[string]interface{} {\n\treturn map[string]interface{}{\n\t\t\"mean\":  0.0,\n\t\t\"count\": len(m.Scores),\n\t\t\"tags\":  m.Tags,\n\t}\n}",
+    "token_estimate": 53
+  },
+  {
+    "block_ids": [
+      "5d269745b2e5dbdcbef0c09ba54b0bd6"
+    ],
+    "chunk_id": "7a942d871c588ec69426290561f05179",
+    "chunker_version": "code-go-ast-v1",
+    "doc_id": "83daba5fbb026e7a400d68a1c4bd36db",
+    "heading_path": [],
+    "policy_hash": "6cfe77abe2b0e5c3",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "go",
+        "line_end": 247,
+        "line_start": 48,
+        "symbol": "BigCompute [part 1/5]"
+      }
+    ],
+    "text": "func BigCompute(data []int) int {\n\tv0 := 0\n\tif 0 < len(data) {\n\t\tv0 = data[0]\n\t}\n\tv1 := 0\n\tif 1 < len(data) {\n\t\tv1 = data[1]\n\t}\n\tv2 := 0\n\tif 2 < len(data) {\n\t\tv2 = data[2]\n\t}\n\tv3 := 0\n\tif 3 < len(data) {\n\t\tv3 = data[3]\n\t}\n\tv4 := 0\n\tif 4 < len(data) {\n\t\tv4 = data[4]\n\t}\n\tv5 := 0\n\tif 5 < len(data) {\n\t\tv5 = data[5]\n\t}\n\tv6 := 0\n\tif 6 < len(data) {\n\t\tv6 = data[6]\n\t}\n\tv7 := 0\n\tif 7 < len(data) {\n\t\tv7 = data[7]\n\t}\n\tv8 := 0\n\tif 8 < len(data) {\n\t\tv8 = data[8]\n\t}\n\tv9 := 0\n\tif 9 < len(data) {\n\t\tv9 = data[9]\n\t}\n\tv10 := 0\n\tif 10 < len(data) {\n\t\tv10 = data[10]\n\t}\n\tv11 := 0\n\tif 11 < len(data) {\n\t\tv11 = data[11]\n\t}\n\tv12 := 0\n\tif 12 < len(data) {\n\t\tv12 = data[12]\n\t}\n\tv13 := 0\n\tif 13 < len(data) {\n\t\tv13 = data[13]\n\t}\n\tv14 := 0\n\tif 14 < len(data) {\n\t\tv14 = data[14]\n\t}\n\tv15 := 0\n\tif 15 < len(data) {\n\t\tv15 = data[15]\n\t}\n\tv16 := 0\n\tif 16 < len(data) {\n\t\tv16 = data[16]\n\t}\n\tv17 := 0\n\tif 17 < len(data) {\n\t\tv17 = data[17]\n\t}\n\tv18 := 0\n\tif 18 < len(data) {\n\t\tv18 = data[18]\n\t}\n\tv19 := 0\n\tif 19 < len(data) {\n\t\tv19 = data[19]\n\t}\n\tv20 := 0\n\tif 20 < len(data) {\n\t\tv20 = data[20]\n\t}\n\tv21 := 0\n\tif 21 < len(data) {\n\t\tv21 = data[21]\n\t}\n\tv22 := 0\n\tif 22 < len(data) {\n\t\tv22 = data[22]\n\t}\n\tv23 := 0\n\tif 23 < len(data) {\n\t\tv23 = data[23]\n\t}\n\tv24 := 0\n\tif 24 < len(data) {\n\t\tv24 = data[24]\n\t}\n\tv25 := 0\n\tif 25 < len(data) {\n\t\tv25 = data[25]\n\t}\n\tv26 := 0\n\tif 26 < len(data) {\n\t\tv26 = data[26]\n\t}\n\tv27 := 0\n\tif 27 < len(data) {\n\t\tv27 = data[27]\n\t}\n\tv28 := 0\n\tif 28 < len(data) {\n\t\tv28 = data[28]\n\t}\n\tv29 := 0\n\tif 29 < len(data) {\n\t\tv29 = data[29]\n\t}\n\tv30 := 0\n\tif 30 < len(data) {\n\t\tv30 = data[30]\n\t}\n\tv31 := 0\n\tif 31 < len(data) {\n\t\tv31 = data[31]\n\t}\n\tv32 := 0\n\tif 32 < len(data) {\n\t\tv32 = data[32]\n\t}\n\tv33 := 0\n\tif 33 < len(data) {\n\t\tv33 = data[33]\n\t}\n\tv34 := 0\n\tif 34 < len(data) {\n\t\tv34 = data[34]\n\t}\n\tv35 := 0\n\tif 35 < len(data) {\n\t\tv35 = data[35]\n\t}\n\tv36 := 0\n\tif 36 < len(data) {\n\t\tv36 = data[36]\n\t}\n\tv37 := 0\n\tif 37 < len(data) {\n\t\tv37 = data[37]\n\t}\n\tv38 := 0\n\tif 38 < len(data) {\n\t\tv38 = data[38]\n\t}\n\tv39 := 0\n\tif 39 < len(data) {\n\t\tv39 = data[39]\n\t}\n\tv40 := 0\n\tif 40 < len(data) {\n\t\tv40 = data[40]\n\t}\n\tv41 := 0\n\tif 41 < len(data) {\n\t\tv41 = data[41]\n\t}\n\tv42 := 0\n\tif 42 < len(data) {\n\t\tv42 = data[42]\n\t}\n\tv43 := 0\n\tif 43 < len(data) {\n\t\tv43 = data[43]\n\t}\n\tv44 := 0\n\tif 44 < len(data) {\n\t\tv44 = data[44]\n\t}\n\tv45 := 0\n\tif 45 < len(data) {\n\t\tv45 = data[45]\n\t}\n\tv46 := 0\n\tif 46 < len(data) {\n\t\tv46 = data[46]\n\t}\n\tv47 := 0\n\tif 47 < len(data) {\n\t\tv47 = data[47]\n\t}\n\tv48 := 0\n\tif 48 < len(data) {\n\t\tv48 = data[48]\n\t}\n\tv49 := 0\n\tif 49 < len(data) {\n\t\tv49 = data[49]",
+    "token_estimate": 847
+  },
+  {
+    "block_ids": [
+      "5d269745b2e5dbdcbef0c09ba54b0bd6"
+    ],
+    "chunk_id": "3f44ba43c9415652e2705bb667776e76",
+    "chunker_version": "code-go-ast-v1",
+    "doc_id": "83daba5fbb026e7a400d68a1c4bd36db",
+    "heading_path": [],
+    "policy_hash": "6cfe77abe2b0e5c3",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "go",
+        "line_end": 447,
+        "line_start": 248,
+        "symbol": "BigCompute [part 2/5]"
+      }
+    ],
+    "text": "\t}\n\tv50 := 0\n\tif 50 < len(data) {\n\t\tv50 = data[50]\n\t}\n\tv51 := 0\n\tif 51 < len(data) {\n\t\tv51 = data[51]\n\t}\n\tv52 := 0\n\tif 52 < len(data) {\n\t\tv52 = data[52]\n\t}\n\tv53 := 0\n\tif 53 < len(data) {\n\t\tv53 = data[53]\n\t}\n\tv54 := 0\n\tif 54 < len(data) {\n\t\tv54 = data[54]\n\t}\n\tv55 := 0\n\tif 55 < len(data) {\n\t\tv55 = data[55]\n\t}\n\tv56 := 0\n\tif 56 < len(data) {\n\t\tv56 = data[56]\n\t}\n\tv57 := 0\n\tif 57 < len(data) {\n\t\tv57 = data[57]\n\t}\n\tv58 := 0\n\tif 58 < len(data) {\n\t\tv58 = data[58]\n\t}\n\tv59 := 0\n\tif 59 < len(data) {\n\t\tv59 = data[59]\n\t}\n\tv60 := 0\n\tif 60 < len(data) {\n\t\tv60 = data[60]\n\t}\n\tv61 := 0\n\tif 61 < len(data) {\n\t\tv61 = data[61]\n\t}\n\tv62 := 0\n\tif 62 < len(data) {\n\t\tv62 = data[62]\n\t}\n\tv63 := 0\n\tif 63 < len(data) {\n\t\tv63 = data[63]\n\t}\n\tv64 := 0\n\tif 64 < len(data) {\n\t\tv64 = data[64]\n\t}\n\tv65 := 0\n\tif 65 < len(data) {\n\t\tv65 = data[65]\n\t}\n\tv66 := 0\n\tif 66 < len(data) {\n\t\tv66 = data[66]\n\t}\n\tv67 := 0\n\tif 67 < len(data) {\n\t\tv67 = data[67]\n\t}\n\tv68 := 0\n\tif 68 < len(data) {\n\t\tv68 = data[68]\n\t}\n\tv69 := 0\n\tif 69 < len(data) {\n\t\tv69 = data[69]\n\t}\n\tv70 := 0\n\tif 70 < len(data) {\n\t\tv70 = data[70]\n\t}\n\tv71 := 0\n\tif 71 < len(data) {\n\t\tv71 = data[71]\n\t}\n\tv72 := 0\n\tif 72 < len(data) {\n\t\tv72 = data[72]\n\t}\n\tv73 := 0\n\tif 73 < len(data) {\n\t\tv73 = data[73]\n\t}\n\tv74 := 0\n\tif 74 < len(data) {\n\t\tv74 = data[74]\n\t}\n\tv75 := 0\n\tif 75 < len(data) {\n\t\tv75 = data[75]\n\t}\n\tv76 := 0\n\tif 76 < len(data) {\n\t\tv76 = data[76]\n\t}\n\tv77 := 0\n\tif 77 < len(data) {\n\t\tv77 = data[77]\n\t}\n\tv78 := 0\n\tif 78 < len(data) {\n\t\tv78 = data[78]\n\t}\n\tv79 := 0\n\tif 79 < len(data) {\n\t\tv79 = data[79]\n\t}\n\tv80 := 0\n\tif 80 < len(data) {\n\t\tv80 = data[80]\n\t}\n\tv81 := 0\n\tif 81 < len(data) {\n\t\tv81 = data[81]\n\t}\n\tv82 := 0\n\tif 82 < len(data) {\n\t\tv82 = data[82]\n\t}\n\tv83 := 0\n\tif 83 < len(data) {\n\t\tv83 = data[83]\n\t}\n\tv84 := 0\n\tif 84 < len(data) {\n\t\tv84 = data[84]\n\t}\n\tv85 := 0\n\tif 85 < len(data) {\n\t\tv85 = data[85]\n\t}\n\tv86 := 0\n\tif 86 < len(data) {\n\t\tv86 = data[86]\n\t}\n\tv87 := 0\n\tif 87 < len(data) {\n\t\tv87 = data[87]\n\t}\n\tv88 := 0\n\tif 88 < len(data) {\n\t\tv88 = data[88]\n\t}\n\tv89 := 0\n\tif 89 < len(data) {\n\t\tv89 = data[89]\n\t}\n\tv90 := 0\n\tif 90 < len(data) {\n\t\tv90 = data[90]\n\t}\n\tv91 := 0\n\tif 91 < len(data) {\n\t\tv91 = data[91]\n\t}\n\tv92 := 0\n\tif 92 < len(data) {\n\t\tv92 = data[92]\n\t}\n\tv93 := 0\n\tif 93 < len(data) {\n\t\tv93 = data[93]\n\t}\n\tv94 := 0\n\tif 94 < len(data) {\n\t\tv94 = data[94]\n\t}\n\tv95 := 0\n\tif 95 < len(data) {\n\t\tv95 = data[95]\n\t}\n\tv96 := 0\n\tif 96 < len(data) {\n\t\tv96 = data[96]\n\t}\n\tv97 := 0\n\tif 97 < len(data) {\n\t\tv97 = data[97]\n\t}\n\tv98 := 0\n\tif 98 < len(data) {\n\t\tv98 = data[98]\n\t}\n\tv99 := 0\n\tif 99 < len(data) {\n\t\tv99 = data[99]",
+    "token_estimate": 850
+  },
+  {
+    "block_ids": [
+      "5d269745b2e5dbdcbef0c09ba54b0bd6"
+    ],
+    "chunk_id": "e4763e10f059d97f40c2932761b56c3e",
+    "chunker_version": "code-go-ast-v1",
+    "doc_id": "83daba5fbb026e7a400d68a1c4bd36db",
+    "heading_path": [],
+    "policy_hash": "6cfe77abe2b0e5c3",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "go",
+        "line_end": 647,
+        "line_start": 448,
+        "symbol": "BigCompute [part 3/5]"
+      }
+    ],
+    "text": "\t}\n\tv100 := 0\n\tif 100 < len(data) {\n\t\tv100 = data[100]\n\t}\n\tv101 := 0\n\tif 101 < len(data) {\n\t\tv101 = data[101]\n\t}\n\tv102 := 0\n\tif 102 < len(data) {\n\t\tv102 = data[102]\n\t}\n\tv103 := 0\n\tif 103 < len(data) {\n\t\tv103 = data[103]\n\t}\n\tv104 := 0\n\tif 104 < len(data) {\n\t\tv104 = data[104]\n\t}\n\tv105 := 0\n\tif 105 < len(data) {\n\t\tv105 = data[105]\n\t}\n\tv106 := 0\n\tif 106 < len(data) {\n\t\tv106 = data[106]\n\t}\n\tv107 := 0\n\tif 107 < len(data) {\n\t\tv107 = data[107]\n\t}\n\tv108 := 0\n\tif 108 < len(data) {\n\t\tv108 = data[108]\n\t}\n\tv109 := 0\n\tif 109 < len(data) {\n\t\tv109 = data[109]\n\t}\n\tv110 := 0\n\tif 110 < len(data) {\n\t\tv110 = data[110]\n\t}\n\tv111 := 0\n\tif 111 < len(data) {\n\t\tv111 = data[111]\n\t}\n\tv112 := 0\n\tif 112 < len(data) {\n\t\tv112 = data[112]\n\t}\n\tv113 := 0\n\tif 113 < len(data) {\n\t\tv113 = data[113]\n\t}\n\tv114 := 0\n\tif 114 < len(data) {\n\t\tv114 = data[114]\n\t}\n\tv115 := 0\n\tif 115 < len(data) {\n\t\tv115 = data[115]\n\t}\n\tv116 := 0\n\tif 116 < len(data) {\n\t\tv116 = data[116]\n\t}\n\tv117 := 0\n\tif 117 < len(data) {\n\t\tv117 = data[117]\n\t}\n\tv118 := 0\n\tif 118 < len(data) {\n\t\tv118 = data[118]\n\t}\n\tv119 := 0\n\tif 119 < len(data) {\n\t\tv119 = data[119]\n\t}\n\tv120 := 0\n\tif 120 < len(data) {\n\t\tv120 = data[120]\n\t}\n\tv121 := 0\n\tif 121 < len(data) {\n\t\tv121 = data[121]\n\t}\n\tv122 := 0\n\tif 122 < len(data) {\n\t\tv122 = data[122]\n\t}\n\tv123 := 0\n\tif 123 < len(data) {\n\t\tv123 = data[123]\n\t}\n\tv124 := 0\n\tif 124 < len(data) {\n\t\tv124 = data[124]\n\t}\n\tv125 := 0\n\tif 125 < len(data) {\n\t\tv125 = data[125]\n\t}\n\tv126 := 0\n\tif 126 < len(data) {\n\t\tv126 = data[126]\n\t}\n\tv127 := 0\n\tif 127 < len(data) {\n\t\tv127 = data[127]\n\t}\n\tv128 := 0\n\tif 128 < len(data) {\n\t\tv128 = data[128]\n\t}\n\tv129 := 0\n\tif 129 < len(data) {\n\t\tv129 = data[129]\n\t}\n\tv130 := 0\n\tif 130 < len(data) {\n\t\tv130 = data[130]\n\t}\n\tv131 := 0\n\tif 131 < len(data) {\n\t\tv131 = data[131]\n\t}\n\tv132 := 0\n\tif 132 < len(data) {\n\t\tv132 = data[132]\n\t}\n\tv133 := 0\n\tif 133 < len(data) {\n\t\tv133 = data[133]\n\t}\n\tv134 := 0\n\tif 134 < len(data) {\n\t\tv134 = data[134]\n\t}\n\tv135 := 0\n\tif 135 < len(data) {\n\t\tv135 = data[135]\n\t}\n\tv136 := 0\n\tif 136 < len(data) {\n\t\tv136 = data[136]\n\t}\n\tv137 := 0\n\tif 137 < len(data) {\n\t\tv137 = data[137]\n\t}\n\tv138 := 0\n\tif 138 < len(data) {\n\t\tv138 = data[138]\n\t}\n\tv139 := 0\n\tif 139 < len(data) {\n\t\tv139 = data[139]\n\t}\n\tv140 := 0\n\tif 140 < len(data) {\n\t\tv140 = data[140]\n\t}\n\tv141 := 0\n\tif 141 < len(data) {\n\t\tv141 = data[141]\n\t}\n\tv142 := 0\n\tif 142 < len(data) {\n\t\tv142 = data[142]\n\t}\n\tv143 := 0\n\tif 143 < len(data) {\n\t\tv143 = data[143]\n\t}\n\tv144 := 0\n\tif 144 < len(data) {\n\t\tv144 = data[144]\n\t}\n\tv145 := 0\n\tif 145 < len(data) {\n\t\tv145 = data[145]\n\t}\n\tv146 := 0\n\tif 146 < len(data) {\n\t\tv146 = data[146]\n\t}\n\tv147 := 0\n\tif 147 < len(data) {\n\t\tv147 = data[147]\n\t}\n\tv148 := 0\n\tif 148 < len(data) {\n\t\tv148 = data[148]\n\t}\n\tv149 := 0\n\tif 149 < len(data) {\n\t\tv149 = data[149]",
+    "token_estimate": 917
+  },
+  {
+    "block_ids": [
+      "5d269745b2e5dbdcbef0c09ba54b0bd6"
+    ],
+    "chunk_id": "24176c911d0bacf9a29fa7f8251f5036",
+    "chunker_version": "code-go-ast-v1",
+    "doc_id": "83daba5fbb026e7a400d68a1c4bd36db",
+    "heading_path": [],
+    "policy_hash": "6cfe77abe2b0e5c3",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "go",
+        "line_end": 847,
+        "line_start": 648,
+        "symbol": "BigCompute [part 4/5]"
+      }
+    ],
+    "text": "\t}\n\tv150 := 0\n\tif 150 < len(data) {\n\t\tv150 = data[150]\n\t}\n\tv151 := 0\n\tif 151 < len(data) {\n\t\tv151 = data[151]\n\t}\n\tv152 := 0\n\tif 152 < len(data) {\n\t\tv152 = data[152]\n\t}\n\tv153 := 0\n\tif 153 < len(data) {\n\t\tv153 = data[153]\n\t}\n\tv154 := 0\n\tif 154 < len(data) {\n\t\tv154 = data[154]\n\t}\n\tv155 := 0\n\tif 155 < len(data) {\n\t\tv155 = data[155]\n\t}\n\tv156 := 0\n\tif 156 < len(data) {\n\t\tv156 = data[156]\n\t}\n\tv157 := 0\n\tif 157 < len(data) {\n\t\tv157 = data[157]\n\t}\n\tv158 := 0\n\tif 158 < len(data) {\n\t\tv158 = data[158]\n\t}\n\tv159 := 0\n\tif 159 < len(data) {\n\t\tv159 = data[159]\n\t}\n\tv160 := 0\n\tif 160 < len(data) {\n\t\tv160 = data[160]\n\t}\n\tv161 := 0\n\tif 161 < len(data) {\n\t\tv161 = data[161]\n\t}\n\tv162 := 0\n\tif 162 < len(data) {\n\t\tv162 = data[162]\n\t}\n\tv163 := 0\n\tif 163 < len(data) {\n\t\tv163 = data[163]\n\t}\n\tv164 := 0\n\tif 164 < len(data) {\n\t\tv164 = data[164]\n\t}\n\tv165 := 0\n\tif 165 < len(data) {\n\t\tv165 = data[165]\n\t}\n\tv166 := 0\n\tif 166 < len(data) {\n\t\tv166 = data[166]\n\t}\n\tv167 := 0\n\tif 167 < len(data) {\n\t\tv167 = data[167]\n\t}\n\tv168 := 0\n\tif 168 < len(data) {\n\t\tv168 = data[168]\n\t}\n\tv169 := 0\n\tif 169 < len(data) {\n\t\tv169 = data[169]\n\t}\n\tv170 := 0\n\tif 170 < len(data) {\n\t\tv170 = data[170]\n\t}\n\tv171 := 0\n\tif 171 < len(data) {\n\t\tv171 = data[171]\n\t}\n\tv172 := 0\n\tif 172 < len(data) {\n\t\tv172 = data[172]\n\t}\n\tv173 := 0\n\tif 173 < len(data) {\n\t\tv173 = data[173]\n\t}\n\tv174 := 0\n\tif 174 < len(data) {\n\t\tv174 = data[174]\n\t}\n\tv175 := 0\n\tif 175 < len(data) {\n\t\tv175 = data[175]\n\t}\n\tv176 := 0\n\tif 176 < len(data) {\n\t\tv176 = data[176]\n\t}\n\tv177 := 0\n\tif 177 < len(data) {\n\t\tv177 = data[177]\n\t}\n\tv178 := 0\n\tif 178 < len(data) {\n\t\tv178 = data[178]\n\t}\n\tv179 := 0\n\tif 179 < len(data) {\n\t\tv179 = data[179]\n\t}\n\tv180 := 0\n\tif 180 < len(data) {\n\t\tv180 = data[180]\n\t}\n\tv181 := 0\n\tif 181 < len(data) {\n\t\tv181 = data[181]\n\t}\n\tv182 := 0\n\tif 182 < len(data) {\n\t\tv182 = data[182]\n\t}\n\tv183 := 0\n\tif 183 < len(data) {\n\t\tv183 = data[183]\n\t}\n\tv184 := 0\n\tif 184 < len(data) {\n\t\tv184 = data[184]\n\t}\n\tv185 := 0\n\tif 185 < len(data) {\n\t\tv185 = data[185]\n\t}\n\tv186 := 0\n\tif 186 < len(data) {\n\t\tv186 = data[186]\n\t}\n\tv187 := 0\n\tif 187 < len(data) {\n\t\tv187 = data[187]\n\t}\n\tv188 := 0\n\tif 188 < len(data) {\n\t\tv188 = data[188]\n\t}\n\tv189 := 0\n\tif 189 < len(data) {\n\t\tv189 = data[189]\n\t}\n\tv190 := 0\n\tif 190 < len(data) {\n\t\tv190 = data[190]\n\t}\n\tv191 := 0\n\tif 191 < len(data) {\n\t\tv191 = data[191]\n\t}\n\tv192 := 0\n\tif 192 < len(data) {\n\t\tv192 = data[192]\n\t}\n\tv193 := 0\n\tif 193 < len(data) {\n\t\tv193 = data[193]\n\t}\n\tv194 := 0\n\tif 194 < len(data) {\n\t\tv194 = data[194]\n\t}\n\tv195 := 0\n\tif 195 < len(data) {\n\t\tv195 = data[195]\n\t}\n\tv196 := 0\n\tif 196 < len(data) {\n\t\tv196 = data[196]\n\t}\n\tv197 := 0\n\tif 197 < len(data) {\n\t\tv197 = data[197]\n\t}\n\tv198 := 0\n\tif 198 < len(data) {\n\t\tv198 = data[198]\n\t}\n\tv199 := 0\n\tif 199 < len(data) {\n\t\tv199 = data[199]",
+    "token_estimate": 917
+  },
+  {
+    "block_ids": [
+      "5d269745b2e5dbdcbef0c09ba54b0bd6"
+    ],
+    "chunk_id": "438127626378632c03780d10603de32c",
+    "chunker_version": "code-go-ast-v1",
+    "doc_id": "83daba5fbb026e7a400d68a1c4bd36db",
+    "heading_path": [],
+    "policy_hash": "6cfe77abe2b0e5c3",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "go",
+        "line_end": 890,
+        "line_start": 848,
+        "symbol": "BigCompute [part 5/5]"
+      }
+    ],
+    "text": "\t}\n\tv200 := 0\n\tif 200 < len(data) {\n\t\tv200 = data[200]\n\t}\n\tv201 := 0\n\tif 201 < len(data) {\n\t\tv201 = data[201]\n\t}\n\tv202 := 0\n\tif 202 < len(data) {\n\t\tv202 = data[202]\n\t}\n\tv203 := 0\n\tif 203 < len(data) {\n\t\tv203 = data[203]\n\t}\n\tv204 := 0\n\tif 204 < len(data) {\n\t\tv204 = data[204]\n\t}\n\tv205 := 0\n\tif 205 < len(data) {\n\t\tv205 = data[205]\n\t}\n\tv206 := 0\n\tif 206 < len(data) {\n\t\tv206 = data[206]\n\t}\n\tv207 := 0\n\tif 207 < len(data) {\n\t\tv207 = data[207]\n\t}\n\tv208 := 0\n\tif 208 < len(data) {\n\t\tv208 = data[208]\n\t}\n\tv209 := 0\n\tif 209 < len(data) {\n\t\tv209 = data[209]\n\t}\n\treturn len(data)\n}",
+    "token_estimate": 191
+  }
+]

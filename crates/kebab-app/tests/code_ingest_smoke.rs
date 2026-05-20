@@ -390,6 +390,77 @@ fn javascript_file_ingests_and_searches_as_code_citation() {
     );
 }
 
+/// p10-1c-go Task F: a `.go` file in a sub-directory is ingested and the
+/// resulting `Citation::Code` hit must carry `lang="go"`,
+/// `symbol="chunk.ParseDoc"`, and `line_start >= 1`.
+/// The sub-directory (`chunk/`) ensures the Go package-prefix wiring
+/// produces a non-empty module prefix so the fully-qualified symbol assertion
+/// exercises that path end-to-end.
+#[test]
+fn go_file_ingests_and_searches_as_code_citation() {
+    let env = TestEnv::lexical_only();
+
+    let pkg_dir = env.workspace_root.join("chunk");
+    std::fs::create_dir_all(&pkg_dir).unwrap();
+    std::fs::write(
+        pkg_dir.join("ast.go"),
+        "package chunk\n\nfunc ParseDoc(input string) string {\n    return input\n}\n",
+    )
+    .unwrap();
+
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
+    assert_eq!(report.errors, 0);
+    assert!(report.new >= 1);
+
+    let go_item = report
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("ast.go"))
+        .expect("ast.go item present");
+    assert_eq!(
+        go_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        Some("code-go-v1"),
+        "parser_version must be code-go-v1"
+    );
+    assert_eq!(
+        go_item.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("code-go-ast-v1"),
+        "chunker_version must be code-go-ast-v1"
+    );
+
+    let hits = kebab_app::search_with_config(env.config.clone(), lexical_query("ParseDoc"))
+        .expect("search must succeed");
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, kebab_core::Citation::Code { .. }))
+        .expect("Citation::Code hit");
+    match &h.citation {
+        kebab_core::Citation::Code {
+            lang,
+            symbol,
+            line_start,
+            ..
+        } => {
+            assert_eq!(lang.as_deref(), Some("go"), "citation.lang must be 'go'");
+            assert_eq!(
+                symbol.as_deref(),
+                Some("chunk.ParseDoc"),
+                "citation.symbol must be 'chunk.ParseDoc'"
+            );
+            assert!(*line_start >= 1, "line_start must be >=1");
+        }
+        _ => unreachable!(),
+    }
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("go"),
+        "SearchHit.code_lang must be 'go'"
+    );
+}
+
 /// Re-ingesting the same `.rs` file without changes must report
 /// `Unchanged` (incremental-skip path exercised).
 #[test]

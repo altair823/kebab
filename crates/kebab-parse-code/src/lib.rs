@@ -13,6 +13,7 @@
 //! `kebab-parse-*` crates per design §8: must NOT depend on store / embed
 //! / llm / rag.
 
+pub mod go;
 pub mod javascript;
 pub mod lang;
 pub mod python;
@@ -22,6 +23,7 @@ pub(crate) mod scaffold;
 pub mod skip;
 pub mod typescript;
 
+pub use go::{PARSER_VERSION as GO_PARSER_VERSION, GoAstExtractor};
 pub use javascript::{PARSER_VERSION as JS_PARSER_VERSION, JavascriptAstExtractor};
 pub use lang::{code_lang_for_path, module_path_for_python, module_path_for_tsjs};
 pub use python::{PARSER_VERSION as PYTHON_PARSER_VERSION, PythonAstExtractor};

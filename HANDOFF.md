@@ -4,7 +4,7 @@
 
 ## 한 줄 요약
 
-P0–P5 + P6 + P7 + P9-1/2/3/4 (Library / Search / Ask / Inspect) 머지 완료. `kebab ingest` 가 markdown / image / PDF 모두 처리. `kebab search` / `kebab ask` 가 매체 가로질러 결과 + page citation 반환. `kebab tui` 가 4 패널 (Library + Search + Ask + Inspect) 제공 — 사용자가 `?` 로 ask, `/` 로 search, Library Enter / Search `i` 로 inspect, Search `g` 로 editor jump. 다음 후보 = P9-5 (desktop tauri) 또는 보류 중인 P8 (audio) 의 시스템 dep brainstorm.
+P0–P5 + P6 + P7 + P9-1/2/3/4 (Library / Search / Ask / Inspect) 머지 완료. `kebab ingest` 가 markdown / image / PDF / 소스코드 (Rust / Python / TS / JS / Go) 처리. `kebab search` / `kebab ask` 가 매체 가로질러 결과 + page / code citation 반환. `kebab tui` 가 4 패널 (Library + Search + Ask + Inspect) 제공. 다음 후보 = P10-1C-JavaKotlin 또는 P9-5 (desktop tauri) 또는 보류 중인 P8 (audio).
 
 ## Phase 로드맵
 
@@ -20,7 +20,7 @@ P0–P5 + P6 + P7 + P9-1/2/3/4 (Library / Search / Ask / Inspect) 머지 완료.
 | **P7** | PDF text + page citation | `kebab-parse-pdf` | P5 | ✅ 완료 (3/3 component, page-level chunker + ingest wiring) |
 | **P8** | 음성 transcription + timestamp citation | `kebab-parse-audio` | P5 | ⏸ 보류 (whisper-rs 시스템 dep brainstorm 필요) |
 | **P9** | TUI + desktop app | `kebab-tui`, `kebab-desktop` | P5 | 🟡 진행 (4/5 component — P9-1/2/3/4 완료 [Library / Search / Ask / Inspect], P9-5 desktop 예정 · 도그푸딩 피드백 **20/20 ✅**) |
-| **P10** | code ingest framework | `kebab-parse-code` | P5 | 🟡 진행 중 — 1A-1 ✅ (wire schema + parse-code skeleton + filter flags), 1A-2 ✅ (Rust AST chunker, tree-sitter-rust, `code-rust-ast-v1` — v0.7.0), **1B 🟡 PR 오픈** (Python `code-python-ast-v1` + TypeScript `code-ts-ast-v1` + JavaScript `code-js-ast-v1` — 3 언어 dogfooding 가능, v0.8.0 대기) |
+| **P10** | code ingest framework | `kebab-parse-code` | P5 | 🟡 진행 중 — 1A-1 ✅ (wire schema + parse-code skeleton + filter flags), 1A-2 ✅ (Rust AST chunker, `code-rust-ast-v1` — v0.7.0), 1B ✅ (Python/TS/JS AST chunkers — v0.8.0 이후), **1C-Go ✅ (Go AST chunker, `code-go-ast-v1` — v0.12.0)**, 1C-JavaKotlin ⏳ (후속 PR) |
 
 P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 
