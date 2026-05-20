@@ -44,6 +44,12 @@ pub fn code_lang_for_path(path: &Path) -> Option<&'static str> {
 /// p10-1B: workspace-relative Python file path → dotted module-path prefix.
 /// See plan §Task C for the exact rules + tasks/p10/p10-1b for the §3.4
 /// design contract.
+///
+/// Stripped source-roots: `src/`, `lib/`, and `crates/<crate>/src/`.
+/// `tests/`, `examples/`, and `benches/` are intentionally NOT stripped —
+/// they appear in test/example/bench namespaces and dropping them would
+/// conflate identical symbol names across conventional Python directories
+/// (e.g. `tests/test_foo.py` → `tests.test_foo`, not `test_foo`).
 pub fn module_path_for_python(workspace_path: &str) -> String {
     let mut p: &str = workspace_path;
     if let Some(rest) = p.strip_prefix("crates/") {
@@ -97,6 +103,9 @@ mod tests {
         assert_eq!(module_path_for_python("a/b/c.pyi"),                   "a.b.c");
         assert_eq!(module_path_for_python("standalone.py"),               "standalone");
         assert_eq!(module_path_for_python("src/__init__.py"),             "");
+        // `tests/` is NOT a stripped source-root — it is preserved as
+        // part of the module path so test symbols stay namespaced.
+        assert_eq!(module_path_for_python("tests/test_foo.py"),           "tests.test_foo");
     }
 
     #[test]
