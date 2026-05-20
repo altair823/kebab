@@ -203,3 +203,75 @@ rules:
         other => panic!("expected Code span, got {other:?}"),
     }
 }
+
+/// 200+ line resource exercises `tier2_shared::push_chunks_with_oversize`'s
+/// line-window split branch. All chunks must share the same symbol
+/// (`<Kind>/<ns>/<name>`); their line ranges must form a contiguous
+/// partition; chunk_ids must all differ (the `#L{k}` suffix on `id_for_chunk`
+/// ensures uniqueness across windows). Spec p10-2 risks section explicitly
+/// flags "거대 ConfigMap" — this test covers that path.
+#[test]
+fn k8s_oversize_splits_into_line_windows_sharing_symbol() {
+    // ConfigMap with 250 data keys → ~256 total lines, > AST_CHUNK_MAX_LINES (200).
+    let mut yaml = String::from(
+        "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: big\n  namespace: prod\ndata:\n",
+    );
+    for i in 0..250 {
+        yaml.push_str(&format!("  key{i}: value{i}\n"));
+    }
+
+    let doc = yaml_doc(&yaml);
+    let chunks = K8sManifestResourceV1Chunker
+        .chunk(&doc, &policy())
+        .expect("chunk");
+
+    assert!(
+        chunks.len() >= 2,
+        "expected ≥2 chunks for oversize resource, got {}",
+        chunks.len()
+    );
+
+    // Every chunk must share the same symbol + lang.
+    let expected_symbol = "ConfigMap/prod/big";
+    for (i, c) in chunks.iter().enumerate() {
+        match &c.source_spans[0] {
+            SourceSpan::Code { symbol, lang, .. } => {
+                assert_eq!(
+                    symbol.as_deref(),
+                    Some(expected_symbol),
+                    "chunk[{i}] symbol must equal `{expected_symbol}`"
+                );
+                assert_eq!(lang.as_deref(), Some("yaml"));
+            }
+            other => panic!("chunk[{i}]: expected Code span, got {other:?}"),
+        }
+    }
+
+    // chunk_ids must all be distinct (oversize fallback's #L{k} suffix).
+    let ids: std::collections::HashSet<_> = chunks.iter().map(|c| c.chunk_id.clone()).collect();
+    assert_eq!(
+        ids.len(),
+        chunks.len(),
+        "oversize chunks must have distinct chunk_ids (the #L{{k}} suffix should disambiguate)"
+    );
+
+    // Line ranges must form a contiguous partition: chunk[i].line_end + 1 == chunk[i+1].line_start.
+    let ranges: Vec<(u32, u32)> = chunks
+        .iter()
+        .map(|c| match &c.source_spans[0] {
+            SourceSpan::Code { line_start, line_end, .. } => (*line_start, *line_end),
+            other => panic!("expected Code span, got {other:?}"),
+        })
+        .collect();
+    for w in ranges.windows(2) {
+        let (_, prev_end) = w[0];
+        let (next_start, _) = w[1];
+        assert_eq!(
+            prev_end + 1,
+            next_start,
+            "line ranges must be contiguous: {} → {} (got gap or overlap)",
+            prev_end,
+            next_start
+        );
+    }
+}
