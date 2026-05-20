@@ -39,7 +39,7 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
-use kebab_chunk::{CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTsAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
+use kebab_chunk::{CodeJsAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTsAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
@@ -50,7 +50,7 @@ use kebab_core::{
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_normalize::build_canonical_document;
 use kebab_parse_image::{ImageExtractor, OllamaVisionOcr, apply_caption, apply_ocr};
-use kebab_parse_code::{PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor};
+use kebab_parse_code::{JavascriptAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor};
 use kebab_parse_pdf::PdfTextExtractor;
 use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
@@ -1682,16 +1682,16 @@ fn ingest_one_code_asset(
         "rust"       => ParserVersion(kebab_parse_code::RUST_PARSER_VERSION.to_string()),
         "python"     => ParserVersion(kebab_parse_code::PYTHON_PARSER_VERSION.to_string()),
         "typescript" => ParserVersion(kebab_parse_code::TS_PARSER_VERSION.to_string()),
-        "javascript" => anyhow::bail!("javascript ingest not yet wired (p10-1b Task L)"),
+        "javascript" => ParserVersion(kebab_parse_code::JS_PARSER_VERSION.to_string()),
         other => anyhow::bail!("unsupported code_lang: {other}"),
     };
 
-    // p10-1b Task D/G/J: chunker_version per-lang (JS is unreachable here;
-    // it bails above and gets a real chunker in Task L).
+    // p10-1b Task D/G/J/L: chunker_version per-lang.
     let chunker_version = match code_lang {
         "rust"       => CodeRustAstV1Chunker.chunker_version(),
         "python"     => CodePythonAstV1Chunker.chunker_version(),
         "typescript" => CodeTsAstV1Chunker.chunker_version(),
+        "javascript" => CodeJsAstV1Chunker.chunker_version(),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -1716,7 +1716,7 @@ fn ingest_one_code_asset(
         config: &extract_config,
     };
 
-    // p10-1b Task D/G/J: extractor per-lang.
+    // p10-1b Task D/G/J/L: extractor per-lang.
     let mut canonical = match code_lang {
         "rust" => RustAstExtractor::new()
             .extract(&ctx, &bytes)
@@ -1727,10 +1727,13 @@ fn ingest_one_code_asset(
         "typescript" => TypescriptAstExtractor::new()
             .extract(&ctx, &bytes)
             .context("kb-parse-code::TypescriptAstExtractor::extract (code:typescript)")?,
+        "javascript" => JavascriptAstExtractor::new()
+            .extract(&ctx, &bytes)
+            .context("kb-parse-code::JavascriptAstExtractor::extract (code:javascript)")?,
         other => anyhow::bail!("unreachable (extract): {other}"),
     };
 
-    // p10-1b Task D/G/J: chunker per-lang.
+    // p10-1b Task D/G/J/L: chunker per-lang.
     let chunks = match code_lang {
         "rust" => CodeRustAstV1Chunker
             .chunk(&canonical, chunk_policy)
@@ -1741,6 +1744,9 @@ fn ingest_one_code_asset(
         "typescript" => CodeTsAstV1Chunker
             .chunk(&canonical, chunk_policy)
             .context("kb-chunk::CodeTsAstV1Chunker::chunk (code:typescript)")?,
+        "javascript" => CodeJsAstV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::CodeJsAstV1Chunker::chunk (code:javascript)")?,
         other => anyhow::bail!("unreachable (chunk): {other}"),
     };
 
