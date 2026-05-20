@@ -748,15 +748,18 @@ struct ImagePipeline<'a> {
 /// hold (per design §9 cascade rule):
 ///
 /// 1. `force_reingest == false` — caller hasn't asked to bypass skip.
-/// 2. The freshly-scanned asset's blake3 checksum equals what the
-///    existing `assets` row stores at the same `workspace_path`.
-/// 3. The doc keyed on `(workspace_path, asset_id, current_parser_version)`
-///    exists. If the parser_version changed, `id_for_doc` produces a
-///    different `doc_id` so the lookup misses → no skip → re-process.
-/// 4. The existing doc's stamped `last_chunker_version` AND
-///    `last_embedding_version` match the values the caller is about
-///    to use (`Some(v) == Some(v)` and `None == None` — see design
-///    doc for the `None == None` rule when no embedder is configured).
+/// 2. A document already exists at this `workspace_path`
+///    (`get_document_by_workspace_path`). The lookup is document-side, not
+///    asset-side, so twin files (identical content at different paths) each
+///    hit their own stable doc row — `documents.workspace_path` is UNIQUE
+///    while `assets` may dedupe content into a single row with a flip-flop
+///    `workspace_path` column (dogfood bug #4, see `tasks/HOTFIXES.md`).
+/// 3. The existing doc's `source_asset_id` equals the freshly-scanned
+///    asset's blake3 checksum (content unchanged).
+/// 4. The existing doc's `parser_version` matches the current extractor's
+///    `parser_version` (extractor not upgraded). Combined with `chunker_version`
+///    and `last_embedding_version` checks immediately below — full cascade
+///    per design §9.
 ///
 /// Returns `Ok(None)` (proceed with full re-process) when any check
 /// fails or any DB read errors out — the skip path is opportunistic;
