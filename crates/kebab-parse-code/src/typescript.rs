@@ -173,8 +173,9 @@ impl Extractor for TypescriptAstExtractor {
 }
 
 /// Select the tree-sitter grammar based on the workspace path's
-/// extension. `.tsx` → TSX grammar; everything else (`.ts`, `.d.ts`,
-/// missing extension) → TypeScript grammar.
+/// extension. `.tsx` → TSX grammar; everything else (`.ts`, `.mts`,
+/// `.cts`, `.d.ts`, missing extension) → TypeScript grammar (the JSX-
+/// agnostic variants all share one grammar in tree-sitter-typescript 0.23).
 fn select_grammar(workspace_path: &str) -> tree_sitter::Language {
     if workspace_path.ends_with(".tsx") {
         tree_sitter_typescript::LANGUAGE_TSX.into()

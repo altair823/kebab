@@ -9,6 +9,8 @@ fn known_extensions_map_to_canonical_identifiers() {
         ("foo.pyi", Some("python")),
         ("foo.ts", Some("typescript")),
         ("foo.tsx", Some("typescript")),
+        ("foo.mts", Some("typescript")),  // ESM TS — same grammar
+        ("foo.cts", Some("typescript")),  // CommonJS TS — same grammar
         ("foo.js", Some("javascript")),
         ("foo.mjs", Some("javascript")),
         ("foo.cjs", Some("javascript")),

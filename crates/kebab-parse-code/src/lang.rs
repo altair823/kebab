@@ -24,7 +24,7 @@ pub fn code_lang_for_path(path: &Path) -> Option<&'static str> {
     match ext.as_str() {
         "rs" => Some("rust"),
         "py" | "pyi" => Some("python"),
-        "ts" | "tsx" => Some("typescript"),
+        "ts" | "tsx" | "mts" | "cts" => Some("typescript"),
         "js" | "mjs" | "cjs" | "jsx" => Some("javascript"),
         "go" => Some("go"),
         "java" => Some("java"),
@@ -82,7 +82,7 @@ pub fn module_path_for_python(workspace_path: &str) -> String {
 /// (no slash replacement, no source-root strip). See plan §Task C.
 pub fn module_path_for_tsjs(workspace_path: &str) -> String {
     let p = workspace_path;
-    for ext in [".tsx", ".ts", ".jsx", ".mjs", ".cjs", ".js"] {
+    for ext in [".tsx", ".mts", ".cts", ".ts", ".jsx", ".mjs", ".cjs", ".js"] {
         if let Some(stripped) = p.strip_suffix(ext) {
             return stripped.to_string();
         }
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn module_path_for_tsjs_keeps_slashes_and_strips_ext() {
-        for ext in ["ts", "tsx", "js", "jsx", "mjs", "cjs"] {
+        for ext in ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"] {
             let p = format!("src/search/retriever/Retriever.{ext}");
             assert_eq!(module_path_for_tsjs(&p), "src/search/retriever/Retriever");
         }
