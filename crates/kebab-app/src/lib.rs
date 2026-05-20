@@ -39,7 +39,7 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
-use kebab_chunk::{CodeGoAstV1Chunker, CodeJavaAstV1Chunker, CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTsAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
+use kebab_chunk::{CodeGoAstV1Chunker, CodeJavaAstV1Chunker, CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTsAstV1Chunker, DockerfileFileV1Chunker, K8sManifestResourceV1Chunker, ManifestFileV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
@@ -948,10 +948,11 @@ fn ingest_one_asset(
                 force_reingest,
             );
         }
-        // p10-1A-2 / 1B: code ingest dispatch.
+        // p10-1A-2 / 1B: code ingest dispatch. p10-2: Tier 2 langs added.
         MediaType::Code(lang)
             if matches!(lang.as_str(),
-                "rust" | "python" | "typescript" | "javascript" | "go" | "java" | "kotlin") =>
+                "rust" | "python" | "typescript" | "javascript" | "go" | "java" | "kotlin"
+                | "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod") =>
         {
             return ingest_one_code_asset(
                 app,
@@ -1831,6 +1832,9 @@ fn ingest_one_code_asset(
         "go" => ParserVersion(kebab_parse_code::GO_PARSER_VERSION.to_string()),
         "java" => ParserVersion(kebab_parse_code::JAVA_PARSER_VERSION.to_string()),
         "kotlin" => ParserVersion(kebab_parse_code::KOTLIN_PARSER_VERSION.to_string()),
+        // p10-2: Tier 2 has no parse step — sentinel "none-v1".
+        "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod"
+            => ParserVersion("none-v1".to_string()),
         other => anyhow::bail!("unsupported code_lang: {other}"),
     };
 
@@ -1842,7 +1846,12 @@ fn ingest_one_code_asset(
         "javascript" => CodeJsAstV1Chunker.chunker_version(),
         "go" => CodeGoAstV1Chunker.chunker_version(),
         "java" => CodeJavaAstV1Chunker.chunker_version(),
-        "kotlin" => CodeKotlinAstV1Chunker.chunker_version(),
+        "kotlin"     => CodeKotlinAstV1Chunker.chunker_version(),
+        // p10-2 Tier 2:
+        "yaml"       => K8sManifestResourceV1Chunker.chunker_version(),
+        "dockerfile" => DockerfileFileV1Chunker.chunker_version(),
+        "toml" | "json" | "xml" | "groovy" | "go-mod"
+                     => ManifestFileV1Chunker.chunker_version(),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -1890,6 +1899,10 @@ fn ingest_one_code_asset(
         "kotlin" => KotlinAstExtractor::new()
             .extract(&ctx, &bytes)
             .context("kb-parse-code::KotlinAstExtractor::extract (code:kotlin)")?,
+        // p10-2 Tier 2: no extractor — synthesize Document directly from raw bytes.
+        "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod" => {
+            synthesize_tier2_document(asset, &bytes, code_lang, &parser_version)?
+        }
         other => anyhow::bail!("unreachable (extract): {other}"),
     };
 
@@ -1913,9 +1926,20 @@ fn ingest_one_code_asset(
         "java" => CodeJavaAstV1Chunker
             .chunk(&canonical, chunk_policy)
             .context("kb-chunk::CodeJavaAstV1Chunker::chunk (code:java)")?,
-        "kotlin" => CodeKotlinAstV1Chunker
+        "kotlin"     => CodeKotlinAstV1Chunker
             .chunk(&canonical, chunk_policy)
             .context("kb-chunk::CodeKotlinAstV1Chunker::chunk (code:kotlin)")?,
+        // p10-2 Tier 2:
+        "yaml"       => K8sManifestResourceV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::K8sManifestResourceV1Chunker::chunk")?,
+        "dockerfile" => DockerfileFileV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::DockerfileFileV1Chunker::chunk")?,
+        "toml" | "json" | "xml" | "groovy" | "go-mod"
+                     => ManifestFileV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::ManifestFileV1Chunker::chunk")?,
         other => anyhow::bail!("unreachable (chunk): {other}"),
     };
 
@@ -2008,6 +2032,135 @@ fn ingest_one_code_asset(
         chunker_version: Some(chunker_version),
         warnings,
         error: None,
+    })
+}
+
+/// p10-2: Build a minimal [`CanonicalDocument`] for Tier 2 code assets
+/// (yaml / dockerfile / toml / json / xml / groovy / go-mod) that have
+/// no AST extractor. Produces a single `Block::Code` whose source span
+/// covers the entire file, mirroring the shape the Tier 1 extractors
+/// produce for glue / top-level regions.
+fn synthesize_tier2_document(
+    asset: &RawAsset,
+    bytes: &[u8],
+    code_lang: &str,
+    parser_version: &ParserVersion,
+) -> anyhow::Result<kebab_core::CanonicalDocument> {
+    use anyhow::Context as _;
+    use kebab_core::{
+        BlockId, CodeBlock, CommonBlock, Lang, Metadata, Provenance, ProvenanceEvent,
+        ProvenanceKind, SourceSpan, SourceType, TrustLevel, id_for_block, id_for_doc,
+    };
+
+    let text = std::str::from_utf8(bytes)
+        .with_context(|| format!("tier2 doc not utf-8: {}", asset.workspace_path.0))?
+        .to_string();
+
+    let doc_id = id_for_doc(&asset.workspace_path, &asset.asset_id, parser_version);
+
+    let n_lines = text.lines().count().max(1) as u32;
+    let span = SourceSpan::Code {
+        line_start: 1,
+        line_end: n_lines,
+        symbol: Some("<file>".to_string()),
+        lang: Some(code_lang.to_string()),
+    };
+    let block_id: BlockId = id_for_block(
+        &doc_id,
+        "code",
+        &[],
+        0,
+        &span,
+    );
+    let block = kebab_core::Block::Code(CodeBlock {
+        common: CommonBlock {
+            block_id,
+            heading_path: vec![],
+            source_span: span,
+        },
+        lang: Some(code_lang.to_string()),
+        code: text,
+    });
+
+    let now = time::OffsetDateTime::now_utc();
+    let events = vec![
+        ProvenanceEvent {
+            at: asset.discovered_at,
+            agent: "kb-source-fs".to_string(),
+            kind: ProvenanceKind::Discovered,
+            note: None,
+        },
+        ProvenanceEvent {
+            at: now,
+            agent: "kb-app".to_string(),
+            kind: ProvenanceKind::Parsed,
+            note: Some(format!(
+                "parser_version={}; tier2_synthesized; lang={}",
+                parser_version.0, code_lang
+            )),
+        },
+    ];
+
+    // Resolve abs path for repo detection (mirrors RustAstExtractor pattern).
+    let workspace_root = std::path::PathBuf::new(); // not needed for detect_repo walk
+    let abs_path = match &asset.source_uri {
+        kebab_core::SourceUri::File(p) => p.clone(),
+        kebab_core::SourceUri::Kb(_) => workspace_root,
+    };
+    let (repo, git_branch, git_commit) = match kebab_parse_code::detect_repo(&abs_path) {
+        Some(r) => (Some(r.name), r.branch, r.commit),
+        None => (None, None, None),
+    };
+
+    let title = {
+        let fname = asset.workspace_path.0
+            .rsplit('/')
+            .next()
+            .unwrap_or(&asset.workspace_path.0);
+        // strip extension
+        match fname.rfind('.') {
+            Some(i) => fname[..i].to_string(),
+            None => fname.to_string(),
+        }
+    };
+
+    let metadata = Metadata {
+        aliases: vec![],
+        tags: vec![],
+        created_at: asset.discovered_at,
+        updated_at: asset.discovered_at,
+        source_type: SourceType::Note,
+        trust_level: TrustLevel::Primary,
+        user_id_alias: None,
+        user: serde_json::Map::new(),
+        repo,
+        git_branch,
+        git_commit,
+        code_lang: Some(code_lang.to_string()),
+    };
+
+    tracing::debug!(
+        target: "kebab-app",
+        "synthesized tier2 doc_id={} workspace_path={} lang={}",
+        doc_id.0,
+        asset.workspace_path.0,
+        code_lang,
+    );
+
+    Ok(kebab_core::CanonicalDocument {
+        doc_id,
+        source_asset_id: asset.asset_id.clone(),
+        workspace_path: asset.workspace_path.clone(),
+        title,
+        lang: Lang("und".to_string()),
+        blocks: vec![block],
+        metadata,
+        provenance: Provenance { events },
+        parser_version: parser_version.clone(),
+        schema_version: 1,
+        doc_version: 1,
+        last_chunker_version: None,
+        last_embedding_version: None,
     })
 }
 
