@@ -4,7 +4,7 @@
 
 ## 한 줄 요약
 
-P0–P5 + P6 + P7 + P9-1/2/3/4 (Library / Search / Ask / Inspect) 머지 완료. `kebab ingest` 가 markdown / image / PDF / 소스코드 (Rust / Python / TS / JS / Go / Java / Kotlin) 처리. `kebab search` / `kebab ask` 가 매체 가로질러 결과 + page / code citation 반환. `kebab tui` 가 4 패널 (Library + Search + Ask + Inspect) 제공. P10-1C (Go + Java + Kotlin) 완료 — 다음 후보 = P10-1D (C/C++) 또는 P9-5 (desktop tauri) 또는 보류 중인 P8 (audio).
+P0–P5 + P6 + P7 + P9-1/2/3/4 (Library / Search / Ask / Inspect) 머지 완료. `kebab ingest` 가 markdown / image / PDF / 소스코드 (Rust / Python / TS / JS / Go / Java / Kotlin) / Tier 2 리소스 파일 (yaml/k8s / dockerfile / toml / json / xml / groovy / go-mod) 처리. `kebab search` / `kebab ask` 가 매체 가로질러 결과 + page / code citation 반환. `kebab tui` 가 4 패널 (Library + Search + Ask + Inspect) 제공. P10-2 (Tier 2 resource-aware) 완료 — 다음 후보 = P10-1D (C/C++) 또는 P10-3 (Tier 3 fallback) 또는 P9-5 (desktop tauri) 또는 보류 중인 P8 (audio).
 
 ## Phase 로드맵
 
@@ -20,7 +20,7 @@ P0–P5 + P6 + P7 + P9-1/2/3/4 (Library / Search / Ask / Inspect) 머지 완료.
 | **P7** | PDF text + page citation | `kebab-parse-pdf` | P5 | ✅ 완료 (3/3 component, page-level chunker + ingest wiring) |
 | **P8** | 음성 transcription + timestamp citation | `kebab-parse-audio` | P5 | ⏸ 보류 (whisper-rs 시스템 dep brainstorm 필요) |
 | **P9** | TUI + desktop app | `kebab-tui`, `kebab-desktop` | P5 | 🟡 진행 (4/5 component — P9-1/2/3/4 완료 [Library / Search / Ask / Inspect], P9-5 desktop 예정 · 도그푸딩 피드백 **20/20 ✅**) |
-| **P10** | code ingest framework | `kebab-parse-code` | P5 | 🟡 진행 중 — 1A-1 ✅ (wire schema + parse-code skeleton + filter flags), 1A-2 ✅ (Rust AST chunker, `code-rust-ast-v1` — v0.7.0), 1B ✅ (Python/TS/JS AST chunkers — v0.8.0 이후), **1C-Go ✅ (Go AST chunker, `code-go-ast-v1` — v0.12.0)**, **1C-JavaKotlin ✅ (Java + Kotlin AST chunkers, `code-java-ast-v1` / `code-kotlin-ast-v1` — v0.13.0)** |
+| **P10** | code ingest framework | `kebab-parse-code` | P5 | 🟡 진행 중 — 1A-1 ✅ (wire schema + parse-code skeleton + filter flags), 1A-2 ✅ (Rust AST chunker, `code-rust-ast-v1` — v0.7.0), 1B ✅ (Python/TS/JS AST chunkers — v0.8.0 이후), **1C-Go ✅ (Go AST chunker, `code-go-ast-v1` — v0.12.0)**, **1C-JavaKotlin ✅ (Java + Kotlin AST chunkers, `code-java-ast-v1` / `code-kotlin-ast-v1` — v0.13.0)**, **2 ✅ (Tier 2 resource-aware: yaml/k8s + dockerfile + manifest, `k8s-manifest-resource-v1` / `dockerfile-file-v1` / `manifest-file-v1` — v0.14.0)** |
 
 P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 
