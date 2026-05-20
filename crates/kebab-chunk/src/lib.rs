@@ -27,6 +27,7 @@ mod pdf_page_v1;
 mod tier2_shared;
 pub mod k8s_manifest_resource_v1;
 pub mod dockerfile_file_v1;
+pub mod manifest_file_v1;
 
 pub use code_go_ast_v1::CodeGoAstV1Chunker;
 pub use code_java_ast_v1::CodeJavaAstV1Chunker;
@@ -39,3 +40,4 @@ pub use md_heading_v1::MdHeadingV1Chunker;
 pub use pdf_page_v1::PdfPageV1Chunker;
 pub use k8s_manifest_resource_v1::K8sManifestResourceV1Chunker;
 pub use dockerfile_file_v1::DockerfileFileV1Chunker;
+pub use manifest_file_v1::ManifestFileV1Chunker;
