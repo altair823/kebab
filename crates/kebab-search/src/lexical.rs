@@ -346,6 +346,34 @@ fn run_query(
         }
     }
 
+    // p10-1A-1 fix (dogfood-discovered 2026-05-20): code_lang filter
+    // (IN-list on metadata_json.$.code_lang). Empty Vec = no filter.
+    if !filters.code_lang.is_empty() {
+        let placeholders = std::iter::repeat_n("?", filters.code_lang.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        sql.push_str(&format!(
+            " AND json_extract(d.metadata_json, '$.code_lang') IN ({placeholders})"
+        ));
+        for lang in &filters.code_lang {
+            params.push(Box::new(lang.clone()));
+        }
+    }
+
+    // p10-1A-1 fix (dogfood-discovered 2026-05-20): repo filter
+    // (IN-list on metadata_json.$.repo). Empty Vec = no filter.
+    if !filters.repo.is_empty() {
+        let placeholders = std::iter::repeat_n("?", filters.repo.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        sql.push_str(&format!(
+            " AND json_extract(d.metadata_json, '$.repo') IN ({placeholders})"
+        ));
+        for repo in &filters.repo {
+            params.push(Box::new(repo.clone()));
+        }
+    }
+
     // p9-fb-36: ingested_after filter.
     // `documents.updated_at` is RFC3339 stored as TEXT (always UTC `Z` per
     // fb-32 ingest path), so lexicographic >= compare is correct — but only
