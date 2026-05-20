@@ -1545,6 +1545,8 @@ transitional 형태) 의 source of truth.
 
 **p10-1B 활성화 (Python / TypeScript / JavaScript) (2026-05-20)**: Python (`code-python-ast-v1`, `.py`), TypeScript (`code-ts-ast-v1`, `.ts`/`.tsx`), JavaScript (`code-js-ast-v1`, `.js`/`.mjs`/`.cjs`/`.jsx`) AST chunker 활성화. symbol path 는 workspace 경로 → module path prefix: Python = dotted (예: `kebab_eval.metrics.compute_mrr`), TypeScript/JavaScript = slash-style (예: `src/Foo.Foo.search`). Rust 1A-2 의 file-scope-only symbol 과 비일관 수용 (HOTFIXES 2026-05-20). expression-level 함수 (`const foo = () => {}`) 는 glue 처리 (HOTFIXES 2026-05-20).
 
+**p10-1C-Go 활성화 (Go) (2026-05-20)**: Go (`code-go-ast-v1`, `.go`) AST chunker 활성화. symbol = `<package>.<Func>` / `<package>.(*Receiver).<Method>` 형식. Java / Kotlin 은 후속 PR (p10-1C-JavaKotlin) 에서 별도 활성화.
+
 ### 10.2 MCP server transport (fb-30)
 
 `kebab mcp` 가 stdio JSON-RPC server. Rust SDK = `rmcp 1.6`. Tool surface

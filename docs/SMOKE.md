@@ -401,6 +401,27 @@ KB --json schema | jq '.stats.code_lang_breakdown'
 - `const foo = () => {...}` 같은 expression-level 함수는 `<top-level>` glue 로 잡힘 (declaration-level 단위만 1B 1차 범위). 자세한 내용: `tasks/HOTFIXES.md` (2026-05-20).
 - `.gitignore` honor — `node_modules/` / `__pycache__/` / `.venv/` 등 built-in 안전망 자동 skip.
 
+## P10-1C-Go Go 코드 색인
+
+P10-1B 와 동일한 격리 KB 설정. `.go` 파일을 워크스페이스에 두고 ingest 하면 `code-go-ast-v1` chunker 가 package 단위 AST 로 처리한다.
+
+```bash
+cat > /tmp/kebab-smoke/workspace/sample_code/hello.go <<'EOF'
+package main
+
+import "fmt"
+
+func Hello(name string) string {
+    return fmt.Sprintf("Hello, %s!", name)
+}
+EOF
+
+KB ingest
+KB search --mode hybrid "Hello" --code-lang go --json | \
+  jq '{hits: [.hits[] | {symbol: .citation.symbol, lang: .citation.lang}]}'
+# 기대: symbol = "main.Hello", lang = "go"
+```
+
 ## 검증 체크리스트
 
 - `kebab doctor` 가 `--config` path 를 honor 하고 그 안의 `storage.data_dir` 를 출력 (XDG default 가 아님).
@@ -433,6 +454,7 @@ rm -rf /tmp/kebab-smoke              # 통째로 정리
 - (P7-3) 한 PDF 가 N 페이지면 `kebab ingest` 가 N 개 (또는 그 이상의, 페이지 길면 multi-chunk) 의 chunk 를 한 transaction 안에서 commit. 500 페이지 책 → 500+ chunk 한 번에 → embedding throughput 가 bottleneck. 임베딩 활성 워크스페이스에서 큰 PDF 를 처음 ingest 하면 분-단위 시간 + WAL 크기 증가 가능 — P+ 스케일 hardening task 까지 정상 동작이지만 비용은 측정 가능.
 - (P10-1A-2) `.rs` 파일을 워크스페이스에 두면 `kebab ingest` 결과에 `new` 카운터에 포함. `kebab search --mode hybrid "<함수명>" --code-lang rust --json` 가 `citation.kind = "code"`, `citation.lang = "rust"` (SearchHit top-level `code_lang` 도 동일), `citation.symbol` (함수/타입 이름), `citation.line_start` / `citation.line_end` 를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"rust": N` 이 나오면 chunk 가 색인됨.
 - (P10-1B) `.py` / `.ts` / `.tsx` / `.js` / `.mjs` / `.cjs` / `.jsx` 파일을 워크스페이스에 두면 `kebab ingest` 결과에 `new` 카운터에 포함. `--code-lang python` / `--code-lang typescript` / `--code-lang javascript` 검색이 `citation.symbol` 에 module path prefix 를 포함한 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 해당 언어 카운트 등장 확인.
+- (P10-1C-Go) `.go` 파일을 워크스페이스에 두면 `kebab ingest` 가 `code-go-ast-v1` 로 처리. `--code-lang go` 검색이 `citation.symbol` 에 `<package>.<Func>` / `<package>.(*Receiver).<Method>` 형식 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"go": N` 등장 확인.
 - (P7-3 + follow-up) 동일 path 에 byte 가 다른 PDF 를 두 번째 ingest 하면 `purge_vector_orphans_for_workspace_path` 가 옛 chunk_id 를 LanceDB 에서 먼저 삭제, 이어서 `purge_orphan_at_workspace_path` 가 옛 doc / chunks / embedding_records 를 SQLite 에서 sweep. 새 byte 가 새 `doc_id` 로 색인됨. `IngestReport` 에 그 자산만 `new+=1` (다른 자산은 `updated`). 두 store 모두 정합 — 옛 본문 검색 시 옛 chunks 가 더 이상 surface 되지 않음.
 
 ### Embedding upgrade (fb-39b)
