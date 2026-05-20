@@ -786,6 +786,19 @@ impl TestEnv {
         media: MediaType,
         updated_at: OffsetDateTime,
     ) -> DocumentId {
+        self.insert_doc_full_with_metadata(path, body, media, updated_at, "{}")
+    }
+
+    /// Like `insert_doc_full` but accepts an explicit `metadata_json` string
+    /// so p10-1A-1 filter tests can set `metadata.code_lang` / `metadata.repo`.
+    fn insert_doc_full_with_metadata(
+        &self,
+        path: &str,
+        body: &str,
+        media: MediaType,
+        updated_at: OffsetDateTime,
+        metadata_json: &str,
+    ) -> DocumentId {
         use time::format_description::well_known::Rfc3339;
         let doc_id = self.next_id("doc");
         let chunk_id = self.next_id("chk");
@@ -810,10 +823,10 @@ impl TestEnv {
                 source_type, trust_level, parser_version,
                 doc_version, schema_version, metadata_json,
                 provenance_json, created_at, updated_at
-            ) VALUES (?, ?, ?, NULL, 'en', 'markdown', 'primary', 'pv1', 1, 1,
-                      '{}', '{\"events\":[]}',
+            ) VALUES (?, ?, ?, NULL, 'en', 'code', 'primary', 'pv1', 1, 1,
+                      ?, '{\"events\":[]}',
                       '2024-01-01T00:00:00Z', ?)",
-            rusqlite::params![doc_id, asset_id, path, updated_at_str],
+            rusqlite::params![doc_id, asset_id, path, metadata_json, updated_at_str],
         )
         .expect("insert document");
 
@@ -832,6 +845,21 @@ impl TestEnv {
         .expect("insert chunk");
 
         DocumentId(doc_id)
+    }
+
+    /// Insert a code doc with explicit `code_lang` and optional `repo` in metadata.
+    fn insert_code_doc(&self, path: &str, body: &str, code_lang: &str, repo: Option<&str>) -> DocumentId {
+        let metadata_json = match repo {
+            Some(r) => format!(r#"{{"code_lang":"{code_lang}","repo":"{r}"}}"#),
+            None => format!(r#"{{"code_lang":"{code_lang}"}}"#),
+        };
+        self.insert_doc_full_with_metadata(
+            path,
+            body,
+            MediaType::Markdown,
+            OffsetDateTime::now_utc(),
+            &metadata_json,
+        )
     }
 
     fn run_search(&self, query: &str, filters: &SearchFilters) -> Vec<SearchHit> {
@@ -932,6 +960,52 @@ fn lexical_empty_filters_match_default_behavior() {
     env.insert_doc("a.md", "rust");
     let with_default = env.run_search("rust", &SearchFilters::default());
     assert!(!with_default.is_empty());
+}
+
+// ── p10-1A-1 filter tests ────────────────────────────────────────────────
+
+#[test]
+fn lexical_filter_by_code_lang() {
+    // Three docs: python code, rust code, markdown (no code_lang).
+    // Filter code_lang=["python"] → only the python doc should match.
+    let env = TestEnv::new();
+    env.insert_code_doc("src/main.py", "AsyncClient session", "python", None);
+    env.insert_code_doc("src/lib.rs", "AsyncClient session", "rust", None);
+    env.insert_doc("docs/guide.md", "AsyncClient session");
+
+    let filters = SearchFilters {
+        code_lang: vec!["python".to_string()],
+        ..Default::default()
+    };
+    let hits = env.run_search("AsyncClient", &filters);
+    assert_eq!(hits.len(), 1, "only python doc should match code_lang filter");
+    assert!(
+        hits[0].doc_path.0.ends_with(".py"),
+        "expected python path, got: {}",
+        hits[0].doc_path.0
+    );
+}
+
+#[test]
+fn lexical_filter_by_repo() {
+    // Three docs: one in repo "httpx", one in repo "requests", one with no repo.
+    // Filter repo=["httpx"] → only the httpx doc should match.
+    let env = TestEnv::new();
+    env.insert_code_doc("httpx/client.py", "session send request", "python", Some("httpx"));
+    env.insert_code_doc("requests/api.py", "session send request", "python", Some("requests"));
+    env.insert_code_doc("standalone.py", "session send request", "python", None);
+
+    let filters = SearchFilters {
+        repo: vec!["httpx".to_string()],
+        ..Default::default()
+    };
+    let hits = env.run_search("session", &filters);
+    assert_eq!(hits.len(), 1, "only httpx doc should match repo filter");
+    assert!(
+        hits[0].doc_path.0.starts_with("httpx/"),
+        "expected httpx path, got: {}",
+        hits[0].doc_path.0
+    );
 }
 
 #[test]

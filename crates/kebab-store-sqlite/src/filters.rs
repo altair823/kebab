@@ -153,6 +153,34 @@ impl SqliteStore {
             }
         }
 
+        // p10-1A-1 fix (dogfood-discovered 2026-05-20): code_lang filter
+        // (IN-list on metadata_json.$.code_lang). Empty Vec = no filter.
+        if !filters.code_lang.is_empty() {
+            let placeholders = std::iter::repeat_n("?", filters.code_lang.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            sql.push_str(&format!(
+                " AND json_extract(d.metadata_json, '$.code_lang') IN ({placeholders})"
+            ));
+            for lang in &filters.code_lang {
+                bind.push(Box::new(lang.clone()));
+            }
+        }
+
+        // p10-1A-1 fix (dogfood-discovered 2026-05-20): repo filter
+        // (IN-list on metadata_json.$.repo). Empty Vec = no filter.
+        if !filters.repo.is_empty() {
+            let placeholders = std::iter::repeat_n("?", filters.repo.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            sql.push_str(&format!(
+                " AND json_extract(d.metadata_json, '$.repo') IN ({placeholders})"
+            ));
+            for repo in &filters.repo {
+                bind.push(Box::new(repo.clone()));
+            }
+        }
+
         // p9-fb-36: ingested_after filter.
         // `documents.updated_at` is RFC3339 TEXT (UTC `Z` per fb-32);
         // lexicographic >= compare is correct — but only when the filter
@@ -383,6 +411,78 @@ mod tests {
                     source_spans_json, token_estimate, chunker_version,
                     policy_hash, block_ids_json, created_at
                  ) VALUES (?, ?, 'hi', '[]', NULL, '[]', 1, 'v1', 'h', '[]',
+                           '1970-01-01T00:00:00Z')",
+                params![chunk_id, doc_id],
+            )
+            .unwrap();
+        }
+
+        let embed_row = EmbeddingRecordRow {
+            embedding_id: format!("e{}", &chunk_id[..31]),
+            chunk_id: chunk_id.to_string(),
+            model_id: "m".to_string(),
+            model_version: "v1".to_string(),
+            dimensions: 4,
+            lance_table: "t".to_string(),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+        };
+        store
+            .put_embedding_records_pending(std::slice::from_ref(&embed_row))
+            .unwrap();
+        store
+            .mark_embedding_records_committed(std::slice::from_ref(
+                &embed_row.embedding_id,
+            ))
+            .unwrap();
+    }
+
+    /// Variant of `seed_committed_full` that additionally accepts a
+    /// `metadata_json` string so p10-1A-1 filter tests can set
+    /// `metadata.code_lang` / `metadata.repo` without going through the
+    /// full ingest pipeline.
+    #[allow(clippy::too_many_arguments)]
+    fn seed_committed_with_metadata(
+        store: &SqliteStore,
+        chunk_id: &str,
+        doc_id: &str,
+        workspace_path: &str,
+        media_type_json: &str,
+        metadata_json: &str,
+    ) {
+        let asset_id = format!("a{}", &doc_id[..31]);
+        {
+            let conn = store.lock_conn();
+            conn.execute(
+                "INSERT INTO assets (
+                    asset_id, source_uri, workspace_path, media_type, byte_len,
+                    checksum, storage_kind, storage_path, discovered_at
+                 ) VALUES (?, ?, ?, ?, 0, 'deadbeefdeadbeefdeadbeefdeadbeef',
+                           'reference', ?, '1970-01-01T00:00:00Z')",
+                params![
+                    asset_id,
+                    format!("file://{workspace_path}"),
+                    workspace_path,
+                    media_type_json,
+                    workspace_path,
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO documents (
+                    doc_id, asset_id, workspace_path, title, lang, source_type,
+                    trust_level, parser_version, doc_version, schema_version,
+                    metadata_json, provenance_json, created_at, updated_at
+                 ) VALUES (?, ?, ?, NULL, 'en', 'code', 'primary', 'v1', 1, 1,
+                           ?, '{}', '1970-01-01T00:00:00Z', '1970-01-01T00:00:00Z')",
+                params![doc_id, asset_id, workspace_path, metadata_json],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO chunks (
+                    chunk_id, doc_id, text, heading_path_json, section_label,
+                    source_spans_json, token_estimate, chunker_version,
+                    policy_hash, block_ids_json, created_at
+                 ) VALUES (?, ?, 'code snippet', '[]', NULL, '[]', 1, 'v1', 'h', '[]',
                            '1970-01-01T00:00:00Z')",
                 params![chunk_id, doc_id],
             )
@@ -669,6 +769,78 @@ mod tests {
             .filter_chunks(&[cid(c1), cid(c2)], &f)
             .unwrap();
         assert_eq!(out, vec![cid(c1)], "doc_id filter must scope to the target doc only");
+    }
+
+    // ── p10-1A-1 new filter arms ─────────────────────────────────────────
+
+    #[test]
+    fn filter_chunks_code_lang_keeps_matching_lang() {
+        // c1 = python, c2 = rust, c3 = markdown (no code_lang).
+        // Filter code_lang=["python"] → only c1 survives.
+        let tmp = TempDir::new().unwrap();
+        let store = open_store(&tmp);
+        let c1 = "11111111111111111111111111111111";
+        let c2 = "22222222222222222222222222222222";
+        let c3 = "33333333333333333333333333333333";
+        seed_committed_with_metadata(
+            &store, c1, "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+            "src/main.py", r#""code""#,
+            r#"{"code_lang":"python"}"#,
+        );
+        seed_committed_with_metadata(
+            &store, c2, "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+            "src/lib.rs", r#""code""#,
+            r#"{"code_lang":"rust"}"#,
+        );
+        seed_committed_with_metadata(
+            &store, c3, "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
+            "README.md", r#""markdown""#,
+            r#"{}"#,
+        );
+
+        let f = SearchFilters {
+            code_lang: vec!["python".to_string()],
+            ..Default::default()
+        };
+        let out = store
+            .filter_chunks(&[cid(c1), cid(c2), cid(c3)], &f)
+            .unwrap();
+        assert_eq!(out, vec![cid(c1)], "only python chunk should survive code_lang filter");
+    }
+
+    #[test]
+    fn filter_chunks_repo_keeps_matching_repo() {
+        // c1 = repo "httpx", c2 = repo "requests", c3 = no repo.
+        // Filter repo=["httpx"] → only c1 survives.
+        let tmp = TempDir::new().unwrap();
+        let store = open_store(&tmp);
+        let c1 = "11111111111111111111111111111111";
+        let c2 = "22222222222222222222222222222222";
+        let c3 = "33333333333333333333333333333333";
+        seed_committed_with_metadata(
+            &store, c1, "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+            "httpx/client.py", r#""code""#,
+            r#"{"repo":"httpx","code_lang":"python"}"#,
+        );
+        seed_committed_with_metadata(
+            &store, c2, "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+            "requests/api.py", r#""code""#,
+            r#"{"repo":"requests","code_lang":"python"}"#,
+        );
+        seed_committed_with_metadata(
+            &store, c3, "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
+            "standalone.py", r#""code""#,
+            r#"{"code_lang":"python"}"#,
+        );
+
+        let f = SearchFilters {
+            repo: vec!["httpx".to_string()],
+            ..Default::default()
+        };
+        let out = store
+            .filter_chunks(&[cid(c1), cid(c2), cid(c3)], &f)
+            .unwrap();
+        assert_eq!(out, vec![cid(c1)], "only httpx chunk should survive repo filter");
     }
 
     #[test]
