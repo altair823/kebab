@@ -34,7 +34,7 @@ use kebab_core::{
 use serde_json::Map;
 use time::OffsetDateTime;
 
-pub const PARSER_VERSION: &str = "code-typescript-v1";
+pub const PARSER_VERSION: &str = "code-ts-v1";
 
 /// TypeScript / TSX AST extractor. Per-unit blocks via
 /// tree-sitter-typescript 0.23 (`LANGUAGE_TYPESCRIPT` / `LANGUAGE_TSX`

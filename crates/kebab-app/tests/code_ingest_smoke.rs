@@ -267,8 +267,8 @@ fn typescript_file_ingests_and_searches_as_code_citation() {
         .expect("Foo.ts item");
     assert_eq!(
         ts_item.parser_version.as_ref().map(|p| p.0.as_str()),
-        Some("code-typescript-v1"),
-        "parser_version must be code-typescript-v1"
+        Some("code-ts-v1"),
+        "parser_version must be code-ts-v1"
     );
     assert_eq!(
         ts_item.chunker_version.as_ref().map(|c| c.0.as_str()),
