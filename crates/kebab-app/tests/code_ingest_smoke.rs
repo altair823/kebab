@@ -532,6 +532,77 @@ fn java_file_ingests_and_searches_as_code_citation() {
     );
 }
 
+/// p10-1c-jk Task I: a `.kt` file in a package directory is ingested and the
+/// resulting `Citation::Code` hit must carry `lang="kotlin"`,
+/// `symbol="com.foo.Foo.bar"`, and `line_start >= 1`.
+/// The sub-directory (`com/foo/`) ensures the Kotlin package-prefix wiring
+/// produces a non-empty module prefix so the fully-qualified symbol assertion
+/// exercises that path end-to-end.
+#[test]
+fn kotlin_file_ingests_and_searches_as_code_citation() {
+    let env = TestEnv::lexical_only();
+
+    let pkg_dir = env.workspace_root.join("com").join("foo");
+    std::fs::create_dir_all(&pkg_dir).unwrap();
+    std::fs::write(
+        pkg_dir.join("Foo.kt"),
+        "package com.foo\n\nclass Foo {\n    fun bar(): String = \"x\"\n}\n",
+    )
+    .unwrap();
+
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
+    assert_eq!(report.errors, 0);
+    assert!(report.new >= 1);
+
+    let kt_item = report
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("Foo.kt"))
+        .expect("Foo.kt item present");
+    assert_eq!(
+        kt_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        Some("code-kotlin-v1"),
+        "parser_version must be code-kotlin-v1"
+    );
+    assert_eq!(
+        kt_item.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("code-kotlin-ast-v1"),
+        "chunker_version must be code-kotlin-ast-v1"
+    );
+
+    let hits = kebab_app::search_with_config(env.config.clone(), lexical_query("bar"))
+        .expect("search must succeed");
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, kebab_core::Citation::Code { .. }))
+        .expect("Citation::Code hit");
+    match &h.citation {
+        kebab_core::Citation::Code {
+            lang,
+            symbol,
+            line_start,
+            ..
+        } => {
+            assert_eq!(lang.as_deref(), Some("kotlin"), "citation.lang must be 'kotlin'");
+            assert_eq!(
+                symbol.as_deref(),
+                Some("com.foo.Foo.bar"),
+                "citation.symbol must be 'com.foo.Foo.bar'"
+            );
+            assert!(*line_start >= 1, "line_start must be >=1");
+        }
+        _ => unreachable!(),
+    }
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("kotlin"),
+        "SearchHit.code_lang must be 'kotlin'"
+    );
+}
+
 /// Re-ingesting the same `.rs` file without changes must report
 /// `Unchanged` (incremental-skip path exercised).
 #[test]

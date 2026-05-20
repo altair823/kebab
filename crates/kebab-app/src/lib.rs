@@ -39,7 +39,7 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
-use kebab_chunk::{CodeGoAstV1Chunker, CodeJavaAstV1Chunker, CodeJsAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTsAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
+use kebab_chunk::{CodeGoAstV1Chunker, CodeJavaAstV1Chunker, CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTsAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
@@ -50,7 +50,7 @@ use kebab_core::{
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_normalize::build_canonical_document;
 use kebab_parse_image::{ImageExtractor, OllamaVisionOcr, apply_caption, apply_ocr};
-use kebab_parse_code::{GoAstExtractor, JavaAstExtractor, JavascriptAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor};
+use kebab_parse_code::{GoAstExtractor, JavaAstExtractor, JavascriptAstExtractor, KotlinAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor};
 use kebab_parse_pdf::PdfTextExtractor;
 use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
@@ -1830,7 +1830,7 @@ fn ingest_one_code_asset(
         "javascript" => ParserVersion(kebab_parse_code::JS_PARSER_VERSION.to_string()),
         "go" => ParserVersion(kebab_parse_code::GO_PARSER_VERSION.to_string()),
         "java" => ParserVersion(kebab_parse_code::JAVA_PARSER_VERSION.to_string()),
-        "kotlin" => anyhow::bail!("kotlin ingest not yet wired (p10-1c-jk Task I)"),
+        "kotlin" => ParserVersion(kebab_parse_code::KOTLIN_PARSER_VERSION.to_string()),
         other => anyhow::bail!("unsupported code_lang: {other}"),
     };
 
@@ -1842,7 +1842,7 @@ fn ingest_one_code_asset(
         "javascript" => CodeJsAstV1Chunker.chunker_version(),
         "go" => CodeGoAstV1Chunker.chunker_version(),
         "java" => CodeJavaAstV1Chunker.chunker_version(),
-        "kotlin" => anyhow::bail!("kotlin ingest not yet wired (p10-1c-jk Task I)"),
+        "kotlin" => CodeKotlinAstV1Chunker.chunker_version(),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -1887,7 +1887,9 @@ fn ingest_one_code_asset(
         "java" => JavaAstExtractor::new()
             .extract(&ctx, &bytes)
             .context("kb-parse-code::JavaAstExtractor::extract (code:java)")?,
-        "kotlin" => anyhow::bail!("kotlin ingest not yet wired (p10-1c-jk Task I)"),
+        "kotlin" => KotlinAstExtractor::new()
+            .extract(&ctx, &bytes)
+            .context("kb-parse-code::KotlinAstExtractor::extract (code:kotlin)")?,
         other => anyhow::bail!("unreachable (extract): {other}"),
     };
 
@@ -1911,7 +1913,9 @@ fn ingest_one_code_asset(
         "java" => CodeJavaAstV1Chunker
             .chunk(&canonical, chunk_policy)
             .context("kb-chunk::CodeJavaAstV1Chunker::chunk (code:java)")?,
-        "kotlin" => anyhow::bail!("kotlin ingest not yet wired (p10-1c-jk Task I)"),
+        "kotlin" => CodeKotlinAstV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::CodeKotlinAstV1Chunker::chunk (code:kotlin)")?,
         other => anyhow::bail!("unreachable (chunk): {other}"),
     };
 
