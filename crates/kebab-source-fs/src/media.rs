@@ -38,6 +38,11 @@ pub(crate) fn media_type_for(path: &Path) -> MediaType {
         // recognized code langs stay Other until their phase (1B+).
         "rs" => MediaType::Code("rust".to_string()),
 
+        // p10-1B: Python / TS / JS AST chunkers active.
+        "py" | "pyi"               => MediaType::Code("python".into()),
+        "ts" | "tsx"               => MediaType::Code("typescript".into()),
+        "js" | "mjs" | "cjs" | "jsx" => MediaType::Code("javascript".into()),
+
         // Empty string (no extension) and any other extension: bucket as
         // Other and let downstream extractors decide if they support it.
         _ => MediaType::Other(ext),
@@ -81,9 +86,20 @@ mod tests {
             media_type_for(Path::new("crates/kebab-core/src/lib.rs")),
             MediaType::Code("rust".to_string())
         );
-        // non-Rust code extensions stay Other in 1A
-        assert_eq!(media_type_for(Path::new("a/b.py")), MediaType::Other("py".to_string()));
         assert_eq!(media_type_for(Path::new("Cargo.toml")), MediaType::Other("toml".to_string()));
+    }
+
+    #[test]
+    fn py_ts_js_files_map_to_media_code() {
+        assert_eq!(media_type_for(Path::new("a/b.py")),    MediaType::Code("python".into()));
+        assert_eq!(media_type_for(Path::new("a/b.pyi")),   MediaType::Code("python".into()));
+        assert_eq!(media_type_for(Path::new("a/b.ts")),    MediaType::Code("typescript".into()));
+        assert_eq!(media_type_for(Path::new("a/b.tsx")),   MediaType::Code("typescript".into()));
+        assert_eq!(media_type_for(Path::new("a/b.js")),    MediaType::Code("javascript".into()));
+        assert_eq!(media_type_for(Path::new("a/b.mjs")),   MediaType::Code("javascript".into()));
+        assert_eq!(media_type_for(Path::new("a/b.cjs")),   MediaType::Code("javascript".into()));
+        assert_eq!(media_type_for(Path::new("a/b.jsx")),   MediaType::Code("javascript".into()));
+        assert_eq!(media_type_for(Path::new("a/b.rs")),    MediaType::Code("rust".into()));
     }
 
     #[test]
