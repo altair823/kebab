@@ -1549,6 +1549,8 @@ transitional 형태) 의 source of truth.
 
 **p10-1C-JavaKotlin 활성화 (Java + Kotlin) (2026-05-20)**: Java (`code-java-ast-v1`, `.java`) + Kotlin (`code-kotlin-ast-v1`, `.kt`/`.kts`) AST chunker 활성화. symbol = `com.foo.Foo.bar` 형식 (패키지 + 클래스 + 메서드/필드). Kotlin grammar 은 `tree-sitter-kotlin-ng` 사용 (bare `tree-sitter-kotlin` 은 tree-sitter 0.21–0.23 고착으로 사용 불가).
 
+**p10-2 활성화 (Tier 2 chunker) (2026-05-20)**: Tier 2 resource-aware chunker 3종 활성화 — k8s-manifest-resource-v1 (`.yaml`/`.yml`), dockerfile-file-v1 (`Dockerfile`), manifest-file-v1 (`Cargo.toml` 등 설정 파일). 추가 code_lang 매핑: XML (`.xml`, `pom.xml`), Groovy (`build.gradle`, `.gradle`), Go module (`go.mod`).
+
 ### 10.2 MCP server transport (fb-30)
 
 `kebab mcp` 가 stdio JSON-RPC server. Rust SDK = `rmcp 1.6`. Tool surface
