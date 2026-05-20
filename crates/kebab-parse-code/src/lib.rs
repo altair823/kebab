@@ -14,6 +14,7 @@
 //! / llm / rag.
 
 pub mod go;
+pub mod java;
 pub mod javascript;
 pub mod lang;
 pub mod python;
@@ -24,6 +25,7 @@ pub mod skip;
 pub mod typescript;
 
 pub use go::{PARSER_VERSION as GO_PARSER_VERSION, GoAstExtractor};
+pub use java::{PARSER_VERSION as JAVA_PARSER_VERSION, JavaAstExtractor};
 pub use javascript::{PARSER_VERSION as JS_PARSER_VERSION, JavascriptAstExtractor};
 pub use lang::{code_lang_for_path, module_path_for_python, module_path_for_tsjs};
 pub use python::{PARSER_VERSION as PYTHON_PARSER_VERSION, PythonAstExtractor};
