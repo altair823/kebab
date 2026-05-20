@@ -1543,6 +1543,8 @@ transitional 형태) 의 source of truth.
 
 **p10-1A-2 surface 활성화 (2026-05-19)**: Rust 소스코드 ingest (`code-rust-ast-v1` chunker, `tree-sitter-rust`) 가 활성화됨. `.rs` 파일을 워크스페이스에 두면 `kebab ingest` 가 AST 단위로 chunk 생성 + `citation.kind = "code"` 로 검색 가능. `kebab schema --json` 의 `stats.code_lang_breakdown` 에 `"rust": N` 이 표시됨. 본 activation 으로 kebab 자기 crate 를 dogfooding KB 에 색인 가능. `SourceSpan::Code` (§3.4) 와 `MediaType::Code` (§3.5) 는 1A-1 에서 이미 spec 에 반영됨. 두 deferred deviation (`AST_CHUNK_MAX_LINES` 상수 고정, `SourceType::Code` 미존재) 은 `tasks/HOTFIXES.md` (2026-05-19) 에 기록.
 
+**p10-1B 활성화 (Python / TypeScript / JavaScript) (2026-05-20)**: Python (`code-python-ast-v1`, `.py`), TypeScript (`code-ts-ast-v1`, `.ts`/`.tsx`), JavaScript (`code-js-ast-v1`, `.js`/`.mjs`/`.cjs`/`.jsx`) AST chunker 활성화. symbol path 는 workspace 경로 → module path prefix: Python = dotted (예: `kebab_eval.metrics.compute_mrr`), TypeScript/JavaScript = slash-style (예: `src/Foo.Foo.search`). Rust 1A-2 의 file-scope-only symbol 과 비일관 수용 (HOTFIXES 2026-05-20). expression-level 함수 (`const foo = () => {}`) 는 glue 처리 (HOTFIXES 2026-05-20).
+
 ### 10.2 MCP server transport (fb-30)
 
 `kebab mcp` 가 stdio JSON-RPC server. Rust SDK = `rmcp 1.6`. Tool surface

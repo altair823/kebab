@@ -55,3 +55,5 @@
 - `module_path_for_python` / `module_path_for_tsjs` 가 workspace_path 의 비-ASCII / 공백 / 특수문자 처리 필요. 1B 1차에서는 그대로 전달 (sanitize 없음); HOTFIXES 에 path-sanitize 부재 기록.
 - 1A-2 `ingest_one_code_asset` 일반화로 인한 dispatch 코드 변경 — Rust 기존 동작 byte-identical 유지를 통합 테스트로 확인.
 - 머지 후 deviation 은 `tasks/HOTFIXES.md` 에 dated 로그 + 본 spec `Risks / notes` 에 one-line cross-link.
+- **[HOTFIXES 2026-05-20]** Rust 1A-2 symbol 은 file-scope nesting 만 (workspace prefix 없음); 1B 의 Python/TypeScript/JavaScript 와 비일관 — retrofit 은 사용자 명시 요청 시. 자세한 내용: `tasks/HOTFIXES.md` (2026-05-20, "Rust 1A-2 symbol path").
+- **[HOTFIXES 2026-05-20]** TypeScript/JavaScript 의 expression-level 함수 (`const foo = () => {}` 등) 는 `<top-level>` glue 로 처리됨, 독립 unit 미방출 — 후속 phase 에서 `lexical_declaration` unwrap 검토. 자세한 내용: `tasks/HOTFIXES.md` (2026-05-20, "expression-level functions").

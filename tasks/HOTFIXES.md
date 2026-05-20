@@ -14,6 +14,30 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-20 — p10-1B: Rust 1A-2 symbol path is file-scope-only; 1B+ uses workspace path → module prefix
+
+**무엇이 바뀌었나**: P10-1A-2 의 Rust `code-rust-ast-v1` chunker 가 생성하는 symbol 은 file-scope mod-path nesting 만 사용한다 (예: `Foo::double`). P10-1B 이후 Python / TypeScript / JavaScript 의 symbol 은 workspace 경로 → module path prefix 를 포함한다 (예: `kebab_eval.metrics.compute_mrr`, `src/Foo.Foo.search`).
+
+**원인**: 1A-2 는 symbol path 컨벤션이 확정되기 전에 구현됐고, 1B spec 에서 workspace path → module prefix 를 명시적 결정으로 확정했다 (p10-1b-py-ts-js-ast-chunkers.md §동결된 설계 결정). 1A-2 retrofit = `chunker_version` bump + Rust corpus 전체 re-ingest 비용이 수반됨.
+
+**사용자 가시적 영향**: Rust 코드 검색 시 symbol 이 `<ClassName>::<method>` 형태 (workspace prefix 없음). Python/TypeScript/JavaScript 는 `<module.path>.<symbol>` / `<module/path>.<symbol>` 형태. 비일관이지만 각각은 일관되게 동작.
+
+**proper fix**: Rust AST chunker 에 `module_path_for_rust(workspace_path)` helper 추가 + `chunker_version = "code-rust-ast-v2"` bump → 사용자가 명시 요청할 때까지 보류.
+
+**cross-link**: `tasks/p10/p10-1b-py-ts-js-ast-chunkers.md` Risks / notes 섹션, design §3.4.
+
+## 2026-05-20 — p10-1B: expression-level functions (arrow fn, function expression assigned to const) NOT emitted as units in 1B 1차
+
+**무엇이 바뀌었나**: TypeScript / JavaScript 의 `const foo = () => {...}` 또는 `const bar = function() {...}` 같은 expression-level 함수 할당은 `code-ts-ast-v1` / `code-js-ast-v1` 에서 독립 unit 으로 방출되지 않는다. 해당 코드는 가장 가까운 surrounding declaration-level unit (또는 `<top-level>` glue) 에 흡수된다.
+
+**원인**: `function_declaration` / `class_declaration` / `method_definition` / `interface_declaration` 같은 declaration-level 노드만 unit 으로 선택. `lexical_declaration` (= `const / let / var`) 안의 function / arrow expression 은 별도 unwrap 없이 pass-through. 1B 1차 단순화.
+
+**사용자 가시적 영향**: expression-level 함수 이름으로 검색 시 함수 body 를 포함하는 glue chunk 가 반환되지만, symbol 이 함수 이름 자체를 가리키지는 않는다. 함수명이 함수 본문 텍스트에 등장하므로 lexical / hybrid 검색으로 일반적으로 찾을 수 있다.
+
+**proper fix**: `lexical_declaration` visitor 에서 binding value 가 `arrow_function` / `function` expression 인 경우 해당 identifier name 을 symbol 로 사용하는 unwrap 추가. 후속 phase 에서 검토.
+
+**cross-link**: `tasks/p10/p10-1b-py-ts-js-ast-chunkers.md` Risks / notes 섹션.
+
 ## 2026-05-19 — p10-1A-2: AST_CHUNK_MAX_LINES constant vs config deviation
 
 **무엇이 바뀌었나**: `kebab-chunk/src/code_rust_ast_v1.rs` 가 `IngestCodeCfg.ast_chunk_max_lines` config 값을 읽지 않고 모듈 상수 `AST_CHUNK_MAX_LINES = 200` 으로 고정함.
