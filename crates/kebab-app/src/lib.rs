@@ -1483,9 +1483,12 @@ fn purge_vector_orphans_for_workspace_path(
 /// 1. Query `documents` for every `workspace_path` currently stored.
 /// 2. Compute `orphan_candidates = stored_paths - scanned_paths`.
 /// 3. For each candidate: resolve to an absolute path and call
-///    `fs::exists()`. If the file still exists on disk it was merely
-///    out-of-scope this run (config narrowing / include-glob change) —
-///    leave it alone.  Only files that are truly absent trigger a purge.
+///    `Path::try_exists().unwrap_or(true)` — transient FS errors
+///    (EACCES, NFS hiccup, ownership change) conservatively count as
+///    "still present" so we never purge on uncertain signal. If the
+///    file still exists on disk it was merely out-of-scope this run
+///    (config narrowing / include-glob change) — leave it alone. Only
+///    files that are truly absent trigger a purge.
 /// 4. For absent files: call `purge_deleted_workspace_path` (SQLite
 ///    cascade delete + optional copied-asset file removal) and, if a
 ///    vector store is present, delete the associated vectors.
