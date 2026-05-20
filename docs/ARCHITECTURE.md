@@ -22,7 +22,7 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 | OCR | Ollama vision LM (default `gemma4:e4b`) — `OcrEngine` trait 으로 Tesseract / Apple Vision 등 future swap (HOTFIXES P6-2) |
 | Image caption | Ollama vision LM, runtime gate `image.caption.enabled` (default OFF) |
 | PDF parser | `lopdf` per-page 텍스트, `chunker_version = "pdf-page-v1"` 가 PDF 자산에 하드코딩 (HOTFIXES P7-3) |
-| code parser | `tree-sitter` + `tree-sitter-rust` / `tree-sitter-python` / `tree-sitter-typescript` / `tree-sitter-javascript` / `tree-sitter-go` / `tree-sitter-java` / `tree-sitter-kotlin-ng` — **parser-side** (`kebab-parse-code`), chunker-side 아님 (design §6.3). chunker versions: Rust = `code-rust-ast-v1`, Python = `code-python-ast-v1`, TypeScript = `code-ts-ast-v1`, JavaScript = `code-js-ast-v1`, Go = `code-go-ast-v1`, Java = `code-java-ast-v1`, Kotlin = `code-kotlin-ast-v1`. `ast_chunk_max_lines = 200` 상수 고정 (HOTFIXES 2026-05-19 — Chunker trait 이 per-medium config 미노출). Kotlin grammar 은 `tree-sitter-kotlin-ng` 사용 — bare `tree-sitter-kotlin` 은 tree-sitter 0.21–0.23 에 고착되어 있어 사용 불가. |
+| code parser | `tree-sitter` + `tree-sitter-rust` / `tree-sitter-python` / `tree-sitter-typescript` / `tree-sitter-javascript` / `tree-sitter-go` / `tree-sitter-java` / `tree-sitter-kotlin-ng` — **parser-side** (`kebab-parse-code`), chunker-side 아님 (design §6.3). chunker versions: Rust = `code-rust-ast-v1`, Python = `code-python-ast-v1`, TypeScript = `code-ts-ast-v1`, JavaScript = `code-js-ast-v1`, Go = `code-go-ast-v1`, Java = `code-java-ast-v1`, Kotlin = `code-kotlin-ast-v1`. `ast_chunk_max_lines = 200` 상수 고정 (HOTFIXES 2026-05-19 — Chunker trait 이 per-medium config 미노출). Kotlin grammar 은 `tree-sitter-kotlin-ng` 사용 — bare `tree-sitter-kotlin` 은 tree-sitter 0.21–0.23 에 고착되어 있어 사용 불가. **Tier 2 (p10-2)**: YAML/k8s → `serde_yaml` + `k8s-manifest-resource-v1` (apiVersion+kind per resource), Dockerfile → `dockerfile-file-v1` (whole-file), Cargo.toml/go.mod/.json/.xml/.groovy → `manifest-file-v1` (whole-file). Tier 2 chunkers live in `kebab-chunk`; no tree-sitter grammar needed (structure from file type, not AST). |
 | 1B symbol path | workspace path → module path: Python = dotted prefix (`kebab_eval.metrics.compute_mrr`), TypeScript/JavaScript = slash-style prefix (`src/Foo.Foo.search`). Rust 1A-2 는 file-scope nesting 만 (workspace prefix 없음, 비일관 수용 — HOTFIXES 2026-05-20). |
 | TUI | Ratatui + crossterm — P9-1 Library 패널, P9-2/3/4 진행 예정 |
 | Desktop | Tauri 2 + `pdfjs-dist` (native PDF render backend 금지) — P9-5 |
@@ -52,7 +52,7 @@ flowchart TB
         ppdf["kebab-parse-pdf"]
         pimg["kebab-parse-image"]
         paud["kebab-parse-audio<br/>(P8 보류)"]
-        pcode["kebab-parse-code<br/>(P10-1A-2 + P10-1B + P10-1C-Go + P10-1C-JK)"]
+        pcode["kebab-parse-code<br/>(P10-1A-2 + P10-1B + P10-1C-Go + P10-1C-JK + P10-2)"]
         ptypes["kebab-parse-types"]
         norm["kebab-normalize"]
         chunk["kebab-chunk"]
@@ -165,7 +165,13 @@ kebab/
 │   ├── kebab-source-fs/                               # 워크스페이스 walk + checksum (P1-1)
 │   ├── kebab-parse-md/                                # Markdown frontmatter + blocks (P1-2/3)
 │   ├── kebab-normalize/                               # ParsedBlock → CanonicalDocument (P1-4)
-│   ├── kebab-chunk/                                   # heading-aware + pdf-page-v1 + code-rust-ast-v1 + code-python-ast-v1 + code-ts-ast-v1 + code-js-ast-v1 + code-go-ast-v1 + code-java-ast-v1 + code-kotlin-ast-v1 chunker (P1-5, P7-2, P10-1A-2, P10-1B, P10-1C-Go, P10-1C-JK)
+│   ├── kebab-chunk/                                   # heading-aware + pdf-page-v1 + code-*-ast-v1 (Tier 1) + k8s-manifest-resource-v1 + dockerfile-file-v1 + manifest-file-v1 + tier2_shared (P10-2) chunker (P1-5, P7-2, P10-1A-2, P10-1B, P10-1C-Go, P10-1C-JK, P10-2)
+│   │   └── src/
+│   │       ├── code_*_ast_v1.rs              # Tier 1 AST chunkers (rust/python/ts/js/go/java/kotlin)
+│   │       ├── k8s_manifest_resource_v1.rs   # Tier 2 (p10-2): YAML multi-doc, apiVersion+kind per resource
+│   │       ├── dockerfile_file_v1.rs         # Tier 2 (p10-2): whole-file Dockerfile
+│   │       ├── manifest_file_v1.rs           # Tier 2 (p10-2): whole-file Cargo.toml / go.mod / .json / .xml / .groovy
+│   │       └── tier2_shared.rs               # Tier 2 (p10-2): shared oversize fallback + Chunk builder helpers
 │   ├── kebab-store-sqlite/                            # SQLite + FTS5 (V001/V002/V003) (P1-6, P2-1, P3-3)
 │   ├── kebab-search/                                  # Lexical + Vector + Hybrid retriever (P2-2, P3-4)
 │   ├── kebab-embed/  kebab-embed-local/                  # Embedder trait + fastembed adapter (P3-1, P3-2)

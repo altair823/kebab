@@ -422,6 +422,86 @@ KB search --mode hybrid "Hello" --code-lang go --json | \
 # 기대: symbol = "main.Hello", lang = "go"
 ```
 
+## P10-2 Tier 2 리소스 파일 색인
+
+P10-1C-Go 와 동일한 격리 KB 설정. `.yaml` / `Dockerfile` / `.toml` 등 Tier 2 리소스 파일을 워크스페이스에 두고 ingest 하면 각 확장자에 맞는 chunker 로 처리된다.
+
+```bash
+# 1) Kubernetes manifest (YAML multi-doc)
+cat > /tmp/kebab-smoke/workspace/deploy.yaml <<'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: my-app
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      containers:
+        - name: app
+          image: my-app:latest
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-app-svc
+  namespace: default
+spec:
+  selector:
+    app: my-app
+  ports:
+    - port: 80
+EOF
+
+# 2) Dockerfile (전체 파일 단일 chunk)
+cat > /tmp/kebab-smoke/workspace/Dockerfile <<'EOF'
+FROM rust:1.85 AS builder
+WORKDIR /app
+COPY . .
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+COPY --from=builder /app/target/release/kebab /usr/local/bin/kebab
+ENTRYPOINT ["kebab"]
+EOF
+
+# 3) Cargo.toml (manifest — 전체 파일 단일 chunk)
+cp Cargo.toml /tmp/kebab-smoke/workspace/Cargo.toml
+
+# 4) ingest
+KB ingest
+
+# 5) 언어별 검색 (citation.symbol 확인)
+KB search --mode hybrid "Deployment" --code-lang yaml --json | \
+  jq '{hits: [.hits[] | {symbol: .citation.symbol, lang: .citation.lang}]}'
+# 기대: symbol = "Deployment/default/my-app" (kind/namespace/name), lang = "yaml"
+
+KB search --mode hybrid "rust:1.85" --code-lang dockerfile --json | \
+  jq '{hits: [.hits[] | {symbol: .citation.symbol, lang: .citation.lang}]}'
+# 기대: symbol = "<dockerfile>", lang = "dockerfile"
+
+KB search --mode hybrid "kebab-cli" --code-lang toml --json | \
+  jq '{hits: [.hits[] | {symbol: .citation.symbol, lang: .citation.lang}]}'
+# 기대: symbol = "<manifest>", lang = "toml"
+
+# 6) schema stats 에 Tier 2 언어 카운트 확인
+KB --json schema | jq '.stats.code_lang_breakdown'
+# 기대: {"yaml": N, "dockerfile": N, "toml": N, ...}
+```
+
+**Tier 2 citation.symbol 컨벤션**:
+
+- **YAML k8s 리소스**: `<kind>/<namespace>/<name>` (예: `Deployment/default/my-app`). `namespace` 없으면 `<kind>/<name>`. multi-doc YAML 은 `---` 구분자 기준으로 resource 별 chunk.
+- **Dockerfile**: `<dockerfile>` (고정 심볼, 전체 파일이 단일 chunk).
+- **TOML / JSON / XML / Groovy / go.mod**: `<manifest>` (고정 심볼, 전체 파일이 단일 chunk). 단, 파일이 `tier2_shared` 의 oversize threshold 초과 시 줄 단위 fallback chunk.
+
 ## 검증 체크리스트
 
 - `kebab doctor` 가 `--config` path 를 honor 하고 그 안의 `storage.data_dir` 를 출력 (XDG default 가 아님).
@@ -456,6 +536,7 @@ rm -rf /tmp/kebab-smoke              # 통째로 정리
 - (P10-1B) `.py` / `.ts` / `.tsx` / `.js` / `.mjs` / `.cjs` / `.jsx` 파일을 워크스페이스에 두면 `kebab ingest` 결과에 `new` 카운터에 포함. `--code-lang python` / `--code-lang typescript` / `--code-lang javascript` 검색이 `citation.symbol` 에 module path prefix 를 포함한 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 해당 언어 카운트 등장 확인.
 - (P10-1C-Go) `.go` 파일을 워크스페이스에 두면 `kebab ingest` 가 `code-go-ast-v1` 로 처리. `--code-lang go` 검색이 `citation.symbol` 에 `<package>.<Func>` / `<package>.(*Receiver).<Method>` 형식 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"go": N` 등장 확인.
 - (P10-1C-JK) `.java` 파일은 `code-java-ast-v1`, `.kt`/`.kts` 파일은 `code-kotlin-ast-v1` 로 처리. `--code-lang java` / `--code-lang kotlin` 검색이 `citation.symbol` 에 `com.foo.Foo.bar` 형식 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"java": N` / `"kotlin": N` 등장 확인.
+- (P10-2) `.yaml`/`.yml` 파일은 apiVersion+kind 파싱으로 k8s resource 별 chunk 생성 (`k8s-manifest-resource-v1`). `Dockerfile`/`Dockerfile.*` 는 전체 파일 단일 chunk (`dockerfile-file-v1`). `.toml`/`.json`/`.xml`/`.groovy`/`go.mod` 는 전체 파일 단일 chunk (`manifest-file-v1`). `--code-lang yaml` / `--code-lang dockerfile` / `--code-lang toml` 검색이 `citation.symbol` 에 각각 `Deployment/default/my-app` / `<dockerfile>` / `<manifest>` 형식 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"yaml": N` / `"dockerfile": N` / `"toml": N` 등장 확인.
 - (P7-3 + follow-up) 동일 path 에 byte 가 다른 PDF 를 두 번째 ingest 하면 `purge_vector_orphans_for_workspace_path` 가 옛 chunk_id 를 LanceDB 에서 먼저 삭제, 이어서 `purge_orphan_at_workspace_path` 가 옛 doc / chunks / embedding_records 를 SQLite 에서 sweep. 새 byte 가 새 `doc_id` 로 색인됨. `IngestReport` 에 그 자산만 `new+=1` (다른 자산은 `updated`). 두 store 모두 정합 — 옛 본문 검색 시 옛 chunks 가 더 이상 surface 되지 않음.
 
 ### Embedding upgrade (fb-39b)

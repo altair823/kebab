@@ -237,6 +237,9 @@ pub struct Metadata {
 - Dockerfile (`Dockerfile`, `*.dockerfile`) → `dockerfile`
 - TOML (`.toml`) → `toml`
 - JSON (`.json`) → `json`
+- XML (`.xml`, `pom.xml`) → `xml`
+- Groovy (`build.gradle`, `.gradle`) → `groovy`
+- Go module (`go.mod`) → `go-mod`
 - Shell (`.sh`, `.bash`, `.zsh`) → `shell`
 - Make (`Makefile`, `*.mk`) → `make`
 - 미지원 / Tier 3 fallback → null

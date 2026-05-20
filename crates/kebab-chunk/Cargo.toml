@@ -13,6 +13,7 @@ serde_json_canonicalizer   = "0.3"
 blake3                     = { workspace = true }
 anyhow                     = { workspace = true }
 tracing                    = { workspace = true }
+serde_yaml                 = { workspace = true }
 
 [dev-dependencies]
 # kb-parse-md / kb-normalize are dev-only — used by the snapshot integration
