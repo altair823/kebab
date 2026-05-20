@@ -44,6 +44,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use ignore::overrides::{Override, OverrideBuilder};
 use walkdir::WalkDir;
 
@@ -69,6 +70,11 @@ const DEFAULT_EXCLUDES: &[&str] = &[
 ///
 /// `default_and_config` covers DEFAULT_EXCLUDES + `config.workspace.exclude`
 /// — these do NOT map to any of the three named `IngestReport` counters.
+///
+/// `include` is the compiled `scope.include` allow-list. When the set is
+/// empty (no patterns) every file passes; when non-empty a file must match
+/// at least one pattern to be accepted (directories always pass, so the
+/// walker can still descend into them).
 pub(crate) struct WalkOverrides {
     /// Merged matcher — same as today's `Override`; used for the walk decision.
     pub combined: Override,
@@ -78,6 +84,8 @@ pub(crate) struct WalkOverrides {
     pub kebabignore: Override,
     /// Matcher built from `kebab_parse_code::BUILTIN_BLACKLIST` only.
     pub builtin: Override,
+    /// Compiled allow-list from `scope.include`. Empty set = pass all.
+    pub include: GlobSet,
 }
 
 /// Skip attribution category. Used by the connector when counting per-source
@@ -161,10 +169,15 @@ fn build_single_matcher_owned(root: &Path, patterns: &[String]) -> Result<Overri
 /// The three per-source matchers (`gitignore`, `kebabignore`, `builtin`) are
 /// built in addition to the combined one so the connector can attribute skips
 /// to the correct `IngestReport` counter without a second walker pass.
+///
+/// `include_patterns` (from `scope.include`) are compiled into an allow-list
+/// `GlobSet`. Empty slice → pass-all (backward-compat); non-empty → file
+/// must match at least one pattern to be accepted.
 pub(crate) fn build_overrides(
     root: &Path,
     config_exclude: &[String],
     kbignore_patterns: &[String],
+    include_patterns: &[String],
 ) -> Result<WalkOverrides> {
     let gitignore_patterns = read_gitignore(root)?;
 
@@ -209,12 +222,39 @@ pub(crate) fn build_overrides(
         .build()
         .context("failed to compile combined override set")?;
 
+    // Allow-list GlobSet: empty Vec → matches nothing (= pass all); non-empty
+    // → file must match at least one glob to be accepted. We compile with
+    // `case_insensitive=false` to keep the semantics consistent with the
+    // OverrideBuilder exclude patterns above.
+    let include = build_include_globset(include_patterns)?;
+
     Ok(WalkOverrides {
         combined,
         gitignore,
         kebabignore,
         builtin,
+        include,
     })
+}
+
+/// Compile `scope.include` patterns into a `GlobSet` allow-list.
+///
+/// Each pattern uses `GlobBuilder` with `literal_separator = true` so that
+/// `**` can cross directory boundaries while `*` stops at `/`, matching the
+/// gitignore convention used throughout the rest of the walker.
+///
+/// An empty slice produces an empty `GlobSet` — callers interpret that as
+/// "pass all files" (no allow-list constraint).
+fn build_include_globset(patterns: &[String]) -> Result<GlobSet> {
+    let mut builder = GlobSetBuilder::new();
+    for pat in patterns {
+        let glob = GlobBuilder::new(pat)
+            .literal_separator(true)
+            .build()
+            .with_context(|| format!("invalid include pattern: {pat}"))?;
+        builder.add(glob);
+    }
+    builder.build().context("failed to compile include globset")
 }
 
 /// Classify why a path was excluded, using per-source matchers in spec §5.2
@@ -391,6 +431,13 @@ pub(crate) fn walk_files_with_skips(
         }
 
         if entry.file_type().is_file() {
+            // Apply include allow-list: if non-empty, the file's path
+            // relative to root must match at least one pattern.
+            if !overrides.include.is_empty() && !overrides.include.is_match(rel) {
+                // Not in the allow-list — silently drop (no skip counter;
+                // the include filter is not a "skip" source in IngestReport).
+                continue;
+            }
             accepted.push(path.to_path_buf());
         }
     }
@@ -406,7 +453,7 @@ mod tests {
     #[test]
     fn empty_inputs_compile_into_an_override() {
         let dir = tempfile::tempdir().unwrap();
-        let ov = build_overrides(dir.path(), &[], &[]).unwrap();
+        let ov = build_overrides(dir.path(), &[], &[], &[]).unwrap();
         // Default-excludes only; non-special files should not match.
         let m = ov.combined.matched(Path::new("notes/alpha.md"), false);
         assert!(!m.is_ignore());
@@ -415,7 +462,7 @@ mod tests {
     #[test]
     fn default_excludes_ds_store_and_resource_forks() {
         let dir = tempfile::tempdir().unwrap();
-        let ov = build_overrides(dir.path(), &[], &[]).unwrap();
+        let ov = build_overrides(dir.path(), &[], &[], &[]).unwrap();
         assert!(ov.combined.matched(Path::new(".DS_Store"), false).is_ignore());
         assert!(
             ov.combined.matched(Path::new("notes/.DS_Store"), false).is_ignore()
@@ -432,6 +479,7 @@ mod tests {
         let ov = build_overrides(
             dir.path(),
             &["*.tmp".to_string(), "node_modules/**".to_string()],
+            &[],
             &[],
         )
         .unwrap();
@@ -452,6 +500,7 @@ mod tests {
             dir.path(),
             &["*.tmp".to_string()],
             &["secret/**".to_string()],
+            &[],
         )
         .unwrap();
         assert!(ov.combined.matched(Path::new("a.tmp"), false).is_ignore());
@@ -491,7 +540,7 @@ mod tests {
         fs::write(root.join("src/main.rs"), "x").unwrap();
         fs::write(root.join("node_modules/foo/bar.js"), "x").unwrap();
 
-        let overrides = build_overrides(root, &[], &[]).unwrap();
+        let overrides = build_overrides(root, &[], &[], &[]).unwrap();
         // Override::matched expects paths relative to the builder's root.
         let m_in = overrides.combined.matched(Path::new("src/main.rs"), false);
         let m_out = overrides.combined.matched(Path::new("node_modules/foo/bar.js"), false);
@@ -514,7 +563,7 @@ mod tests {
         fs::create_dir_all(root.join("ok")).unwrap();
         fs::write(root.join("ok/z.txt"), "z").unwrap();
 
-        let overrides = build_overrides(root, &[], &[]).unwrap();
+        let overrides = build_overrides(root, &[], &[], &[]).unwrap();
         // Override::matched expects paths relative to the builder's root.
         for blacklisted in [
             "target/x/y.txt",
@@ -544,7 +593,7 @@ mod tests {
         fs::create_dir_all(root.join("dist")).unwrap();
         fs::write(root.join("dist/bundle.js"), "x").unwrap();
 
-        let overrides = build_overrides(root, &[], &[]).unwrap();
+        let overrides = build_overrides(root, &[], &[], &[]).unwrap();
         assert!(overrides.combined.matched(Path::new("a.log"), false).is_ignore());
         assert!(overrides.combined.matched(Path::new("dist/bundle.js"), false).is_ignore());
         assert!(!overrides.combined.matched(Path::new("src/main.rs"), false).is_ignore());
@@ -562,7 +611,7 @@ mod tests {
         fs::write(root.join("src/main.rs"), "x").unwrap();
 
         // No .gitignore present — patterns from .gitignore should not affect overrides.
-        let overrides = build_overrides(root, &[], &[]).unwrap();
+        let overrides = build_overrides(root, &[], &[], &[]).unwrap();
         assert!(!overrides.combined.matched(Path::new("a.log"), false).is_ignore());
         assert!(!overrides.combined.matched(Path::new("src/main.rs"), false).is_ignore());
     }
@@ -577,7 +626,7 @@ mod tests {
         // semantics, but at minimum it must not produce double-`!` corruption.
         fs::write(root.join(".gitignore"), "!keep/\n").unwrap();
         // Just verify build_overrides doesn't error.
-        let result = build_overrides(root, &[], &[]);
+        let result = build_overrides(root, &[], &[], &[]);
         assert!(result.is_ok(), "should not error on negation pattern: {:?}", result.err());
     }
 
@@ -594,7 +643,7 @@ mod tests {
         // .gitignore entry. Builtin must win (priority order §5.2).
         fs::write(root.join(".gitignore"), "node_modules/\n").unwrap();
 
-        let ov = build_overrides(root, &[], &[]).unwrap();
+        let ov = build_overrides(root, &[], &[], &[]).unwrap();
         // node_modules/ dir itself
         let cat = classify_skip(Path::new("node_modules"), true, &ov);
         assert_eq!(cat, SkipCategory::BuiltinBlacklist, "builtin must have priority");
@@ -609,7 +658,7 @@ mod tests {
         let root = tmp.path();
         fs::write(root.join(".gitignore"), "*.log\n").unwrap();
 
-        let ov = build_overrides(root, &[], &[]).unwrap();
+        let ov = build_overrides(root, &[], &[], &[]).unwrap();
         let cat = classify_skip(Path::new("app.log"), false, &ov);
         assert_eq!(cat, SkipCategory::Gitignore);
     }
@@ -621,7 +670,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
 
-        let ov = build_overrides(root, &[], &["*.secret".to_string()]).unwrap();
+        let ov = build_overrides(root, &[], &["*.secret".to_string()], &[]).unwrap();
         let cat = classify_skip(Path::new("creds.secret"), false, &ov);
         assert_eq!(cat, SkipCategory::Kebabignore);
     }
@@ -637,7 +686,7 @@ mod tests {
         fs::write(root.join("ok.md"), "# ok").unwrap();
         fs::write(root.join("skipme.log"), "x").unwrap();
 
-        let ov = build_overrides(root, &[], &[]).unwrap();
+        let ov = build_overrides(root, &[], &[], &[]).unwrap();
         let (accepted, skipped_entries) = walk_files_with_skips(root, &ov).unwrap();
 
         let accepted_names: Vec<_> = accepted
@@ -677,7 +726,7 @@ mod tests {
         fs::write(root.join("node_modules/foo/bar.js"), "x").unwrap();
         fs::write(root.join("ok.md"), "# ok").unwrap();
 
-        let ov = build_overrides(root, &[], &[]).unwrap();
+        let ov = build_overrides(root, &[], &[], &[]).unwrap();
         let (accepted, skipped_entries) = walk_files_with_skips(root, &ov).unwrap();
 
         let accepted_names: Vec<_> = accepted

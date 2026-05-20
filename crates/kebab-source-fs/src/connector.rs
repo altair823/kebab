@@ -86,7 +86,7 @@ impl FsSourceConnector {
         excludes.extend(scope.exclude.iter().cloned());
         let kbignore = read_kbignore(&root)?;
 
-        let overrides = build_overrides(&root, &excludes, &kbignore)?;
+        let overrides = build_overrides(&root, &excludes, &kbignore, &scope.include)?;
         Ok((root, overrides))
     }
 
@@ -102,8 +102,6 @@ impl FsSourceConnector {
         scope: &SourceScope,
     ) -> Result<(Vec<RawAsset>, FsScanSkips)> {
         let (root, overrides) = self.resolve_scan_params(scope)?;
-
-        log_scope_include_warning(scope);
 
         let (files, skipped_entries) = walk_files_with_skips(&root, &overrides)?;
 
@@ -284,14 +282,6 @@ fn build_assets(
     Ok(assets)
 }
 
-fn log_scope_include_warning(scope: &SourceScope) {
-    if !scope.include.is_empty() {
-        tracing::debug!(
-            count = scope.include.len(),
-            "FsSourceConnector ignores scope.include — handled by extractor router"
-        );
-    }
-}
 
 impl SourceConnector for FsSourceConnector {
     fn scan(&self, scope: &SourceScope) -> Result<Vec<RawAsset>> {
