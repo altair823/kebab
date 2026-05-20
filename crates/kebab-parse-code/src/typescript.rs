@@ -209,16 +209,27 @@ fn build_blocks(
     // label (1A's `is_mod_decl` analog).
     let mut glue: Vec<(usize, u32, u32)> = Vec::new();
 
-    /// Walk preceding `comment` siblings to extend the unit's line range
-    /// upward, folding leading doc / line comments into the unit. TS
-    /// class / method decorators live INSIDE the parent declaration (as
-    /// children, surfaced via the `decorator` field) — for 1B 1차 we do
-    /// not specially unwrap them; this matches the plan §Task H note.
+    /// Walk preceding `comment` and `decorator` siblings to extend the
+    /// unit's line range upward, folding leading doc/line comments and
+    /// decorators into the unit.
+    ///
+    /// In tree-sitter-typescript 0.23, TS class-method decorators (and
+    /// class-level decorators) are **`class_body` siblings** that
+    /// immediately precede the `method_definition` node — they are NOT
+    /// children of `method_definition`. (Contrast with
+    /// tree-sitter-javascript, where the `decorator` IS stored inside
+    /// `method_definition` as a named child via the `decorator` field, so
+    /// `method_definition.start_row` already covers the decorator line
+    /// there — no sibling walk needed in `javascript.rs`.)
+    ///
+    /// Extending backward over `decorator` siblings here matches Python's
+    /// `decorated_definition` arm behavior: the decorator line is folded
+    /// into the emitted unit's line range.
     fn unit_start(n: &tree_sitter::Node) -> u32 {
         let mut start = n.start_position().row as u32 + 1;
         let mut prev = n.prev_sibling();
         while let Some(p) = prev {
-            if p.kind() == "comment" {
+            if p.kind() == "comment" || p.kind() == "decorator" {
                 start = p.start_position().row as u32 + 1;
                 prev = p.prev_sibling();
             } else {
@@ -568,6 +579,112 @@ mod tests {
         let a = extract_fixture("sample.ts", "src/sample.ts");
         for _ in 0..30 {
             assert_eq!(extract_fixture("sample.ts", "src/sample.ts").blocks, a.blocks);
+        }
+    }
+
+    /// Regression: TS class-method decorators are `class_body` preceding
+    /// siblings (not children of `method_definition`). The `unit_start`
+    /// backward walk must fold the decorator line into the emitted unit's
+    /// line range, matching Python's `decorated_definition` behavior.
+    #[test]
+    fn class_method_decorator_folded_into_method_unit() {
+        // Line 1 (1-indexed): "class Foo {"
+        // Line 2:             "    @Log()"   <- decorator
+        // Line 3:             "    bar() { return 1; }"
+        // Line 4:             "}"
+        let bytes = b"class Foo {\n    @Log()\n    bar() { return 1; }\n}\n";
+        let asset = crate::rust::tests_support::fixed_code_asset("src/foo.ts", "typescript");
+        let cfg = kebab_core::ExtractConfig::default();
+        let root = std::path::PathBuf::from("/tmp");
+        let ctx = kebab_core::ExtractContext {
+            asset: &asset,
+            workspace_root: &root,
+            config: &cfg,
+        };
+        let doc = TypescriptAstExtractor::new().extract(&ctx, bytes).unwrap();
+
+        let bar_block = doc
+            .blocks
+            .iter()
+            .find_map(|b| match b {
+                Block::Code(c) => match &c.common.source_span {
+                    SourceSpan::Code { symbol, .. }
+                        if symbol.as_deref() == Some("src/foo.Foo.bar") =>
+                    {
+                        Some(c)
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("src/foo.Foo.bar block should be present");
+
+        // After the fix, the unit MUST include the @Log() decorator line.
+        assert!(
+            bar_block.code.contains("@Log()"),
+            "decorator must be folded into class-method unit (Python parity); got code: {:?}",
+            bar_block.code
+        );
+
+        // line_start must be 2 (the @Log() line), NOT 3 (the bar() line).
+        match &bar_block.common.source_span {
+            SourceSpan::Code { line_start, .. } => {
+                assert_eq!(
+                    *line_start, 2,
+                    "line_start must cover the @Log() decorator line (got {line_start})"
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// Class-level decorator (preceding sibling of `class_declaration` in
+    /// the module root): same `unit_start` backward walk folds it in.
+    /// Line 1: "@Injectable()"
+    /// Line 2: "class Service {"
+    /// Line 3: "}"
+    #[test]
+    fn ts_class_decorator_folded_into_class_unit() {
+        let bytes = b"@Injectable()\nclass Service {\n}\n";
+        let asset = crate::rust::tests_support::fixed_code_asset("src/svc.ts", "typescript");
+        let cfg = kebab_core::ExtractConfig::default();
+        let root = std::path::PathBuf::from("/tmp");
+        let ctx = kebab_core::ExtractContext {
+            asset: &asset,
+            workspace_root: &root,
+            config: &cfg,
+        };
+        let doc = TypescriptAstExtractor::new().extract(&ctx, bytes).unwrap();
+
+        let svc_block = doc
+            .blocks
+            .iter()
+            .find_map(|b| match b {
+                Block::Code(c) => match &c.common.source_span {
+                    SourceSpan::Code { symbol, .. }
+                        if symbol.as_deref() == Some("src/svc.Service") =>
+                    {
+                        Some(c)
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("src/svc.Service block should be present");
+
+        assert!(
+            svc_block.code.contains("@Injectable()"),
+            "class-level decorator must be folded into the class unit; got code: {:?}",
+            svc_block.code
+        );
+        match &svc_block.common.source_span {
+            SourceSpan::Code { line_start, .. } => {
+                assert_eq!(
+                    *line_start, 1,
+                    "line_start must cover the @Injectable() line (got {line_start})"
+                );
+            }
+            _ => unreachable!(),
         }
     }
 }

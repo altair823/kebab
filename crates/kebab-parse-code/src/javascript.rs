@@ -515,4 +515,60 @@ mod tests {
             assert_eq!(extract_fixture("src/sample.js").blocks, a.blocks);
         }
     }
+
+    /// In tree-sitter-javascript, `decorator` is a CHILD of
+    /// `method_definition` (stored in the `decorator` field), so
+    /// `method_definition.start_row` already covers the decorator line
+    /// without any sibling walk. Verify that the emitted unit already
+    /// includes the decorator line and line_start is 2 (the @Log() line).
+    #[test]
+    fn js_class_method_decorator_already_folded_by_grammar() {
+        // Line 1 (1-indexed): "class Foo {"
+        // Line 2:             "    @Log()"   <- decorator (child of method_definition in JS grammar)
+        // Line 3:             "    bar() { return 1; }"
+        // Line 4:             "}"
+        let bytes = b"class Foo {\n    @Log()\n    bar() { return 1; }\n}\n";
+        let asset = crate::rust::tests_support::fixed_code_asset("src/foo.js", "javascript");
+        let cfg = kebab_core::ExtractConfig::default();
+        let root = std::path::PathBuf::from("/tmp");
+        let ctx = kebab_core::ExtractContext {
+            asset: &asset,
+            workspace_root: &root,
+            config: &cfg,
+        };
+        let doc = JavascriptAstExtractor::new().extract(&ctx, bytes).unwrap();
+
+        let bar_block = doc
+            .blocks
+            .iter()
+            .find_map(|b| match b {
+                Block::Code(c) => match &c.common.source_span {
+                    SourceSpan::Code { symbol, .. }
+                        if symbol.as_deref() == Some("src/foo.Foo.bar") =>
+                    {
+                        Some(c)
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("src/foo.Foo.bar block should be present");
+
+        // JS grammar: method_definition.start_row == decorator row, so
+        // no sibling walk change needed -- decorator is already included.
+        assert!(
+            bar_block.code.contains("@Log()"),
+            "JS method unit must include decorator (grammar folds it natively); got: {:?}",
+            bar_block.code
+        );
+        match &bar_block.common.source_span {
+            SourceSpan::Code { line_start, .. } => {
+                assert_eq!(
+                    *line_start, 2,
+                    "JS line_start must cover the @Log() decorator line (got {line_start})"
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
 }
