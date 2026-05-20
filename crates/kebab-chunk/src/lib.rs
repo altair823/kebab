@@ -18,6 +18,7 @@
 mod code_go_ast_v1;
 mod code_java_ast_v1;
 mod code_js_ast_v1;
+mod code_kotlin_ast_v1;
 mod code_python_ast_v1;
 mod code_rust_ast_v1;
 mod code_ts_ast_v1;
@@ -27,6 +28,7 @@ mod pdf_page_v1;
 pub use code_go_ast_v1::CodeGoAstV1Chunker;
 pub use code_java_ast_v1::CodeJavaAstV1Chunker;
 pub use code_js_ast_v1::CodeJsAstV1Chunker;
+pub use code_kotlin_ast_v1::CodeKotlinAstV1Chunker;
 pub use code_python_ast_v1::CodePythonAstV1Chunker;
 pub use code_rust_ast_v1::CodeRustAstV1Chunker;
 pub use code_ts_ast_v1::CodeTsAstV1Chunker;
