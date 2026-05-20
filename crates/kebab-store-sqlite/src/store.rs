@@ -652,6 +652,20 @@ pub fn purge_deleted_workspace_path(
 /// path (which has bytes + computed `storage_kind/path`) and the
 /// `DocumentStore::put_asset` path (which only has the `RawAsset` and
 /// reads `storage_kind/path` from `asset.stored`).
+///
+/// **`assets.workspace_path` is "last-registered path" semantics for
+/// twin files** (two source files with identical content share one
+/// `assets` row keyed on `asset_id = blake3(content)`). Each ingest
+/// of either twin overwrites `workspace_path` with whichever path was
+/// seen most recently — this is intentional and correct after PR #146
+/// made `try_skip_unchanged` document-centric (uses
+/// `get_document_by_workspace_path`, not `get_asset_by_workspace_path`)
+/// and PR #149 made `reset --orphans-only` document-centric too.
+/// Do NOT "fix" the flip-flop by adding a UNIQUE constraint on
+/// `workspace_path` in the `assets` table — twin de-dup is load-bearing.
+/// When you need media_type for a known document, use the 2-step lookup
+/// `get_document_by_workspace_path` → `doc.source_asset_id` →
+/// `get_asset(asset_id)` so the result is twin-safe.
 pub(crate) fn upsert_asset_row(
     conn: &Connection,
     asset: &kebab_core::RawAsset,

@@ -8,7 +8,7 @@ use serde_json::Value;
 use crate::asset::{RawAsset, WorkspacePath};
 use crate::chunk::Chunk;
 use crate::document::{Block, CanonicalDocument};
-use crate::ids::{ChunkId, DocumentId};
+use crate::ids::{AssetId, ChunkId, DocumentId};
 use crate::jobs::{JobFilter, JobId, JobKind, JobRow, JobStatus};
 use crate::media::MediaType;
 use crate::search::{DocFilter, DocSummary, SearchFilters, SearchHit, SearchQuery};
@@ -161,10 +161,23 @@ pub trait DocumentStore {
     fn get_document(&self, id: &DocumentId) -> anyhow::Result<Option<CanonicalDocument>>;
     fn get_chunk(&self, id: &ChunkId) -> anyhow::Result<Option<Chunk>>;
     fn list_documents(&self, filter: &DocFilter) -> anyhow::Result<Vec<DocSummary>>;
+    /// Look up an asset row by its `asset_id` (PRIMARY KEY = blake3
+    /// content hash). Twin-file safe: asset_id is PK so there is
+    /// exactly one row per unique content hash, regardless of how many
+    /// `documents` rows share it. Use this instead of
+    /// `get_asset_by_workspace_path` when you already have a
+    /// `CanonicalDocument` (which carries `source_asset_id`).
+    fn get_asset(&self, id: &AssetId) -> anyhow::Result<Option<RawAsset>>;
+
     /// p9-fb-23: look up an asset row by its workspace path. Used by
     /// the incremental-ingest skip path to compare the freshly
     /// computed blake3 checksum against what's already in SQLite. The
     /// schema enforces a unique workspace_path per asset.
+    ///
+    /// NOTE: for twin files (identical content at different paths),
+    /// `assets.workspace_path` is "last-registered path" — it
+    /// flip-flops on every ingest. Prefer `get_asset` (by asset_id)
+    /// when you have a `CanonicalDocument.source_asset_id`.
     fn get_asset_by_workspace_path(
         &self,
         path: &WorkspacePath,

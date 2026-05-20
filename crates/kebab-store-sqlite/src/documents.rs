@@ -264,6 +264,28 @@ impl kebab_core::DocumentStore for SqliteStore {
         }))
     }
 
+    fn get_asset(
+        &self,
+        id: &kebab_core::AssetId,
+    ) -> Result<Option<kebab_core::RawAsset>> {
+        let conn = self.lock_conn();
+        let result = conn.query_row(
+            r#"SELECT
+                asset_id, source_uri, workspace_path, media_type,
+                byte_len, checksum, storage_kind, storage_path,
+                discovered_at
+            FROM assets
+            WHERE asset_id = ?"#,
+            rusqlite::params![id.0.as_str()],
+            asset_from_row,
+        );
+        match result {
+            Ok(asset) => Ok(Some(asset)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     fn get_asset_by_workspace_path(
         &self,
         path: &kebab_core::WorkspacePath,
@@ -632,7 +654,8 @@ fn rows_optional<T>(err: rusqlite::Error) -> rusqlite::Result<Option<T>> {
 
 /// Reconstruct a [`kebab_core::RawAsset`] from one `assets` row.
 /// Row mapper for `RawAsset`. Column names are self-documenting; the
-/// SELECT in [`DocumentStore::get_asset_by_workspace_path`] must include
+/// SELECTs in [`DocumentStore::get_asset`] and
+/// [`DocumentStore::get_asset_by_workspace_path`] must both include
 /// all nine columns by their schema names.
 fn asset_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<kebab_core::RawAsset> {
     use std::path::PathBuf;

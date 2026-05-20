@@ -189,10 +189,12 @@ fn fetch_span(
     // (markdown / note / paper / reference / inbox) is the *user-facing*
     // category, not the rendering format — the actual byte-level format
     // lives on the source `RawAsset.media_type`. Look it up via
-    // workspace_path (unique key per asset).
-    if let Some(asset) = <kebab_store_sqlite::SqliteStore as DocumentStore>::get_asset_by_workspace_path(
+    // doc.source_asset_id (PRIMARY KEY) so twin files (identical content
+    // at different paths) always read *this* document's own asset row,
+    // not whichever twin last wrote `assets.workspace_path`.
+    if let Some(asset) = <kebab_store_sqlite::SqliteStore as DocumentStore>::get_asset(
         &app.sqlite,
-        &doc.workspace_path,
+        &doc.source_asset_id,
     )? {
         if matches!(
             asset.media_type,
