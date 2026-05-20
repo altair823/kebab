@@ -26,6 +26,16 @@ git history.
 
 **cross-link**: `tasks/p10/p10-1b-py-ts-js-ast-chunkers.md` Risks / notes 섹션, design §3.4.
 
+## 2026-05-20 — p10-1B: module_path_for_python / _tsjs do not sanitize non-ASCII / 공백 / 특수문자 in workspace path
+
+**동작**: `module_path_for_python` 와 `module_path_for_tsjs` 가 workspace path 의 비-ASCII / 공백 / 따옴표 / 백슬래시 같은 특수문자를 그대로 prefix 에 통과시킨다. 예: `kebab eval/metrics.py` (공백 포함) → module prefix `kebab eval.metrics` — 라이브러리 코드는 동작하지만 symbol 텍스트에 공백이 들어간다.
+
+**이유**: 1B 1차 단순화. 대다수 코드 베이스가 ASCII identifier + `/` 구분자만 사용하므로 사용자 경험상 영향 미미.
+
+**해결**: 후속 phase 에서 path-sanitize 추가 검토. NFKC normalize 후 `[^A-Za-z0-9_.\-/]` → `_` 변환 식. 적용 시 chunker_version bump 트리거 (re-ingest cascade 필요).
+
+**cross-link**: `tasks/p10/p10-1b-py-ts-js-ast-chunkers.md` Risks / notes 섹션 line 55.
+
 ## 2026-05-20 — p10-1B: expression-level functions (arrow fn, function expression assigned to const) NOT emitted as units in 1B 1차
 
 **무엇이 바뀌었나**: TypeScript / JavaScript 의 `const foo = () => {...}` 또는 `const bar = function() {...}` 같은 expression-level 함수 할당은 `code-ts-ast-v1` / `code-js-ast-v1` 에서 독립 unit 으로 방출되지 않는다. 해당 코드는 가장 가까운 surrounding declaration-level unit (또는 `<top-level>` glue) 에 흡수된다.

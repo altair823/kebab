@@ -18,6 +18,7 @@ pub mod lang;
 pub mod python;
 pub mod repo;
 pub mod rust;
+pub(crate) mod scaffold;
 pub mod skip;
 pub mod typescript;
 

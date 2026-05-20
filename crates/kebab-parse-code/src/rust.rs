@@ -30,6 +30,8 @@ use kebab_core::{
 use serde_json::Map;
 use time::OffsetDateTime;
 
+use crate::scaffold::{filename_from_workspace_path, strip_extension};
+
 pub const PARSER_VERSION: &str = "code-rust-v1";
 
 /// Rust AST extractor. Per-unit blocks via tree-sitter-rust 0.24
@@ -159,18 +161,6 @@ impl Extractor for RustAstExtractor {
             last_chunker_version: None,
             last_embedding_version: None,
         })
-    }
-}
-
-fn filename_from_workspace_path(p: &str) -> String {
-    p.rsplit('/').next().unwrap_or(p).to_string()
-}
-
-fn strip_extension(filename: &str) -> String {
-    match filename.rfind('.') {
-        Some(0) => filename.to_string(),
-        Some(idx) => filename[..idx].to_string(),
-        None => filename.to_string(),
     }
 }
 

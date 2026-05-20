@@ -26,6 +26,8 @@ use kebab_core::{
 use serde_json::Map;
 use time::OffsetDateTime;
 
+use crate::scaffold::{filename_from_workspace_path, join_symbol, strip_extension};
+
 pub const PARSER_VERSION: &str = "code-python-v1";
 
 /// Python AST extractor. Per-unit blocks via tree-sitter-python 0.25
@@ -157,35 +159,6 @@ impl Extractor for PythonAstExtractor {
             last_embedding_version: None,
         })
     }
-}
-
-fn filename_from_workspace_path(p: &str) -> String {
-    p.rsplit('/').next().unwrap_or(p).to_string()
-}
-
-fn strip_extension(filename: &str) -> String {
-    match filename.rfind('.') {
-        Some(0) => filename.to_string(),
-        Some(idx) => filename[..idx].to_string(),
-        None => filename.to_string(),
-    }
-}
-
-/// Join (mod_prefix, mod_path, name) into a dotted Python symbol.
-///
-/// Empty `mod_prefix` (e.g. file is `__init__.py` at workspace root)
-/// drops the leading prefix segment; empty `mod_path` (file top-level)
-/// drops the class-nesting middle.
-fn join_symbol(mod_prefix: &str, mod_path: &[String], name: &str) -> String {
-    let mut parts: Vec<&str> = Vec::with_capacity(mod_path.len() + 2);
-    if !mod_prefix.is_empty() {
-        parts.push(mod_prefix);
-    }
-    for p in mod_path {
-        parts.push(p.as_str());
-    }
-    parts.push(name);
-    parts.join(".")
 }
 
 fn build_blocks(
@@ -446,14 +419,14 @@ mod tests {
         assert!(syms.iter().any(|s| s == "kebab_eval.metrics.Outer.Inner.helper"));
         assert!(syms.iter().any(|s| s == "kebab_eval.metrics.with_decorator"));
         assert!(syms.iter().any(|s| s == "kebab_eval.metrics.<top-level>"));
-        // The `@staticmethod` decorator on `free` is folded into its
+        // The `@no_type_check` decorator on `free` is folded into its
         // unit's line range (decorated_definition unwrap).
         let free_src = doc.blocks.iter().find_map(|b| match b {
             Block::Code(c) if matches!(&c.common.source_span,
                 SourceSpan::Code{symbol,..} if symbol.as_deref()==Some("kebab_eval.metrics.free")) => Some(c.code.clone()),
             _ => None,
         }).unwrap();
-        assert!(free_src.contains("@staticmethod"), "decorator folded in: {free_src}");
+        assert!(free_src.contains("@no_type_check"), "decorator folded in: {free_src}");
     }
 
     #[test]

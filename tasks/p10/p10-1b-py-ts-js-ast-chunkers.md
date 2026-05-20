@@ -57,3 +57,4 @@
 - 머지 후 deviation 은 `tasks/HOTFIXES.md` 에 dated 로그 + 본 spec `Risks / notes` 에 one-line cross-link.
 - **[HOTFIXES 2026-05-20]** Rust 1A-2 symbol 은 file-scope nesting 만 (workspace prefix 없음); 1B 의 Python/TypeScript/JavaScript 와 비일관 — retrofit 은 사용자 명시 요청 시. 자세한 내용: `tasks/HOTFIXES.md` (2026-05-20, "Rust 1A-2 symbol path").
 - **[HOTFIXES 2026-05-20]** TypeScript/JavaScript 의 expression-level 함수 (`const foo = () => {}` 등) 는 `<top-level>` glue 로 처리됨, 독립 unit 미방출 — 후속 phase 에서 `lexical_declaration` unwrap 검토. 자세한 내용: `tasks/HOTFIXES.md` (2026-05-20, "expression-level functions").
+- **[HOTFIXES 2026-05-20]** `module_path_for_python` / `module_path_for_tsjs` 가 path-sanitize 안 함 (특수문자/공백 그대로 prefix 에 들어감) — 후속 phase 에서 NFKC + 사용금지 문자 변환 검토. 자세한 내용: `tasks/HOTFIXES.md` (2026-05-20, "module_path_for_python / _tsjs do not sanitize").

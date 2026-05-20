@@ -34,6 +34,8 @@ use kebab_core::{
 use serde_json::Map;
 use time::OffsetDateTime;
 
+use crate::scaffold::{filename_from_workspace_path, join_symbol, strip_extension};
+
 pub const PARSER_VERSION: &str = "code-ts-v1";
 
 /// TypeScript / TSX AST extractor. Per-unit blocks via
@@ -179,36 +181,6 @@ fn select_grammar(workspace_path: &str) -> tree_sitter::Language {
     } else {
         tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
     }
-}
-
-fn filename_from_workspace_path(p: &str) -> String {
-    p.rsplit('/').next().unwrap_or(p).to_string()
-}
-
-fn strip_extension(filename: &str) -> String {
-    match filename.rfind('.') {
-        Some(0) => filename.to_string(),
-        Some(idx) => filename[..idx].to_string(),
-        None => filename.to_string(),
-    }
-}
-
-/// Join (mod_prefix, mod_path, name) into a dotted TS symbol.
-///
-/// Note: TS uses `.` as the join separator between mod_prefix /
-/// class-nesting / leaf — even though `mod_prefix` itself may contain
-/// `/` (e.g. `src/search/Retriever`), the JOIN between segments stays
-/// `.`. So a class method symbol looks like `src/search/Foo.search`.
-fn join_symbol(mod_prefix: &str, mod_path: &[String], name: &str) -> String {
-    let mut parts: Vec<&str> = Vec::with_capacity(mod_path.len() + 2);
-    if !mod_prefix.is_empty() {
-        parts.push(mod_prefix);
-    }
-    for p in mod_path {
-        parts.push(p.as_str());
-    }
-    parts.push(name);
-    parts.join(".")
 }
 
 fn build_blocks(

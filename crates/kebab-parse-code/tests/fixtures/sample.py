@@ -3,7 +3,7 @@ import os
 
 ANSWER = 42
 
-@staticmethod
+@no_type_check
 def free(x):
     """free fn."""
     return x + 1
