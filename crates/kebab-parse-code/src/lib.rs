@@ -18,9 +18,11 @@ pub mod python;
 pub mod repo;
 pub mod rust;
 pub mod skip;
+pub mod typescript;
 
 pub use lang::{code_lang_for_path, module_path_for_python, module_path_for_tsjs};
 pub use python::{PARSER_VERSION as PYTHON_PARSER_VERSION, PythonAstExtractor};
 pub use repo::{RepoMeta, detect_repo};
 pub use rust::{PARSER_VERSION as RUST_PARSER_VERSION, RustAstExtractor};
 pub use skip::{BUILTIN_BLACKLIST, is_generated_file, is_oversized};
+pub use typescript::{PARSER_VERSION as TS_PARSER_VERSION, TypescriptAstExtractor};
