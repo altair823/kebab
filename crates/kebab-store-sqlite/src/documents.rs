@@ -286,6 +286,72 @@ impl kebab_core::DocumentStore for SqliteStore {
         }
     }
 
+    fn get_document_by_workspace_path(
+        &self,
+        path: &kebab_core::WorkspacePath,
+    ) -> Result<Option<kebab_core::CanonicalDocument>> {
+        let conn = self.lock_conn();
+        let row: Option<DocumentRow> = conn
+            .query_row(
+                "SELECT
+                    doc_id, asset_id, workspace_path, title, lang,
+                    source_type, trust_level, parser_version,
+                    doc_version, schema_version, metadata_json,
+                    provenance_json, created_at, updated_at,
+                    last_chunker_version, last_embedding_version
+                FROM documents WHERE workspace_path = ?",
+                params![path.0],
+                document_row_from_sql,
+            )
+            .map(Some)
+            .or_else(rows_optional)
+            .map_err(StoreError::from)?;
+        let Some(row) = row else { return Ok(None) };
+
+        let doc_id = kebab_core::DocumentId(row.doc_id.clone());
+        let mut blocks_stmt = conn
+            .prepare(
+                "SELECT payload_json FROM blocks
+                 WHERE doc_id = ? ORDER BY ordinal ASC",
+            )
+            .map_err(StoreError::from)?;
+        let block_rows = blocks_stmt
+            .query_map(params![row.doc_id], |r| {
+                let payload_json: String = r.get(0)?;
+                Ok(payload_json)
+            })
+            .map_err(StoreError::from)?;
+        let mut blocks: Vec<kebab_core::Block> = Vec::new();
+        for block_row in block_rows {
+            let payload_json = block_row.map_err(StoreError::from)?;
+            let block: kebab_core::Block = serde_json::from_str(&payload_json)
+                .context("deserialize block payload_json")?;
+            blocks.push(block);
+        }
+
+        let metadata: kebab_core::Metadata = serde_json::from_str(&row.metadata_json)
+            .context("deserialize metadata_json")?;
+        let provenance: kebab_core::Provenance =
+            serde_json::from_str(&row.provenance_json)
+                .context("deserialize provenance_json")?;
+
+        Ok(Some(kebab_core::CanonicalDocument {
+            doc_id,
+            source_asset_id: kebab_core::AssetId(row.asset_id),
+            workspace_path: kebab_core::WorkspacePath(row.workspace_path),
+            title: row.title.unwrap_or_default(),
+            lang: kebab_core::Lang(row.lang.unwrap_or_default()),
+            blocks,
+            metadata,
+            provenance,
+            parser_version: kebab_core::ParserVersion(row.parser_version),
+            schema_version: row.schema_version as u32,
+            doc_version: row.doc_version as u32,
+            last_chunker_version: row.last_chunker_version.map(kebab_core::ChunkerVersion),
+            last_embedding_version: row.last_embedding_version.map(kebab_core::EmbeddingVersion),
+        }))
+    }
+
     fn list_documents(
         &self,
         filter: &kebab_core::DocFilter,

@@ -748,15 +748,18 @@ struct ImagePipeline<'a> {
 /// hold (per design §9 cascade rule):
 ///
 /// 1. `force_reingest == false` — caller hasn't asked to bypass skip.
-/// 2. The freshly-scanned asset's blake3 checksum equals what the
-///    existing `assets` row stores at the same `workspace_path`.
-/// 3. The doc keyed on `(workspace_path, asset_id, current_parser_version)`
-///    exists. If the parser_version changed, `id_for_doc` produces a
-///    different `doc_id` so the lookup misses → no skip → re-process.
-/// 4. The existing doc's stamped `last_chunker_version` AND
-///    `last_embedding_version` match the values the caller is about
-///    to use (`Some(v) == Some(v)` and `None == None` — see design
-///    doc for the `None == None` rule when no embedder is configured).
+/// 2. A document already exists at this `workspace_path`
+///    (`get_document_by_workspace_path`). The lookup is document-side, not
+///    asset-side, so twin files (identical content at different paths) each
+///    hit their own stable doc row — `documents.workspace_path` is UNIQUE
+///    while `assets` may dedupe content into a single row with a flip-flop
+///    `workspace_path` column (dogfood bug #4, see `tasks/HOTFIXES.md`).
+/// 3. The existing doc's `source_asset_id` equals the freshly-scanned
+///    asset's blake3 checksum (content unchanged).
+/// 4. The existing doc's `parser_version` matches the current extractor's
+///    `parser_version` (extractor not upgraded). Combined with `chunker_version`
+///    and `last_embedding_version` checks immediately below — full cascade
+///    per design §9.
 ///
 /// Returns `Ok(None)` (proceed with full re-process) when any check
 /// fails or any DB read errors out — the skip path is opportunistic;
@@ -773,31 +776,19 @@ fn try_skip_unchanged(
     if force_reingest {
         return Ok(None);
     }
-    let existing_asset = match app
+    // Document-centric skip: look up the existing document row by
+    // workspace_path directly. This avoids the twin-file flip-flop
+    // that the old asset-side lookup suffers from — multiple files
+    // with identical content share one `assets` row whose
+    // `workspace_path` is overwritten on every UPSERT, so
+    // `get_asset_by_workspace_path(path1)` could return the OTHER
+    // twin's path (or None) after any ingest of the twin. The
+    // `documents` table has a UNIQUE index on `workspace_path` (V001),
+    // so each twin has its own stable row regardless of asset de-dup.
+    let existing_doc = match app
         .sqlite
-        .get_asset_by_workspace_path(&asset.workspace_path)
+        .get_document_by_workspace_path(&asset.workspace_path)
     {
-        Ok(Some(a)) => a,
-        Ok(None) => return Ok(None),
-        Err(e) => {
-            tracing::debug!(
-                target: "kebab-app",
-                path = %asset.workspace_path.0,
-                error = %e,
-                "skip-check: get_asset_by_workspace_path failed; falling through to re-process"
-            );
-            return Ok(None);
-        }
-    };
-    if existing_asset.checksum != asset.checksum {
-        return Ok(None);
-    }
-    let candidate_doc_id = kebab_core::id_for_doc(
-        &asset.workspace_path,
-        &asset.asset_id,
-        current_parser_version,
-    );
-    let existing_doc = match app.sqlite.get_document(&candidate_doc_id) {
         Ok(Some(d)) => d,
         Ok(None) => return Ok(None),
         Err(e) => {
@@ -805,21 +796,37 @@ fn try_skip_unchanged(
                 target: "kebab-app",
                 path = %asset.workspace_path.0,
                 error = %e,
-                "skip-check: get_document failed; falling through to re-process"
+                "skip-check: get_document_by_workspace_path failed; falling through to re-process"
             );
             return Ok(None);
         }
     };
+    // 1. Content unchanged: the freshly-computed asset_id (blake3
+    //    content hash) must match what this document was ingested from.
+    if existing_doc.source_asset_id != asset.asset_id {
+        return Ok(None);
+    }
+    // 2. Parser unchanged: parser_version is baked into id_for_doc so
+    //    a version bump yields a different doc_id and the row above
+    //    would have been missing. Checking here explicitly keeps the
+    //    logic self-documenting and guards against future id_for_doc
+    //    changes.
+    if existing_doc.parser_version != *current_parser_version {
+        return Ok(None);
+    }
+    // 3. Chunker unchanged.
     let chunker_match = existing_doc.last_chunker_version.as_ref()
         == Some(current_chunker_version);
     if !chunker_match {
         return Ok(None);
     }
+    // 4. Embedder unchanged.
     let embedder_match = existing_doc.last_embedding_version.as_ref()
         == current_embedding_version;
     if !embedder_match {
         return Ok(None);
     }
+    let candidate_doc_id = existing_doc.doc_id.clone();
     tracing::debug!(
         target: "kebab-app::ingest",
         path = %asset.workspace_path.0,
