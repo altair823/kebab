@@ -19,7 +19,9 @@ pub(crate) fn media_type_for(path: &Path) -> MediaType {
         .unwrap_or_default();
 
     match ext.as_str() {
-        "md" => MediaType::Markdown,
+        // Markdown + MDX (markdown + JSX, treated as plain markdown — the
+        // JSX islands are folded into raw passthrough by the md parser).
+        "md" | "mdx" => MediaType::Markdown,
         "pdf" => MediaType::Pdf,
 
         "png" => MediaType::Image(ImageType::Png),
@@ -40,7 +42,8 @@ pub(crate) fn media_type_for(path: &Path) -> MediaType {
 
         // p10-1B: Python / TS / JS AST chunkers active.
         "py" | "pyi"               => MediaType::Code("python".into()),
-        "ts" | "tsx"               => MediaType::Code("typescript".into()),
+        // .mts / .cts are TypeScript ESM / CommonJS variants — same grammar.
+        "ts" | "tsx" | "mts" | "cts" => MediaType::Code("typescript".into()),
         "js" | "mjs" | "cjs" | "jsx" => MediaType::Code("javascript".into()),
 
         // Empty string (no extension) and any other extension: bucket as
@@ -100,6 +103,20 @@ mod tests {
         assert_eq!(media_type_for(Path::new("a/b.cjs")),   MediaType::Code("javascript".into()));
         assert_eq!(media_type_for(Path::new("a/b.jsx")),   MediaType::Code("javascript".into()));
         assert_eq!(media_type_for(Path::new("a/b.rs")),    MediaType::Code("rust".into()));
+    }
+
+    #[test]
+    fn ts_variants_mts_cts() {
+        // .mts / .cts are TypeScript ESM / CommonJS — same grammar as .ts.
+        assert_eq!(media_type_for(Path::new("a/b.mts")), MediaType::Code("typescript".into()));
+        assert_eq!(media_type_for(Path::new("a/b.cts")), MediaType::Code("typescript".into()));
+    }
+
+    #[test]
+    fn mdx_routes_to_markdown() {
+        // MDX is markdown with JSX islands; the md parser folds the JSX
+        // through as raw passthrough.
+        assert_eq!(media_type_for(Path::new("docs/page.mdx")), MediaType::Markdown);
     }
 
     #[test]
