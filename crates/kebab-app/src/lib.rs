@@ -950,7 +950,7 @@ fn ingest_one_asset(
         }
         // p10-1A-2 / 1B: code ingest dispatch.
         MediaType::Code(lang)
-            if matches!(lang.as_str(), "rust" | "python" | "typescript" | "javascript") =>
+            if matches!(lang.as_str(), "rust" | "python" | "typescript" | "javascript" | "go") =>
         {
             return ingest_one_code_asset(
                 app,
@@ -1827,6 +1827,7 @@ fn ingest_one_code_asset(
         "python"     => ParserVersion(kebab_parse_code::PYTHON_PARSER_VERSION.to_string()),
         "typescript" => ParserVersion(kebab_parse_code::TS_PARSER_VERSION.to_string()),
         "javascript" => ParserVersion(kebab_parse_code::JS_PARSER_VERSION.to_string()),
+        "go" => anyhow::bail!("go ingest not yet wired (p10-1c-go Task F)"),
         other => anyhow::bail!("unsupported code_lang: {other}"),
     };
 
@@ -1836,6 +1837,7 @@ fn ingest_one_code_asset(
         "python"     => CodePythonAstV1Chunker.chunker_version(),
         "typescript" => CodeTsAstV1Chunker.chunker_version(),
         "javascript" => CodeJsAstV1Chunker.chunker_version(),
+        "go" => anyhow::bail!("go ingest not yet wired (p10-1c-go Task F)"),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -1874,6 +1876,7 @@ fn ingest_one_code_asset(
         "javascript" => JavascriptAstExtractor::new()
             .extract(&ctx, &bytes)
             .context("kb-parse-code::JavascriptAstExtractor::extract (code:javascript)")?,
+        "go" => anyhow::bail!("go ingest not yet wired (p10-1c-go Task F)"),
         other => anyhow::bail!("unreachable (extract): {other}"),
     };
 
@@ -1891,6 +1894,7 @@ fn ingest_one_code_asset(
         "javascript" => CodeJsAstV1Chunker
             .chunk(&canonical, chunk_policy)
             .context("kb-chunk::CodeJsAstV1Chunker::chunk (code:javascript)")?,
+        "go" => anyhow::bail!("go ingest not yet wired (p10-1c-go Task F)"),
         other => anyhow::bail!("unreachable (chunk): {other}"),
     };
 
