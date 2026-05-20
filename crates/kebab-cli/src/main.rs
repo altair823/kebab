@@ -275,6 +275,14 @@ enum Cmd {
         #[arg(long, group = "reset_scope")]
         config_only: bool,
 
+        /// Purge stored docs that are outside the current walker scope
+        /// (config narrowing / removed sub-directory). No filesystem paths
+        /// are removed — this is purely a store-level reconciliation.
+        /// Filesystem existence is NOT checked; anything the current walker
+        /// would not visit is considered an orphan and removed from the store.
+        #[arg(long, group = "reset_scope")]
+        orphans_only: bool,
+
         /// Skip the interactive confirm. Required in non-interactive
         /// contexts (CI, pipes).
         #[arg(long)]
@@ -1094,6 +1102,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             data_only: _,
             vector_only,
             config_only,
+            orphans_only,
             yes,
         } => {
             use kebab_app::ResetScope;
@@ -1107,11 +1116,50 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 ResetScope::VectorOnly
             } else if *config_only {
                 ResetScope::ConfigOnly
+            } else if *orphans_only {
+                ResetScope::OrphansOnly
             } else {
                 ResetScope::DataOnly
             };
 
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+
+            if matches!(scope, ResetScope::OrphansOnly) {
+                // OrphansOnly: confirm UI shows orphan count + sample paths
+                // rather than on-disk directory sizes.
+                let orphan_paths = kebab_app::enumerate_orphans(&cfg)?;
+
+                if !*yes {
+                    use std::io::IsTerminal;
+                    if !std::io::stdin().is_terminal() {
+                        anyhow::bail!(
+                            "reset --orphans-only is destructive and stdin is non-interactive — pass --yes to proceed"
+                        );
+                    }
+                    if !confirm_orphans_only(&orphan_paths)? {
+                        if !cli.quiet {
+                            eprintln!("aborted.");
+                        }
+                        return Ok(());
+                    }
+                }
+
+                let report = kebab_app::reset::execute(scope, &cfg)?;
+                if cli.json {
+                    println!("{}", serde_json::to_string(&wire::wire_reset(&report))?);
+                } else {
+                    if report.orphans_purged > 0 {
+                        println!("orphans purged: {}", report.orphans_purged);
+                        for p in &report.purged_paths {
+                            println!("  - {}", p.0);
+                        }
+                    } else {
+                        println!("no orphaned docs found — store is already in sync with walker scope");
+                    }
+                }
+                return Ok(());
+            }
+
             let paths = kebab_app::reset::enumerate_paths(scope, &cfg);
             let bytes = kebab_app::reset::estimate_size_bytes(&paths);
 
@@ -1442,6 +1490,46 @@ fn confirm_destructive(
     }
     writeln!(out, "estimated total: {} bytes", bytes)?;
     write!(out, "Proceed? [y/N] ")?;
+    out.flush()?;
+
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    let s = line.trim().to_ascii_lowercase();
+    Ok(matches!(s.as_str(), "y" | "yes"))
+}
+
+/// Confirm prompt for `--orphans-only`: shows the orphan count + a
+/// sample of up to 5 paths so the user knows what will be purged before
+/// committing. No filesystem paths are removed — only store records.
+fn confirm_orphans_only(
+    orphan_paths: &[kebab_core::WorkspacePath],
+) -> anyhow::Result<bool> {
+    use std::io::Write;
+    let n = orphan_paths.len();
+    let mut out = std::io::stderr().lock();
+
+    if n == 0 {
+        writeln!(out, "no orphaned docs found — nothing to purge.")?;
+        out.flush()?;
+        // Nothing to do; treat as confirmed so the caller can emit the
+        // "no orphans" report without prompting.
+        return Ok(true);
+    }
+
+    let sample: Vec<&str> = orphan_paths
+        .iter()
+        .take(5)
+        .map(|p| p.0.as_str())
+        .collect();
+    let sample_str = sample.join(", ");
+    let ellipsis = if n > 5 { ", …" } else { "" };
+
+    writeln!(
+        out,
+        "Purge {n} stored doc(s) outside the current walker scope? (no filesystem paths removed)"
+    )?;
+    writeln!(out, "  sample: {sample_str}{ellipsis}")?;
+    write!(out, "[y/N] ")?;
     out.flush()?;
 
     let mut line = String::new();

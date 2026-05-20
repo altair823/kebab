@@ -365,6 +365,8 @@ mod tests {
             scope: kebab_app::ResetScope::DataOnly,
             removed_paths: vec![std::path::PathBuf::from("/tmp/x")],
             embedding_rows_truncated: 0,
+            orphans_purged: 0,
+            purged_paths: vec![],
         };
         let v = wire_reset(&r);
         assert_eq!(schema_of(&v), Some("reset_report.v1"));

@@ -71,7 +71,7 @@ mod staleness;
 
 pub use app::{App, SearchResponse};
 pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
-pub use reset::{ResetReport, ResetScope};
+pub use reset::{ResetReport, ResetScope, enumerate_orphans};
 pub use error_wire::{ERROR_V1_ID, ErrorV1, StructuredError, classify};
 pub use fetch::fetch_with_config;
 #[doc(hidden)]
