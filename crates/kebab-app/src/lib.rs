@@ -39,7 +39,7 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
-use kebab_chunk::{CodeJsAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTsAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
+use kebab_chunk::{CodeGoAstV1Chunker, CodeJsAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTsAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
@@ -50,7 +50,7 @@ use kebab_core::{
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_normalize::build_canonical_document;
 use kebab_parse_image::{ImageExtractor, OllamaVisionOcr, apply_caption, apply_ocr};
-use kebab_parse_code::{JavascriptAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor};
+use kebab_parse_code::{GoAstExtractor, JavascriptAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor};
 use kebab_parse_pdf::PdfTextExtractor;
 use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
@@ -1827,7 +1827,7 @@ fn ingest_one_code_asset(
         "python"     => ParserVersion(kebab_parse_code::PYTHON_PARSER_VERSION.to_string()),
         "typescript" => ParserVersion(kebab_parse_code::TS_PARSER_VERSION.to_string()),
         "javascript" => ParserVersion(kebab_parse_code::JS_PARSER_VERSION.to_string()),
-        "go" => anyhow::bail!("go ingest not yet wired (p10-1c-go Task F)"),
+        "go" => ParserVersion(kebab_parse_code::GO_PARSER_VERSION.to_string()),
         other => anyhow::bail!("unsupported code_lang: {other}"),
     };
 
@@ -1837,7 +1837,7 @@ fn ingest_one_code_asset(
         "python"     => CodePythonAstV1Chunker.chunker_version(),
         "typescript" => CodeTsAstV1Chunker.chunker_version(),
         "javascript" => CodeJsAstV1Chunker.chunker_version(),
-        "go" => anyhow::bail!("go ingest not yet wired (p10-1c-go Task F)"),
+        "go" => CodeGoAstV1Chunker.chunker_version(),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -1876,7 +1876,9 @@ fn ingest_one_code_asset(
         "javascript" => JavascriptAstExtractor::new()
             .extract(&ctx, &bytes)
             .context("kb-parse-code::JavascriptAstExtractor::extract (code:javascript)")?,
-        "go" => anyhow::bail!("go ingest not yet wired (p10-1c-go Task F)"),
+        "go" => GoAstExtractor::new()
+            .extract(&ctx, &bytes)
+            .context("kb-parse-code::GoAstExtractor::extract (code:go)")?,
         other => anyhow::bail!("unreachable (extract): {other}"),
     };
 
@@ -1894,7 +1896,9 @@ fn ingest_one_code_asset(
         "javascript" => CodeJsAstV1Chunker
             .chunk(&canonical, chunk_policy)
             .context("kb-chunk::CodeJsAstV1Chunker::chunk (code:javascript)")?,
-        "go" => anyhow::bail!("go ingest not yet wired (p10-1c-go Task F)"),
+        "go" => CodeGoAstV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::CodeGoAstV1Chunker::chunk (code:go)")?,
         other => anyhow::bail!("unreachable (chunk): {other}"),
     };
 
