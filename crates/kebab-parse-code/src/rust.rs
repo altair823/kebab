@@ -393,7 +393,7 @@ mod tests {
             concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/sample.rs"),
         )
         .unwrap();
-        let asset = kebab_parse_code_test_support::fixed_rust_asset("crates/x/src/sample.rs");
+        let asset = tests_support::fixed_code_asset("crates/x/src/sample.rs", "rust");
         let cfg = kebab_core::ExtractConfig::default();
         let root = std::path::PathBuf::from("/tmp");
         let ctx = kebab_core::ExtractContext { asset: &asset, workspace_root: &root, config: &cfg };
@@ -444,7 +444,7 @@ mod tests {
     /// Run the extractor on an in-memory Rust source string (no fixture
     /// file) and return (symbol, code) for every emitted block.
     fn extract_inline(source: &str) -> Vec<(String, String)> {
-        let asset = kebab_parse_code_test_support::fixed_rust_asset("crates/x/src/inline.rs");
+        let asset = tests_support::fixed_code_asset("crates/x/src/inline.rs", "rust");
         let cfg = kebab_core::ExtractConfig::default();
         let root = std::path::PathBuf::from("/tmp");
         let ctx = kebab_core::ExtractContext { asset: &asset, workspace_root: &root, config: &cfg };
@@ -531,20 +531,23 @@ mod tests {
 }
 
 #[cfg(test)]
-mod kebab_parse_code_test_support {
+pub(crate) mod tests_support {
     use kebab_core::*;
     use time::OffsetDateTime;
-    pub fn fixed_rust_asset(path: &str) -> RawAsset {
+    /// Test-only `RawAsset` builder for any tree-sitter language. Shared
+    /// across `rust.rs` / `python.rs` / future TS+JS extractor tests so all
+    /// in-crate code-extractor tests use a single canonical fixture shape.
+    pub fn fixed_code_asset(workspace_path: &str, code_lang: &str) -> RawAsset {
         RawAsset {
             asset_id: AssetId("a".repeat(64)),
-            source_uri: SourceUri::File(std::path::PathBuf::from(path)),
-            workspace_path: WorkspacePath(path.to_string()),
-            media_type: MediaType::Code("rust".to_string()),
+            source_uri: SourceUri::File(std::path::PathBuf::from(workspace_path)),
+            workspace_path: WorkspacePath(workspace_path.to_string()),
+            media_type: MediaType::Code(code_lang.to_string()),
             byte_len: 0,
             checksum: Checksum("b".repeat(64)),
             discovered_at: OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap(),
             stored: AssetStorage::Reference {
-                path: std::path::PathBuf::from(path),
+                path: std::path::PathBuf::from(workspace_path),
                 sha: Checksum("b".repeat(64)),
             },
         }
