@@ -1,0 +1,170 @@
+[
+  {
+    "block_ids": [
+      "03d62d5e6fe70e2b05546e2e65001238"
+    ],
+    "chunk_id": "0ed8c548c0ce05f9efab29fe0eaf3d8a",
+    "chunker_version": "code-java-ast-v1",
+    "doc_id": "8f387bbe64ae860e73eef14ea38e65b4",
+    "heading_path": [],
+    "policy_hash": "78baaa9b8319bd24",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "java",
+        "line_end": 5,
+        "line_start": 1,
+        "symbol": "imports"
+      }
+    ],
+    "text": "import java.util.List;\nimport java.util.Map;\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.stream.Collectors;",
+    "token_estimate": 45
+  },
+  {
+    "block_ids": [
+      "bbd220978bbe6cf920664d0d4007a1eb"
+    ],
+    "chunk_id": "743256121a51a58a1e8006cda750d245",
+    "chunker_version": "code-java-ast-v1",
+    "doc_id": "8f387bbe64ae860e73eef14ea38e65b4",
+    "heading_path": [],
+    "policy_hash": "78baaa9b8319bd24",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "java",
+        "line_end": 12,
+        "line_start": 7,
+        "symbol": "computeMRR"
+      }
+    ],
+    "text": "public static double computeMRR(List<Double> scores) {\n    if (scores.isEmpty()) {\n        return 0.0;\n    }\n    return 1.0 / scores.size();\n}",
+    "token_estimate": 48
+  },
+  {
+    "block_ids": [
+      "484d1abcad06dabb45c81284ad887a25"
+    ],
+    "chunk_id": "025d2a911be6362013e15f2f3d52a58f",
+    "chunker_version": "code-java-ast-v1",
+    "doc_id": "8f387bbe64ae860e73eef14ea38e65b4",
+    "heading_path": [],
+    "policy_hash": "78baaa9b8319bd24",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "java",
+        "line_end": 20,
+        "line_start": 14,
+        "symbol": "MetricsCollector"
+      }
+    ],
+    "text": "public class MetricsCollector {\n    private List<Double> scores;\n    private List<String> labels;\n    private Map<String, Integer> counts;\n    private Map<String, Double> totals;\n    private List<String> tags;\n}",
+    "token_estimate": 71
+  },
+  {
+    "block_ids": [
+      "8b1cb841f509de0ce14425e09bd959ad"
+    ],
+    "chunk_id": "38f4f1fc7e6304414005c705829690e0",
+    "chunker_version": "code-java-ast-v1",
+    "doc_id": "8f387bbe64ae860e73eef14ea38e65b4",
+    "heading_path": [],
+    "policy_hash": "78baaa9b8319bd24",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "java",
+        "line_end": 30,
+        "line_start": 22,
+        "symbol": "BaseEvaluator"
+      }
+    ],
+    "text": "public class BaseEvaluator {\n    private String name;\n\n    public BaseEvaluator(String name) {\n        this.name = name;\n    }\n\n    public void evaluate(List<String> data) throws Exception {\n        String joined = String.join(\",\", data);\n    }\n}",
+    "token_estimate": 82
+  },
+  {
+    "block_ids": [
+      "761545865918f8f5e94aa346c9bb2012"
+    ],
+    "chunk_id": "54b178f6df31abbb14ac3975f2cdb649",
+    "chunker_version": "code-java-ast-v1",
+    "doc_id": "8f387bbe64ae860e73eef14ea38e65b4",
+    "heading_path": [],
+    "policy_hash": "78baaa9b8319bd24",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "java",
+        "line_end": 38,
+        "line_start": 32,
+        "symbol": "MetricsCollector.run"
+      }
+    ],
+    "text": "public void run(List<Double> inputs) {\n    for (Double inp : inputs) {\n        scores.add(\n            inp\n        );\n    }\n}",
+    "token_estimate": 42
+  },
+  {
+    "block_ids": [
+      "bc2f4d65b9b2d43adbfb352e6e0d4d3c"
+    ],
+    "chunk_id": "cb90222c8fc4b1046f6488874335d9e6",
+    "chunker_version": "code-java-ast-v1",
+    "doc_id": "8f387bbe64ae860e73eef14ea38e65b4",
+    "heading_path": [],
+    "policy_hash": "78baaa9b8319bd24",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "java",
+        "line_end": 46,
+        "line_start": 40,
+        "symbol": "MetricsCollector.report"
+      }
+    ],
+    "text": "public Map<String, Object> report() {\n    Map<String, Object> result = new HashMap<>();\n    result.put(\"mean\", 0.0);\n    result.put(\"count\", scores.size());\n    result.put(\"tags\", tags);\n    return result;\n}",
+    "token_estimate": 69
+  },
+  {
+    "block_ids": [
+      "f22ed2da0b1c3d24cc606aebd24bf6d1"
+    ],
+    "chunk_id": "b776c1307469ae299694c68dfcc22771",
+    "chunker_version": "code-java-ast-v1",
+    "doc_id": "8f387bbe64ae860e73eef14ea38e65b4",
+    "heading_path": [],
+    "policy_hash": "78baaa9b8319bd24",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "java",
+        "line_end": 247,
+        "line_start": 48,
+        "symbol": "BigCompute [part 1/2]"
+      }
+    ],
+    "text": "public class BigCompute {\n    public int compute(int[] data) {\n        int v0 = 0 < data.length ? data[0] : 0;\n        int v1 = 1 < data.length ? data[1] : 0;\n        int v2 = 2 < data.length ? data[2] : 0;\n        int v3 = 3 < data.length ? data[3] : 0;\n        int v4 = 4 < data.length ? data[4] : 0;\n        int v5 = 5 < data.length ? data[5] : 0;\n        int v6 = 6 < data.length ? data[6] : 0;\n        int v7 = 7 < data.length ? data[7] : 0;\n        int v8 = 8 < data.length ? data[8] : 0;\n        int v9 = 9 < data.length ? data[9] : 0;\n        int v10 = 10 < data.length ? data[10] : 0;\n        int v11 = 11 < data.length ? data[11] : 0;\n        int v12 = 12 < data.length ? data[12] : 0;\n        int v13 = 13 < data.length ? data[13] : 0;\n        int v14 = 14 < data.length ? data[14] : 0;\n        int v15 = 15 < data.length ? data[15] : 0;\n        int v16 = 16 < data.length ? data[16] : 0;\n        int v17 = 17 < data.length ? data[17] : 0;\n        int v18 = 18 < data.length ? data[18] : 0;\n        int v19 = 19 < data.length ? data[19] : 0;\n        int v20 = 20 < data.length ? data[20] : 0;\n        int v21 = 21 < data.length ? data[21] : 0;\n        int v22 = 22 < data.length ? data[22] : 0;\n        int v23 = 23 < data.length ? data[23] : 0;\n        int v24 = 24 < data.length ? data[24] : 0;\n        int v25 = 25 < data.length ? data[25] : 0;\n        int v26 = 26 < data.length ? data[26] : 0;\n        int v27 = 27 < data.length ? data[27] : 0;\n        int v28 = 28 < data.length ? data[28] : 0;\n        int v29 = 29 < data.length ? data[29] : 0;\n        int v30 = 30 < data.length ? data[30] : 0;\n        int v31 = 31 < data.length ? data[31] : 0;\n        int v32 = 32 < data.length ? data[32] : 0;\n        int v33 = 33 < data.length ? data[33] : 0;\n        int v34 = 34 < data.length ? data[34] : 0;\n        int v35 = 35 < data.length ? data[35] : 0;\n        int v36 = 36 < data.length ? data[36] : 0;\n        int v37 = 37 < data.length ? data[37] : 0;\n        int v38 = 38 < data.length ? data[38] : 0;\n        int v39 = 39 < data.length ? data[39] : 0;\n        int v40 = 40 < data.length ? data[40] : 0;\n        int v41 = 41 < data.length ? data[41] : 0;\n        int v42 = 42 < data.length ? data[42] : 0;\n        int v43 = 43 < data.length ? data[43] : 0;\n        int v44 = 44 < data.length ? data[44] : 0;\n        int v45 = 45 < data.length ? data[45] : 0;\n        int v46 = 46 < data.length ? data[46] : 0;\n        int v47 = 47 < data.length ? data[47] : 0;\n        int v48 = 48 < data.length ? data[48] : 0;\n        int v49 = 49 < data.length ? data[49] : 0;\n        int v50 = 50 < data.length ? data[50] : 0;\n        int v51 = 51 < data.length ? data[51] : 0;\n        int v52 = 52 < data.length ? data[52] : 0;\n        int v53 = 53 < data.length ? data[53] : 0;\n        int v54 = 54 < data.length ? data[54] : 0;\n        int v55 = 55 < data.length ? data[55] : 0;\n        int v56 = 56 < data.length ? data[56] : 0;\n        int v57 = 57 < data.length ? data[57] : 0;\n        int v58 = 58 < data.length ? data[58] : 0;\n        int v59 = 59 < data.length ? data[59] : 0;\n        int v60 = 60 < data.length ? data[60] : 0;\n        int v61 = 61 < data.length ? data[61] : 0;\n        int v62 = 62 < data.length ? data[62] : 0;\n        int v63 = 63 < data.length ? data[63] : 0;\n        int v64 = 64 < data.length ? data[64] : 0;\n        int v65 = 65 < data.length ? data[65] : 0;\n        int v66 = 66 < data.length ? data[66] : 0;\n        int v67 = 67 < data.length ? data[67] : 0;\n        int v68 = 68 < data.length ? data[68] : 0;\n        int v69 = 69 < data.length ? data[69] : 0;\n        int v70 = 70 < data.length ? data[70] : 0;\n        int v71 = 71 < data.length ? data[71] : 0;\n        int v72 = 72 < data.length ? data[72] : 0;\n        int v73 = 73 < data.length ? data[73] : 0;\n        int v74 = 74 < data.length ? data[74] : 0;\n        int v75 = 75 < data.length ? data[75] : 0;\n        int v76 = 76 < data.length ? data[76] : 0;\n        int v77 = 77 < data.length ? data[77] : 0;\n        int v78 = 78 < data.length ? data[78] : 0;\n        int v79 = 79 < data.length ? data[79] : 0;\n        int v80 = 80 < data.length ? data[80] : 0;\n        int v81 = 81 < data.length ? data[81] : 0;\n        int v82 = 82 < data.length ? data[82] : 0;\n        int v83 = 83 < data.length ? data[83] : 0;\n        int v84 = 84 < data.length ? data[84] : 0;\n        int v85 = 85 < data.length ? data[85] : 0;\n        int v86 = 86 < data.length ? data[86] : 0;\n        int v87 = 87 < data.length ? data[87] : 0;\n        int v88 = 88 < data.length ? data[88] : 0;\n        int v89 = 89 < data.length ? data[89] : 0;\n        int v90 = 90 < data.length ? data[90] : 0;\n        int v91 = 91 < data.length ? data[91] : 0;\n        int v92 = 92 < data.length ? data[92] : 0;\n        int v93 = 93 < data.length ? data[93] : 0;\n        int v94 = 94 < data.length ? data[94] : 0;\n        int v95 = 95 < data.length ? data[95] : 0;\n        int v96 = 96 < data.length ? data[96] : 0;\n        int v97 = 97 < data.length ? data[97] : 0;\n        int v98 = 98 < data.length ? data[98] : 0;\n        int v99 = 99 < data.length ? data[99] : 0;\n        int v100 = 100 < data.length ? data[100] : 0;\n        int v101 = 101 < data.length ? data[101] : 0;\n        int v102 = 102 < data.length ? data[102] : 0;\n        int v103 = 103 < data.length ? data[103] : 0;\n        int v104 = 104 < data.length ? data[104] : 0;\n        int v105 = 105 < data.length ? data[105] : 0;\n        int v106 = 106 < data.length ? data[106] : 0;\n        int v107 = 107 < data.length ? data[107] : 0;\n        int v108 = 108 < data.length ? data[108] : 0;\n        int v109 = 109 < data.length ? data[109] : 0;\n        int v110 = 110 < data.length ? data[110] : 0;\n        int v111 = 111 < data.length ? data[111] : 0;\n        int v112 = 112 < data.length ? data[112] : 0;\n        int v113 = 113 < data.length ? data[113] : 0;\n        int v114 = 114 < data.length ? data[114] : 0;\n        int v115 = 115 < data.length ? data[115] : 0;\n        int v116 = 116 < data.length ? data[116] : 0;\n        int v117 = 117 < data.length ? data[117] : 0;\n        int v118 = 118 < data.length ? data[118] : 0;\n        int v119 = 119 < data.length ? data[119] : 0;\n        int v120 = 120 < data.length ? data[120] : 0;\n        int v121 = 121 < data.length ? data[121] : 0;\n        int v122 = 122 < data.length ? data[122] : 0;\n        int v123 = 123 < data.length ? data[123] : 0;\n        int v124 = 124 < data.length ? data[124] : 0;\n        int v125 = 125 < data.length ? data[125] : 0;\n        int v126 = 126 < data.length ? data[126] : 0;\n        int v127 = 127 < data.length ? data[127] : 0;\n        int v128 = 128 < data.length ? data[128] : 0;\n        int v129 = 129 < data.length ? data[129] : 0;\n        int v130 = 130 < data.length ? data[130] : 0;\n        int v131 = 131 < data.length ? data[131] : 0;\n        int v132 = 132 < data.length ? data[132] : 0;\n        int v133 = 133 < data.length ? data[133] : 0;\n        int v134 = 134 < data.length ? data[134] : 0;\n        int v135 = 135 < data.length ? data[135] : 0;\n        int v136 = 136 < data.length ? data[136] : 0;\n        int v137 = 137 < data.length ? data[137] : 0;\n        int v138 = 138 < data.length ? data[138] : 0;\n        int v139 = 139 < data.length ? data[139] : 0;\n        int v140 = 140 < data.length ? data[140] : 0;\n        int v141 = 141 < data.length ? data[141] : 0;\n        int v142 = 142 < data.length ? data[142] : 0;\n        int v143 = 143 < data.length ? data[143] : 0;\n        int v144 = 144 < data.length ? data[144] : 0;\n        int v145 = 145 < data.length ? data[145] : 0;\n        int v146 = 146 < data.length ? data[146] : 0;\n        int v147 = 147 < data.length ? data[147] : 0;\n        int v148 = 148 < data.length ? data[148] : 0;\n        int v149 = 149 < data.length ? data[149] : 0;\n        int v150 = 150 < data.length ? data[150] : 0;\n        int v151 = 151 < data.length ? data[151] : 0;\n        int v152 = 152 < data.length ? data[152] : 0;\n        int v153 = 153 < data.length ? data[153] : 0;\n        int v154 = 154 < data.length ? data[154] : 0;\n        int v155 = 155 < data.length ? data[155] : 0;\n        int v156 = 156 < data.length ? data[156] : 0;\n        int v157 = 157 < data.length ? data[157] : 0;\n        int v158 = 158 < data.length ? data[158] : 0;\n        int v159 = 159 < data.length ? data[159] : 0;\n        int v160 = 160 < data.length ? data[160] : 0;\n        int v161 = 161 < data.length ? data[161] : 0;\n        int v162 = 162 < data.length ? data[162] : 0;\n        int v163 = 163 < data.length ? data[163] : 0;\n        int v164 = 164 < data.length ? data[164] : 0;\n        int v165 = 165 < data.length ? data[165] : 0;\n        int v166 = 166 < data.length ? data[166] : 0;\n        int v167 = 167 < data.length ? data[167] : 0;\n        int v168 = 168 < data.length ? data[168] : 0;\n        int v169 = 169 < data.length ? data[169] : 0;\n        int v170 = 170 < data.length ? data[170] : 0;\n        int v171 = 171 < data.length ? data[171] : 0;\n        int v172 = 172 < data.length ? data[172] : 0;\n        int v173 = 173 < data.length ? data[173] : 0;\n        int v174 = 174 < data.length ? data[174] : 0;\n        int v175 = 175 < data.length ? data[175] : 0;\n        int v176 = 176 < data.length ? data[176] : 0;\n        int v177 = 177 < data.length ? data[177] : 0;\n        int v178 = 178 < data.length ? data[178] : 0;\n        int v179 = 179 < data.length ? data[179] : 0;\n        int v180 = 180 < data.length ? data[180] : 0;\n        int v181 = 181 < data.length ? data[181] : 0;\n        int v182 = 182 < data.length ? data[182] : 0;\n        int v183 = 183 < data.length ? data[183] : 0;\n        int v184 = 184 < data.length ? data[184] : 0;\n        int v185 = 185 < data.length ? data[185] : 0;\n        int v186 = 186 < data.length ? data[186] : 0;\n        int v187 = 187 < data.length ? data[187] : 0;\n        int v188 = 188 < data.length ? data[188] : 0;\n        int v189 = 189 < data.length ? data[189] : 0;\n        int v190 = 190 < data.length ? data[190] : 0;\n        int v191 = 191 < data.length ? data[191] : 0;\n        int v192 = 192 < data.length ? data[192] : 0;\n        int v193 = 193 < data.length ? data[193] : 0;\n        int v194 = 194 < data.length ? data[194] : 0;\n        int v195 = 195 < data.length ? data[195] : 0;\n        int v196 = 196 < data.length ? data[196] : 0;\n        int v197 = 197 < data.length ? data[197] : 0;",
+    "token_estimate": 3475
+  },
+  {
+    "block_ids": [
+      "f22ed2da0b1c3d24cc606aebd24bf6d1"
+    ],
+    "chunk_id": "d84568139b72017d6f95c23bf8ba6d81",
+    "chunker_version": "code-java-ast-v1",
+    "doc_id": "8f387bbe64ae860e73eef14ea38e65b4",
+    "heading_path": [],
+    "policy_hash": "78baaa9b8319bd24",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "java",
+        "line_end": 262,
+        "line_start": 248,
+        "symbol": "BigCompute [part 2/2]"
+      }
+    ],
+    "text": "        int v198 = 198 < data.length ? data[198] : 0;\n        int v199 = 199 < data.length ? data[199] : 0;\n        int v200 = 200 < data.length ? data[200] : 0;\n        int v201 = 201 < data.length ? data[201] : 0;\n        int v202 = 202 < data.length ? data[202] : 0;\n        int v203 = 203 < data.length ? data[203] : 0;\n        int v204 = 204 < data.length ? data[204] : 0;\n        int v205 = 205 < data.length ? data[205] : 0;\n        int v206 = 206 < data.length ? data[206] : 0;\n        int v207 = 207 < data.length ? data[207] : 0;\n        int v208 = 208 < data.length ? data[208] : 0;\n        int v209 = 209 < data.length ? data[209] : 0;\n        return data.length;\n    }\n}",
+    "token_estimate": 228
+  }
+]

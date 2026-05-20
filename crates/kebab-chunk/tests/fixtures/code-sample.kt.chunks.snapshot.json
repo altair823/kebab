@@ -1,0 +1,170 @@
+[
+  {
+    "block_ids": [
+      "d11c97fb8204b59f00fccc5c8b64492e"
+    ],
+    "chunk_id": "0dab69cdf08ed0d1028e8067909a056c",
+    "chunker_version": "code-kotlin-ast-v1",
+    "doc_id": "e9dfb08b45fd884ec31b25f9dfac6b8f",
+    "heading_path": [],
+    "policy_hash": "a8236b5d66bd59a2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "kotlin",
+        "line_end": 5,
+        "line_start": 1,
+        "symbol": "imports"
+      }
+    ],
+    "text": "import kotlin.collections.List\nimport kotlin.collections.Map\nimport kotlin.collections.MutableList\nimport kotlin.collections.MutableMap\nimport kotlin.collections.mutableListOf",
+    "token_estimate": 59
+  },
+  {
+    "block_ids": [
+      "8cd5b3ab9657de15405ee3ac5fcf75c1"
+    ],
+    "chunk_id": "caaed42871995181992721ec2b5a8c5c",
+    "chunker_version": "code-kotlin-ast-v1",
+    "doc_id": "e9dfb08b45fd884ec31b25f9dfac6b8f",
+    "heading_path": [],
+    "policy_hash": "a8236b5d66bd59a2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "kotlin",
+        "line_end": 12,
+        "line_start": 7,
+        "symbol": "computeMRR"
+      }
+    ],
+    "text": "fun computeMRR(scores: List<Double>): Double {\n    if (scores.isEmpty()) {\n        return 0.0\n    }\n    return 1.0 / scores.size\n}",
+    "token_estimate": 44
+  },
+  {
+    "block_ids": [
+      "378cc4eede82b166c9b35b0e85b8c62f"
+    ],
+    "chunk_id": "7ac5cecfe91de50bdd314391c495f1d1",
+    "chunker_version": "code-kotlin-ast-v1",
+    "doc_id": "e9dfb08b45fd884ec31b25f9dfac6b8f",
+    "heading_path": [],
+    "policy_hash": "a8236b5d66bd59a2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "kotlin",
+        "line_end": 20,
+        "line_start": 14,
+        "symbol": "MetricsCollector"
+      }
+    ],
+    "text": "data class MetricsCollector(\n    val scores: MutableList<Double> = mutableListOf(),\n    val labels: MutableList<String> = mutableListOf(),\n    val counts: MutableMap<String, Int> = mutableMapOf(),\n    val totals: MutableMap<String, Double> = mutableMapOf(),\n    val tags: MutableList<String> = mutableListOf(),\n)",
+    "token_estimate": 104
+  },
+  {
+    "block_ids": [
+      "6f2dd4880b621f9340771a9dccb3b5f1"
+    ],
+    "chunk_id": "c6473dc1d96c9f0958632595d1186ef5",
+    "chunker_version": "code-kotlin-ast-v1",
+    "doc_id": "e9dfb08b45fd884ec31b25f9dfac6b8f",
+    "heading_path": [],
+    "policy_hash": "a8236b5d66bd59a2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "kotlin",
+        "line_end": 30,
+        "line_start": 22,
+        "symbol": "BaseEvaluator"
+      }
+    ],
+    "text": "open class BaseEvaluator(val name: String) {\n\n    fun evaluate(data: List<String>) {\n        val joined = data.joinToString(\",\")\n        println(joined)\n    }\n\n    open fun describe(): String = name\n}",
+    "token_estimate": 67
+  },
+  {
+    "block_ids": [
+      "f6f2b4549b29dc68836950d508a00207"
+    ],
+    "chunk_id": "3910815f53944fb3b6cdf307e96c825c",
+    "chunker_version": "code-kotlin-ast-v1",
+    "doc_id": "e9dfb08b45fd884ec31b25f9dfac6b8f",
+    "heading_path": [],
+    "policy_hash": "a8236b5d66bd59a2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "kotlin",
+        "line_end": 38,
+        "line_start": 32,
+        "symbol": "MetricsCollector.run"
+      }
+    ],
+    "text": "fun MetricsCollector.run(inputs: List<Double>) {\n    for (inp in inputs) {\n        scores.add(\n            inp\n        )\n    }\n}",
+    "token_estimate": 43
+  },
+  {
+    "block_ids": [
+      "32386dba97278b43f9c892c8c4e78e9d"
+    ],
+    "chunk_id": "fdba90c38bf2ee4bdfe7ad6edbd5c07f",
+    "chunker_version": "code-kotlin-ast-v1",
+    "doc_id": "e9dfb08b45fd884ec31b25f9dfac6b8f",
+    "heading_path": [],
+    "policy_hash": "a8236b5d66bd59a2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "kotlin",
+        "line_end": 46,
+        "line_start": 40,
+        "symbol": "MetricsCollector.report"
+      }
+    ],
+    "text": "fun MetricsCollector.report(): Map<String, Any> {\n    return mapOf(\n        \"mean\" to 0.0,\n        \"count\" to scores.size,\n        \"tags\" to tags,\n    )\n}",
+    "token_estimate": 52
+  },
+  {
+    "block_ids": [
+      "fbefaf4289794148afd38f22b2e1bd1d"
+    ],
+    "chunk_id": "fd98b08ca67b30033c4cc8b0ce8615fa",
+    "chunker_version": "code-kotlin-ast-v1",
+    "doc_id": "e9dfb08b45fd884ec31b25f9dfac6b8f",
+    "heading_path": [],
+    "policy_hash": "a8236b5d66bd59a2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "kotlin",
+        "line_end": 247,
+        "line_start": 48,
+        "symbol": "BigCompute [part 1/2]"
+      }
+    ],
+    "text": "class BigCompute {\n    fun compute(data: IntArray): Int {\n        val v0 = if (0 < data.size) data[0] else 0\n        val v1 = if (1 < data.size) data[1] else 0\n        val v2 = if (2 < data.size) data[2] else 0\n        val v3 = if (3 < data.size) data[3] else 0\n        val v4 = if (4 < data.size) data[4] else 0\n        val v5 = if (5 < data.size) data[5] else 0\n        val v6 = if (6 < data.size) data[6] else 0\n        val v7 = if (7 < data.size) data[7] else 0\n        val v8 = if (8 < data.size) data[8] else 0\n        val v9 = if (9 < data.size) data[9] else 0\n        val v10 = if (10 < data.size) data[10] else 0\n        val v11 = if (11 < data.size) data[11] else 0\n        val v12 = if (12 < data.size) data[12] else 0\n        val v13 = if (13 < data.size) data[13] else 0\n        val v14 = if (14 < data.size) data[14] else 0\n        val v15 = if (15 < data.size) data[15] else 0\n        val v16 = if (16 < data.size) data[16] else 0\n        val v17 = if (17 < data.size) data[17] else 0\n        val v18 = if (18 < data.size) data[18] else 0\n        val v19 = if (19 < data.size) data[19] else 0\n        val v20 = if (20 < data.size) data[20] else 0\n        val v21 = if (21 < data.size) data[21] else 0\n        val v22 = if (22 < data.size) data[22] else 0\n        val v23 = if (23 < data.size) data[23] else 0\n        val v24 = if (24 < data.size) data[24] else 0\n        val v25 = if (25 < data.size) data[25] else 0\n        val v26 = if (26 < data.size) data[26] else 0\n        val v27 = if (27 < data.size) data[27] else 0\n        val v28 = if (28 < data.size) data[28] else 0\n        val v29 = if (29 < data.size) data[29] else 0\n        val v30 = if (30 < data.size) data[30] else 0\n        val v31 = if (31 < data.size) data[31] else 0\n        val v32 = if (32 < data.size) data[32] else 0\n        val v33 = if (33 < data.size) data[33] else 0\n        val v34 = if (34 < data.size) data[34] else 0\n        val v35 = if (35 < data.size) data[35] else 0\n        val v36 = if (36 < data.size) data[36] else 0\n        val v37 = if (37 < data.size) data[37] else 0\n        val v38 = if (38 < data.size) data[38] else 0\n        val v39 = if (39 < data.size) data[39] else 0\n        val v40 = if (40 < data.size) data[40] else 0\n        val v41 = if (41 < data.size) data[41] else 0\n        val v42 = if (42 < data.size) data[42] else 0\n        val v43 = if (43 < data.size) data[43] else 0\n        val v44 = if (44 < data.size) data[44] else 0\n        val v45 = if (45 < data.size) data[45] else 0\n        val v46 = if (46 < data.size) data[46] else 0\n        val v47 = if (47 < data.size) data[47] else 0\n        val v48 = if (48 < data.size) data[48] else 0\n        val v49 = if (49 < data.size) data[49] else 0\n        val v50 = if (50 < data.size) data[50] else 0\n        val v51 = if (51 < data.size) data[51] else 0\n        val v52 = if (52 < data.size) data[52] else 0\n        val v53 = if (53 < data.size) data[53] else 0\n        val v54 = if (54 < data.size) data[54] else 0\n        val v55 = if (55 < data.size) data[55] else 0\n        val v56 = if (56 < data.size) data[56] else 0\n        val v57 = if (57 < data.size) data[57] else 0\n        val v58 = if (58 < data.size) data[58] else 0\n        val v59 = if (59 < data.size) data[59] else 0\n        val v60 = if (60 < data.size) data[60] else 0\n        val v61 = if (61 < data.size) data[61] else 0\n        val v62 = if (62 < data.size) data[62] else 0\n        val v63 = if (63 < data.size) data[63] else 0\n        val v64 = if (64 < data.size) data[64] else 0\n        val v65 = if (65 < data.size) data[65] else 0\n        val v66 = if (66 < data.size) data[66] else 0\n        val v67 = if (67 < data.size) data[67] else 0\n        val v68 = if (68 < data.size) data[68] else 0\n        val v69 = if (69 < data.size) data[69] else 0\n        val v70 = if (70 < data.size) data[70] else 0\n        val v71 = if (71 < data.size) data[71] else 0\n        val v72 = if (72 < data.size) data[72] else 0\n        val v73 = if (73 < data.size) data[73] else 0\n        val v74 = if (74 < data.size) data[74] else 0\n        val v75 = if (75 < data.size) data[75] else 0\n        val v76 = if (76 < data.size) data[76] else 0\n        val v77 = if (77 < data.size) data[77] else 0\n        val v78 = if (78 < data.size) data[78] else 0\n        val v79 = if (79 < data.size) data[79] else 0\n        val v80 = if (80 < data.size) data[80] else 0\n        val v81 = if (81 < data.size) data[81] else 0\n        val v82 = if (82 < data.size) data[82] else 0\n        val v83 = if (83 < data.size) data[83] else 0\n        val v84 = if (84 < data.size) data[84] else 0\n        val v85 = if (85 < data.size) data[85] else 0\n        val v86 = if (86 < data.size) data[86] else 0\n        val v87 = if (87 < data.size) data[87] else 0\n        val v88 = if (88 < data.size) data[88] else 0\n        val v89 = if (89 < data.size) data[89] else 0\n        val v90 = if (90 < data.size) data[90] else 0\n        val v91 = if (91 < data.size) data[91] else 0\n        val v92 = if (92 < data.size) data[92] else 0\n        val v93 = if (93 < data.size) data[93] else 0\n        val v94 = if (94 < data.size) data[94] else 0\n        val v95 = if (95 < data.size) data[95] else 0\n        val v96 = if (96 < data.size) data[96] else 0\n        val v97 = if (97 < data.size) data[97] else 0\n        val v98 = if (98 < data.size) data[98] else 0\n        val v99 = if (99 < data.size) data[99] else 0\n        val v100 = if (100 < data.size) data[100] else 0\n        val v101 = if (101 < data.size) data[101] else 0\n        val v102 = if (102 < data.size) data[102] else 0\n        val v103 = if (103 < data.size) data[103] else 0\n        val v104 = if (104 < data.size) data[104] else 0\n        val v105 = if (105 < data.size) data[105] else 0\n        val v106 = if (106 < data.size) data[106] else 0\n        val v107 = if (107 < data.size) data[107] else 0\n        val v108 = if (108 < data.size) data[108] else 0\n        val v109 = if (109 < data.size) data[109] else 0\n        val v110 = if (110 < data.size) data[110] else 0\n        val v111 = if (111 < data.size) data[111] else 0\n        val v112 = if (112 < data.size) data[112] else 0\n        val v113 = if (113 < data.size) data[113] else 0\n        val v114 = if (114 < data.size) data[114] else 0\n        val v115 = if (115 < data.size) data[115] else 0\n        val v116 = if (116 < data.size) data[116] else 0\n        val v117 = if (117 < data.size) data[117] else 0\n        val v118 = if (118 < data.size) data[118] else 0\n        val v119 = if (119 < data.size) data[119] else 0\n        val v120 = if (120 < data.size) data[120] else 0\n        val v121 = if (121 < data.size) data[121] else 0\n        val v122 = if (122 < data.size) data[122] else 0\n        val v123 = if (123 < data.size) data[123] else 0\n        val v124 = if (124 < data.size) data[124] else 0\n        val v125 = if (125 < data.size) data[125] else 0\n        val v126 = if (126 < data.size) data[126] else 0\n        val v127 = if (127 < data.size) data[127] else 0\n        val v128 = if (128 < data.size) data[128] else 0\n        val v129 = if (129 < data.size) data[129] else 0\n        val v130 = if (130 < data.size) data[130] else 0\n        val v131 = if (131 < data.size) data[131] else 0\n        val v132 = if (132 < data.size) data[132] else 0\n        val v133 = if (133 < data.size) data[133] else 0\n        val v134 = if (134 < data.size) data[134] else 0\n        val v135 = if (135 < data.size) data[135] else 0\n        val v136 = if (136 < data.size) data[136] else 0\n        val v137 = if (137 < data.size) data[137] else 0\n        val v138 = if (138 < data.size) data[138] else 0\n        val v139 = if (139 < data.size) data[139] else 0\n        val v140 = if (140 < data.size) data[140] else 0\n        val v141 = if (141 < data.size) data[141] else 0\n        val v142 = if (142 < data.size) data[142] else 0\n        val v143 = if (143 < data.size) data[143] else 0\n        val v144 = if (144 < data.size) data[144] else 0\n        val v145 = if (145 < data.size) data[145] else 0\n        val v146 = if (146 < data.size) data[146] else 0\n        val v147 = if (147 < data.size) data[147] else 0\n        val v148 = if (148 < data.size) data[148] else 0\n        val v149 = if (149 < data.size) data[149] else 0\n        val v150 = if (150 < data.size) data[150] else 0\n        val v151 = if (151 < data.size) data[151] else 0\n        val v152 = if (152 < data.size) data[152] else 0\n        val v153 = if (153 < data.size) data[153] else 0\n        val v154 = if (154 < data.size) data[154] else 0\n        val v155 = if (155 < data.size) data[155] else 0\n        val v156 = if (156 < data.size) data[156] else 0\n        val v157 = if (157 < data.size) data[157] else 0\n        val v158 = if (158 < data.size) data[158] else 0\n        val v159 = if (159 < data.size) data[159] else 0\n        val v160 = if (160 < data.size) data[160] else 0\n        val v161 = if (161 < data.size) data[161] else 0\n        val v162 = if (162 < data.size) data[162] else 0\n        val v163 = if (163 < data.size) data[163] else 0\n        val v164 = if (164 < data.size) data[164] else 0\n        val v165 = if (165 < data.size) data[165] else 0\n        val v166 = if (166 < data.size) data[166] else 0\n        val v167 = if (167 < data.size) data[167] else 0\n        val v168 = if (168 < data.size) data[168] else 0\n        val v169 = if (169 < data.size) data[169] else 0\n        val v170 = if (170 < data.size) data[170] else 0\n        val v171 = if (171 < data.size) data[171] else 0\n        val v172 = if (172 < data.size) data[172] else 0\n        val v173 = if (173 < data.size) data[173] else 0\n        val v174 = if (174 < data.size) data[174] else 0\n        val v175 = if (175 < data.size) data[175] else 0\n        val v176 = if (176 < data.size) data[176] else 0\n        val v177 = if (177 < data.size) data[177] else 0\n        val v178 = if (178 < data.size) data[178] else 0\n        val v179 = if (179 < data.size) data[179] else 0\n        val v180 = if (180 < data.size) data[180] else 0\n        val v181 = if (181 < data.size) data[181] else 0\n        val v182 = if (182 < data.size) data[182] else 0\n        val v183 = if (183 < data.size) data[183] else 0\n        val v184 = if (184 < data.size) data[184] else 0\n        val v185 = if (185 < data.size) data[185] else 0\n        val v186 = if (186 < data.size) data[186] else 0\n        val v187 = if (187 < data.size) data[187] else 0\n        val v188 = if (188 < data.size) data[188] else 0\n        val v189 = if (189 < data.size) data[189] else 0\n        val v190 = if (190 < data.size) data[190] else 0\n        val v191 = if (191 < data.size) data[191] else 0\n        val v192 = if (192 < data.size) data[192] else 0\n        val v193 = if (193 < data.size) data[193] else 0\n        val v194 = if (194 < data.size) data[194] else 0\n        val v195 = if (195 < data.size) data[195] else 0\n        val v196 = if (196 < data.size) data[196] else 0\n        val v197 = if (197 < data.size) data[197] else 0",
+    "token_estimate": 3671
+  },
+  {
+    "block_ids": [
+      "fbefaf4289794148afd38f22b2e1bd1d"
+    ],
+    "chunk_id": "e6355c8ab1f97526f0d238f61ba9f25c",
+    "chunker_version": "code-kotlin-ast-v1",
+    "doc_id": "e9dfb08b45fd884ec31b25f9dfac6b8f",
+    "heading_path": [],
+    "policy_hash": "a8236b5d66bd59a2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "kotlin",
+        "line_end": 262,
+        "line_start": 248,
+        "symbol": "BigCompute [part 2/2]"
+      }
+    ],
+    "text": "        val v198 = if (198 < data.size) data[198] else 0\n        val v199 = if (199 < data.size) data[199] else 0\n        val v200 = if (200 < data.size) data[200] else 0\n        val v201 = if (201 < data.size) data[201] else 0\n        val v202 = if (202 < data.size) data[202] else 0\n        val v203 = if (203 < data.size) data[203] else 0\n        val v204 = if (204 < data.size) data[204] else 0\n        val v205 = if (205 < data.size) data[205] else 0\n        val v206 = if (206 < data.size) data[206] else 0\n        val v207 = if (207 < data.size) data[207] else 0\n        val v208 = if (208 < data.size) data[208] else 0\n        val v209 = if (209 < data.size) data[209] else 0\n        return data.size\n    }\n}",
+    "token_estimate": 239
+  }
+]
