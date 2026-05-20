@@ -13,6 +13,7 @@
 //! `kebab-parse-*` crates per design §8: must NOT depend on store / embed
 //! / llm / rag.
 
+pub mod javascript;
 pub mod lang;
 pub mod python;
 pub mod repo;
@@ -20,6 +21,7 @@ pub mod rust;
 pub mod skip;
 pub mod typescript;
 
+pub use javascript::{PARSER_VERSION as JS_PARSER_VERSION, JavascriptAstExtractor};
 pub use lang::{code_lang_for_path, module_path_for_python, module_path_for_tsjs};
 pub use python::{PARSER_VERSION as PYTHON_PARSER_VERSION, PythonAstExtractor};
 pub use repo::{RepoMeta, detect_repo};
