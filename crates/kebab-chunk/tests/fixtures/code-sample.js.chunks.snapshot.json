@@ -1,0 +1,170 @@
+[
+  {
+    "block_ids": [
+      "cc724d960aebe9fb36062d24f4626c66"
+    ],
+    "chunk_id": "c9cf256456a47671fd6ceda800db8c05",
+    "chunker_version": "code-js-ast-v1",
+    "doc_id": "99d3bdd276489c2d51975eefb16cb64d",
+    "heading_path": [],
+    "policy_hash": "0d0cd223ca3431b2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "javascript",
+        "line_end": 5,
+        "line_start": 1,
+        "symbol": "requires"
+      }
+    ],
+    "text": "const fs = require('fs');\nconst path = require('path');\nconst { EventEmitter } = require('events');\nconst assert = require('assert');\nconst crypto = require('crypto');",
+    "token_estimate": 56
+  },
+  {
+    "block_ids": [
+      "f0d00af94e8b3e0fe4249f66d27caedd"
+    ],
+    "chunk_id": "93756a717b518ce2a94d1390b1b6d4f5",
+    "chunker_version": "code-js-ast-v1",
+    "doc_id": "99d3bdd276489c2d51975eefb16cb64d",
+    "heading_path": [],
+    "policy_hash": "0d0cd223ca3431b2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "javascript",
+        "line_end": 12,
+        "line_start": 7,
+        "symbol": "add"
+      }
+    ],
+    "text": "export function add(a, b) {\n  if (typeof a !== 'number') throw new TypeError('a');\n  if (typeof b !== 'number') throw new TypeError('b');\n  const result = a + b;\n  assert(isFinite(result));\n  return result;\n}",
+    "token_estimate": 70
+  },
+  {
+    "block_ids": [
+      "19e5e07c316d04e18ec0b10598c20ec7"
+    ],
+    "chunk_id": "1de13c1d85ba9c05e4f05f2d9c32820d",
+    "chunker_version": "code-js-ast-v1",
+    "doc_id": "99d3bdd276489c2d51975eefb16cb64d",
+    "heading_path": [],
+    "policy_hash": "0d0cd223ca3431b2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "javascript",
+        "line_end": 20,
+        "line_start": 14,
+        "symbol": "EventBus"
+      }
+    ],
+    "text": "class EventBus {\n  constructor() {\n    this._handlers = new Map();\n    this._history = [];\n    this._maxHistory = 100;\n    this._seq = 0;\n  }\n}",
+    "token_estimate": 48
+  },
+  {
+    "block_ids": [
+      "8e016bd376edde2c49320c5094d01b67"
+    ],
+    "chunk_id": "db80b34645e2b9148a2ebd8967d44a64",
+    "chunker_version": "code-js-ast-v1",
+    "doc_id": "99d3bdd276489c2d51975eefb16cb64d",
+    "heading_path": [],
+    "policy_hash": "0d0cd223ca3431b2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "javascript",
+        "line_end": 30,
+        "line_start": 22,
+        "symbol": "BaseHandler"
+      }
+    ],
+    "text": "class BaseHandler {\n  handle(event) {\n    throw new Error('not implemented');\n  }\n  batchHandle(events) {\n    const results = [];\n    for (const ev of events) {\n      results.push(this.handle(ev));\n    }\n    return results;\n  }\n}",
+    "token_estimate": 77
+  },
+  {
+    "block_ids": [
+      "e06656d11af2c1d7928856766382d168"
+    ],
+    "chunk_id": "7b0422e3646997d0cd2e694a6c4ca2e7",
+    "chunker_version": "code-js-ast-v1",
+    "doc_id": "99d3bdd276489c2d51975eefb16cb64d",
+    "heading_path": [],
+    "policy_hash": "0d0cd223ca3431b2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "javascript",
+        "line_end": 38,
+        "line_start": 32,
+        "symbol": "EventBus.emit"
+      }
+    ],
+    "text": "class EventBus {\n  emit(name, payload) {\n    const handlers = this._handlers.get(name) ?? [];\n    for (const h of handlers) {\n      h(payload);\n    }\n    return this;\n  }\n}",
+    "token_estimate": 58
+  },
+  {
+    "block_ids": [
+      "601a8af776f0634cfb4ccfa97e612afc"
+    ],
+    "chunk_id": "640269e1e8c1d052868f1f88558f28a2",
+    "chunker_version": "code-js-ast-v1",
+    "doc_id": "99d3bdd276489c2d51975eefb16cb64d",
+    "heading_path": [],
+    "policy_hash": "0d0cd223ca3431b2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "javascript",
+        "line_end": 46,
+        "line_start": 40,
+        "symbol": "EventBus.on"
+      }
+    ],
+    "text": "class EventBus {\n  on(name, handler) {\n    if (!this._handlers.has(name)) {\n      this._handlers.set(name, []);\n    }\n    this._handlers.get(name).push(handler);\n    return this;\n  }\n}",
+    "token_estimate": 62
+  },
+  {
+    "block_ids": [
+      "2bc61a811414be749c17290832857c7f"
+    ],
+    "chunk_id": "073802021b95a24f0c905b36dd9905c3",
+    "chunker_version": "code-js-ast-v1",
+    "doc_id": "99d3bdd276489c2d51975eefb16cb64d",
+    "heading_path": [],
+    "policy_hash": "0d0cd223ca3431b2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "javascript",
+        "line_end": 247,
+        "line_start": 48,
+        "symbol": "bigTransform [part 1/2]"
+      }
+    ],
+    "text": "function bigTransform(items) {\n  const v0 = items[0] !== undefined ? items[0] : null;\n  const v1 = items[1] !== undefined ? items[1] : null;\n  const v2 = items[2] !== undefined ? items[2] : null;\n  const v3 = items[3] !== undefined ? items[3] : null;\n  const v4 = items[4] !== undefined ? items[4] : null;\n  const v5 = items[5] !== undefined ? items[5] : null;\n  const v6 = items[6] !== undefined ? items[6] : null;\n  const v7 = items[7] !== undefined ? items[7] : null;\n  const v8 = items[8] !== undefined ? items[8] : null;\n  const v9 = items[9] !== undefined ? items[9] : null;\n  const v10 = items[10] !== undefined ? items[10] : null;\n  const v11 = items[11] !== undefined ? items[11] : null;\n  const v12 = items[12] !== undefined ? items[12] : null;\n  const v13 = items[13] !== undefined ? items[13] : null;\n  const v14 = items[14] !== undefined ? items[14] : null;\n  const v15 = items[15] !== undefined ? items[15] : null;\n  const v16 = items[16] !== undefined ? items[16] : null;\n  const v17 = items[17] !== undefined ? items[17] : null;\n  const v18 = items[18] !== undefined ? items[18] : null;\n  const v19 = items[19] !== undefined ? items[19] : null;\n  const v20 = items[20] !== undefined ? items[20] : null;\n  const v21 = items[21] !== undefined ? items[21] : null;\n  const v22 = items[22] !== undefined ? items[22] : null;\n  const v23 = items[23] !== undefined ? items[23] : null;\n  const v24 = items[24] !== undefined ? items[24] : null;\n  const v25 = items[25] !== undefined ? items[25] : null;\n  const v26 = items[26] !== undefined ? items[26] : null;\n  const v27 = items[27] !== undefined ? items[27] : null;\n  const v28 = items[28] !== undefined ? items[28] : null;\n  const v29 = items[29] !== undefined ? items[29] : null;\n  const v30 = items[30] !== undefined ? items[30] : null;\n  const v31 = items[31] !== undefined ? items[31] : null;\n  const v32 = items[32] !== undefined ? items[32] : null;\n  const v33 = items[33] !== undefined ? items[33] : null;\n  const v34 = items[34] !== undefined ? items[34] : null;\n  const v35 = items[35] !== undefined ? items[35] : null;\n  const v36 = items[36] !== undefined ? items[36] : null;\n  const v37 = items[37] !== undefined ? items[37] : null;\n  const v38 = items[38] !== undefined ? items[38] : null;\n  const v39 = items[39] !== undefined ? items[39] : null;\n  const v40 = items[40] !== undefined ? items[40] : null;\n  const v41 = items[41] !== undefined ? items[41] : null;\n  const v42 = items[42] !== undefined ? items[42] : null;\n  const v43 = items[43] !== undefined ? items[43] : null;\n  const v44 = items[44] !== undefined ? items[44] : null;\n  const v45 = items[45] !== undefined ? items[45] : null;\n  const v46 = items[46] !== undefined ? items[46] : null;\n  const v47 = items[47] !== undefined ? items[47] : null;\n  const v48 = items[48] !== undefined ? items[48] : null;\n  const v49 = items[49] !== undefined ? items[49] : null;\n  const v50 = items[50] !== undefined ? items[50] : null;\n  const v51 = items[51] !== undefined ? items[51] : null;\n  const v52 = items[52] !== undefined ? items[52] : null;\n  const v53 = items[53] !== undefined ? items[53] : null;\n  const v54 = items[54] !== undefined ? items[54] : null;\n  const v55 = items[55] !== undefined ? items[55] : null;\n  const v56 = items[56] !== undefined ? items[56] : null;\n  const v57 = items[57] !== undefined ? items[57] : null;\n  const v58 = items[58] !== undefined ? items[58] : null;\n  const v59 = items[59] !== undefined ? items[59] : null;\n  const v60 = items[60] !== undefined ? items[60] : null;\n  const v61 = items[61] !== undefined ? items[61] : null;\n  const v62 = items[62] !== undefined ? items[62] : null;\n  const v63 = items[63] !== undefined ? items[63] : null;\n  const v64 = items[64] !== undefined ? items[64] : null;\n  const v65 = items[65] !== undefined ? items[65] : null;\n  const v66 = items[66] !== undefined ? items[66] : null;\n  const v67 = items[67] !== undefined ? items[67] : null;\n  const v68 = items[68] !== undefined ? items[68] : null;\n  const v69 = items[69] !== undefined ? items[69] : null;\n  const v70 = items[70] !== undefined ? items[70] : null;\n  const v71 = items[71] !== undefined ? items[71] : null;\n  const v72 = items[72] !== undefined ? items[72] : null;\n  const v73 = items[73] !== undefined ? items[73] : null;\n  const v74 = items[74] !== undefined ? items[74] : null;\n  const v75 = items[75] !== undefined ? items[75] : null;\n  const v76 = items[76] !== undefined ? items[76] : null;\n  const v77 = items[77] !== undefined ? items[77] : null;\n  const v78 = items[78] !== undefined ? items[78] : null;\n  const v79 = items[79] !== undefined ? items[79] : null;\n  const v80 = items[80] !== undefined ? items[80] : null;\n  const v81 = items[81] !== undefined ? items[81] : null;\n  const v82 = items[82] !== undefined ? items[82] : null;\n  const v83 = items[83] !== undefined ? items[83] : null;\n  const v84 = items[84] !== undefined ? items[84] : null;\n  const v85 = items[85] !== undefined ? items[85] : null;\n  const v86 = items[86] !== undefined ? items[86] : null;\n  const v87 = items[87] !== undefined ? items[87] : null;\n  const v88 = items[88] !== undefined ? items[88] : null;\n  const v89 = items[89] !== undefined ? items[89] : null;\n  const v90 = items[90] !== undefined ? items[90] : null;\n  const v91 = items[91] !== undefined ? items[91] : null;\n  const v92 = items[92] !== undefined ? items[92] : null;\n  const v93 = items[93] !== undefined ? items[93] : null;\n  const v94 = items[94] !== undefined ? items[94] : null;\n  const v95 = items[95] !== undefined ? items[95] : null;\n  const v96 = items[96] !== undefined ? items[96] : null;\n  const v97 = items[97] !== undefined ? items[97] : null;\n  const v98 = items[98] !== undefined ? items[98] : null;\n  const v99 = items[99] !== undefined ? items[99] : null;\n  const v100 = items[100] !== undefined ? items[100] : null;\n  const v101 = items[101] !== undefined ? items[101] : null;\n  const v102 = items[102] !== undefined ? items[102] : null;\n  const v103 = items[103] !== undefined ? items[103] : null;\n  const v104 = items[104] !== undefined ? items[104] : null;\n  const v105 = items[105] !== undefined ? items[105] : null;\n  const v106 = items[106] !== undefined ? items[106] : null;\n  const v107 = items[107] !== undefined ? items[107] : null;\n  const v108 = items[108] !== undefined ? items[108] : null;\n  const v109 = items[109] !== undefined ? items[109] : null;\n  const v110 = items[110] !== undefined ? items[110] : null;\n  const v111 = items[111] !== undefined ? items[111] : null;\n  const v112 = items[112] !== undefined ? items[112] : null;\n  const v113 = items[113] !== undefined ? items[113] : null;\n  const v114 = items[114] !== undefined ? items[114] : null;\n  const v115 = items[115] !== undefined ? items[115] : null;\n  const v116 = items[116] !== undefined ? items[116] : null;\n  const v117 = items[117] !== undefined ? items[117] : null;\n  const v118 = items[118] !== undefined ? items[118] : null;\n  const v119 = items[119] !== undefined ? items[119] : null;\n  const v120 = items[120] !== undefined ? items[120] : null;\n  const v121 = items[121] !== undefined ? items[121] : null;\n  const v122 = items[122] !== undefined ? items[122] : null;\n  const v123 = items[123] !== undefined ? items[123] : null;\n  const v124 = items[124] !== undefined ? items[124] : null;\n  const v125 = items[125] !== undefined ? items[125] : null;\n  const v126 = items[126] !== undefined ? items[126] : null;\n  const v127 = items[127] !== undefined ? items[127] : null;\n  const v128 = items[128] !== undefined ? items[128] : null;\n  const v129 = items[129] !== undefined ? items[129] : null;\n  const v130 = items[130] !== undefined ? items[130] : null;\n  const v131 = items[131] !== undefined ? items[131] : null;\n  const v132 = items[132] !== undefined ? items[132] : null;\n  const v133 = items[133] !== undefined ? items[133] : null;\n  const v134 = items[134] !== undefined ? items[134] : null;\n  const v135 = items[135] !== undefined ? items[135] : null;\n  const v136 = items[136] !== undefined ? items[136] : null;\n  const v137 = items[137] !== undefined ? items[137] : null;\n  const v138 = items[138] !== undefined ? items[138] : null;\n  const v139 = items[139] !== undefined ? items[139] : null;\n  const v140 = items[140] !== undefined ? items[140] : null;\n  const v141 = items[141] !== undefined ? items[141] : null;\n  const v142 = items[142] !== undefined ? items[142] : null;\n  const v143 = items[143] !== undefined ? items[143] : null;\n  const v144 = items[144] !== undefined ? items[144] : null;\n  const v145 = items[145] !== undefined ? items[145] : null;\n  const v146 = items[146] !== undefined ? items[146] : null;\n  const v147 = items[147] !== undefined ? items[147] : null;\n  const v148 = items[148] !== undefined ? items[148] : null;\n  const v149 = items[149] !== undefined ? items[149] : null;\n  const v150 = items[150] !== undefined ? items[150] : null;\n  const v151 = items[151] !== undefined ? items[151] : null;\n  const v152 = items[152] !== undefined ? items[152] : null;\n  const v153 = items[153] !== undefined ? items[153] : null;\n  const v154 = items[154] !== undefined ? items[154] : null;\n  const v155 = items[155] !== undefined ? items[155] : null;\n  const v156 = items[156] !== undefined ? items[156] : null;\n  const v157 = items[157] !== undefined ? items[157] : null;\n  const v158 = items[158] !== undefined ? items[158] : null;\n  const v159 = items[159] !== undefined ? items[159] : null;\n  const v160 = items[160] !== undefined ? items[160] : null;\n  const v161 = items[161] !== undefined ? items[161] : null;\n  const v162 = items[162] !== undefined ? items[162] : null;\n  const v163 = items[163] !== undefined ? items[163] : null;\n  const v164 = items[164] !== undefined ? items[164] : null;\n  const v165 = items[165] !== undefined ? items[165] : null;\n  const v166 = items[166] !== undefined ? items[166] : null;\n  const v167 = items[167] !== undefined ? items[167] : null;\n  const v168 = items[168] !== undefined ? items[168] : null;\n  const v169 = items[169] !== undefined ? items[169] : null;\n  const v170 = items[170] !== undefined ? items[170] : null;\n  const v171 = items[171] !== undefined ? items[171] : null;\n  const v172 = items[172] !== undefined ? items[172] : null;\n  const v173 = items[173] !== undefined ? items[173] : null;\n  const v174 = items[174] !== undefined ? items[174] : null;\n  const v175 = items[175] !== undefined ? items[175] : null;\n  const v176 = items[176] !== undefined ? items[176] : null;\n  const v177 = items[177] !== undefined ? items[177] : null;\n  const v178 = items[178] !== undefined ? items[178] : null;\n  const v179 = items[179] !== undefined ? items[179] : null;\n  const v180 = items[180] !== undefined ? items[180] : null;\n  const v181 = items[181] !== undefined ? items[181] : null;\n  const v182 = items[182] !== undefined ? items[182] : null;\n  const v183 = items[183] !== undefined ? items[183] : null;\n  const v184 = items[184] !== undefined ? items[184] : null;\n  const v185 = items[185] !== undefined ? items[185] : null;\n  const v186 = items[186] !== undefined ? items[186] : null;\n  const v187 = items[187] !== undefined ? items[187] : null;\n  const v188 = items[188] !== undefined ? items[188] : null;\n  const v189 = items[189] !== undefined ? items[189] : null;\n  const v190 = items[190] !== undefined ? items[190] : null;\n  const v191 = items[191] !== undefined ? items[191] : null;\n  const v192 = items[192] !== undefined ? items[192] : null;\n  const v193 = items[193] !== undefined ? items[193] : null;\n  const v194 = items[194] !== undefined ? items[194] : null;\n  const v195 = items[195] !== undefined ? items[195] : null;\n  const v196 = items[196] !== undefined ? items[196] : null;\n  const v197 = items[197] !== undefined ? items[197] : null;\n  const v198 = items[198] !== undefined ? items[198] : null;",
+    "token_estimate": 3947
+  },
+  {
+    "block_ids": [
+      "2bc61a811414be749c17290832857c7f"
+    ],
+    "chunk_id": "62cdc27761f4a7767e6caceae2517977",
+    "chunker_version": "code-js-ast-v1",
+    "doc_id": "99d3bdd276489c2d51975eefb16cb64d",
+    "heading_path": [],
+    "policy_hash": "0d0cd223ca3431b2",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "javascript",
+        "line_end": 260,
+        "line_start": 248,
+        "symbol": "bigTransform [part 2/2]"
+      }
+    ],
+    "text": "  const v199 = items[199] !== undefined ? items[199] : null;\n  const v200 = items[200] !== undefined ? items[200] : null;\n  const v201 = items[201] !== undefined ? items[201] : null;\n  const v202 = items[202] !== undefined ? items[202] : null;\n  const v203 = items[203] !== undefined ? items[203] : null;\n  const v204 = items[204] !== undefined ? items[204] : null;\n  const v205 = items[205] !== undefined ? items[205] : null;\n  const v206 = items[206] !== undefined ? items[206] : null;\n  const v207 = items[207] !== undefined ? items[207] : null;\n  const v208 = items[208] !== undefined ? items[208] : null;\n  const v209 = items[209] !== undefined ? items[209] : null;\n  return items;\n}",
+    "token_estimate": 230
+  }
+]
