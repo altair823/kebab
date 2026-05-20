@@ -47,6 +47,12 @@ pub struct IngestReport {
     /// p10-1A-1: sample file paths per skip category (≤ 5 each).
     #[serde(default)]
     pub skip_examples: SkipExamples,
+    /// Dogfood: docs whose on-disk file was deleted since the last ingest
+    /// and were therefore removed from the store. Additive field — older
+    /// wire consumers that pre-date this field read it as 0 via
+    /// `#[serde(default)]`.
+    #[serde(default)]
+    pub purged_deleted_files: u32,
     /// `None` ↔ wire `items: null` (`--summary-only`).
     pub items: Option<Vec<IngestItem>>,
 }
@@ -136,6 +142,7 @@ mod tests {
                 builtin_blacklist: vec!["node_modules/x.js".into()],
                 gitignore: vec![],
             },
+            purged_deleted_files: 0,
             items: None,
         };
         let v = serde_json::to_value(&r).unwrap();

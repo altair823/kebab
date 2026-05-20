@@ -352,6 +352,22 @@ impl kebab_core::DocumentStore for SqliteStore {
         }))
     }
 
+    fn all_workspace_paths(&self) -> Result<Vec<kebab_core::WorkspacePath>> {
+        let conn = self.lock_conn();
+        let mut stmt = conn
+            .prepare("SELECT workspace_path FROM documents")
+            .map_err(StoreError::from)?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(StoreError::from)?;
+        let mut out = Vec::new();
+        for row in rows {
+            let path = row.map_err(StoreError::from)?;
+            out.push(kebab_core::WorkspacePath(path));
+        }
+        Ok(out)
+    }
+
     fn list_documents(
         &self,
         filter: &kebab_core::DocFilter,

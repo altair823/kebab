@@ -41,6 +41,7 @@ fn fixture_report() -> IngestReport {
         skipped_generated: 0,
         skipped_size_exceeded: 0,
         skip_examples: kebab_core::SkipExamples::default(),
+        purged_deleted_files: 0,
         items: Some(vec![
             IngestItem {
                 kind: IngestItemKind::New,

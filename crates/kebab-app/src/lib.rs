@@ -375,6 +375,28 @@ pub fn ingest_with_config_opts(
         .map(|d| d.doc_id.0)
         .collect();
 
+    // Dogfood: post-walker sweep to remove stored docs whose source
+    // file has been deleted from the filesystem. Must run BEFORE the
+    // per-asset loop so the loop's New/Updated labelling is based on
+    // the post-purge store state (the purged doc_ids won't be in
+    // `existing_doc_ids` above — they were already removed, OR the
+    // sweep here removes them before we start counting).
+    //
+    // Critical design invariant: only purge when the file is TRULY
+    // absent from disk. A file that is still on disk but outside the
+    // current walker scope (config narrowing / include-glob change) is
+    // NOT purged — we leave it in place to protect against accidental
+    // data loss via config edits.
+    let scanned_paths: std::collections::HashSet<kebab_core::WorkspacePath> = assets
+        .iter()
+        .map(|a| a.workspace_path.clone())
+        .collect();
+    let purged_deleted_files = sweep_deleted_files(
+        &app,
+        &scanned_paths,
+        vector_store.as_ref().map(|v| v.as_ref()),
+    )?;
+
     let started_at = time::OffsetDateTime::now_utc();
 
     let mut items: Vec<kebab_core::IngestItem> = Vec::new();
@@ -647,11 +669,11 @@ pub fn ingest_with_config_opts(
     crate::ingest_progress::emit(progress, terminal_event);
 
     // p9-fb-19: bump the persistent corpus_revision counter when a
-    // commit landed (any new / updated). This invalidates every
+    // commit landed (any new / updated / purged). This invalidates every
     // entry in any in-process LRU search cache (in this process or
     // a sibling) on the next lookup. No-op when nothing changed
     // (skipped-only run) — the cache stays valid.
-    if new_count > 0 || updated_count > 0 {
+    if new_count > 0 || updated_count > 0 || purged_deleted_files > 0 {
         match app.sqlite.bump_corpus_revision() {
             Ok(rev) => tracing::debug!(
                 target: "kebab-app",
@@ -682,6 +704,7 @@ pub fn ingest_with_config_opts(
         skipped_generated: fs_skips.skipped_generated,
         skipped_size_exceeded: fs_skips.skipped_size_exceeded,
         skip_examples: fs_skips.skip_examples,
+        purged_deleted_files,
         items: if summary_only { None } else { Some(items) },
     })
 }
@@ -1451,6 +1474,112 @@ fn purge_vector_orphans_for_workspace_path(
         "purged orphan vectors for edited asset"
     );
     Ok(())
+}
+
+/// Dogfood: post-walker sweep that purges stored documents whose source
+/// file has been physically deleted from the filesystem.
+///
+/// Algorithm:
+/// 1. Query `documents` for every `workspace_path` currently stored.
+/// 2. Compute `orphan_candidates = stored_paths - scanned_paths`.
+/// 3. For each candidate: resolve to an absolute path and call
+///    `fs::exists()`. If the file still exists on disk it was merely
+///    out-of-scope this run (config narrowing / include-glob change) —
+///    leave it alone.  Only files that are truly absent trigger a purge.
+/// 4. For absent files: call `purge_deleted_workspace_path` (SQLite
+///    cascade delete + optional copied-asset file removal) and, if a
+///    vector store is present, delete the associated vectors.
+///
+/// Returns the number of documents purged.
+///
+/// Non-fatal design: individual purge failures are logged and counted
+/// as errors on the per-file level but do NOT abort the sweep — a
+/// partial failure is preferable to blocking the rest of ingest. The
+/// return value only counts successful purges.
+fn sweep_deleted_files(
+    app: &App,
+    scanned_paths: &std::collections::HashSet<kebab_core::WorkspacePath>,
+    vector_store: Option<&kebab_store_vector::LanceVectorStore>,
+) -> anyhow::Result<u32> {
+    use kebab_core::DocumentStore as _;
+
+    let stored_paths = app
+        .sqlite
+        .all_workspace_paths()
+        .context("sweep_deleted_files: all_workspace_paths")?;
+
+    if stored_paths.is_empty() {
+        return Ok(0);
+    }
+
+    let workspace_root = app.config.resolve_workspace_root();
+    let mut purged: u32 = 0;
+
+    for stored_path in stored_paths {
+        if scanned_paths.contains(&stored_path) {
+            continue; // still in scope — skip
+        }
+
+        // Resolve to an absolute path and check existence on disk.
+        // Files whose path cannot be joined (theoretically impossible
+        // for non-empty workspace_path strings, but defense-in-depth)
+        // are treated as "still present" to avoid accidental deletion.
+        let abs = workspace_root.join(&stored_path.0);
+        if abs.exists() {
+            // File is on disk but not in this scan's scope (config
+            // narrowing). DO NOT purge — critical design constraint.
+            tracing::debug!(
+                target: "kebab-app",
+                path = %stored_path.0,
+                "sweep_deleted_files: file on disk but out of scope — leaving in store"
+            );
+            continue;
+        }
+
+        // File is truly absent → purge.
+        let chunk_ids = match kebab_store_sqlite::purge_deleted_workspace_path(
+            &app.sqlite,
+            &stored_path,
+        ) {
+            Ok(ids) => ids,
+            Err(e) => {
+                tracing::warn!(
+                    target: "kebab-app",
+                    path = %stored_path.0,
+                    error = %e,
+                    "sweep_deleted_files: purge failed; skipping this path"
+                );
+                continue;
+            }
+        };
+
+        // Purge associated vectors (best-effort; partial failure
+        // acceptable — orphan vectors get cleaned by `kebab reset
+        // --vector-only` if they accumulate).
+        if let Some(vec) = vector_store {
+            if !chunk_ids.is_empty() {
+                use kebab_core::VectorStore as _;
+                if let Err(e) = vec.delete_by_chunk_ids(&chunk_ids) {
+                    tracing::warn!(
+                        target: "kebab-app",
+                        path = %stored_path.0,
+                        count = chunk_ids.len(),
+                        error = %e,
+                        "sweep_deleted_files: vector delete failed; SQLite side already cleaned"
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            target: "kebab-app",
+            path = %stored_path.0,
+            "sweep_deleted_files: purged document for deleted file"
+        );
+        purged = purged.saturating_add(1);
+    }
+
+    Ok(purged)
 }
 
 /// P7-3: process one `MediaType::Pdf` asset end-to-end.

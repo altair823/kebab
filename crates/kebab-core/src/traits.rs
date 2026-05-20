@@ -183,6 +183,16 @@ pub trait DocumentStore {
         &self,
         path: &WorkspacePath,
     ) -> anyhow::Result<Option<CanonicalDocument>>;
+
+    /// Return every `workspace_path` stored in the `documents` table.
+    ///
+    /// Used by the post-walker sweep in `kebab-app::ingest` to detect
+    /// documents whose source file has been deleted from the filesystem.
+    /// The set difference `(stored - scanned)` yields orphan candidates;
+    /// each candidate is then existence-checked on disk so that
+    /// out-of-scope files (config narrowing) are NOT purged — only truly
+    /// absent files trigger the purge.
+    fn all_workspace_paths(&self) -> anyhow::Result<Vec<WorkspacePath>>;
 }
 
 pub trait VectorStore {

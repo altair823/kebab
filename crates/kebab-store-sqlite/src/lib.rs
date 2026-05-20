@@ -35,4 +35,4 @@ pub use error::StoreError;
 pub use eval::{EvalQueryResultRecord, EvalRunRecord, EvalRunRow};
 pub use fts::rebuild_chunks_fts;
 pub use jobs::IngestRunRow;
-pub use store::{CountSummary, NotIndexed, SqliteStore};
+pub use store::{CountSummary, NotIndexed, SqliteStore, purge_deleted_workspace_path};
