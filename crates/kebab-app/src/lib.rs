@@ -2101,11 +2101,15 @@ fn synthesize_tier2_document(
         },
     ];
 
-    // Resolve abs path for repo detection (mirrors RustAstExtractor pattern).
-    let workspace_root = std::path::PathBuf::new(); // not needed for detect_repo walk
+    // Resolve absolute path for repo detection. FsSourceConnector always
+    // emits absolute paths in SourceUri::File (verified in connector.rs); Kb
+    // URIs were rejected earlier in ingest_one_code_asset (returns Skipped),
+    // so the fallback below is purely defensive. This does NOT mirror
+    // RustAstExtractor — that extractor joins ctx.workspace_root for relative
+    // paths, but Tier 2 trusts the connector invariant.
     let abs_path = match &asset.source_uri {
         kebab_core::SourceUri::File(p) => p.clone(),
-        kebab_core::SourceUri::Kb(_) => workspace_root,
+        kebab_core::SourceUri::Kb(_) => std::path::PathBuf::new(),
     };
     let (repo, git_branch, git_commit) = match kebab_parse_code::detect_repo(&abs_path) {
         Some(r) => (Some(r.name), r.branch, r.commit),
