@@ -39,7 +39,7 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
-use kebab_chunk::{CodeRustAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
+use kebab_chunk::{CodePythonAstV1Chunker, CodeRustAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
@@ -50,7 +50,7 @@ use kebab_core::{
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_normalize::build_canonical_document;
 use kebab_parse_image::{ImageExtractor, OllamaVisionOcr, apply_caption, apply_ocr};
-use kebab_parse_code::RustAstExtractor;
+use kebab_parse_code::{PythonAstExtractor, RustAstExtractor};
 use kebab_parse_pdf::PdfTextExtractor;
 use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
@@ -1677,19 +1677,20 @@ fn ingest_one_code_asset(
         }
     };
 
-    // p10-1b Task D: parser_version per-lang.
+    // p10-1b Task D/G: parser_version per-lang.
     let parser_version = match code_lang {
-        "rust" => ParserVersion(kebab_parse_code::RUST_PARSER_VERSION.to_string()),
-        "python" => anyhow::bail!("python ingest not yet wired (p10-1b Task G)"),
+        "rust"       => ParserVersion(kebab_parse_code::RUST_PARSER_VERSION.to_string()),
+        "python"     => ParserVersion(kebab_parse_code::PYTHON_PARSER_VERSION.to_string()),
         "typescript" => anyhow::bail!("typescript ingest not yet wired (p10-1b Task J)"),
         "javascript" => anyhow::bail!("javascript ingest not yet wired (p10-1b Task L)"),
         other => anyhow::bail!("unsupported code_lang: {other}"),
     };
 
-    // p10-1b Task D: chunker_version per-lang (Python/TS/JS are unreachable here;
-    // they bail above and get real chunkers in Tasks G/J/L).
+    // p10-1b Task D/G: chunker_version per-lang (TS/JS are unreachable here;
+    // they bail above and get real chunkers in Tasks J/L).
     let chunker_version = match code_lang {
-        "rust" => CodeRustAstV1Chunker.chunker_version(),
+        "rust"   => CodeRustAstV1Chunker.chunker_version(),
+        "python" => CodePythonAstV1Chunker.chunker_version(),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -1714,19 +1715,25 @@ fn ingest_one_code_asset(
         config: &extract_config,
     };
 
-    // p10-1b Task D: extractor per-lang.
+    // p10-1b Task D/G: extractor per-lang.
     let mut canonical = match code_lang {
         "rust" => RustAstExtractor::new()
             .extract(&ctx, &bytes)
             .context("kb-parse-code::RustAstExtractor::extract (code:rust)")?,
+        "python" => PythonAstExtractor::new()
+            .extract(&ctx, &bytes)
+            .context("kb-parse-code::PythonAstExtractor::extract (code:python)")?,
         other => anyhow::bail!("unreachable (extract): {other}"),
     };
 
-    // p10-1b Task D: chunker per-lang.
+    // p10-1b Task D/G: chunker per-lang.
     let chunks = match code_lang {
         "rust" => CodeRustAstV1Chunker
             .chunk(&canonical, chunk_policy)
             .context("kb-chunk::CodeRustAstV1Chunker::chunk (code:rust)")?,
+        "python" => CodePythonAstV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::CodePythonAstV1Chunker::chunk (code:python)")?,
         other => anyhow::bail!("unreachable (chunk): {other}"),
     };
 
