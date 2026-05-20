@@ -34,7 +34,7 @@ cargo install --git https://gitea.altair823.xyz/altair823-org/kebab.git --bin ke
 
 업데이트는 `git pull && cargo install --path crates/kebab-cli --locked --force` 또는 git URL 형식의 경우 `cargo install --git ... --force`.
 
-제거는 `cargo uninstall kebab-cli`. 이 명령은 binary 만 지우고 워크스페이스 데이터는 그대로 남는다. 데이터까지 정리하려면 `kebab reset --all --yes` (config + data + cache + state 4 개 XDG 경로 모두 wipe — **irreversible**, 재시작 시 `kebab init` 다시 실행). 부분 wipe 는 `kebab reset --data-only` (config 보존), `kebab reset --vector-only` (Lance + `embedding_records` 만, 다음 ingest 가 re-embed) 등.
+제거는 `cargo uninstall kebab-cli`. 이 명령은 binary 만 지우고 워크스페이스 데이터는 그대로 남는다. 데이터까지 정리하려면 `kebab reset --all --yes` (config + data + cache + state 4 개 XDG 경로 모두 wipe — **irreversible**, 재시작 시 `kebab init` 다시 실행). 부분 wipe 는 `kebab reset --data-only` (config 보존), `kebab reset --vector-only` (Lance + `embedding_records` 만, 다음 ingest 가 re-embed), **`kebab reset --orphans-only`** (현재 walker scope 밖에 있는 stored doc 만 정리 — `config.workspace.include` 좁히거나 sub-dir 옮긴 후 explicit reconcile; fs 의 file 은 건드리지 않음) 등.
 
 ## Quick start
 

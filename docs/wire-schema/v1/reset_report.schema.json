@@ -14,12 +14,18 @@
     "schema_version":           { "const": "reset_report.v1" },
     "scope":                    {
       "type": "string",
-      "enum": ["all", "data_only", "vector_only", "config_only"]
+      "enum": ["all", "data_only", "vector_only", "config_only", "orphans_only"]
     },
     "removed_paths":            {
       "type": "array",
       "items": { "type": "string" }
     },
-    "embedding_rows_truncated": { "type": "integer", "minimum": 0 }
+    "embedding_rows_truncated": { "type": "integer", "minimum": 0 },
+    "orphans_purged":           { "type": "integer", "minimum": 0, "default": 0 },
+    "purged_paths":             {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    }
   }
 }
