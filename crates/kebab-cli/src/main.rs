@@ -595,14 +595,20 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string(&wire::wire_ingest(&report))?);
             } else {
                 let skipped_breakdown = kebab_app::render_skipped_breakdown(&report.skipped_by_extension);
+                let purged_suffix = if report.purged_deleted_files > 0 {
+                    format!("  purged {}", report.purged_deleted_files)
+                } else {
+                    String::new()
+                };
                 println!(
-                    "scanned {}  new {}  updated {}  skipped {}{}  errors {}  ({} ms)",
+                    "scanned {}  new {}  updated {}  skipped {}{}  errors {}{}  ({} ms)",
                     report.scanned,
                     report.new,
                     report.updated,
                     report.skipped,
                     skipped_breakdown,
                     report.errors,
+                    purged_suffix,
                     report.duration_ms
                 );
             }

@@ -540,6 +540,114 @@ pub(crate) fn purge_orphan_at_workspace_path(
     Ok(())
 }
 
+/// Purge all stored data for a document whose on-disk file has been
+/// deleted (as opposed to content-changed, which is handled by
+/// `purge_orphan_at_workspace_path`).
+///
+/// Returns the `chunk_id`s that were associated with the document so
+/// the caller can issue a matching `VectorStore::delete_by_chunk_ids`
+/// on the LanceDB side.
+///
+/// Deletion order:
+/// 1. Collect chunk_ids (before cascade removes them).
+/// 2. DELETE the `documents` row → CASCADE clears `blocks`, `chunks`,
+///    `embedding_records`.
+/// 3. DELETE the `assets` row **only if no other document still
+///    references it** (twin-file protection — `assets` can be shared
+///    across identical-content files via the blake3 PK).
+/// 4. If the asset was `storage_kind = 'copied'`, best-effort delete
+///    the on-disk byte file at `storage_path`.
+///
+/// Returns `Ok(vec![])` when no document exists at `workspace_path`
+/// (idempotent — caller doesn't need to pre-check).
+pub fn purge_deleted_workspace_path(
+    store: &SqliteStore,
+    workspace_path: &kebab_core::WorkspacePath,
+) -> anyhow::Result<Vec<kebab_core::ChunkId>> {
+    let conn = store.lock_conn();
+
+    // Look up the document + its asset_id.
+    let doc_row: Option<(String, String)> = conn
+        .query_row(
+            "SELECT doc_id, asset_id FROM documents WHERE workspace_path = ?",
+            rusqlite::params![workspace_path.0],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(StoreError::from)?;
+
+    let Some((doc_id, asset_id)) = doc_row else {
+        return Ok(Vec::new());
+    };
+
+    // 1. Collect chunk_ids before CASCADE removes them.
+    let mut stmt = conn
+        .prepare("SELECT chunk_id FROM chunks WHERE doc_id = ?")
+        .map_err(StoreError::from)?;
+    let rows = stmt
+        .query_map(rusqlite::params![doc_id], |r| r.get::<_, String>(0))
+        .map_err(StoreError::from)?;
+    let chunk_ids: Vec<kebab_core::ChunkId> = rows
+        .map(|r| r.map(kebab_core::ChunkId))
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(StoreError::from)?;
+    drop(stmt);
+
+    // 2. DELETE the document row (CASCADE clears blocks / chunks /
+    //    embedding_records via the FK constraints in V001).
+    conn.execute(
+        "DELETE FROM documents WHERE doc_id = ?",
+        rusqlite::params![doc_id],
+    )
+    .map_err(StoreError::from)?;
+
+    // 3. Delete the asset row only when no other document still
+    //    references it (twin-file safety: two files with identical
+    //    bytes share a single asset row via the blake3 PK).
+    let remaining_refs: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM documents WHERE asset_id = ?",
+            rusqlite::params![asset_id],
+            |r| r.get(0),
+        )
+        .map_err(StoreError::from)?;
+
+    if remaining_refs == 0 {
+        // 4. Capture storage details before deleting the row.
+        let asset_storage: Option<(String, String)> = conn
+            .query_row(
+                "SELECT storage_kind, storage_path FROM assets WHERE asset_id = ?",
+                rusqlite::params![asset_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(StoreError::from)?;
+
+        conn.execute(
+            "DELETE FROM assets WHERE asset_id = ?",
+            rusqlite::params![asset_id],
+        )
+        .map_err(StoreError::from)?;
+
+        // 5. Best-effort: remove the on-disk copied asset file.
+        if let Some((storage_kind, storage_path)) = asset_storage {
+            if storage_kind == "copied" {
+                let _ = std::fs::remove_file(&storage_path);
+            }
+        }
+    }
+
+    tracing::debug!(
+        target: "kebab-store-sqlite",
+        workspace_path = %workspace_path.0,
+        doc_id = %doc_id,
+        chunk_count = chunk_ids.len(),
+        "purged deleted-file document from store"
+    );
+
+    Ok(chunk_ids)
+}
+
 /// UPSERT a row into `assets`. Used by both the `put_asset_with_bytes`
 /// path (which has bytes + computed `storage_kind/path`) and the
 /// `DocumentStore::put_asset` path (which only has the `RawAsset` and

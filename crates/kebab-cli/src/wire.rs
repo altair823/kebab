@@ -260,6 +260,7 @@ mod tests {
             skipped_generated: 0,
             skipped_size_exceeded: 0,
             skip_examples: SkipExamples::default(),
+            purged_deleted_files: 0,
             items: None,
         };
         let v = wire_ingest(&r);
