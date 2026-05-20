@@ -46,6 +46,9 @@ pub(crate) fn media_type_for(path: &Path) -> MediaType {
         "ts" | "tsx" | "mts" | "cts" => MediaType::Code("typescript".into()),
         "js" | "mjs" | "cjs" | "jsx" => MediaType::Code("javascript".into()),
 
+        // p10-1C-Go: Go ingest activated.
+        "go" => MediaType::Code("go".into()),
+
         // Empty string (no extension) and any other extension: bucket as
         // Other and let downstream extractors decide if they support it.
         _ => MediaType::Other(ext),
@@ -117,6 +120,11 @@ mod tests {
         // MDX is markdown with JSX islands; the md parser folds the JSX
         // through as raw passthrough.
         assert_eq!(media_type_for(Path::new("docs/page.mdx")), MediaType::Markdown);
+    }
+
+    #[test]
+    fn go_files_map_to_media_code_go() {
+        assert_eq!(media_type_for(Path::new("a/b.go")), MediaType::Code("go".into()));
     }
 
     #[test]
