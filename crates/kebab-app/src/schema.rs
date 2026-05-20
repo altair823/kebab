@@ -168,7 +168,9 @@ fn collect_stats(
         stale_doc_count: counts.stale_doc_count,
         // p10-1A-2: populated by the store query added in this task.
         code_lang_breakdown: store.code_lang_breakdown()?,
-        repo_breakdown: std::collections::BTreeMap::new(),
+        // p10-1A-2 follow-up: dogfooding (2026-05-20) revealed this was a
+        // placeholder — mirror of code_lang_breakdown for the repo field.
+        repo_breakdown: store.repo_breakdown()?,
     })
 }
 
