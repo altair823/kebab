@@ -1521,11 +1521,16 @@ fn sweep_deleted_files(
         }
 
         // Resolve to an absolute path and check existence on disk.
-        // Files whose path cannot be joined (theoretically impossible
-        // for non-empty workspace_path strings, but defense-in-depth)
-        // are treated as "still present" to avoid accidental deletion.
+        // Use `try_exists` + `unwrap_or(true)` so transient FS errors
+        // (EACCES on a path we lack read on, NFS hiccups, ownership
+        // change) are CONSERVATIVELY treated as "file still present" —
+        // never purge on uncertain signal (data-safety: PR #148 review).
+        // `exists()` would return false on Err and trigger a wrongful
+        // purge. Files whose path cannot be joined (theoretically
+        // impossible for non-empty workspace_path strings, but
+        // defense-in-depth) are likewise treated as still present.
         let abs = workspace_root.join(&stored_path.0);
-        if abs.exists() {
+        if abs.try_exists().unwrap_or(true) {
             // File is on disk but not in this scan's scope (config
             // narrowing). DO NOT purge — critical design constraint.
             tracing::debug!(
