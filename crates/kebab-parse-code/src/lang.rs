@@ -10,18 +10,39 @@ use std::path::Path;
 /// `None` if the extension / filename is not recognized.
 ///
 /// Matching priority:
-///   1. exact filename match (e.g. `Dockerfile`, `Makefile`)
-///   2. lowercase extension match
+///   1. Tier 1 basename exact match (e.g. `Dockerfile`, `Makefile`)
+///   2. Tier 2 basename match (e.g. `Cargo.toml`, `package.json`, `build.gradle`)
+///   3. Tier 2 `Dockerfile.*` prefix variant
+///   4. Tier 1 + Tier 2 extension fallback (lowercase)
 pub fn code_lang_for_path(path: &Path) -> Option<&'static str> {
     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        // Tier 1 basename exact match
         match name {
             "Dockerfile" => return Some("dockerfile"),
             "Makefile" | "GNUmakefile" => return Some("make"),
             _ => {}
         }
+
+        // Tier 2 basename match (configuration / manifest files)
+        match name {
+            "Cargo.toml" | "pyproject.toml" => return Some("toml"),
+            "package.json" | "tsconfig.json" => return Some("json"),
+            "go.mod" => return Some("go-mod"),
+            "pom.xml" => return Some("xml"),
+            "build.gradle" => return Some("groovy"),
+            _ => {}
+        }
+
+        // Tier 2: `Dockerfile.*` prefix variant (e.g. `Dockerfile.dev`, `Dockerfile.prod`)
+        if name.starts_with("Dockerfile.") && name.len() > "Dockerfile.".len() {
+            return Some("dockerfile");
+        }
     }
+
+    // Extension fallback (Tier 1 + Tier 2)
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     match ext.as_str() {
+        // Tier 1 extensions
         "rs" => Some("rust"),
         "py" | "pyi" => Some("python"),
         "ts" | "tsx" | "mts" | "cts" => Some("typescript"),
@@ -31,12 +52,15 @@ pub fn code_lang_for_path(path: &Path) -> Option<&'static str> {
         "kt" | "kts" => Some("kotlin"),
         "c" | "h" => Some("c"),
         "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some("cpp"),
+        "sh" | "bash" | "zsh" => Some("shell"),
+        "mk" => Some("make"),
+        // Tier 2 extensions
         "yaml" | "yml" => Some("yaml"),
         "toml" => Some("toml"),
         "json" => Some("json"),
-        "sh" | "bash" | "zsh" => Some("shell"),
-        "mk" => Some("make"),
+        "xml" => Some("xml"),
         "dockerfile" => Some("dockerfile"),
+        "gradle" => Some("groovy"),
         _ => None,
     }
 }
@@ -117,5 +141,29 @@ mod tests {
         assert_eq!(module_path_for_tsjs("foo.ts"),                 "foo");
         assert_eq!(module_path_for_tsjs("a/b/c.ts"),               "a/b/c");
         assert_eq!(module_path_for_tsjs("packages/x/src/Foo.ts"),  "packages/x/src/Foo");
+    }
+
+    #[test]
+    fn tier2_basename_takes_precedence_over_extension() {
+        assert_eq!(code_lang_for_path(Path::new("Dockerfile")),         Some("dockerfile"));
+        assert_eq!(code_lang_for_path(Path::new("foo/Dockerfile.dev")), Some("dockerfile"));
+        assert_eq!(code_lang_for_path(Path::new("myapp.dockerfile")),   Some("dockerfile"));
+        assert_eq!(code_lang_for_path(Path::new("repo/Cargo.toml")),    Some("toml"));
+        assert_eq!(code_lang_for_path(Path::new("pyproject.toml")),     Some("toml"));
+        assert_eq!(code_lang_for_path(Path::new("repo/package.json")),  Some("json"));
+        assert_eq!(code_lang_for_path(Path::new("tsconfig.json")),      Some("json"));
+        assert_eq!(code_lang_for_path(Path::new("go.mod")),             Some("go-mod"));
+        assert_eq!(code_lang_for_path(Path::new("pom.xml")),            Some("xml"));
+        assert_eq!(code_lang_for_path(Path::new("build.gradle")),       Some("groovy"));
+    }
+
+    #[test]
+    fn tier2_extension_fallback() {
+        assert_eq!(code_lang_for_path(Path::new("k8s/deploy.yaml")),    Some("yaml"));
+        assert_eq!(code_lang_for_path(Path::new("k8s/deploy.yml")),     Some("yaml"));
+        assert_eq!(code_lang_for_path(Path::new("foo/bar.toml")),       Some("toml"));
+        assert_eq!(code_lang_for_path(Path::new("foo/bar.json")),       Some("json"));
+        assert_eq!(code_lang_for_path(Path::new("foo/bar.xml")),        Some("xml"));
+        assert_eq!(code_lang_for_path(Path::new("foo/bar.gradle")),     Some("groovy"));
     }
 }
