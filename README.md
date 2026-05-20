@@ -132,7 +132,7 @@ flowchart TB
 
     subgraph Pipeline["도메인 + 파이프라인"]
         parse["parse-md / parse-pdf / parse-image / parse-code"]
-        chunker["chunker (md-heading-v1, pdf-page-v1, code-rust-ast-v1, code-python-ast-v1, code-ts-ast-v1, code-js-ast-v1, code-go-ast-v1)"]
+        chunker["chunker (md-heading-v1, pdf-page-v1, code-{rust,python,ts,js,go,java,kotlin}-ast-v1, k8s-manifest-resource-v1, dockerfile-file-v1, manifest-file-v1)"]
         embedder["embedder (fastembed multilingual-e5-large)"]
         retriever["retriever (lexical / vector / hybrid RRF)"]
         rag["RAG pipeline"]
