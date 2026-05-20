@@ -4466,6 +4466,7 @@ version = "0.8.1"
 dependencies = [
  "anyhow",
  "blake3",
+ "globset",
  "ignore",
  "kebab-config",
  "kebab-core",

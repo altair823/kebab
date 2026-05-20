@@ -701,6 +701,39 @@ impl SqliteStore {
         }
         Ok(out)
     }
+
+    /// p10-1A-2 follow-up (dogfooding 2026-05-20): per-repo doc count for
+    /// `schema.v1`.
+    ///
+    /// Reads `metadata_json->'$.repo'`, groups by the value, and skips rows
+    /// where `repo` is NULL (documents without an explicit repo tag).
+    /// Returns `BTreeMap<String, u32>` — key is the repo name as stored in
+    /// frontmatter, value is the doc count.
+    pub fn repo_breakdown(
+        &self,
+    ) -> anyhow::Result<std::collections::BTreeMap<String, u32>> {
+        use anyhow::Context;
+        let conn = self.read_conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT json_extract(metadata_json, '$.repo') AS rp, COUNT(*) \
+                 FROM documents \
+                 WHERE rp IS NOT NULL \
+                 GROUP BY rp",
+            )
+            .context("prepare repo_breakdown")?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u32))
+            })
+            .context("query repo_breakdown")?;
+        let mut out = std::collections::BTreeMap::new();
+        for row in rows {
+            let (k, v) = row.context("read repo_breakdown row")?;
+            out.insert(k, v);
+        }
+        Ok(out)
+    }
 }
 
 /// Apply the design §5 / task-spec pragmas. Called once per connection.
@@ -813,6 +846,80 @@ mod tests {
         assert!(
             !bd.contains_key("null"),
             "null code_lang must not appear in breakdown, got: {bd:?}"
+        );
+        // only one key total
+        assert_eq!(bd.len(), 1, "expected exactly 1 entry, got: {bd:?}");
+    }
+
+    /// p10-1A-2 follow-up: `repo_breakdown` counts docs by
+    /// `metadata_json.repo`.
+    ///
+    /// Inserts:
+    /// - one doc with `repo = "my-repo"` → must appear with count 1
+    /// - one doc with `repo = null`       → must NOT appear (NULL skipped)
+    ///
+    /// Uses a side rusqlite connection that bypasses the `assets` FK via
+    /// `PRAGMA foreign_keys = OFF` so the test is self-contained.
+    #[test]
+    fn repo_breakdown_counts_by_repo() {
+        let (dir, store) = open_fresh_store();
+
+        let db_path = dir.path().join("kebab.sqlite");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
+
+        // Doc 1: doc with repo = "my-repo"
+        conn.execute(
+            "INSERT INTO documents (
+                doc_id, asset_id, workspace_path,
+                source_type, trust_level, parser_version,
+                doc_version, schema_version,
+                metadata_json, provenance_json,
+                created_at, updated_at
+            ) VALUES (
+                'doc-repo-1', 'asset-r1', 'my-repo/README.md',
+                'markdown', 'primary', 'test-v1',
+                1, 1,
+                '{\"repo\":\"my-repo\"}', '{}',
+                '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z'
+            )",
+            [],
+        )
+        .unwrap();
+
+        // Doc 2: doc with repo absent (null in JSON)
+        conn.execute(
+            "INSERT INTO documents (
+                doc_id, asset_id, workspace_path,
+                source_type, trust_level, parser_version,
+                doc_version, schema_version,
+                metadata_json, provenance_json,
+                created_at, updated_at
+            ) VALUES (
+                'doc-norepo-1', 'asset-r2', 'standalone/notes.md',
+                'markdown', 'primary', 'test-v1',
+                1, 1,
+                '{\"repo\":null}', '{}',
+                '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z'
+            )",
+            [],
+        )
+        .unwrap();
+
+        drop(conn); // release side connection before querying via store
+
+        let bd = store.repo_breakdown().unwrap();
+
+        // "my-repo" must appear with count 1
+        assert_eq!(
+            bd.get("my-repo"),
+            Some(&1u32),
+            "expected my-repo=1 in repo_breakdown, got: {bd:?}"
+        );
+        // null repo must NOT appear as any key
+        assert!(
+            !bd.contains_key("null"),
+            "null repo must not appear in breakdown, got: {bd:?}"
         );
         // only one key total
         assert_eq!(bd.len(), 1, "expected exactly 1 entry, got: {bd:?}");

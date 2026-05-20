@@ -18,6 +18,7 @@ blake3       = { workspace = true }
 tracing      = { workspace = true }
 walkdir      = "2"
 ignore       = "0.4"
+globset      = "0.4"
 
 [dev-dependencies]
 serde_json   = { workspace = true }
