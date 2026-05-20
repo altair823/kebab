@@ -17,10 +17,12 @@
 
 mod code_python_ast_v1;
 mod code_rust_ast_v1;
+mod code_ts_ast_v1;
 mod md_heading_v1;
 mod pdf_page_v1;
 
 pub use code_python_ast_v1::CodePythonAstV1Chunker;
 pub use code_rust_ast_v1::CodeRustAstV1Chunker;
+pub use code_ts_ast_v1::CodeTsAstV1Chunker;
 pub use md_heading_v1::MdHeadingV1Chunker;
 pub use pdf_page_v1::PdfPageV1Chunker;
