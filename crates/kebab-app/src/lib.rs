@@ -773,31 +773,19 @@ fn try_skip_unchanged(
     if force_reingest {
         return Ok(None);
     }
-    let existing_asset = match app
+    // Document-centric skip: look up the existing document row by
+    // workspace_path directly. This avoids the twin-file flip-flop
+    // that the old asset-side lookup suffers from — multiple files
+    // with identical content share one `assets` row whose
+    // `workspace_path` is overwritten on every UPSERT, so
+    // `get_asset_by_workspace_path(path1)` could return the OTHER
+    // twin's path (or None) after any ingest of the twin. The
+    // `documents` table has a UNIQUE index on `workspace_path` (V001),
+    // so each twin has its own stable row regardless of asset de-dup.
+    let existing_doc = match app
         .sqlite
-        .get_asset_by_workspace_path(&asset.workspace_path)
+        .get_document_by_workspace_path(&asset.workspace_path)
     {
-        Ok(Some(a)) => a,
-        Ok(None) => return Ok(None),
-        Err(e) => {
-            tracing::debug!(
-                target: "kebab-app",
-                path = %asset.workspace_path.0,
-                error = %e,
-                "skip-check: get_asset_by_workspace_path failed; falling through to re-process"
-            );
-            return Ok(None);
-        }
-    };
-    if existing_asset.checksum != asset.checksum {
-        return Ok(None);
-    }
-    let candidate_doc_id = kebab_core::id_for_doc(
-        &asset.workspace_path,
-        &asset.asset_id,
-        current_parser_version,
-    );
-    let existing_doc = match app.sqlite.get_document(&candidate_doc_id) {
         Ok(Some(d)) => d,
         Ok(None) => return Ok(None),
         Err(e) => {
@@ -805,21 +793,37 @@ fn try_skip_unchanged(
                 target: "kebab-app",
                 path = %asset.workspace_path.0,
                 error = %e,
-                "skip-check: get_document failed; falling through to re-process"
+                "skip-check: get_document_by_workspace_path failed; falling through to re-process"
             );
             return Ok(None);
         }
     };
+    // 1. Content unchanged: the freshly-computed asset_id (blake3
+    //    content hash) must match what this document was ingested from.
+    if existing_doc.source_asset_id != asset.asset_id {
+        return Ok(None);
+    }
+    // 2. Parser unchanged: parser_version is baked into id_for_doc so
+    //    a version bump yields a different doc_id and the row above
+    //    would have been missing. Checking here explicitly keeps the
+    //    logic self-documenting and guards against future id_for_doc
+    //    changes.
+    if existing_doc.parser_version != *current_parser_version {
+        return Ok(None);
+    }
+    // 3. Chunker unchanged.
     let chunker_match = existing_doc.last_chunker_version.as_ref()
         == Some(current_chunker_version);
     if !chunker_match {
         return Ok(None);
     }
+    // 4. Embedder unchanged.
     let embedder_match = existing_doc.last_embedding_version.as_ref()
         == current_embedding_version;
     if !embedder_match {
         return Ok(None);
     }
+    let candidate_doc_id = existing_doc.doc_id.clone();
     tracing::debug!(
         target: "kebab-app::ingest",
         path = %asset.workspace_path.0,

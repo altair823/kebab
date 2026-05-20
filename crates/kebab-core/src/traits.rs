@@ -169,6 +169,20 @@ pub trait DocumentStore {
         &self,
         path: &WorkspacePath,
     ) -> anyhow::Result<Option<RawAsset>>;
+
+    /// Look up a document row by its workspace path. Used by the
+    /// document-centric skip path in `try_skip_unchanged` to avoid the
+    /// twin-file flip-flop that the asset-side lookup suffers from
+    /// (multiple files with identical content share one `assets` row
+    /// whose `workspace_path` is overwritten on every UPSERT, so
+    /// `get_asset_by_workspace_path` returns the wrong twin's path).
+    ///
+    /// `documents.workspace_path` is UNIQUE (V001), so each twin has
+    /// its own stable document row regardless of the asset de-dup.
+    fn get_document_by_workspace_path(
+        &self,
+        path: &WorkspacePath,
+    ) -> anyhow::Result<Option<CanonicalDocument>>;
 }
 
 pub trait VectorStore {
