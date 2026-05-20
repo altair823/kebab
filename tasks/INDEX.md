@@ -143,7 +143,7 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
   - [p10-1A-2 Rust AST chunker](p10/p10-1a-2-rust-ast-chunker.md) — ✅ 머지
   - [p10-1B Python + TS/JS AST chunkers](p10/p10-1b-py-ts-js-ast-chunkers.md) — 🟡 PR 오픈 (코드 완성, 머지 대기)
   - p10-1C-Go Go AST chunker — 🟡 PR 오픈 (v0.12.0, `code-go-ast-v1`)
-  - p10-1C-JavaKotlin Java + Kotlin AST chunkers — ⏳
+  - p10-1C-JavaKotlin Java + Kotlin AST chunkers — 🟢 PR 오픈 (v0.13.0, `code-java-ast-v1` / `code-kotlin-ast-v1`)
   - p10-1D C + C++ AST chunkers — ⏳
   - p10-2 Tier 2 resource-aware — ⏳
   - p10-3 Tier 3 paragraph + line-window fallback — ⏳
