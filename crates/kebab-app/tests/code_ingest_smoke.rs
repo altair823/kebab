@@ -159,6 +159,237 @@ fn rust_code_search_hit_has_repo() {
     );
 }
 
+/// p10-1b Task G: a `.py` file in a sub-directory is ingested and the
+/// resulting `Citation::Code` hit must carry `lang="python"`,
+/// `symbol="kebab_eval.metrics.compute_mrr"`, and `line_start >= 1`.
+/// The sub-directory (`kebab_eval/`) ensures `module_path_for_python`
+/// produces a non-empty prefix so the fully-qualified symbol assertion
+/// exercises the prefix wiring end-to-end.
+#[test]
+fn python_file_ingests_and_searches_as_code_citation() {
+    let env = TestEnv::lexical_only();
+
+    let module_dir = env.workspace_root.join("kebab_eval");
+    std::fs::create_dir_all(&module_dir).unwrap();
+    std::fs::write(
+        module_dir.join("metrics.py"),
+        "\"\"\"compute metrics.\"\"\"\ndef compute_mrr(scores):\n    return sum(scores) / max(len(scores), 1)\n",
+    )
+    .unwrap();
+
+    let report =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+            .expect("ingest must succeed");
+
+    assert!(report.new >= 1, "python file ingested: {report:?}");
+
+    let items = report.items.as_ref().expect("items present");
+    let py_item = items
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("metrics.py"))
+        .expect("metrics.py item");
+    assert_eq!(
+        py_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        Some("code-python-v1"),
+        "parser_version must be code-python-v1"
+    );
+    assert_eq!(
+        py_item.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("code-python-ast-v1"),
+        "chunker_version must be code-python-ast-v1"
+    );
+
+    let hits = kebab_app::search_with_config(env.config.clone(), lexical_query("compute_mrr"))
+        .expect("search must succeed");
+
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, Citation::Code { .. }))
+        .expect("at least one Citation::Code hit for 'compute_mrr'");
+
+    match &h.citation {
+        Citation::Code {
+            lang,
+            symbol,
+            line_start,
+            ..
+        } => {
+            assert_eq!(
+                lang.as_deref(),
+                Some("python"),
+                "citation.lang must be 'python'"
+            );
+            assert_eq!(
+                symbol.as_deref(),
+                Some("kebab_eval.metrics.compute_mrr"),
+                "citation.symbol must be 'kebab_eval.metrics.compute_mrr'"
+            );
+            assert!(*line_start >= 1, "line_start must be >=1");
+        }
+        _ => unreachable!(),
+    }
+
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("python"),
+        "SearchHit.code_lang must be 'python'"
+    );
+}
+
+/// p10-1b Task J: a `.ts` file in a sub-directory is ingested and the
+/// resulting `Citation::Code` hit must carry `lang="typescript"`,
+/// `symbol="src/Foo.Foo.bar"`, and `line_start >= 1`.
+/// The sub-directory (`src/`) ensures `module_path_for_tsjs` produces
+/// a non-empty prefix so the fully-qualified symbol assertion exercises
+/// the prefix wiring end-to-end.
+#[test]
+fn typescript_file_ingests_and_searches_as_code_citation() {
+    let env = TestEnv::lexical_only();
+
+    let src_dir = env.workspace_root.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        src_dir.join("Foo.ts"),
+        "export class Foo {\n    bar(): number { return 42; }\n}\n",
+    )
+    .unwrap();
+
+    let report =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+            .expect("ingest must succeed");
+
+    assert!(report.new >= 1, "ts file ingested: {report:?}");
+
+    let items = report.items.as_ref().expect("items present");
+    let ts_item = items
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("Foo.ts"))
+        .expect("Foo.ts item");
+    assert_eq!(
+        ts_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        Some("code-ts-v1"),
+        "parser_version must be code-ts-v1"
+    );
+    assert_eq!(
+        ts_item.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("code-ts-ast-v1"),
+        "chunker_version must be code-ts-ast-v1"
+    );
+
+    let hits = kebab_app::search_with_config(env.config.clone(), lexical_query("bar"))
+        .expect("search must succeed");
+
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, Citation::Code { .. }))
+        .expect("at least one Citation::Code hit for 'bar'");
+
+    match &h.citation {
+        Citation::Code {
+            lang,
+            symbol,
+            line_start,
+            ..
+        } => {
+            assert_eq!(
+                lang.as_deref(),
+                Some("typescript"),
+                "citation.lang must be 'typescript'"
+            );
+            assert_eq!(
+                symbol.as_deref(),
+                Some("src/Foo.Foo.bar"),
+                "citation.symbol must be 'src/Foo.Foo.bar'"
+            );
+            assert!(*line_start >= 1, "line_start must be >=1");
+        }
+        _ => unreachable!(),
+    }
+
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("typescript"),
+        "SearchHit.code_lang must be 'typescript'"
+    );
+}
+
+/// p10-1b Task L: a `.js` file in a sub-directory is ingested and the
+/// resulting `Citation::Code` hit must carry `lang="javascript"`,
+/// `symbol="src/Bar.Bar.baz"`, and `line_start >= 1`.
+/// The sub-directory (`src/`) ensures `module_path_for_tsjs` produces
+/// a non-empty prefix so the fully-qualified symbol assertion exercises
+/// the prefix wiring end-to-end.
+#[test]
+fn javascript_file_ingests_and_searches_as_code_citation() {
+    let env = TestEnv::lexical_only();
+
+    let src_dir = env.workspace_root.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        src_dir.join("Bar.js"),
+        "export class Bar {\n    baz() { return 7; }\n}\n",
+    )
+    .unwrap();
+
+    let report =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+            .expect("ingest must succeed");
+
+    assert!(report.new >= 1, "js file ingested: {report:?}");
+
+    let items = report.items.as_ref().expect("items present");
+    let js_item = items
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("Bar.js"))
+        .expect("Bar.js item");
+    assert_eq!(
+        js_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        Some("code-js-v1"),
+        "parser_version must be code-js-v1"
+    );
+    assert_eq!(
+        js_item.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("code-js-ast-v1"),
+        "chunker_version must be code-js-ast-v1"
+    );
+
+    let hits = kebab_app::search_with_config(env.config.clone(), lexical_query("baz"))
+        .expect("search must succeed");
+
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, Citation::Code { .. }))
+        .expect("at least one Citation::Code hit for 'baz'");
+
+    match &h.citation {
+        Citation::Code {
+            lang,
+            symbol,
+            line_start,
+            ..
+        } => {
+            assert_eq!(
+                lang.as_deref(),
+                Some("javascript"),
+                "citation.lang must be 'javascript'"
+            );
+            assert_eq!(
+                symbol.as_deref(),
+                Some("src/Bar.Bar.baz"),
+                "citation.symbol must be 'src/Bar.Bar.baz'"
+            );
+            assert!(*line_start >= 1, "line_start must be >=1");
+        }
+        _ => unreachable!(),
+    }
+
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("javascript"),
+        "SearchHit.code_lang must be 'javascript'"
+    );
+}
+
 /// Re-ingesting the same `.rs` file without changes must report
 /// `Unchanged` (incremental-skip path exercised).
 #[test]

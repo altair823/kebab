@@ -20,7 +20,7 @@ P0–P5 + P6 + P7 + P9-1/2/3/4 (Library / Search / Ask / Inspect) 머지 완료.
 | **P7** | PDF text + page citation | `kebab-parse-pdf` | P5 | ✅ 완료 (3/3 component, page-level chunker + ingest wiring) |
 | **P8** | 음성 transcription + timestamp citation | `kebab-parse-audio` | P5 | ⏸ 보류 (whisper-rs 시스템 dep brainstorm 필요) |
 | **P9** | TUI + desktop app | `kebab-tui`, `kebab-desktop` | P5 | 🟡 진행 (4/5 component — P9-1/2/3/4 완료 [Library / Search / Ask / Inspect], P9-5 desktop 예정 · 도그푸딩 피드백 **20/20 ✅**) |
-| **P10** | code ingest framework | `kebab-parse-code` | P5 | 🟡 진행 중 — 1A-1 ✅ (wire schema + parse-code skeleton + filter flags), 1A-2 ✅ (Rust AST chunker, tree-sitter-rust, `code-rust-ast-v1` — kebab 자기 dogfooding 가능, v0.7.0) |
+| **P10** | code ingest framework | `kebab-parse-code` | P5 | 🟡 진행 중 — 1A-1 ✅ (wire schema + parse-code skeleton + filter flags), 1A-2 ✅ (Rust AST chunker, tree-sitter-rust, `code-rust-ast-v1` — v0.7.0), **1B 🟡 PR 오픈** (Python `code-python-ast-v1` + TypeScript `code-ts-ast-v1` + JavaScript `code-js-ast-v1` — 3 언어 dogfooding 가능, v0.8.0 대기) |
 
 P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 
@@ -32,6 +32,7 @@ P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 
 머지 후 발견된 모든 deviation / hotfix 의 dated 로그는 [tasks/HOTFIXES.md](tasks/HOTFIXES.md). 본 요약은 \"누군가가 인수받을 때 알아두면 시간을 많이 절약하는\" 항목만:
 
+- **2026-05-20 P10-1B (Rust 1A symbol path 비일관 + expression-level 함수 미방출)** — (a) Rust `code-rust-ast-v1` 은 file-scope nesting 만 (workspace path prefix 없음), 1B 의 Python/TypeScript/JavaScript 는 workspace 경로 → module path prefix 사용 (비일관 수용, retrofit = chunker_version bump + reindex 필요, 사용자 명시 요청까지 보류); (b) TS/JS 의 `const foo = () => {...}` 같은 expression-level 함수는 `<top-level>` glue 로 처리됨 (declaration-level 단위만 1B 1차 범위). 자세한 내용: `tasks/HOTFIXES.md` (2026-05-20) 두 항목.
 - **2026-05-19 P10-1A-2 (code_rust_ast_v1.rs + SourceType)** — `AST_CHUNK_MAX_LINES` 상수가 `IngestCodeCfg.ast_chunk_max_lines` 를 읽지 않고 모듈 상수 200 고정 (Chunker trait 이 per-medium config 미노출); `SourceType::Code` variant 부재로 code 파일이 `SourceType::Note` 로 분류됨 — 두 항목 모두 `tasks/HOTFIXES.md` (2026-05-19) 에 기록.
 - **2026-05-07 fb-26 (progress.rs)** — `Aborted` unconditional writeln (TTY duplicate) + `Completed` TTY no summary fixed; `KEBAB_PROGRESS=plain` env + quiet suppression added
 - **2026-05-07 fb-28 (main.rs)** — `--readonly` (KEBAB_READONLY) blocks Ingest/IngestFile/IngestStdin/Reset; `--quiet` suppresses progress stderr; error.v1 code: "readonly_mode"

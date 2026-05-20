@@ -1,0 +1,170 @@
+[
+  {
+    "block_ids": [
+      "29c56554514c80a92a9d12410056e168"
+    ],
+    "chunk_id": "fc30b9a92970ee5fb940c2b12db2c005",
+    "chunker_version": "code-ts-ast-v1",
+    "doc_id": "ff6591709852ab9c57be6e50145b9800",
+    "heading_path": [],
+    "policy_hash": "dd45402f76b4e339",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "typescript",
+        "line_end": 5,
+        "line_start": 1,
+        "symbol": "imports"
+      }
+    ],
+    "text": "import { readFileSync } from 'fs';\nimport { join } from 'path';\nimport type { Config } from './config';\nimport { Logger } from './logger';\nimport { EventEmitter } from 'events';",
+    "token_estimate": 59
+  },
+  {
+    "block_ids": [
+      "e3f542c4928032926a1e21a159686a34"
+    ],
+    "chunk_id": "d5988988e20b69da53307b43f2d400ee",
+    "chunker_version": "code-ts-ast-v1",
+    "doc_id": "ff6591709852ab9c57be6e50145b9800",
+    "heading_path": [],
+    "policy_hash": "dd45402f76b4e339",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "typescript",
+        "line_end": 12,
+        "line_start": 7,
+        "symbol": "parseInput"
+      }
+    ],
+    "text": "export function parseInput(raw: string): number | null {\n  const trimmed = raw.trim();\n  const n = Number(trimmed);\n  if (isNaN(n)) return null;\n  return n;\n}",
+    "token_estimate": 53
+  },
+  {
+    "block_ids": [
+      "77d7f5ea7af7be27611adcbcee7c2e8f"
+    ],
+    "chunk_id": "f1147cabe4dff8bc33b56f8ff0b397e9",
+    "chunker_version": "code-ts-ast-v1",
+    "doc_id": "ff6591709852ab9c57be6e50145b9800",
+    "heading_path": [],
+    "policy_hash": "dd45402f76b4e339",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "typescript",
+        "line_end": 20,
+        "line_start": 14,
+        "symbol": "Frobable"
+      }
+    ],
+    "text": "export interface Frobable {\n  frob(): string;\n  frobTwice(): string;\n  readonly name: string;\n  readonly tags: string[];\n  count: number;\n  reset(): void;\n}",
+    "token_estimate": 52
+  },
+  {
+    "block_ids": [
+      "ee878891c19c9bacebe2e2d262c2ea77"
+    ],
+    "chunk_id": "bc07691ba8e249a360fe0e056eeff9ac",
+    "chunker_version": "code-ts-ast-v1",
+    "doc_id": "ff6591709852ab9c57be6e50145b9800",
+    "heading_path": [],
+    "policy_hash": "dd45402f76b4e339",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "typescript",
+        "line_end": 30,
+        "line_start": 22,
+        "symbol": "Foo"
+      }
+    ],
+    "text": "export class Foo implements Frobable {\n  constructor(\n    public readonly name: string,\n    public value: number,\n    public tags: string[] = [],\n  ) {}\n  frob(): string { return this.name; }\n  frobTwice(): string { return this.name.repeat(2); }\n  reset(): void { this.value = 0; }\n}",
+    "token_estimate": 95
+  },
+  {
+    "block_ids": [
+      "df08aa572f5c85d0e5d28d6490acc7bc"
+    ],
+    "chunk_id": "42b7bec354bbb69ded1c8da40d30250c",
+    "chunker_version": "code-ts-ast-v1",
+    "doc_id": "ff6591709852ab9c57be6e50145b9800",
+    "heading_path": [],
+    "policy_hash": "dd45402f76b4e339",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "typescript",
+        "line_end": 38,
+        "line_start": 32,
+        "symbol": "Foo.double"
+      }
+    ],
+    "text": "export class Foo {\n  double(): number {\n    const result = this.value * 2;\n    if (result > Number.MAX_SAFE_INTEGER) {\n      return Number.MAX_SAFE_INTEGER;\n    }\n    return result;\n  }\n}",
+    "token_estimate": 63
+  },
+  {
+    "block_ids": [
+      "91aadf18fa97c1d7c94019e0968bc9c8"
+    ],
+    "chunk_id": "f218eaf2cb72f10a78c6a2090f72c215",
+    "chunker_version": "code-ts-ast-v1",
+    "doc_id": "ff6591709852ab9c57be6e50145b9800",
+    "heading_path": [],
+    "policy_hash": "dd45402f76b4e339",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "typescript",
+        "line_end": 46,
+        "line_start": 40,
+        "symbol": "Foo.triple"
+      }
+    ],
+    "text": "export class Foo {\n  triple(): number {\n    const result = this.value * 3;\n    if (result > Number.MAX_SAFE_INTEGER) {\n      return Number.MAX_SAFE_INTEGER;\n    }\n    return result;\n  }\n}",
+    "token_estimate": 63
+  },
+  {
+    "block_ids": [
+      "d719400f1d79b522d0a1267331966be0"
+    ],
+    "chunk_id": "7bd082ae93cc75e683b2a9eb3f911ee9",
+    "chunker_version": "code-ts-ast-v1",
+    "doc_id": "ff6591709852ab9c57be6e50145b9800",
+    "heading_path": [],
+    "policy_hash": "dd45402f76b4e339",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "typescript",
+        "line_end": 247,
+        "line_start": 48,
+        "symbol": "BigProcessor [part 1/2]"
+      }
+    ],
+    "text": "export class BigProcessor {\n  process(items: string[]): string[] {\n    const v0 = items[0] ?? '';\n    const v1 = items[1] ?? '';\n    const v2 = items[2] ?? '';\n    const v3 = items[3] ?? '';\n    const v4 = items[4] ?? '';\n    const v5 = items[5] ?? '';\n    const v6 = items[6] ?? '';\n    const v7 = items[7] ?? '';\n    const v8 = items[8] ?? '';\n    const v9 = items[9] ?? '';\n    const v10 = items[10] ?? '';\n    const v11 = items[11] ?? '';\n    const v12 = items[12] ?? '';\n    const v13 = items[13] ?? '';\n    const v14 = items[14] ?? '';\n    const v15 = items[15] ?? '';\n    const v16 = items[16] ?? '';\n    const v17 = items[17] ?? '';\n    const v18 = items[18] ?? '';\n    const v19 = items[19] ?? '';\n    const v20 = items[20] ?? '';\n    const v21 = items[21] ?? '';\n    const v22 = items[22] ?? '';\n    const v23 = items[23] ?? '';\n    const v24 = items[24] ?? '';\n    const v25 = items[25] ?? '';\n    const v26 = items[26] ?? '';\n    const v27 = items[27] ?? '';\n    const v28 = items[28] ?? '';\n    const v29 = items[29] ?? '';\n    const v30 = items[30] ?? '';\n    const v31 = items[31] ?? '';\n    const v32 = items[32] ?? '';\n    const v33 = items[33] ?? '';\n    const v34 = items[34] ?? '';\n    const v35 = items[35] ?? '';\n    const v36 = items[36] ?? '';\n    const v37 = items[37] ?? '';\n    const v38 = items[38] ?? '';\n    const v39 = items[39] ?? '';\n    const v40 = items[40] ?? '';\n    const v41 = items[41] ?? '';\n    const v42 = items[42] ?? '';\n    const v43 = items[43] ?? '';\n    const v44 = items[44] ?? '';\n    const v45 = items[45] ?? '';\n    const v46 = items[46] ?? '';\n    const v47 = items[47] ?? '';\n    const v48 = items[48] ?? '';\n    const v49 = items[49] ?? '';\n    const v50 = items[50] ?? '';\n    const v51 = items[51] ?? '';\n    const v52 = items[52] ?? '';\n    const v53 = items[53] ?? '';\n    const v54 = items[54] ?? '';\n    const v55 = items[55] ?? '';\n    const v56 = items[56] ?? '';\n    const v57 = items[57] ?? '';\n    const v58 = items[58] ?? '';\n    const v59 = items[59] ?? '';\n    const v60 = items[60] ?? '';\n    const v61 = items[61] ?? '';\n    const v62 = items[62] ?? '';\n    const v63 = items[63] ?? '';\n    const v64 = items[64] ?? '';\n    const v65 = items[65] ?? '';\n    const v66 = items[66] ?? '';\n    const v67 = items[67] ?? '';\n    const v68 = items[68] ?? '';\n    const v69 = items[69] ?? '';\n    const v70 = items[70] ?? '';\n    const v71 = items[71] ?? '';\n    const v72 = items[72] ?? '';\n    const v73 = items[73] ?? '';\n    const v74 = items[74] ?? '';\n    const v75 = items[75] ?? '';\n    const v76 = items[76] ?? '';\n    const v77 = items[77] ?? '';\n    const v78 = items[78] ?? '';\n    const v79 = items[79] ?? '';\n    const v80 = items[80] ?? '';\n    const v81 = items[81] ?? '';\n    const v82 = items[82] ?? '';\n    const v83 = items[83] ?? '';\n    const v84 = items[84] ?? '';\n    const v85 = items[85] ?? '';\n    const v86 = items[86] ?? '';\n    const v87 = items[87] ?? '';\n    const v88 = items[88] ?? '';\n    const v89 = items[89] ?? '';\n    const v90 = items[90] ?? '';\n    const v91 = items[91] ?? '';\n    const v92 = items[92] ?? '';\n    const v93 = items[93] ?? '';\n    const v94 = items[94] ?? '';\n    const v95 = items[95] ?? '';\n    const v96 = items[96] ?? '';\n    const v97 = items[97] ?? '';\n    const v98 = items[98] ?? '';\n    const v99 = items[99] ?? '';\n    const v100 = items[100] ?? '';\n    const v101 = items[101] ?? '';\n    const v102 = items[102] ?? '';\n    const v103 = items[103] ?? '';\n    const v104 = items[104] ?? '';\n    const v105 = items[105] ?? '';\n    const v106 = items[106] ?? '';\n    const v107 = items[107] ?? '';\n    const v108 = items[108] ?? '';\n    const v109 = items[109] ?? '';\n    const v110 = items[110] ?? '';\n    const v111 = items[111] ?? '';\n    const v112 = items[112] ?? '';\n    const v113 = items[113] ?? '';\n    const v114 = items[114] ?? '';\n    const v115 = items[115] ?? '';\n    const v116 = items[116] ?? '';\n    const v117 = items[117] ?? '';\n    const v118 = items[118] ?? '';\n    const v119 = items[119] ?? '';\n    const v120 = items[120] ?? '';\n    const v121 = items[121] ?? '';\n    const v122 = items[122] ?? '';\n    const v123 = items[123] ?? '';\n    const v124 = items[124] ?? '';\n    const v125 = items[125] ?? '';\n    const v126 = items[126] ?? '';\n    const v127 = items[127] ?? '';\n    const v128 = items[128] ?? '';\n    const v129 = items[129] ?? '';\n    const v130 = items[130] ?? '';\n    const v131 = items[131] ?? '';\n    const v132 = items[132] ?? '';\n    const v133 = items[133] ?? '';\n    const v134 = items[134] ?? '';\n    const v135 = items[135] ?? '';\n    const v136 = items[136] ?? '';\n    const v137 = items[137] ?? '';\n    const v138 = items[138] ?? '';\n    const v139 = items[139] ?? '';\n    const v140 = items[140] ?? '';\n    const v141 = items[141] ?? '';\n    const v142 = items[142] ?? '';\n    const v143 = items[143] ?? '';\n    const v144 = items[144] ?? '';\n    const v145 = items[145] ?? '';\n    const v146 = items[146] ?? '';\n    const v147 = items[147] ?? '';\n    const v148 = items[148] ?? '';\n    const v149 = items[149] ?? '';\n    const v150 = items[150] ?? '';\n    const v151 = items[151] ?? '';\n    const v152 = items[152] ?? '';\n    const v153 = items[153] ?? '';\n    const v154 = items[154] ?? '';\n    const v155 = items[155] ?? '';\n    const v156 = items[156] ?? '';\n    const v157 = items[157] ?? '';\n    const v158 = items[158] ?? '';\n    const v159 = items[159] ?? '';\n    const v160 = items[160] ?? '';\n    const v161 = items[161] ?? '';\n    const v162 = items[162] ?? '';\n    const v163 = items[163] ?? '';\n    const v164 = items[164] ?? '';\n    const v165 = items[165] ?? '';\n    const v166 = items[166] ?? '';\n    const v167 = items[167] ?? '';\n    const v168 = items[168] ?? '';\n    const v169 = items[169] ?? '';\n    const v170 = items[170] ?? '';\n    const v171 = items[171] ?? '';\n    const v172 = items[172] ?? '';\n    const v173 = items[173] ?? '';\n    const v174 = items[174] ?? '';\n    const v175 = items[175] ?? '';\n    const v176 = items[176] ?? '';\n    const v177 = items[177] ?? '';\n    const v178 = items[178] ?? '';\n    const v179 = items[179] ?? '';\n    const v180 = items[180] ?? '';\n    const v181 = items[181] ?? '';\n    const v182 = items[182] ?? '';\n    const v183 = items[183] ?? '';\n    const v184 = items[184] ?? '';\n    const v185 = items[185] ?? '';\n    const v186 = items[186] ?? '';\n    const v187 = items[187] ?? '';\n    const v188 = items[188] ?? '';\n    const v189 = items[189] ?? '';\n    const v190 = items[190] ?? '';\n    const v191 = items[191] ?? '';\n    const v192 = items[192] ?? '';\n    const v193 = items[193] ?? '';\n    const v194 = items[194] ?? '';\n    const v195 = items[195] ?? '';\n    const v196 = items[196] ?? '';\n    const v197 = items[197] ?? '';",
+    "token_estimate": 2259
+  },
+  {
+    "block_ids": [
+      "d719400f1d79b522d0a1267331966be0"
+    ],
+    "chunk_id": "fd63728143d8936de0faab714fbd4165",
+    "chunker_version": "code-ts-ast-v1",
+    "doc_id": "ff6591709852ab9c57be6e50145b9800",
+    "heading_path": [],
+    "policy_hash": "dd45402f76b4e339",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "typescript",
+        "line_end": 262,
+        "line_start": 248,
+        "symbol": "BigProcessor [part 2/2]"
+      }
+    ],
+    "text": "    const v198 = items[198] ?? '';\n    const v199 = items[199] ?? '';\n    const v200 = items[200] ?? '';\n    const v201 = items[201] ?? '';\n    const v202 = items[202] ?? '';\n    const v203 = items[203] ?? '';\n    const v204 = items[204] ?? '';\n    const v205 = items[205] ?? '';\n    const v206 = items[206] ?? '';\n    const v207 = items[207] ?? '';\n    const v208 = items[208] ?? '';\n    const v209 = items[209] ?? '';\n    return items;\n  }\n}",
+    "token_estimate": 148
+  }
+]

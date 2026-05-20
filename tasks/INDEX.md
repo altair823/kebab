@@ -140,8 +140,8 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
 
 - P10 — [p10/](p10/) — code ingest (multi-task, sub-indexed in [p10/INDEX.md](p10/INDEX.md))
   - [p10-1A-1 code ingest framework](p10/p10-1a-1-code-ingest-framework.md) — ✅ 머지
-  - [p10-1A-2 Rust AST chunker](p10/p10-1a-2-rust-ast-chunker.md) — 🟡 PR 오픈 (코드 완성, 머지 대기)
-  - p10-1B Python + TS/JS AST chunkers — ⏳
+  - [p10-1A-2 Rust AST chunker](p10/p10-1a-2-rust-ast-chunker.md) — ✅ 머지
+  - [p10-1B Python + TS/JS AST chunkers](p10/p10-1b-py-ts-js-ast-chunkers.md) — 🟡 PR 오픈 (코드 완성, 머지 대기)
   - p10-1C Go + Java + Kotlin AST chunkers — ⏳
   - p10-1D C + C++ AST chunkers — ⏳
   - p10-2 Tier 2 resource-aware — ⏳

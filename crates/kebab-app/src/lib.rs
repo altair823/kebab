@@ -39,7 +39,7 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
-use kebab_chunk::{CodeRustAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
+use kebab_chunk::{CodeJsAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTsAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
@@ -50,7 +50,7 @@ use kebab_core::{
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_normalize::build_canonical_document;
 use kebab_parse_image::{ImageExtractor, OllamaVisionOcr, apply_caption, apply_ocr};
-use kebab_parse_code::RustAstExtractor;
+use kebab_parse_code::{JavascriptAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor};
 use kebab_parse_pdf::PdfTextExtractor;
 use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
@@ -918,8 +918,10 @@ fn ingest_one_asset(
                 force_reingest,
             );
         }
-        // p10-1A-2 Task 8: Rust code ingest.
-        MediaType::Code(lang) if lang == "rust" => {
+        // p10-1A-2 / 1B: code ingest dispatch.
+        MediaType::Code(lang)
+            if matches!(lang.as_str(), "rust" | "python" | "typescript" | "javascript") =>
+        {
             return ingest_one_code_asset(
                 app,
                 asset,
@@ -928,6 +930,7 @@ fn ingest_one_asset(
                 vector_store,
                 existing_doc_ids,
                 force_reingest,
+                lang.as_str(),
             );
         }
         // p10-1A-2: non-Rust Code, Audio, and Other are not yet wired;
@@ -1642,6 +1645,7 @@ fn ingest_one_pdf_asset(
 ///
 /// All other steps (incremental skip, byte read, ExtractContext, put_*,
 /// embed, purge_vector_orphans) are identical to the PDF function.
+#[allow(clippy::too_many_arguments)]
 fn ingest_one_code_asset(
     app: &App,
     asset: &RawAsset,
@@ -1650,6 +1654,7 @@ fn ingest_one_code_asset(
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
     force_reingest: bool,
+    code_lang: &str,                        // <-- NEW (p10-1b Task D)
 ) -> anyhow::Result<kebab_core::IngestItem> {
     let path = match &asset.source_uri {
         SourceUri::File(p) => p.clone(),
@@ -1671,17 +1676,30 @@ fn ingest_one_code_asset(
             });
         }
     };
-    // p10-1A-2 task 8: incremental-ingest early-skip for the code flow.
-    // Code docs use `code-rust-v1` as the parser_version and
-    // `CodeRustAstV1Chunker` as the chunker — both pinned per-medium
-    // today (no config knob).
-    let code_parser_version =
-        ParserVersion(kebab_parse_code::RUST_PARSER_VERSION.to_string());
+
+    // p10-1b Task D/G/J: parser_version per-lang.
+    let parser_version = match code_lang {
+        "rust"       => ParserVersion(kebab_parse_code::RUST_PARSER_VERSION.to_string()),
+        "python"     => ParserVersion(kebab_parse_code::PYTHON_PARSER_VERSION.to_string()),
+        "typescript" => ParserVersion(kebab_parse_code::TS_PARSER_VERSION.to_string()),
+        "javascript" => ParserVersion(kebab_parse_code::JS_PARSER_VERSION.to_string()),
+        other => anyhow::bail!("unsupported code_lang: {other}"),
+    };
+
+    // p10-1b Task D/G/J/L: chunker_version per-lang.
+    let chunker_version = match code_lang {
+        "rust"       => CodeRustAstV1Chunker.chunker_version(),
+        "python"     => CodePythonAstV1Chunker.chunker_version(),
+        "typescript" => CodeTsAstV1Chunker.chunker_version(),
+        "javascript" => CodeJsAstV1Chunker.chunker_version(),
+        other => anyhow::bail!("unreachable chunker_version: {other}"),
+    };
+
     if let Some(item) = try_skip_unchanged(
         app,
         asset,
-        &code_parser_version,
-        &CodeRustAstV1Chunker.chunker_version(),
+        &parser_version,
+        &chunker_version,
         embedder.map(|e| e.model_version()).as_ref(),
         force_reingest,
     )? {
@@ -1697,20 +1715,44 @@ fn ingest_one_code_asset(
         workspace_root: &workspace_root,
         config: &extract_config,
     };
-    let mut canonical = RustAstExtractor::new()
-        .extract(&ctx, &bytes)
-        .context("kb-parse-code::RustAstExtractor::extract")?;
 
-    // Per-medium chunker selection: Rust code always uses code-rust-ast-v1
-    // regardless of `config.chunking.chunker_version`.
-    let chunker = CodeRustAstV1Chunker;
-    let chunks = chunker
-        .chunk(&canonical, chunk_policy)
-        .context("kb-chunk::CodeRustAstV1Chunker::chunk")?;
+    // p10-1b Task D/G/J/L: extractor per-lang.
+    let mut canonical = match code_lang {
+        "rust" => RustAstExtractor::new()
+            .extract(&ctx, &bytes)
+            .context("kb-parse-code::RustAstExtractor::extract (code:rust)")?,
+        "python" => PythonAstExtractor::new()
+            .extract(&ctx, &bytes)
+            .context("kb-parse-code::PythonAstExtractor::extract (code:python)")?,
+        "typescript" => TypescriptAstExtractor::new()
+            .extract(&ctx, &bytes)
+            .context("kb-parse-code::TypescriptAstExtractor::extract (code:typescript)")?,
+        "javascript" => JavascriptAstExtractor::new()
+            .extract(&ctx, &bytes)
+            .context("kb-parse-code::JavascriptAstExtractor::extract (code:javascript)")?,
+        other => anyhow::bail!("unreachable (extract): {other}"),
+    };
+
+    // p10-1b Task D/G/J/L: chunker per-lang.
+    let chunks = match code_lang {
+        "rust" => CodeRustAstV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::CodeRustAstV1Chunker::chunk (code:rust)")?,
+        "python" => CodePythonAstV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::CodePythonAstV1Chunker::chunk (code:python)")?,
+        "typescript" => CodeTsAstV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::CodeTsAstV1Chunker::chunk (code:typescript)")?,
+        "javascript" => CodeJsAstV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::CodeJsAstV1Chunker::chunk (code:javascript)")?,
+        other => anyhow::bail!("unreachable (chunk): {other}"),
+    };
 
     // Stamp chunker + embedding versions so incremental skip detection has
     // data on the second run.
-    canonical.last_chunker_version = Some(chunker.chunker_version());
+    canonical.last_chunker_version = Some(chunker_version.clone());
     if let Some(emb) = embedder {
         canonical.last_embedding_version = Some(emb.model_version());
     }
@@ -1794,7 +1836,7 @@ fn ingest_one_code_asset(
         block_count: u32::try_from(canonical.blocks.len()).ok(),
         chunk_count: u32::try_from(chunks.len()).ok(),
         parser_version: Some(canonical.parser_version.clone()),
-        chunker_version: Some(chunker.chunker_version()),
+        chunker_version: Some(chunker_version),
         warnings,
         error: None,
     })

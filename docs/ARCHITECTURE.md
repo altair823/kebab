@@ -22,7 +22,8 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 | OCR | Ollama vision LM (default `gemma4:e4b`) — `OcrEngine` trait 으로 Tesseract / Apple Vision 등 future swap (HOTFIXES P6-2) |
 | Image caption | Ollama vision LM, runtime gate `image.caption.enabled` (default OFF) |
 | PDF parser | `lopdf` per-page 텍스트, `chunker_version = "pdf-page-v1"` 가 PDF 자산에 하드코딩 (HOTFIXES P7-3) |
-| code parser | `tree-sitter` + `tree-sitter-rust` — **parser-side** (`kebab-parse-code`), chunker-side 아님 (design §6.3). `chunker_version = "code-rust-ast-v1"`. `ast_chunk_max_lines = 200` 상수 고정 (HOTFIXES 2026-05-19 — Chunker trait 이 per-medium config 미노출). |
+| code parser | `tree-sitter` + `tree-sitter-rust` / `tree-sitter-python` / `tree-sitter-typescript` / `tree-sitter-javascript` — **parser-side** (`kebab-parse-code`), chunker-side 아님 (design §6.3). chunker versions: Rust = `code-rust-ast-v1`, Python = `code-python-ast-v1`, TypeScript = `code-ts-ast-v1`, JavaScript = `code-js-ast-v1`. `ast_chunk_max_lines = 200` 상수 고정 (HOTFIXES 2026-05-19 — Chunker trait 이 per-medium config 미노출). |
+| 1B symbol path | workspace path → module path: Python = dotted prefix (`kebab_eval.metrics.compute_mrr`), TypeScript/JavaScript = slash-style prefix (`src/Foo.Foo.search`). Rust 1A-2 는 file-scope nesting 만 (workspace prefix 없음, 비일관 수용 — HOTFIXES 2026-05-20). |
 | TUI | Ratatui + crossterm — P9-1 Library 패널, P9-2/3/4 진행 예정 |
 | Desktop | Tauri 2 + `pdfjs-dist` (native PDF render backend 금지) — P9-5 |
 | citation 형식 | URI fragment (`path#L12-L34` / `path#p=12` / `path#xywh=0,0,100,50`, W3C Media Fragments) |
@@ -51,7 +52,7 @@ flowchart TB
         ppdf["kebab-parse-pdf"]
         pimg["kebab-parse-image"]
         paud["kebab-parse-audio<br/>(P8 보류)"]
-        pcode["kebab-parse-code<br/>(P10-1A-2)"]
+        pcode["kebab-parse-code<br/>(P10-1A-2 + P10-1B)"]
         ptypes["kebab-parse-types"]
         norm["kebab-normalize"]
         chunk["kebab-chunk"]
@@ -126,6 +127,8 @@ flowchart TB
 
 UI → store/llm/parse 직접 의존 금지. 모든 user-facing 진입은 `kebab-app` facade 만 통한다 (frozen 설계 §8). `kebab-cli` 가 `--config <path>` flag 를 honor 하려면 `kebab_app::*_with_config(cfg, …)` companion 을 통해 Config 을 명시적으로 thread 하는 패턴 — 자세한 이유는 [tasks/HOTFIXES.md](../tasks/HOTFIXES.md) 의 `--config` 항목.
 
+`kebab-parse-code` 의 외부 tree-sitter grammar crate 의존: P10-1A-2 에서 `tree-sitter-rust` 추가, P10-1B 에서 `tree-sitter-python` / `tree-sitter-typescript` / `tree-sitter-javascript` 추가. 모두 `kebab-parse-code` 에만 격리 (facade 룰 — UI crate / chunker 가 직접 import 금지).
+
 ## 디렉토리 구조
 
 ```text
@@ -162,7 +165,7 @@ kebab/
 │   ├── kebab-source-fs/                               # 워크스페이스 walk + checksum (P1-1)
 │   ├── kebab-parse-md/                                # Markdown frontmatter + blocks (P1-2/3)
 │   ├── kebab-normalize/                               # ParsedBlock → CanonicalDocument (P1-4)
-│   ├── kebab-chunk/                                   # heading-aware + pdf-page-v1 + code-rust-ast-v1 chunker (P1-5, P7-2, P10-1A-2)
+│   ├── kebab-chunk/                                   # heading-aware + pdf-page-v1 + code-rust-ast-v1 + code-python-ast-v1 + code-ts-ast-v1 + code-js-ast-v1 chunker (P1-5, P7-2, P10-1A-2, P10-1B)
 │   ├── kebab-store-sqlite/                            # SQLite + FTS5 (V001/V002/V003) (P1-6, P2-1, P3-3)
 │   ├── kebab-search/                                  # Lexical + Vector + Hybrid retriever (P2-2, P3-4)
 │   ├── kebab-embed/  kebab-embed-local/                  # Embedder trait + fastembed adapter (P3-1, P3-2)
@@ -172,7 +175,7 @@ kebab/
 │   ├── kebab-eval/                                    # golden query runner + metrics (P5-1, P5-2)
 │   ├── kebab-parse-image/                             # ImageExtractor + Ollama OCR + caption (P6)
 │   ├── kebab-parse-pdf/                               # lopdf per-page text extractor (P7-1)
-│   ├── kebab-parse-code/                              # tree-sitter Rust AST extractor (P10-1A-2); chunker lives in kebab-chunk
+│   ├── kebab-parse-code/                              # tree-sitter AST extractors: Rust (P10-1A-2), Python + TypeScript + JavaScript (P10-1B); chunker lives in kebab-chunk
 │   ├── kebab-app/                                     # facade (P0 시그니처 + P3-5/P6-4/P7-3 본체)
 │   ├── kebab-tui/                                     # Ratatui shell + Library 패널 (P9-1)
 │   ├── kebab-mcp/                                     # stdio MCP server — tools: schema, doctor, search, ask (P9-FB-30)

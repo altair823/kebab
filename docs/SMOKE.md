@@ -340,6 +340,67 @@ extra_skip_globs = []          # 사용자 추가 skip 패턴
 - `.rs` 파일은 `SourceType::Note` 로 분류됨 (kebab-core `SourceType::Code` variant 미존재). `--media code` filter 는 정상 동작 — `MediaType::Code("rust")` 로 별도 분류됨. 자세한 내용: `tasks/HOTFIXES.md` (2026-05-19 `SourceType::Code` 항목).
 - `.gitignore` 가 honor 됨 — `target/` / `node_modules/` 등은 built-in 안전망으로 자동 skip.
 
+## P10-1B Python / TypeScript / JavaScript 코드 색인
+
+P10-1A-2 와 동일한 격리 KB 설정으로 Python / TypeScript / JavaScript 3 언어를 검증한다. 설정 블록은 P10-1A-2 와 동일 (`[ingest.code]` 절 포함).
+
+```bash
+# 1) 워크스페이스에 Python / TS / JS 파일 추가 (소규모 샘플로 충분)
+mkdir -p /tmp/kebab-smoke/workspace/sample_code
+# Python 예시
+cat > /tmp/kebab-smoke/workspace/sample_code/metrics.py <<'EOF'
+def compute_mrr(results):
+    """Mean Reciprocal Rank."""
+    total = 0.0
+    for i, hit in enumerate(results, 1):
+        if hit:
+            total += 1.0 / i
+            break
+    return total
+EOF
+# TypeScript 예시
+cat > /tmp/kebab-smoke/workspace/sample_code/searcher.ts <<'EOF'
+export class Searcher {
+  search(query: string): string[] {
+    return [];
+  }
+}
+EOF
+# JavaScript 예시
+cat > /tmp/kebab-smoke/workspace/sample_code/utils.js <<'EOF'
+function formatResult(hit) {
+  return `${hit.score}: ${hit.path}`;
+}
+module.exports = { formatResult };
+EOF
+
+# 2) ingest
+KB ingest
+
+# 3) 언어별 검색 (symbol + module path prefix 확인)
+KB search --mode hybrid "compute_mrr" --code-lang python --json | \
+  jq '{hits: [.hits[] | {symbol: .citation.symbol, lang: .citation.lang}]}'
+KB search --mode hybrid "search" --code-lang typescript --json | \
+  jq '{hits: [.hits[] | {symbol: .citation.symbol, lang: .citation.lang}]}'
+KB search --mode hybrid "formatResult" --code-lang javascript --json | \
+  jq '{hits: [.hits[] | {symbol: .citation.symbol, lang: .citation.lang}]}'
+
+# 4) schema stats 에 3 언어 카운트 확인
+KB --json schema | jq '.stats.code_lang_breakdown'
+# 기대: {"python": N, "typescript": N, "javascript": N, "rust": M, ...}
+```
+
+**Symbol path 컨벤션 (2026-05-20 기준)**:
+
+- **Python**: workspace 경로 → dotted module path prefix. `sample_code/metrics.py` 의 `compute_mrr` → symbol `sample_code.metrics.compute_mrr`.
+- **TypeScript / JavaScript**: workspace 경로 → slash-style module path prefix. `sample_code/searcher.ts` 의 `search` → `sample_code/searcher.Searcher.search`. `.tsx` / `.mjs` / `.cjs` / `.jsx` 도 동일 처리.
+- **Rust** (1A-2): file-scope nesting 만, workspace path prefix 없음 (예: `Foo::double`). Python/TS/JS 와 비일관 — HOTFIXES 2026-05-20 참조.
+
+**알려진 동작**:
+
+- `const foo = () => {...}` 같은 expression-level 함수는 `<top-level>` glue 로 잡힘 (declaration-level 단위만 1B 1차 범위). 자세한 내용: `tasks/HOTFIXES.md` (2026-05-20).
+- `.gitignore` honor — `node_modules/` / `__pycache__/` / `.venv/` 등 built-in 안전망 자동 skip.
+
 ## 검증 체크리스트
 
 - `kebab doctor` 가 `--config` path 를 honor 하고 그 안의 `storage.data_dir` 를 출력 (XDG default 가 아님).
@@ -371,6 +432,7 @@ rm -rf /tmp/kebab-smoke              # 통째로 정리
 - (P7-3) `config.chunking.chunker_version` 는 markdown 만 represent — PDF 자산은 `pdf-page-v1` 하드코딩. `config.toml` 의 `chunker_version = "md-heading-v1"` 을 봐도 PDF 는 영향 안 받음. HOTFIXES `2026-05-02 P7-3` entry 참조 (P+ chunker registry task 까지 유지).
 - (P7-3) 한 PDF 가 N 페이지면 `kebab ingest` 가 N 개 (또는 그 이상의, 페이지 길면 multi-chunk) 의 chunk 를 한 transaction 안에서 commit. 500 페이지 책 → 500+ chunk 한 번에 → embedding throughput 가 bottleneck. 임베딩 활성 워크스페이스에서 큰 PDF 를 처음 ingest 하면 분-단위 시간 + WAL 크기 증가 가능 — P+ 스케일 hardening task 까지 정상 동작이지만 비용은 측정 가능.
 - (P10-1A-2) `.rs` 파일을 워크스페이스에 두면 `kebab ingest` 결과에 `new` 카운터에 포함. `kebab search --mode hybrid "<함수명>" --code-lang rust --json` 가 `citation.kind = "code"`, `citation.lang = "rust"` (SearchHit top-level `code_lang` 도 동일), `citation.symbol` (함수/타입 이름), `citation.line_start` / `citation.line_end` 를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"rust": N` 이 나오면 chunk 가 색인됨.
+- (P10-1B) `.py` / `.ts` / `.tsx` / `.js` / `.mjs` / `.cjs` / `.jsx` 파일을 워크스페이스에 두면 `kebab ingest` 결과에 `new` 카운터에 포함. `--code-lang python` / `--code-lang typescript` / `--code-lang javascript` 검색이 `citation.symbol` 에 module path prefix 를 포함한 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 해당 언어 카운트 등장 확인.
 - (P7-3 + follow-up) 동일 path 에 byte 가 다른 PDF 를 두 번째 ingest 하면 `purge_vector_orphans_for_workspace_path` 가 옛 chunk_id 를 LanceDB 에서 먼저 삭제, 이어서 `purge_orphan_at_workspace_path` 가 옛 doc / chunks / embedding_records 를 SQLite 에서 sweep. 새 byte 가 새 `doc_id` 로 색인됨. `IngestReport` 에 그 자산만 `new+=1` (다른 자산은 `updated`). 두 store 모두 정합 — 옛 본문 검색 시 옛 chunks 가 더 이상 surface 되지 않음.
 
 ### Embedding upgrade (fb-39b)
