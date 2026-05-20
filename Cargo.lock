@@ -4181,6 +4181,7 @@ dependencies = [
  "kebab-parse-md",
  "serde_json",
  "serde_json_canonicalizer",
+ "serde_yaml",
  "time",
  "tracing",
 ]
