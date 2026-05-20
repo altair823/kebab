@@ -49,6 +49,10 @@ pub(crate) fn media_type_for(path: &Path) -> MediaType {
         // p10-1C-Go: Go ingest activated.
         "go" => MediaType::Code("go".into()),
 
+        // p10-1C-JK: JVM family (Java + Kotlin) ingest activated.
+        "java"             => MediaType::Code("java".into()),
+        "kt" | "kts"       => MediaType::Code("kotlin".into()),
+
         // Empty string (no extension) and any other extension: bucket as
         // Other and let downstream extractors decide if they support it.
         _ => MediaType::Other(ext),
@@ -125,6 +129,13 @@ mod tests {
     #[test]
     fn go_files_map_to_media_code_go() {
         assert_eq!(media_type_for(Path::new("a/b.go")), MediaType::Code("go".into()));
+    }
+
+    #[test]
+    fn java_kotlin_files_map_to_media_code() {
+        assert_eq!(media_type_for(Path::new("a/b.java")), MediaType::Code("java".into()));
+        assert_eq!(media_type_for(Path::new("a/b.kt")), MediaType::Code("kotlin".into()));
+        assert_eq!(media_type_for(Path::new("a/b.kts")), MediaType::Code("kotlin".into()));
     }
 
     #[test]

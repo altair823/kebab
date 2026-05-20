@@ -4127,7 +4127,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-app"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4172,7 +4172,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-chunk"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4187,7 +4187,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-cli"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -4208,7 +4208,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-config"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -4223,7 +4223,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-core"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4237,7 +4237,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-embed"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4251,7 +4251,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-embed-local"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "fastembed",
@@ -4264,7 +4264,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-eval"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "kebab-app",
@@ -4283,7 +4283,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-llm"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "kebab-core",
@@ -4292,7 +4292,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-llm-local"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "kebab-config",
@@ -4309,7 +4309,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-mcp"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "kebab-app",
@@ -4327,7 +4327,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-normalize"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "kebab-core",
@@ -4342,7 +4342,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-parse-code"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "gix",
@@ -4353,7 +4353,9 @@ dependencies = [
  "tracing",
  "tree-sitter",
  "tree-sitter-go",
+ "tree-sitter-java",
  "tree-sitter-javascript",
+ "tree-sitter-kotlin-ng",
  "tree-sitter-python",
  "tree-sitter-rust",
  "tree-sitter-typescript",
@@ -4361,7 +4363,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-parse-image"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -4385,7 +4387,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-parse-md"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "kebab-core",
@@ -4402,7 +4404,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-parse-pdf"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4415,7 +4417,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-parse-types"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "kebab-core",
  "serde",
@@ -4423,7 +4425,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-rag"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4444,7 +4446,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-search"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "globset",
@@ -4463,7 +4465,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-source-fs"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4482,7 +4484,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-store-sqlite"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4503,7 +4505,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-store-vector"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "arrow",
@@ -4527,7 +4529,7 @@ dependencies = [
 
 [[package]]
 name = "kebab-tui"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -8539,10 +8541,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-java"
+version = "0.23.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0aa6cbcdc8c679b214e616fd3300da67da0e492e066df01bcf5a5921a71e90d6"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "tree-sitter-javascript"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68204f2abc0627a90bdf06e605f5c470aa26fdcb2081ea553a04bdad756693f5"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-kotlin-ng"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e800ebbda938acfbf224f4d2c34947a31994b1295ee6e819b65226c7b51b4450"
 dependencies = [
  "cc",
  "tree-sitter-language",

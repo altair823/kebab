@@ -39,7 +39,7 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
-use kebab_chunk::{CodeGoAstV1Chunker, CodeJsAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTsAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
+use kebab_chunk::{CodeGoAstV1Chunker, CodeJavaAstV1Chunker, CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTsAstV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
@@ -50,7 +50,7 @@ use kebab_core::{
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_normalize::build_canonical_document;
 use kebab_parse_image::{ImageExtractor, OllamaVisionOcr, apply_caption, apply_ocr};
-use kebab_parse_code::{GoAstExtractor, JavascriptAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor};
+use kebab_parse_code::{GoAstExtractor, JavaAstExtractor, JavascriptAstExtractor, KotlinAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor};
 use kebab_parse_pdf::PdfTextExtractor;
 use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
@@ -950,7 +950,8 @@ fn ingest_one_asset(
         }
         // p10-1A-2 / 1B: code ingest dispatch.
         MediaType::Code(lang)
-            if matches!(lang.as_str(), "rust" | "python" | "typescript" | "javascript" | "go") =>
+            if matches!(lang.as_str(),
+                "rust" | "python" | "typescript" | "javascript" | "go" | "java" | "kotlin") =>
         {
             return ingest_one_code_asset(
                 app,
@@ -1828,6 +1829,8 @@ fn ingest_one_code_asset(
         "typescript" => ParserVersion(kebab_parse_code::TS_PARSER_VERSION.to_string()),
         "javascript" => ParserVersion(kebab_parse_code::JS_PARSER_VERSION.to_string()),
         "go" => ParserVersion(kebab_parse_code::GO_PARSER_VERSION.to_string()),
+        "java" => ParserVersion(kebab_parse_code::JAVA_PARSER_VERSION.to_string()),
+        "kotlin" => ParserVersion(kebab_parse_code::KOTLIN_PARSER_VERSION.to_string()),
         other => anyhow::bail!("unsupported code_lang: {other}"),
     };
 
@@ -1838,6 +1841,8 @@ fn ingest_one_code_asset(
         "typescript" => CodeTsAstV1Chunker.chunker_version(),
         "javascript" => CodeJsAstV1Chunker.chunker_version(),
         "go" => CodeGoAstV1Chunker.chunker_version(),
+        "java" => CodeJavaAstV1Chunker.chunker_version(),
+        "kotlin" => CodeKotlinAstV1Chunker.chunker_version(),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -1879,6 +1884,12 @@ fn ingest_one_code_asset(
         "go" => GoAstExtractor::new()
             .extract(&ctx, &bytes)
             .context("kb-parse-code::GoAstExtractor::extract (code:go)")?,
+        "java" => JavaAstExtractor::new()
+            .extract(&ctx, &bytes)
+            .context("kb-parse-code::JavaAstExtractor::extract (code:java)")?,
+        "kotlin" => KotlinAstExtractor::new()
+            .extract(&ctx, &bytes)
+            .context("kb-parse-code::KotlinAstExtractor::extract (code:kotlin)")?,
         other => anyhow::bail!("unreachable (extract): {other}"),
     };
 
@@ -1899,6 +1910,12 @@ fn ingest_one_code_asset(
         "go" => CodeGoAstV1Chunker
             .chunk(&canonical, chunk_policy)
             .context("kb-chunk::CodeGoAstV1Chunker::chunk (code:go)")?,
+        "java" => CodeJavaAstV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::CodeJavaAstV1Chunker::chunk (code:java)")?,
+        "kotlin" => CodeKotlinAstV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::CodeKotlinAstV1Chunker::chunk (code:kotlin)")?,
         other => anyhow::bail!("unreachable (chunk): {other}"),
     };
 
