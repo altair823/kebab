@@ -336,21 +336,29 @@ fn runner_lexical_is_deterministic_per_query_payload() {
         "- id: q1\n  query: ownership\n- id: q2\n  query: heading\n",
     );
 
-    let run_a = run_with_golden(&yaml, || {
+    let mut run_a = run_with_golden(&yaml, || {
         run_eval_with_config(&env.config, &lexical_opts()).unwrap()
     });
-    let run_b = run_with_golden(&yaml, || {
+    let mut run_b = run_with_golden(&yaml, || {
         run_eval_with_config(&env.config, &lexical_opts()).unwrap()
     });
 
     // Run-level fields (`run_id`, `created_at`) intentionally diverge;
     // the per-query payload (which is what the snapshot fixture pins)
-    // must be byte-identical.
+    // must be byte-identical EXCEPT for `elapsed_ms`. Timing-sensitive
+    // fields aren't determinism signals — they're µs-scale wall-clock
+    // jitter and would otherwise make this assertion a flaky one (a 0
+    // vs 1 ms divergence was observed under contended-CI load). Normalize
+    // before comparing; see test #7 for the same exclusion done via a
+    // projection.
+    for qr in run_a.per_query.iter_mut().chain(run_b.per_query.iter_mut()) {
+        qr.elapsed_ms = 0;
+    }
     let a_json = serde_json::to_string(&run_a.per_query).unwrap();
     let b_json = serde_json::to_string(&run_b.per_query).unwrap();
     assert_eq!(
         a_json, b_json,
-        "lexical-only per_query payload must be byte-identical across runs"
+        "lexical-only per_query payload must be byte-identical across runs (timing normalized)"
     );
 }
 
