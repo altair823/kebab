@@ -603,6 +603,253 @@ fn kotlin_file_ingests_and_searches_as_code_citation() {
     );
 }
 
+/// p10-2 Task H: a `k8s/deploy.yaml` file with a Deployment resource is
+/// ingested and the resulting `Citation::Code` hit must carry
+/// `lang="yaml"`, `symbol="Deployment/prod/api"`, and `line_start >= 1`.
+/// Exercises the k8s-manifest-resource-v1 chunker end-to-end.
+#[test]
+fn tier2_k8s_yaml_ingest_searchable() {
+    let env = TestEnv::lexical_only();
+
+    let k8s_dir = env.workspace_root.join("k8s");
+    std::fs::create_dir_all(&k8s_dir).unwrap();
+    std::fs::write(
+        k8s_dir.join("deploy.yaml"),
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: prod\nspec:\n  replicas: 1\n",
+    )
+    .unwrap();
+
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
+    assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
+    assert!(report.new >= 1, "yaml file ingested: {report:?}");
+
+    let yaml_item = report
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("deploy.yaml"))
+        .expect("deploy.yaml item present");
+    assert_eq!(
+        yaml_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        Some("none-v1"),
+        "parser_version must be none-v1"
+    );
+    assert_eq!(
+        yaml_item.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("k8s-manifest-resource-v1"),
+        "chunker_version must be k8s-manifest-resource-v1"
+    );
+
+    let query = kebab_core::SearchQuery {
+        text: "api".to_string(),
+        mode: kebab_core::SearchMode::Lexical,
+        k: 10,
+        filters: kebab_core::SearchFilters {
+            code_lang: vec!["yaml".to_string()],
+            ..Default::default()
+        },
+    };
+    let hits = kebab_app::search_with_config(env.config.clone(), query)
+        .expect("search must succeed");
+
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, Citation::Code { .. }))
+        .expect("at least one Citation::Code hit for 'api'");
+
+    match &h.citation {
+        Citation::Code {
+            lang,
+            symbol,
+            line_start,
+            ..
+        } => {
+            assert_eq!(lang.as_deref(), Some("yaml"), "citation.lang must be 'yaml'");
+            assert_eq!(
+                symbol.as_deref(),
+                Some("Deployment/prod/api"),
+                "citation.symbol must be 'Deployment/prod/api'"
+            );
+            assert!(*line_start >= 1, "line_start must be >=1");
+        }
+        _ => unreachable!(),
+    }
+
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("yaml"),
+        "SearchHit.code_lang must be 'yaml'"
+    );
+}
+
+/// p10-2 Task H: a `Dockerfile` is ingested and the resulting
+/// `Citation::Code` hit must carry `lang="dockerfile"`,
+/// `symbol="<dockerfile>"`, and `line_start >= 1`.
+/// Exercises the dockerfile-file-v1 chunker end-to-end.
+#[test]
+fn tier2_dockerfile_ingest_searchable() {
+    let env = TestEnv::lexical_only();
+
+    std::fs::write(
+        env.workspace_root.join("Dockerfile"),
+        "FROM rust:1.94\nRUN cargo install foo\n",
+    )
+    .unwrap();
+
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
+    assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
+    assert!(report.new >= 1, "Dockerfile ingested: {report:?}");
+
+    let df_item = report
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("Dockerfile"))
+        .expect("Dockerfile item present");
+    assert_eq!(
+        df_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        Some("none-v1"),
+        "parser_version must be none-v1"
+    );
+    assert_eq!(
+        df_item.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("dockerfile-file-v1"),
+        "chunker_version must be dockerfile-file-v1"
+    );
+
+    let query = kebab_core::SearchQuery {
+        text: "cargo".to_string(),
+        mode: kebab_core::SearchMode::Lexical,
+        k: 10,
+        filters: kebab_core::SearchFilters {
+            code_lang: vec!["dockerfile".to_string()],
+            ..Default::default()
+        },
+    };
+    let hits = kebab_app::search_with_config(env.config.clone(), query)
+        .expect("search must succeed");
+
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, Citation::Code { .. }))
+        .expect("at least one Citation::Code hit for 'cargo'");
+
+    match &h.citation {
+        Citation::Code {
+            lang,
+            symbol,
+            line_start,
+            ..
+        } => {
+            assert_eq!(
+                lang.as_deref(),
+                Some("dockerfile"),
+                "citation.lang must be 'dockerfile'"
+            );
+            assert_eq!(
+                symbol.as_deref(),
+                Some("<dockerfile>"),
+                "citation.symbol must be '<dockerfile>'"
+            );
+            assert!(*line_start >= 1, "line_start must be >=1");
+        }
+        _ => unreachable!(),
+    }
+
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("dockerfile"),
+        "SearchHit.code_lang must be 'dockerfile'"
+    );
+}
+
+/// p10-2 Task H: a `Cargo.toml` manifest is ingested and the resulting
+/// `Citation::Code` hit must carry `lang="toml"`, `symbol="<manifest>"`,
+/// and `line_start >= 1`.
+/// Exercises the manifest-file-v1 chunker end-to-end.
+#[test]
+fn tier2_cargo_toml_ingest_searchable() {
+    let env = TestEnv::lexical_only();
+
+    std::fs::write(
+        env.workspace_root.join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
+    assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
+    assert!(report.new >= 1, "Cargo.toml ingested: {report:?}");
+
+    let toml_item = report
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("Cargo.toml"))
+        .expect("Cargo.toml item present");
+    assert_eq!(
+        toml_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        Some("none-v1"),
+        "parser_version must be none-v1"
+    );
+    assert_eq!(
+        toml_item.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("manifest-file-v1"),
+        "chunker_version must be manifest-file-v1"
+    );
+
+    let query = kebab_core::SearchQuery {
+        text: "demo".to_string(),
+        mode: kebab_core::SearchMode::Lexical,
+        k: 10,
+        filters: kebab_core::SearchFilters {
+            code_lang: vec!["toml".to_string()],
+            ..Default::default()
+        },
+    };
+    let hits = kebab_app::search_with_config(env.config.clone(), query)
+        .expect("search must succeed");
+
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, Citation::Code { .. }))
+        .expect("at least one Citation::Code hit for 'demo'");
+
+    match &h.citation {
+        Citation::Code {
+            lang,
+            symbol,
+            line_start,
+            ..
+        } => {
+            assert_eq!(
+                lang.as_deref(),
+                Some("toml"),
+                "citation.lang must be 'toml'"
+            );
+            assert_eq!(
+                symbol.as_deref(),
+                Some("<manifest>"),
+                "citation.symbol must be '<manifest>'"
+            );
+            assert!(*line_start >= 1, "line_start must be >=1");
+        }
+        _ => unreachable!(),
+    }
+
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("toml"),
+        "SearchHit.code_lang must be 'toml'"
+    );
+}
+
 /// Re-ingesting the same `.rs` file without changes must report
 /// `Unchanged` (incremental-skip path exercised).
 #[test]
