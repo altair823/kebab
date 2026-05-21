@@ -118,3 +118,4 @@ _                                 → skip (p10-3 fallback 의 자리)
 - **`pom.xml` aggregate parent POM** — 매우 큼 (수백~수천 줄). oversize fallback 으로 split. 거대 fixture 로 한 번 검증.
 - **`media.rs` 정리** — 1A-1 부터 누적된 inline `match extension` duplication 을 `code_lang_for_path` 호출로 교체. 기존 단위 테스트 동작 보존 (테스트는 결과 값만 보므로 통과해야 함).
 - **머지 후 deviation** 은 `tasks/HOTFIXES.md` dated 로그 + 본 spec `Risks / notes` 에 one-line cross-link.
+- **[HOTFIXES 2026-05-21]** multi-resource k8s YAML (2+ document) 이 `chunk_id` 충돌로 ingest 실패 — `push_chunks_with_oversize` 의 non-oversize 분기가 `split_key = None` 하드코딩. PR #158 (v0.16.1) 에서 `base_split_key` 파라미터로 fix. See `tasks/HOTFIXES.md` 2026-05-21 entry.
