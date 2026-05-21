@@ -16,12 +16,13 @@ tracing                    = { workspace = true }
 serde_yaml                 = { workspace = true }
 
 [dev-dependencies]
-# kb-parse-md / kb-normalize are dev-only — used by the snapshot integration
-# test to build a CanonicalDocument from a fixture Markdown file. Forbidden as
-# regular deps per design §8 (chunker consumes CanonicalDocument from kb-core
-# only); `cargo tree -p kb-chunk --depth 1` (default scope, excludes dev-deps)
-# confirms this.
-kebab-parse-md = { path = "../kebab-parse-md" }
-kebab-normalize = { path = "../kebab-normalize" }
-serde_json      = { workspace = true }
-time            = { workspace = true }
+# kb-parse-md / kb-normalize / kb-parse-code are dev-only — used by the
+# snapshot integration tests to build a CanonicalDocument from fixture files.
+# Forbidden as regular deps per design §8 (chunker consumes CanonicalDocument
+# from kb-core only); `cargo tree -p kb-chunk --depth 1` (default scope,
+# excludes dev-deps) confirms this.
+kebab-parse-md   = { path = "../kebab-parse-md" }
+kebab-parse-code = { path = "../kebab-parse-code" }
+kebab-normalize  = { path = "../kebab-normalize" }
+serde_json       = { workspace = true }
+time             = { workspace = true }
