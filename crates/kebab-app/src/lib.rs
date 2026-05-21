@@ -39,7 +39,7 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
-use kebab_chunk::{CodeGoAstV1Chunker, CodeJavaAstV1Chunker, CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTsAstV1Chunker, DockerfileFileV1Chunker, K8sManifestResourceV1Chunker, ManifestFileV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
+use kebab_chunk::{CodeGoAstV1Chunker, CodeJavaAstV1Chunker, CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTextParagraphV1Chunker, CodeTsAstV1Chunker, DockerfileFileV1Chunker, K8sManifestResourceV1Chunker, ManifestFileV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
@@ -948,11 +948,12 @@ fn ingest_one_asset(
                 force_reingest,
             );
         }
-        // p10-1A-2 / 1B: code ingest dispatch. p10-2: Tier 2 langs added.
+        // p10-1A-2 / 1B: code ingest dispatch. p10-2: Tier 2 langs added. p10-3: shell added.
         MediaType::Code(lang)
             if matches!(lang.as_str(),
                 "rust" | "python" | "typescript" | "javascript" | "go" | "java" | "kotlin"
-                | "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod") =>
+                | "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod"
+                | "shell") =>
         {
             return ingest_one_code_asset(
                 app,
@@ -1835,6 +1836,8 @@ fn ingest_one_code_asset(
         // p10-2: Tier 2 has no parse step — sentinel "none-v1".
         "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod"
             => ParserVersion("none-v1".to_string()),
+        // p10-3: shell direct routes to Tier 3 (no parse step).
+        "shell" => ParserVersion("none-v1".to_string()),
         other => anyhow::bail!("unsupported code_lang: {other}"),
     };
 
@@ -1852,6 +1855,8 @@ fn ingest_one_code_asset(
         "dockerfile" => DockerfileFileV1Chunker.chunker_version(),
         "toml" | "json" | "xml" | "groovy" | "go-mod"
                      => ManifestFileV1Chunker.chunker_version(),
+        // p10-3:
+        "shell"      => CodeTextParagraphV1Chunker.chunker_version(),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -1903,6 +1908,8 @@ fn ingest_one_code_asset(
         "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod" => {
             synthesize_tier2_document(asset, &bytes, code_lang, &parser_version)?
         }
+        // p10-3: shell reuses the same synthesizer.
+        "shell" => synthesize_tier2_document(asset, &bytes, "shell", &parser_version)?,
         other => anyhow::bail!("unreachable (extract): {other}"),
     };
 
@@ -1940,6 +1947,10 @@ fn ingest_one_code_asset(
                      => ManifestFileV1Chunker
             .chunk(&canonical, chunk_policy)
             .context("kb-chunk::ManifestFileV1Chunker::chunk")?,
+        // p10-3:
+        "shell"      => CodeTextParagraphV1Chunker
+            .chunk(&canonical, chunk_policy)
+            .context("kb-chunk::CodeTextParagraphV1Chunker::chunk (code:shell)")?,
         other => anyhow::bail!("unreachable (chunk): {other}"),
     };
 
