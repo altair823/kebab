@@ -14,6 +14,20 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-21 — p10-1D: typedef-wrapped struct/enum in C falls into glue
+
+**Origin**: PR #156 (p10-1d) code-reviewer review. Verified during dogfood.
+
+**Symptom**: `typedef struct { ... } Foo;` in a `.c` file does NOT emit a struct-level unit. tree-sitter-c classifies the construct as a top-level `type_definition` with an *anonymous* inner `struct_specifier` (no `name` field), so the extractor's `struct_specifier` arm doesn't fire — the whole declaration falls into `<top-level>` glue. The named typedef alias `Foo` is therefore not searchable as a symbol.
+
+**Status**: Consistent with spec p10-1d-c-cpp-ast-chunker.md's Risks/notes ("Anonymous union / struct … anonymous → glue"), but the spec's main body line 22 ("struct_specifier (named, top-level) → 1 unit") suggests this idiom WOULD emit. Tension noted, not yet fixed.
+
+**Workaround**: search the struct by its field/function names, or use `--code-lang c` to broaden scope. Typedef-aliased struct names won't surface as `Citation::Code.symbol`.
+
+**Next step**: dogfood real C code for a week+; if this turns out to be a frequent pain point (kernel-style code, libuv, etc.), revisit the extractor to detect `type_definition` → inner `struct_specifier` and emit a synthetic unit named after the typedef alias.
+
+Cross-link: `tasks/p10/p10-1d-c-cpp-ast-chunker.md` Risks/notes section.
+
 ## 2026-05-20 — p10-1B: Rust 1A-2 symbol path is file-scope-only; 1B+ uses workspace path → module prefix
 
 **무엇이 바뀌었나**: P10-1A-2 의 Rust `code-rust-ast-v1` chunker 가 생성하는 symbol 은 file-scope mod-path nesting 만 사용한다 (예: `Foo::double`). P10-1B 이후 Python / TypeScript / JavaScript 의 symbol 은 workspace 경로 → module path prefix 를 포함한다 (예: `kebab_eval.metrics.compute_mrr`, `src/Foo.Foo.search`).

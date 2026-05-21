@@ -1,11 +1,13 @@
 //! Snapshot test pinning the `Vec<Chunk>` JSON for a
 //! representative C++ code `CanonicalDocument`.
 //!
-//! This is an integration test. `kebab-parse-code` is intentionally NOT
-//! a dev-dep (design §6.3 / §8 boundary: AST extraction is parser-side).
-//! The `CanonicalDocument` is built inline from hand-crafted `Block::Code`
-//! units, which is the same pattern used in `code_c_ast_v1.rs`'s
-//! internal `code_doc` test helper.
+//! Two complementary tests:
+//! 1. `code_cpp_ast_chunks_snapshot` — hand-built `fixed_doc()` validates the
+//!    chunker's 1:1 mapping (design §6.3 / §8 boundary: no parse-code dep needed).
+//! 2. `code_cpp_ast_extractor_snapshot` — invokes `CppAstExtractor` against the
+//!    real `tests/fixtures/sample.cpp` fixture, validating the extractor → chunker
+//!    end-to-end pipeline. `kebab-parse-code` is a dev-dep (same pattern as
+//!    `kebab-parse-md` in Markdown snapshot tests).
 //!
 //! Set `UPDATE_SNAPSHOTS=1` to re-bake the baseline.
 
@@ -17,6 +19,7 @@ use kebab_core::{
     Lang, Metadata, ParserVersion, Provenance, SourceSpan, SourceType, TrustLevel, WorkspacePath,
     id_for_block, id_for_doc,
 };
+use kebab_parse_code::CppAstExtractor;
 use serde_json::Value;
 use time::OffsetDateTime;
 
@@ -134,6 +137,47 @@ fn fixed_policy() -> ChunkPolicy {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Helper: run the real CppAstExtractor against tests/fixtures/sample.cpp
+// ---------------------------------------------------------------------------
+
+fn extract_cpp_fixture() -> CanonicalDocument {
+    use kebab_core::{
+        AssetId, AssetStorage, Checksum, ExtractConfig, ExtractContext, Extractor, RawAsset,
+        SourceUri, WorkspacePath,
+    };
+    use std::path::PathBuf;
+
+    let bytes = std::fs::read(fixtures_dir().join("sample.cpp")).expect("read sample.cpp fixture");
+    let src = String::from_utf8(bytes).expect("fixture is valid UTF-8");
+    let wp = WorkspacePath("tests/fixtures/sample.cpp".to_string());
+    let asset = RawAsset {
+        asset_id: AssetId("e".repeat(64)),
+        source_uri: SourceUri::File(PathBuf::from("tests/fixtures/sample.cpp")),
+        workspace_path: wp,
+        media_type: kebab_core::MediaType::Code("cpp".to_string()),
+        byte_len: src.len() as u64,
+        checksum: Checksum("f".repeat(64)),
+        discovered_at: time::OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap(),
+        stored: AssetStorage::Reference {
+            path: PathBuf::from("tests/fixtures/sample.cpp"),
+            sha: Checksum("f".repeat(64)),
+        },
+    };
+    let cfg = ExtractConfig::default();
+    let root = PathBuf::from("/tmp");
+    let ctx = ExtractContext {
+        asset: &asset,
+        workspace_root: &root,
+        config: &cfg,
+    };
+    CppAstExtractor::new().extract(&ctx, src.as_bytes()).unwrap()
+}
+
+// ---------------------------------------------------------------------------
+// Test 1 (hand-built): chunker-only 1:1 mapping validation
+// ---------------------------------------------------------------------------
+
 #[test]
 fn code_cpp_ast_chunks_snapshot() {
     let doc = fixed_doc();
@@ -197,4 +241,85 @@ fn code_cpp_ast_chunks_are_deterministic() {
             .collect();
         assert_eq!(again, baseline);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Test 2 (real extractor): end-to-end extractor → chunker pipeline
+// ---------------------------------------------------------------------------
+
+/// Validates that the real `CppAstExtractor` processes `sample.cpp` and
+/// emits the expected set of symbols through the full chunker pipeline.
+///
+/// `sample.cpp` contains:
+/// - `#include` directives + nested namespace `kebab::chunk` → glue + struct unit
+/// - `class MdHeadingV1Chunker` with methods (ctor, dtor, chunk_doc, operator())
+/// - `template <typename T> T identity(T value)` (template fn)
+/// - `void kebab::global_helper()` (free fn in namespace)
+/// - `int main()` (global free fn)
+#[test]
+fn code_cpp_ast_extractor_snapshot() {
+    let doc = extract_cpp_fixture();
+
+    // Verify the extractor emits all expected named units.
+    let block_syms: Vec<Option<String>> = doc.blocks.iter().filter_map(|b| match b {
+        Block::Code(c) => match &c.common.source_span {
+            SourceSpan::Code { symbol, .. } => Some(symbol.clone()),
+            _ => None,
+        },
+        _ => None,
+    }).collect();
+
+    // Must include namespace-qualified class and its methods
+    assert!(
+        block_syms.iter().any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker")),
+        "class unit missing: {block_syms:?}"
+    );
+    assert!(
+        block_syms.iter().any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker::MdHeadingV1Chunker")),
+        "ctor unit missing: {block_syms:?}"
+    );
+    assert!(
+        block_syms.iter().any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker::~MdHeadingV1Chunker")),
+        "dtor unit missing: {block_syms:?}"
+    );
+    assert!(
+        block_syms.iter().any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker::chunk_doc")),
+        "chunk_doc unit missing: {block_syms:?}"
+    );
+    assert!(
+        block_syms.iter().any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker::operator()")),
+        "operator() unit missing: {block_syms:?}"
+    );
+    // Template function (inside kebab::chunk namespace in the fixture)
+    assert!(
+        block_syms.iter().any(|s| s.as_deref() == Some("kebab::chunk::identity")),
+        "identity template fn unit missing: {block_syms:?}"
+    );
+    // Free function in outer namespace
+    assert!(
+        block_syms.iter().any(|s| s.as_deref() == Some("kebab::global_helper")),
+        "global_helper unit missing: {block_syms:?}"
+    );
+    // Global main
+    assert!(
+        block_syms.iter().any(|s| s.as_deref() == Some("main")),
+        "main unit missing: {block_syms:?}"
+    );
+}
+
+/// End-to-end chunker output from real extractor is deterministic.
+#[test]
+fn code_cpp_ast_extractor_chunks_deterministic() {
+    let doc1 = extract_cpp_fixture();
+    let doc2 = extract_cpp_fixture();
+    assert_eq!(doc1.blocks, doc2.blocks, "extractor output non-deterministic");
+
+    let policy = fixed_policy();
+    let chunks1 = CodeCppAstV1Chunker.chunk(&doc1, &policy).unwrap();
+    let chunks2 = CodeCppAstV1Chunker.chunk(&doc2, &policy).unwrap();
+    assert_eq!(
+        chunks1.iter().map(|c| c.chunk_id.0.clone()).collect::<Vec<_>>(),
+        chunks2.iter().map(|c| c.chunk_id.0.clone()).collect::<Vec<_>>(),
+        "chunker output non-deterministic"
+    );
 }
