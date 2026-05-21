@@ -105,7 +105,49 @@ pub(crate) fn build_chunk(
         symbol: Some(symbol.to_string()),
         lang: Some(lang.to_string()),
     };
+    build_chunk_from_span(doc, chunker_version, base_policy_hash, text, span, split_key)
+}
 
+/// Like `build_chunk` but emits `symbol: None`. Used by Tier 3 (per spec §9.3).
+///
+/// Accepts `policy: &ChunkPolicy` and `chunker_version: &str` (string slice)
+/// so callers don't need to pre-compute the hash and version wrapper.
+/// `split_key` is `Some(window_start)` for oversize line-window splits.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_chunk_no_symbol(
+    doc: &CanonicalDocument,
+    policy: &ChunkPolicy,
+    text: &str,
+    line_start: u32,
+    line_end: u32,
+    lang: &str,
+    chunker_version: &str,
+    split_key: Option<u32>,
+) -> Chunk {
+    let cv = ChunkerVersion(chunker_version.to_string());
+    let base_policy_hash = policy_hash(policy);
+    let span = SourceSpan::Code {
+        line_start,
+        line_end,
+        symbol: None,
+        lang: Some(lang.to_string()),
+    };
+    build_chunk_from_span(doc, &cv, &base_policy_hash, text, span, split_key)
+}
+
+/// Core chunk-building logic shared by `build_chunk` and `build_chunk_no_symbol`.
+///
+/// Takes a pre-built `SourceSpan` so the only difference between the two
+/// public helpers is whether `symbol` is `Some` or `None`.  All id/hash/
+/// token mechanics are identical.
+fn build_chunk_from_span(
+    doc: &CanonicalDocument,
+    chunker_version: &ChunkerVersion,
+    base_policy_hash: &str,
+    text: &str,
+    span: SourceSpan,
+    split_key: Option<u32>,
+) -> Chunk {
     // id_hash mirrors code_rust_ast_v1's make_chunk logic:
     //   split_key Some(k) => "{base_policy_hash}#L{k}"
     //   split_key None    => base_policy_hash
@@ -114,7 +156,7 @@ pub(crate) fn build_chunk(
         None => base_policy_hash.to_string(),
     };
 
-    // block_ids: Tier 2 chunkers have no per-block structure (the whole file
+    // block_ids: Tier 2/3 chunkers have no per-block structure (the whole file
     // is one Block::Code), so we pass an empty slice — same as using the doc-
     // level slice without explicit block granularity.
     let block_ids: Vec<BlockId> = vec![];
