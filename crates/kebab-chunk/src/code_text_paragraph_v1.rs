@@ -124,7 +124,10 @@ fn push_paragraph(
     let n_lines = (para.line_end - para.line_start + 1) as usize;
 
     if n_lines <= FALLBACK_LINES_PER_CHUNK {
-        // Single chunk — no split_key needed.
+        // Use line_start as split_key so each paragraph gets a distinct
+        // chunk_id even when block_ids is empty (no symbol, no AST structure).
+        // Without this, all short paragraphs from the same doc share the same
+        // base_policy_hash and therefore the same id_for_chunk result.
         out.push(build_chunk_no_symbol(
             doc,
             policy,
@@ -133,7 +136,7 @@ fn push_paragraph(
             para.line_end,
             lang,
             VERSION_LABEL,
-            None,
+            Some(para.line_start),
         ));
         return Ok(());
     }

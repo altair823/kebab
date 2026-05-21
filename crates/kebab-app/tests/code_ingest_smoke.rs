@@ -850,6 +850,181 @@ fn tier2_cargo_toml_ingest_searchable() {
     );
 }
 
+/// p10-3 Task E: a `.sh` file is ingested via the shell direct-Tier-3 path
+/// and the resulting `Citation::Code` hit must carry `lang="shell"`,
+/// `symbol=None`, `line_start >= 1`, and
+/// `chunker_version = "code-text-paragraph-v1"`.
+#[test]
+fn tier3_shell_ingest_searchable() {
+    let env = TestEnv::lexical_only();
+
+    std::fs::write(
+        env.workspace_root.join("deploy.sh"),
+        "#!/usr/bin/env bash\nset -e\necho hello\n\nkebab ingest --json\n",
+    )
+    .unwrap();
+
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
+    assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
+    assert!(report.new >= 1, "shell file ingested: {report:?}");
+
+    let sh_item = report
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("deploy.sh"))
+        .expect("deploy.sh item present");
+    assert_eq!(
+        sh_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        Some("none-v1"),
+        "parser_version must be none-v1 for shell (Tier 3 direct)"
+    );
+    assert_eq!(
+        sh_item.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("code-text-paragraph-v1"),
+        "chunker_version must be code-text-paragraph-v1 for shell"
+    );
+
+    let query = kebab_core::SearchQuery {
+        text: "kebab".to_string(),
+        mode: kebab_core::SearchMode::Lexical,
+        k: 10,
+        filters: kebab_core::SearchFilters {
+            code_lang: vec!["shell".to_string()],
+            ..Default::default()
+        },
+    };
+    let hits = kebab_app::search_with_config(env.config.clone(), query)
+        .expect("search must succeed");
+
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, Citation::Code { .. }))
+        .expect("at least one Citation::Code hit for 'kebab'");
+
+    match &h.citation {
+        Citation::Code {
+            lang,
+            symbol,
+            line_start,
+            ..
+        } => {
+            assert_eq!(
+                lang.as_deref(),
+                Some("shell"),
+                "citation.lang must be 'shell'"
+            );
+            assert_eq!(*symbol, None, "Tier 3 symbol must be None");
+            assert!(*line_start >= 1, "line_start must be >=1");
+        }
+        _ => unreachable!(),
+    }
+
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("shell"),
+        "SearchHit.code_lang must be 'shell'"
+    );
+    assert_eq!(
+        h.chunker_version.0.as_str(),
+        "code-text-paragraph-v1",
+        "shell chunks must be stamped with the Tier 3 chunker_version"
+    );
+}
+
+/// p10-3 Task E: a docker-compose-shaped YAML file (no `apiVersion`/`kind`)
+/// is ingested; the k8s chunker returns `Ok(vec![])` and the Tier 3 fallback
+/// wrapper retries with `CodeTextParagraphV1Chunker`. The resulting
+/// `Citation::Code` hit must carry `lang="yaml"`, `symbol=None`,
+/// `line_start >= 1`, and `chunker_version = "code-text-paragraph-v1"`.
+#[test]
+fn tier3_yaml_fallback_picks_up_non_k8s_yaml() {
+    let env = TestEnv::lexical_only();
+
+    // docker-compose-shaped YAML — version + services but no apiVersion/kind.
+    // The k8s chunker returns Ok(vec![]); Tier 3 fallback should pick this up.
+    std::fs::write(
+        env.workspace_root.join("docker-compose.yml"),
+        "version: '3'\nservices:\n  api:\n    image: nginx:latest\n    ports:\n      - 8080:80\n",
+    )
+    .unwrap();
+
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
+    assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
+    assert!(
+        report.new >= 1,
+        "expected non-k8s yaml ingested via Tier 3, got {} new docs",
+        report.new
+    );
+
+    let yaml_item = report
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("docker-compose.yml"))
+        .expect("docker-compose.yml item present");
+    assert_eq!(
+        yaml_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        Some("none-v1"),
+        "parser_version must be none-v1 after Tier 3 fallback"
+    );
+    assert_eq!(
+        yaml_item.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("code-text-paragraph-v1"),
+        "chunker_version must be code-text-paragraph-v1 after Tier 3 fallback"
+    );
+
+    let query = kebab_core::SearchQuery {
+        text: "nginx".to_string(),
+        mode: kebab_core::SearchMode::Lexical,
+        k: 10,
+        filters: kebab_core::SearchFilters {
+            code_lang: vec!["yaml".to_string()],
+            ..Default::default()
+        },
+    };
+    let hits = kebab_app::search_with_config(env.config.clone(), query)
+        .expect("search must succeed");
+
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, Citation::Code { .. }))
+        .expect("at least one Citation::Code hit for 'nginx'");
+
+    match &h.citation {
+        Citation::Code {
+            lang,
+            symbol,
+            line_start,
+            ..
+        } => {
+            assert_eq!(
+                lang.as_deref(),
+                Some("yaml"),
+                "citation.lang must be 'yaml'"
+            );
+            assert_eq!(*symbol, None, "Tier 3 fallback symbol must be None");
+            assert!(*line_start >= 1, "line_start must be >=1");
+        }
+        _ => unreachable!(),
+    }
+
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("yaml"),
+        "SearchHit.code_lang must be 'yaml'"
+    );
+    assert_eq!(
+        h.chunker_version.0.as_str(),
+        "code-text-paragraph-v1",
+        "non-k8s yaml fallback must be stamped code-text-paragraph-v1"
+    );
+}
+
 /// Re-ingesting the same `.rs` file without changes must report
 /// `Unchanged` (incremental-skip path exercised).
 #[test]
