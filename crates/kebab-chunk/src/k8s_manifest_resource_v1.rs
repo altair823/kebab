@@ -85,6 +85,7 @@ impl Chunker for K8sManifestResourceV1Chunker {
                 &symbol,
                 "yaml",
                 VERSION_LABEL,
+                Some(slice.line_start),
             )?;
         }
 

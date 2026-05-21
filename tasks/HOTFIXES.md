@@ -14,6 +14,20 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-21 — p10-2: k8s multi-resource YAML chunk_id collision
+
+**Origin**: P10 종합 도그푸딩 (`/tmp/kebab-p10-dogfood/`, 16 파일). 한 파일에 2+ k8s document (Deployment + Service, `---` 구분) 인 YAML 이 ingest 실패.
+
+**Symptom**: `DocumentStore::put_chunks (code): UNIQUE constraint failed: chunks.chunk_id`. document row 는 생성되나 chunk 0개 → 검색 불가. p10-2 의 통합 테스트 `tier2_k8s_yaml_ingest_searchable` 가 single-Deployment fixture 만 써서 미발견.
+
+**원인**: `tier2_shared::push_chunks_with_oversize` 의 non-oversize 분기가 `split_key = None` 하드코딩. `K8sManifestResourceV1Chunker` 가 resource 마다 호출 — 같은 document 의 모든 resource 가 `doc_id` + `chunker_version` + `base_policy_hash` 공유 + `split_key = None` → 동일 `id_hash` → 동일 `chunk_id`. p10-3 의 `code_text_paragraph_v1` 가 같은 버그였고 `df3c5b8` 에서 fix 됐지만 그건 `build_chunk_no_symbol` 직접 호출 경로, `push_chunks_with_oversize` 경로는 미수정.
+
+**Fix** (PR #158, v0.16.1): `push_chunks_with_oversize` 에 `base_split_key: Option<u32>` 추가. k8s chunker 가 `Some(resource.line_start)` 전달 → resource 별 distinct chunk_id. dockerfile / manifest 는 `None` (파일당 1 chunk, 충돌 없음, chunk_id 불변).
+
+**Deviation note**: single-resource k8s YAML 의 chunk_id 도 `None → Some(1)` 으로 바뀜 (`id_hash` 가 `base_policy_hash` → `base_policy_hash#L1`). `chunker_version` (`k8s-manifest-resource-v1`) 은 의도적으로 bump 안 함 — p10-2 가 v0.14.0 (~1주 전) 머지된 dogfood 단계라 prod KB 없음. v0.14.0~v0.16.0 사이 single-resource k8s 를 색인한 KB 는 re-ingest 시 old chunk 가 orphan 될 수 있으나 (UNIQUE 충돌 아님 — 다른 id), `kebab reset` 또는 re-ingest sweep 으로 정리됨. dogfood-only 단계라 chunker_version bump (전체 re-process) 보다 가벼운 선택.
+
+Cross-link: `tasks/p10/p10-2-tier2-resource-aware.md` Risks/notes section.
+
 ## 2026-05-21 — p10-1D: typedef-wrapped struct/enum in C falls into glue
 
 **Origin**: PR #156 (p10-1d) code-reviewer review. Verified during dogfood.

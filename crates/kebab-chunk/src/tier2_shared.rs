@@ -25,6 +25,13 @@ pub(crate) fn policy_hash(policy: &ChunkPolicy) -> String {
 /// Emit one chunk for `(text, line_start..=line_end, symbol, lang)`, splitting
 /// into line-windows of at most `AST_CHUNK_MAX_LINES` if the slice is oversize.
 /// Mirrors the oversize path in `code_rust_ast_v1`'s `chunk` impl.
+///
+/// `base_split_key` is used as the `split_key` for the non-oversize single-chunk
+/// case. Callers that emit multiple chunks from the same document (e.g.
+/// `K8sManifestResourceV1Chunker` — one call per k8s resource) MUST pass
+/// `Some(line_start)` so that each call produces a distinct `chunk_id`.
+/// Single-chunk callers (dockerfile-file-v1, manifest-file-v1) pass `None` to
+/// keep chunk_ids stable (no sibling can collide when there's only one chunk).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn push_chunks_with_oversize(
     out: &mut Vec<Chunk>,
@@ -36,6 +43,7 @@ pub(crate) fn push_chunks_with_oversize(
     symbol: &str,
     lang: &str,
     chunker_version: &str,
+    base_split_key: Option<u32>,
 ) -> Result<()> {
     let n_lines = (line_end - line_start + 1).max(1);
     let cv = ChunkerVersion(chunker_version.to_string());
@@ -51,7 +59,7 @@ pub(crate) fn push_chunks_with_oversize(
             line_end,
             symbol,
             lang,
-            None,
+            base_split_key,
         ));
         return Ok(());
     }

@@ -43,6 +43,7 @@ impl Chunker for DockerfileFileV1Chunker {
             "<dockerfile>",
             "dockerfile",
             VERSION_LABEL,
+            None,
         )?;
 
         tracing::debug!(

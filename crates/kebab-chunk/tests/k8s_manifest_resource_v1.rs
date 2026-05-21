@@ -140,6 +140,17 @@ fn k8s_multi_doc_emits_one_chunk_per_resource() {
     for chunk in &chunks {
         assert_eq!(chunk.chunker_version.0, "k8s-manifest-resource-v1");
     }
+
+    // Every chunk from a multi-resource file must have a distinct chunk_id.
+    // Without the fix, all non-oversize resources get split_key=None which
+    // collapses to the same id_hash (= base_policy_hash) → UNIQUE constraint
+    // violation on the second resource.
+    let ids: std::collections::HashSet<_> = chunks.iter().map(|c| c.chunk_id.clone()).collect();
+    assert_eq!(
+        ids.len(),
+        chunks.len(),
+        "every k8s resource chunk must have a distinct chunk_id (multi-resource collision regression)"
+    );
 }
 
 /// A YAML document with an indentation error (tab in a space-indented context)
