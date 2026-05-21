@@ -795,6 +795,7 @@ fn try_skip_unchanged(
     current_chunker_version: &ChunkerVersion,
     current_embedding_version: Option<&kebab_core::EmbeddingVersion>,
     force_reingest: bool,
+    fallback_chunker_version: Option<&ChunkerVersion>, // p10-3 fix
 ) -> anyhow::Result<Option<kebab_core::IngestItem>> {
     if force_reingest {
         return Ok(None);
@@ -829,6 +830,50 @@ fn try_skip_unchanged(
     if existing_doc.source_asset_id != asset.asset_id {
         return Ok(None);
     }
+    // p10-3 fix: detect "stored doc was previously Tier 3 fallback".
+    // When a Tier 1/2 extractor emits empty chunks, the fallback wrapper
+    // retries with CodeTextParagraphV1Chunker and stores
+    // last_chunker_version = "code-text-paragraph-v1" + parser_version = "none-v1".
+    // On the next ingest the caller computes current_parser_version /
+    // current_chunker_version from the Tier 1/2 dispatch (e.g.
+    // "k8s-manifest-resource-v1"), which can never match the stored
+    // fallback values, causing spurious re-ingests. Detect this case
+    // and bypass the parser/chunker equality checks — only the embedder
+    // version still must match.
+    let stored_is_tier3_fallback = fallback_chunker_version.is_some_and(|fbv| {
+        existing_doc.last_chunker_version.as_ref() == Some(fbv)
+            && existing_doc.parser_version.0 == "none-v1"
+    });
+
+    if stored_is_tier3_fallback {
+        // Embedder version still must match.
+        let embedder_match = existing_doc.last_embedding_version.as_ref()
+            == current_embedding_version;
+        if !embedder_match {
+            return Ok(None);
+        }
+        let candidate_doc_id = existing_doc.doc_id.clone();
+        tracing::debug!(
+            target: "kebab-app::ingest",
+            path = %asset.workspace_path.0,
+            doc_id = %candidate_doc_id.0,
+            "skip-unchanged: tier 3 fallback state detected; bypassing parser/chunker equality"
+        );
+        return Ok(Some(kebab_core::IngestItem {
+            kind: kebab_core::IngestItemKind::Unchanged,
+            doc_id: Some(candidate_doc_id),
+            doc_path: asset.workspace_path.clone(),
+            asset_id: Some(asset.asset_id.clone()),
+            byte_len: Some(asset.byte_len),
+            block_count: u32::try_from(existing_doc.blocks.len()).ok(),
+            chunk_count: None,
+            parser_version: Some(existing_doc.parser_version.clone()),
+            chunker_version: existing_doc.last_chunker_version.clone(),
+            warnings: Vec::new(),
+            error: None,
+        }));
+    }
+
     // 2. Parser unchanged: parser_version is baked into id_for_doc so
     //    a version bump yields a different doc_id and the row above
     //    would have been missing. Checking here explicitly keeps the
@@ -1017,6 +1062,7 @@ fn ingest_one_asset(
         &MdHeadingV1Chunker.chunker_version(),
         embedder.map(|e| e.model_version()).as_ref(),
         force_reingest,
+        None,
     )? {
         return Ok(item);
     }
@@ -1211,6 +1257,7 @@ fn ingest_one_image_asset(
         &MdHeadingV1Chunker.chunker_version(),
         embedder.map(|e| e.model_version()).as_ref(),
         force_reingest,
+        None,
     )? {
         return Ok(item);
     }
@@ -1657,6 +1704,7 @@ fn ingest_one_pdf_asset(
         &PdfPageV1Chunker.chunker_version(),
         embedder.map(|e| e.model_version()).as_ref(),
         force_reingest,
+        None,
     )? {
         return Ok(item);
     }
@@ -1866,6 +1914,18 @@ fn ingest_one_code_asset(
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
+    // p10-3 fix: if this lang can fall back to Tier 3, compute the fallback
+    // chunker_version so try_skip_unchanged can detect the stored-as-Tier-3
+    // state and skip parser/chunker equality checks.
+    let tier3_fallback_cv: Option<ChunkerVersion> = match code_lang {
+        "rust" | "python" | "typescript" | "javascript"
+        | "go" | "java" | "kotlin"
+        | "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod"
+        | "c" | "cpp" // p10-1D
+            => Some(CodeTextParagraphV1Chunker.chunker_version()),
+        _ => None,
+    };
+
     if let Some(item) = try_skip_unchanged(
         app,
         asset,
@@ -1873,6 +1933,7 @@ fn ingest_one_code_asset(
         &chunker_version,
         embedder.map(|e| e.model_version()).as_ref(),
         force_reingest,
+        tier3_fallback_cv.as_ref(),
     )? {
         return Ok(item);
     }

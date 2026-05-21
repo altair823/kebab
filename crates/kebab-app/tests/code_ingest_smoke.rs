@@ -1064,3 +1064,101 @@ fn rust_file_re_ingest_is_unchanged() {
     );
     assert_eq!(item2.doc_id, item1.doc_id);
 }
+
+/// p10-3 fix regression: a docker-compose YAML that falls back to Tier 3
+/// (k8s chunker returns empty, CodeTextParagraphV1Chunker retries) must
+/// report Unchanged on the second ingest rather than re-processing.
+/// Before the fix, try_skip_unchanged returned None because the stored
+/// last_chunker_version ("code-text-paragraph-v1" / parser_version
+/// "none-v1") never matched the caller's dispatch values.
+#[test]
+fn tier3_yaml_fallback_reingest_is_unchanged() {
+    let env = TestEnv::lexical_only();
+
+    std::fs::write(
+        env.workspace_root.join("docker-compose.yml"),
+        "version: '3'\nservices:\n  api:\n    image: nginx:latest\n",
+    )
+    .unwrap();
+
+    let report1 =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+            .expect("first ingest");
+    let item1 = report1
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("docker-compose.yml"))
+        .expect("docker-compose.yml in first report");
+    assert!(
+        matches!(item1.kind, IngestItemKind::New),
+        "first ingest must be New, got {:?}", item1.kind
+    );
+    assert_eq!(
+        item1.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("code-text-paragraph-v1"),
+        "first ingest must use Tier 3 fallback chunker"
+    );
+
+    let report2 =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+            .expect("second ingest");
+    let item2 = report2
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("docker-compose.yml"))
+        .expect("docker-compose.yml in second report");
+    assert!(
+        matches!(item2.kind, IngestItemKind::Unchanged),
+        "second ingest must be Unchanged, got {:?}", item2.kind
+    );
+}
+
+/// p10-3 fix regression: a shell file (direct Tier 3, not a fallback)
+/// must also report Unchanged on re-ingest. Shell goes straight to
+/// CodeTextParagraphV1Chunker so `stored_is_tier3_fallback` is false
+/// (parser_version is "none-v1" and chunker matches the current dispatch),
+/// but the normal equality path should pass regardless.
+#[test]
+fn tier3_shell_reingest_is_unchanged() {
+    let env = TestEnv::lexical_only();
+
+    std::fs::write(
+        env.workspace_root.join("deploy.sh"),
+        "#!/usr/bin/env bash\nset -e\necho hello\n",
+    )
+    .unwrap();
+
+    let report1 =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+            .expect("first ingest");
+    let item1 = report1
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("deploy.sh"))
+        .expect("deploy.sh in first report");
+    assert!(
+        matches!(item1.kind, IngestItemKind::New),
+        "first ingest must be New, got {:?}", item1.kind
+    );
+
+    let report2 =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+            .expect("second ingest");
+    let item2 = report2
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("deploy.sh"))
+        .expect("deploy.sh in second report");
+    assert!(
+        matches!(item2.kind, IngestItemKind::Unchanged),
+        "shell reingest must be Unchanged, got {:?}", item2.kind
+    );
+}
