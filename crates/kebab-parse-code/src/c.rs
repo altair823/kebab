@@ -333,5 +333,260 @@ fn flush_glue(glue: &mut Vec<(u32, u32)>, units: &mut Vec<(String, u32, u32, boo
     glue.clear();
 }
 
-// Tests for CAstExtractor (snapshot + unit assertions) are added in Task D
-// alongside the C fixture file. This module is intentionally empty until then.
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+pub(crate) mod tests_support {
+    use kebab_core::*;
+    use std::path::PathBuf;
+    use time::OffsetDateTime;
+
+    pub fn fixed_code_asset(workspace_path: &str, lang: &str) -> RawAsset {
+        RawAsset {
+            asset_id: AssetId("a".repeat(64)),
+            source_uri: SourceUri::File(PathBuf::from(workspace_path)),
+            workspace_path: WorkspacePath(workspace_path.to_string()),
+            media_type: MediaType::Code(lang.to_string()),
+            byte_len: 0,
+            checksum: Checksum("b".repeat(64)),
+            discovered_at: OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap(),
+            stored: AssetStorage::Reference {
+                path: PathBuf::from(workspace_path),
+                sha: Checksum("b".repeat(64)),
+            },
+        }
+    }
+
+    pub fn extract_c(src: &str, path: &str) -> kebab_core::CanonicalDocument {
+        use super::CAstExtractor;
+        use kebab_core::Extractor;
+        let asset = fixed_code_asset(path, "c");
+        let cfg = ExtractConfig::default();
+        let root = PathBuf::from("/tmp");
+        let ctx = ExtractContext {
+            asset: &asset,
+            workspace_root: &root,
+            config: &cfg,
+        };
+        CAstExtractor::new().extract(&ctx, src.as_bytes()).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kebab_core::{Block, MediaType, SourceSpan};
+
+    fn syms(doc: &kebab_core::CanonicalDocument) -> Vec<String> {
+        doc.blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::Code(c) => match &c.common.source_span {
+                    SourceSpan::Code { symbol, .. } => symbol.clone(),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn extractor_supports_only_media_code_c() {
+        let e = CAstExtractor::new();
+        assert!(e.supports(&MediaType::Code("c".into())));
+        assert!(!e.supports(&MediaType::Code("cpp".into())));
+        assert!(!e.supports(&MediaType::Code("rust".into())));
+        assert!(!e.supports(&MediaType::Markdown));
+    }
+
+    #[test]
+    fn c_extractor_simple_function() {
+        let src = "int add(int a, int b) { return a + b; }\n";
+        let doc = tests_support::extract_c(src, "x/math.c");
+        let s = syms(&doc);
+        assert!(s.iter().any(|x| x == "add"), "got {s:?}");
+    }
+
+    #[test]
+    fn c_extractor_pointer_return_function() {
+        let src = "int *find(int *arr, int n) { return arr; }\n";
+        let doc = tests_support::extract_c(src, "x/find.c");
+        let s = syms(&doc);
+        assert!(s.iter().any(|x| x == "find"), "ptr-return fn missing: {s:?}");
+    }
+
+    #[test]
+    fn c_extractor_static_function() {
+        let src = "static void helper(void) {}\n";
+        let doc = tests_support::extract_c(src, "x/helper.c");
+        let s = syms(&doc);
+        assert!(s.iter().any(|x| x == "helper"), "static fn missing: {s:?}");
+    }
+
+    #[test]
+    fn c_extractor_extern_function() {
+        let src = "extern int compute(int x);\n";
+        // extern prototype is a declaration → glue
+        let doc = tests_support::extract_c(src, "x/compute.c");
+        let s = syms(&doc);
+        // declaration (prototype) falls into glue → "<module>"
+        assert!(
+            s.iter().any(|x| x == "<module>"),
+            "expected <module> for extern proto: {s:?}"
+        );
+    }
+
+    #[test]
+    fn c_extractor_inline_function() {
+        let src = "inline int square(int x) { return x * x; }\n";
+        let doc = tests_support::extract_c(src, "x/square.c");
+        let s = syms(&doc);
+        assert!(s.iter().any(|x| x == "square"), "inline fn missing: {s:?}");
+    }
+
+    #[test]
+    fn c_extractor_named_struct() {
+        let src = "struct Point { int x; int y; };\n";
+        let doc = tests_support::extract_c(src, "x/point.c");
+        let s = syms(&doc);
+        assert!(s.iter().any(|x| x == "Point"), "struct missing: {s:?}");
+    }
+
+    #[test]
+    fn c_extractor_named_enum() {
+        let src = "enum Color { RED, GREEN, BLUE };\n";
+        let doc = tests_support::extract_c(src, "x/color.c");
+        let s = syms(&doc);
+        assert!(s.iter().any(|x| x == "Color"), "enum missing: {s:?}");
+    }
+
+    #[test]
+    fn c_extractor_named_union() {
+        let src = "union Data { int i; float f; };\n";
+        let doc = tests_support::extract_c(src, "x/data.c");
+        let s = syms(&doc);
+        assert!(s.iter().any(|x| x == "Data"), "union missing: {s:?}");
+    }
+
+    #[test]
+    fn c_extractor_anonymous_struct_falls_into_glue() {
+        // Anonymous struct (no name field) → glue → "<module>" (only glue, no real unit)
+        let src = "struct { int x; int y; } origin;\n";
+        let doc = tests_support::extract_c(src, "x/anon.c");
+        let s = syms(&doc);
+        // anonymous struct is a declaration containing anonymous struct_specifier → glue
+        assert!(
+            s.iter().any(|x| x == "<module>"),
+            "expected <module> for anon struct: {s:?}"
+        );
+        // Must NOT emit a unit named after anything else
+        assert!(
+            !s.iter().any(|x| x == "origin"),
+            "unexpected 'origin' unit: {s:?}"
+        );
+    }
+
+    #[test]
+    fn c_extractor_typedef_struct_falls_into_glue() {
+        // typedef struct { ... } Foo; — inner struct_specifier is anonymous,
+        // outer node is type_definition → glue. See HOTFIXES.md 2026-05-21.
+        let src = "typedef struct { int x; int y; } Point;\n";
+        let doc = tests_support::extract_c(src, "x/typedef.c");
+        let s = syms(&doc);
+        assert!(
+            s.iter().any(|x| x == "<module>"),
+            "expected <module> for typedef struct: {s:?}"
+        );
+        // The typedef alias should NOT surface as a Code symbol
+        assert!(
+            !s.iter().any(|x| x == "Point"),
+            "unexpected 'Point' unit for typedef struct: {s:?}"
+        );
+    }
+
+    #[test]
+    fn c_extractor_preprocessor_directives_are_glue() {
+        let src = "#include <stdio.h>\n#define MAX 100\n#ifdef DEBUG\n#endif\n";
+        let doc = tests_support::extract_c(src, "x/macros.c");
+        let s = syms(&doc);
+        // Only preprocessor → no real unit → "<module>"
+        assert!(
+            s.iter().any(|x| x == "<module>"),
+            "expected <module> for preproc-only file: {s:?}"
+        );
+        assert_eq!(s.len(), 1, "expected exactly 1 block: {s:?}");
+    }
+
+    #[test]
+    fn c_extractor_multiple_functions_correct_count() {
+        let src = "int foo(void) { return 1; }\nint bar(void) { return 2; }\nint baz(void) { return 3; }\n";
+        let doc = tests_support::extract_c(src, "x/multi.c");
+        let s = syms(&doc);
+        assert!(s.iter().any(|x| x == "foo"), "foo missing: {s:?}");
+        assert!(s.iter().any(|x| x == "bar"), "bar missing: {s:?}");
+        assert!(s.iter().any(|x| x == "baz"), "baz missing: {s:?}");
+        assert_eq!(s.len(), 3, "expected 3 units: {s:?}");
+    }
+
+    #[test]
+    fn c_extractor_empty_file_produces_module() {
+        let src = "";
+        let doc = tests_support::extract_c(src, "x/empty.c");
+        let s = syms(&doc);
+        assert_eq!(s, vec!["<module>"], "expected <module>: got {s:?}");
+    }
+
+    #[test]
+    fn c_extractor_preprocessor_only_produces_module() {
+        let src = "#include <stdlib.h>\n#define VERSION \"1.0\"\n";
+        let doc = tests_support::extract_c(src, "x/header.c");
+        let s = syms(&doc);
+        assert!(
+            s.iter().any(|x| x == "<module>"),
+            "expected <module> for preproc-only file: {s:?}"
+        );
+    }
+
+    #[test]
+    fn c_extractor_mixed_functions_and_glue() {
+        let src = r#"#include <stdio.h>
+
+int compute(int x) {
+    return x * 2;
+}
+
+extern int lookup(int key);
+
+void print_result(int v) {
+    printf("%d\n", v);
+}
+"#;
+        let doc = tests_support::extract_c(src, "x/mixed.c");
+        let s = syms(&doc);
+        // Two real functions + one glue block
+        assert!(s.iter().any(|x| x == "compute"), "compute missing: {s:?}");
+        assert!(s.iter().any(|x| x == "print_result"), "print_result missing: {s:?}");
+        assert!(
+            s.iter().any(|x| x == "<top-level>"),
+            "<top-level> glue missing: {s:?}"
+        );
+    }
+
+    #[test]
+    fn c_extractor_deterministic_across_runs() {
+        let src = r#"
+struct Node { int val; };
+int sum(int a, int b) { return a + b; }
+void noop(void) {}
+"#;
+        let a = tests_support::extract_c(src, "x/det.c");
+        for _ in 0..20 {
+            assert_eq!(
+                tests_support::extract_c(src, "x/det.c").blocks,
+                a.blocks
+            );
+        }
+    }
+}
