@@ -1553,6 +1553,8 @@ transitional 형태) 의 source of truth.
 
 **p10-3 활성화 (Tier 3 paragraph fallback) (2026-05-21)**: Tier 3 chunker `code-text-paragraph-v1` 활성화. shell script (`.sh`/`.bash`/`.zsh`) direct routing + Tier 1/2 가 0 chunk 또는 Err 시 자동 fallback 으로 retry. 비-k8s YAML / invalid YAML / AST 실패 케이스 모두 picked up. lang 은 입력 보존 (shell → "shell", yaml → "yaml" 등), symbol 은 항상 None.
 
+**p10-1D 활성화 (C + C++) (2026-05-21)**: P10 Tier 1 chunker family 완료 — C (`code-c-ast-v1`, `.c`/`.h`) + C++ (`code-cpp-ast-v1`, `.cpp`/`.cc`/`.cxx`/`.hpp`/`.hh`/`.hxx`) AST chunker 활성화. C symbol = function name only (no nesting); C++ symbol = `namespace::Class::method` (recursive namespace + class nesting). `.h` 가 C++ syntax 만나면 tree-sitter-c parse 실패 → p10-3 Tier 3 fallback 으로 자동 picked up.
+
 ### 10.2 MCP server transport (fb-30)
 
 `kebab mcp` 가 stdio JSON-RPC server. Rust SDK = `rmcp 1.6`. Tool surface
