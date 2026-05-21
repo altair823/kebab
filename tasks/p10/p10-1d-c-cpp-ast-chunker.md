@@ -113,6 +113,7 @@ crates/kebab-parse-code/Cargo.toml  [edit] — 위 2 dep 신규 entry.
 - **Template specialization** (`template<> class Foo<int>`): tree-sitter-cpp 의 `template_declaration` 안의 `class_specifier` name 만 추출 — `Foo` 만 symbol 에 들어가고 `<int>` 미포함. design 의 generic 무시 룰 일관.
 - **`extern "C"` block 안의 fn**: 일반 fn 처리. 외부 wrapping block 은 glue.
 - **Anonymous union / struct** (`struct { int x; }` 변수 안에): 흔치 않음 + named 만 unit. anonymous 는 glue.
+- **typedef-wrapped struct/enum idiom** (`typedef struct { ... } Foo;`) — anonymous inner struct → glue. Named typedef alias 미캡처. dogfood 후 HOTFIXES 검토. See [HOTFIXES.md 2026-05-21 entry](../HOTFIXES.md).
 - **Macro-heavy code** (Linux kernel 등): `#define FOO(x) ...` 매크로가 function-like 라도 parser 가 fn 으로 인식 안 함. preprocessor glue 로 처리 — symbol 안 잡힘. 의도된 동작 (parser 의 macro expansion 안 함).
 - **`__attribute__((...))`** annotations: tree-sitter-c 의 attribute 노드는 declarator 옆 sibling. 무시 가능. function name 추출에 영향 없음.
 - **fixture 크기**: sample.c 는 ~30 line (top-level fn + struct + enum + preprocessor), sample.cpp 는 ~50 line (nested namespace + class + method + template + free fn). oversize fallback 의 별도 검증은 1A-2 의 long_section_snapshot 패턴이 이미 cover (필요 시 별도 fixture).
