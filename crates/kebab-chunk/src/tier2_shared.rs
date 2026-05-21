@@ -88,7 +88,7 @@ pub(crate) fn push_chunks_with_oversize(
 /// for normal single-chunk emission.  Mirrors the `Some(part_ls)` / `None`
 /// split_key pattern in 1A-2.
 #[allow(clippy::too_many_arguments)]
-fn build_chunk(
+pub(crate) fn build_chunk(
     doc: &CanonicalDocument,
     chunker_version: &ChunkerVersion,
     base_policy_hash: &str,
