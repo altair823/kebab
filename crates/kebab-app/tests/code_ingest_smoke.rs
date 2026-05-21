@@ -1064,3 +1064,270 @@ fn rust_file_re_ingest_is_unchanged() {
     );
     assert_eq!(item2.doc_id, item1.doc_id);
 }
+
+/// p10-3 fix regression: a docker-compose YAML that falls back to Tier 3
+/// (k8s chunker returns empty, CodeTextParagraphV1Chunker retries) must
+/// report Unchanged on the second ingest rather than re-processing.
+/// Before the fix, try_skip_unchanged returned None because the stored
+/// last_chunker_version ("code-text-paragraph-v1" / parser_version
+/// "none-v1") never matched the caller's dispatch values.
+#[test]
+fn tier3_yaml_fallback_reingest_is_unchanged() {
+    let env = TestEnv::lexical_only();
+
+    std::fs::write(
+        env.workspace_root.join("docker-compose.yml"),
+        "version: '3'\nservices:\n  api:\n    image: nginx:latest\n",
+    )
+    .unwrap();
+
+    let report1 =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+            .expect("first ingest");
+    let item1 = report1
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("docker-compose.yml"))
+        .expect("docker-compose.yml in first report");
+    assert!(
+        matches!(item1.kind, IngestItemKind::New),
+        "first ingest must be New, got {:?}", item1.kind
+    );
+    assert_eq!(
+        item1.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("code-text-paragraph-v1"),
+        "first ingest must use Tier 3 fallback chunker"
+    );
+
+    let report2 =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+            .expect("second ingest");
+    let item2 = report2
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("docker-compose.yml"))
+        .expect("docker-compose.yml in second report");
+    assert!(
+        matches!(item2.kind, IngestItemKind::Unchanged),
+        "second ingest must be Unchanged, got {:?}", item2.kind
+    );
+}
+
+/// p10-1d Task G: a `.c` file with a single top-level function is ingested
+/// and the resulting `Citation::Code` hit must carry `lang="c"`,
+/// `symbol="parse_record"` (function name only — no nesting in C), and
+/// `chunker_version = "code-c-ast-v1"`.
+#[test]
+fn tier1_c_ingest_searchable() {
+    let env = TestEnv::lexical_only();
+
+    std::fs::write(
+        env.workspace_root.join("parser.c"),
+        "#include <stdio.h>\n\nint parse_record(const char *line) {\n    if (line == NULL) return -1;\n    return 0;\n}\n",
+    )
+    .unwrap();
+
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
+    assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
+    assert!(report.new >= 1, "c file ingested: {report:?}");
+
+    let c_item = report
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("parser.c"))
+        .expect("parser.c item present");
+    assert_eq!(
+        c_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        Some("code-c-v1"),
+        "parser_version must be code-c-v1"
+    );
+    assert_eq!(
+        c_item.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("code-c-ast-v1"),
+        "chunker_version must be code-c-ast-v1"
+    );
+
+    let query = kebab_core::SearchQuery {
+        text: "parse_record".to_string(),
+        mode: kebab_core::SearchMode::Lexical,
+        k: 10,
+        filters: kebab_core::SearchFilters {
+            code_lang: vec!["c".to_string()],
+            ..Default::default()
+        },
+    };
+    let hits = kebab_app::search_with_config(env.config.clone(), query)
+        .expect("search must succeed");
+
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, Citation::Code { .. }))
+        .expect("at least one Citation::Code hit for 'parse_record'");
+
+    match &h.citation {
+        Citation::Code {
+            lang,
+            symbol,
+            line_start,
+            ..
+        } => {
+            assert_eq!(lang.as_deref(), Some("c"), "citation.lang must be 'c'");
+            assert_eq!(
+                symbol.as_deref(),
+                Some("parse_record"),
+                "C symbol must be function name only (no nesting)"
+            );
+            assert!(*line_start >= 1, "line_start must be >=1");
+        }
+        _ => unreachable!(),
+    }
+
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("c"),
+        "SearchHit.code_lang must be 'c'"
+    );
+    assert_eq!(
+        h.chunker_version.0.as_str(),
+        "code-c-ast-v1",
+        "C chunks must be stamped with code-c-ast-v1"
+    );
+}
+
+/// p10-1d Task G: a `.cpp` file with nested namespace + class is ingested
+/// and the resulting `Citation::Code` hit must carry `lang="cpp"`, a
+/// `symbol` that starts with `"kebab::chunk::Foo"` (namespace::Class or
+/// namespace::Class::method), and `chunker_version = "code-cpp-ast-v1"`.
+#[test]
+fn tier1_cpp_ingest_searchable() {
+    let env = TestEnv::lexical_only();
+
+    std::fs::write(
+        env.workspace_root.join("chunker.cpp"),
+        "namespace kebab {\nnamespace chunk {\nclass Foo {\npublic:\n    void bar() { /* impl */ }\n};\n}\n}\n",
+    )
+    .unwrap();
+
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
+    assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
+    assert!(report.new >= 1, "cpp file ingested: {report:?}");
+
+    let cpp_item = report
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("chunker.cpp"))
+        .expect("chunker.cpp item present");
+    assert_eq!(
+        cpp_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        Some("code-cpp-v1"),
+        "parser_version must be code-cpp-v1"
+    );
+    assert_eq!(
+        cpp_item.chunker_version.as_ref().map(|c| c.0.as_str()),
+        Some("code-cpp-ast-v1"),
+        "chunker_version must be code-cpp-ast-v1"
+    );
+
+    let query = kebab_core::SearchQuery {
+        text: "bar".to_string(),
+        mode: kebab_core::SearchMode::Lexical,
+        k: 10,
+        filters: kebab_core::SearchFilters {
+            code_lang: vec!["cpp".to_string()],
+            ..Default::default()
+        },
+    };
+    let hits = kebab_app::search_with_config(env.config.clone(), query)
+        .expect("search must succeed");
+
+    let h = hits
+        .iter()
+        .find(|h| matches!(&h.citation, Citation::Code { .. }))
+        .expect("at least one Citation::Code hit for 'bar'");
+
+    match &h.citation {
+        Citation::Code {
+            lang,
+            symbol,
+            line_start,
+            ..
+        } => {
+            assert_eq!(lang.as_deref(), Some("cpp"), "citation.lang must be 'cpp'");
+            // Symbol could be "kebab::chunk::Foo" (class) or "kebab::chunk::Foo::bar"
+            // (method) depending on which chunk ranks first.
+            assert!(
+                symbol.as_deref().is_some_and(|s| s.starts_with("kebab::chunk::Foo")),
+                "C++ symbol must start with namespace::Class prefix, got {:?}", symbol
+            );
+            assert!(*line_start >= 1, "line_start must be >=1");
+        }
+        _ => unreachable!(),
+    }
+
+    assert_eq!(
+        h.code_lang.as_deref(),
+        Some("cpp"),
+        "SearchHit.code_lang must be 'cpp'"
+    );
+    assert_eq!(
+        h.chunker_version.0.as_str(),
+        "code-cpp-ast-v1",
+        "C++ chunks must be stamped with code-cpp-ast-v1"
+    );
+}
+
+/// p10-3 fix regression: a shell file (direct Tier 3, not a fallback)
+/// must also report Unchanged on re-ingest. Shell goes straight to
+/// CodeTextParagraphV1Chunker so `stored_is_tier3_fallback` is false
+/// (parser_version is "none-v1" and chunker matches the current dispatch),
+/// but the normal equality path should pass regardless.
+#[test]
+fn tier3_shell_reingest_is_unchanged() {
+    let env = TestEnv::lexical_only();
+
+    std::fs::write(
+        env.workspace_root.join("deploy.sh"),
+        "#!/usr/bin/env bash\nset -e\necho hello\n",
+    )
+    .unwrap();
+
+    let report1 =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+            .expect("first ingest");
+    let item1 = report1
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("deploy.sh"))
+        .expect("deploy.sh in first report");
+    assert!(
+        matches!(item1.kind, IngestItemKind::New),
+        "first ingest must be New, got {:?}", item1.kind
+    );
+
+    let report2 =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+            .expect("second ingest");
+    let item2 = report2
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("deploy.sh"))
+        .expect("deploy.sh in second report");
+    assert!(
+        matches!(item2.kind, IngestItemKind::Unchanged),
+        "shell reingest must be Unchanged, got {:?}", item2.kind
+    );
+}

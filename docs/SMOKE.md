@@ -548,6 +548,54 @@ KB --json schema | jq '.stats.code_lang_breakdown'
 
 **Tier 3 citation.symbol 컨벤션**: 항상 `null`. 의미 단위 식별 안 함. `lang` 은 원본 lang 보존 (shell → `"shell"`, yaml → `"yaml"` 등).
 
+## P10-1D C + C++ AST chunkers
+
+P10-3 와 동일한 격리 KB 설정. `.c` 와 `.cpp` 파일이 각자의 AST chunker 로 처리된다.
+
+```bash
+# 1) C 파일 — top-level function symbol
+cat > /tmp/kebab-smoke/workspace/parser.c <<'EOF'
+#include <stdio.h>
+
+int parse_record(const char *line) {
+    if (line == NULL) return -1;
+    return 0;
+}
+EOF
+
+# 2) C++ 파일 — namespace::Class::method symbol
+cat > /tmp/kebab-smoke/workspace/chunker.cpp <<'EOF'
+namespace kebab {
+namespace chunk {
+
+class Foo {
+public:
+    void bar() { /* impl */ }
+};
+
+}  // namespace chunk
+}  // namespace kebab
+EOF
+
+# 3) ingest
+KB ingest
+
+# 4) 언어별 검색 (citation.symbol 확인)
+KB search --mode hybrid "parse_record" --code-lang c --json | \
+  jq '{hits: [.hits[] | {symbol: .citation.symbol, lang: .citation.lang}]}'
+# 기대: symbol = "parse_record" (function name only), lang = "c"
+
+KB search --mode hybrid "bar" --code-lang cpp --json | \
+  jq '{hits: [.hits[] | {symbol: .citation.symbol, lang: .citation.lang}]}'
+# 기대: symbol = "kebab::chunk::Foo" 또는 "kebab::chunk::Foo::bar" (namespace::Class[::method]), lang = "cpp"
+
+# 5) schema stats 에 C/C++ 카운트 확인
+KB --json schema | jq '.stats.code_lang_breakdown'
+# 기대: {"c": N, "cpp": M, ...}
+```
+
+**Tier 1 (p10-1D) citation.symbol 컨벤션**: C 는 function name only (`parse_record` 같이 nesting 없음). C++ 는 `namespace::Class::method` (recursive namespace + class nesting). `.h` 파일이 C++ syntax (namespace / template / class) 만나면 tree-sitter-c parse 실패 → p10-3 Tier 3 fallback (`code-text-paragraph-v1`) 으로 자동 picked up.
+
 ## 검증 체크리스트
 
 - `kebab doctor` 가 `--config` path 를 honor 하고 그 안의 `storage.data_dir` 를 출력 (XDG default 가 아님).
@@ -584,6 +632,7 @@ rm -rf /tmp/kebab-smoke              # 통째로 정리
 - (P10-1C-JK) `.java` 파일은 `code-java-ast-v1`, `.kt`/`.kts` 파일은 `code-kotlin-ast-v1` 로 처리. `--code-lang java` / `--code-lang kotlin` 검색이 `citation.symbol` 에 `com.foo.Foo.bar` 형식 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"java": N` / `"kotlin": N` 등장 확인.
 - (P10-2) `.yaml`/`.yml` 파일은 apiVersion+kind 파싱으로 k8s resource 별 chunk 생성 (`k8s-manifest-resource-v1`). `Dockerfile`/`Dockerfile.*` 는 전체 파일 단일 chunk (`dockerfile-file-v1`). `.toml`/`.json`/`.xml`/`.groovy`/`go.mod` 는 전체 파일 단일 chunk (`manifest-file-v1`). `--code-lang yaml` / `--code-lang dockerfile` / `--code-lang toml` 검색이 `citation.symbol` 에 각각 `Deployment/default/my-app` / `<dockerfile>` / `<manifest>` 형식 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"yaml": N` / `"dockerfile": N` / `"toml": N` 등장 확인.
 - (P10-3) `.sh`/`.bash`/`.zsh` 파일은 direct Tier 3 (`code-text-paragraph-v1`). 비-k8s YAML (apiVersion+kind 없는 yaml) 은 k8s chunker 가 0 chunk → Tier 3 fallback 으로 picked up. `--code-lang shell` / `--code-lang yaml` 검색이 `citation.symbol = null`, `chunker_version = "code-text-paragraph-v1"` 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"shell": N` 등장 확인.
+- (P10-1D) `.c` / `.h` 파일은 `code-c-ast-v1` (function name only symbol). `.cpp`/`.cc`/`.cxx`/`.hpp`/`.hh`/`.hxx` 는 `code-cpp-ast-v1` (`namespace::Class::method` symbol). `--code-lang c` / `--code-lang cpp` 검색 동작 + `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"c": N` / `"cpp": M` 등장 확인. `.h` 파일이 C++ 내용 (namespace 등) 갖고 있으면 자동으로 Tier 3 (`code-text-paragraph-v1`) fallback 으로 picked up.
 - (P7-3 + follow-up) 동일 path 에 byte 가 다른 PDF 를 두 번째 ingest 하면 `purge_vector_orphans_for_workspace_path` 가 옛 chunk_id 를 LanceDB 에서 먼저 삭제, 이어서 `purge_orphan_at_workspace_path` 가 옛 doc / chunks / embedding_records 를 SQLite 에서 sweep. 새 byte 가 새 `doc_id` 로 색인됨. `IngestReport` 에 그 자산만 `new+=1` (다른 자산은 `updated`). 두 store 모두 정합 — 옛 본문 검색 시 옛 chunks 가 더 이상 surface 되지 않음.
 
 ### Embedding upgrade (fb-39b)

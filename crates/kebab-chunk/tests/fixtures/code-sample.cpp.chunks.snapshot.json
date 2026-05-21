@@ -1,0 +1,107 @@
+[
+  {
+    "block_ids": [
+      "53292605459065d170cd36c118e20546"
+    ],
+    "chunk_id": "50a5b324300d9082eac4ce2a422810e1",
+    "chunker_version": "code-cpp-ast-v1",
+    "doc_id": "fff1e1f0a7ff70ef682937470e5d1d28",
+    "heading_path": [],
+    "policy_hash": "71f3c07bb9ec1d09",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "cpp",
+        "line_end": 4,
+        "line_start": 1,
+        "symbol": "<top-level>"
+      }
+    ],
+    "text": "#include <string>\n#include <vector>\n\nnamespace kebab {",
+    "token_estimate": 18
+  },
+  {
+    "block_ids": [
+      "f349acad94c9fa4cf9ad1c0a93e83610"
+    ],
+    "chunk_id": "0e6bc7c522665af8a4b0f66afb9d29c8",
+    "chunker_version": "code-cpp-ast-v1",
+    "doc_id": "fff1e1f0a7ff70ef682937470e5d1d28",
+    "heading_path": [],
+    "policy_hash": "71f3c07bb9ec1d09",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "cpp",
+        "line_end": 20,
+        "line_start": 6,
+        "symbol": "kebab::chunk::MdHeadingV1Chunker"
+      }
+    ],
+    "text": "class MdHeadingV1Chunker {\npublic:\n    MdHeadingV1Chunker() = default;\n    ~MdHeadingV1Chunker() = default;\n\n    std::string chunk_doc(const std::string& doc) {\n        return doc;\n    }\n\n    int operator()(int x) const {\n        return x * 2;\n    }\n\nprivate:\n    int counter_ = 0;\n};",
+    "token_estimate": 95
+  },
+  {
+    "block_ids": [
+      "8b9811387717d0bd4abf84abcc35b8b1"
+    ],
+    "chunk_id": "d9326d252905b665b2adb9a416c20451",
+    "chunker_version": "code-cpp-ast-v1",
+    "doc_id": "fff1e1f0a7ff70ef682937470e5d1d28",
+    "heading_path": [],
+    "policy_hash": "71f3c07bb9ec1d09",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "cpp",
+        "line_end": 25,
+        "line_start": 22,
+        "symbol": "kebab::identity"
+      }
+    ],
+    "text": "template <typename T>\nT identity(T value) {\n    return value;\n}",
+    "token_estimate": 21
+  },
+  {
+    "block_ids": [
+      "1754cb6b971f6a4cb292f144a4f0570b"
+    ],
+    "chunk_id": "56ee5f991de4a413c016da8dc4acfc35",
+    "chunker_version": "code-cpp-ast-v1",
+    "doc_id": "fff1e1f0a7ff70ef682937470e5d1d28",
+    "heading_path": [],
+    "policy_hash": "71f3c07bb9ec1d09",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "cpp",
+        "line_end": 29,
+        "line_start": 27,
+        "symbol": "kebab::global_helper"
+      }
+    ],
+    "text": "void global_helper() {\n    // free function in kebab namespace\n}",
+    "token_estimate": 22
+  },
+  {
+    "block_ids": [
+      "14b5f3393d6d25f822f5b70763d24acd"
+    ],
+    "chunk_id": "c0d7c043cdd575c530db3909b54cc906",
+    "chunker_version": "code-cpp-ast-v1",
+    "doc_id": "fff1e1f0a7ff70ef682937470e5d1d28",
+    "heading_path": [],
+    "policy_hash": "71f3c07bb9ec1d09",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "cpp",
+        "line_end": 34,
+        "line_start": 31,
+        "symbol": "main"
+      }
+    ],
+    "text": "int main() {\n    kebab::chunk::MdHeadingV1Chunker c;\n    return 0;\n}",
+    "token_estimate": 23
+  }
+]
