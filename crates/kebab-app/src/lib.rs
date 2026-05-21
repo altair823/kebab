@@ -39,7 +39,7 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
-use kebab_chunk::{CodeGoAstV1Chunker, CodeJavaAstV1Chunker, CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTextParagraphV1Chunker, CodeTsAstV1Chunker, DockerfileFileV1Chunker, K8sManifestResourceV1Chunker, ManifestFileV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
+use kebab_chunk::{CodeCAstV1Chunker, CodeCppAstV1Chunker, CodeGoAstV1Chunker, CodeJavaAstV1Chunker, CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTextParagraphV1Chunker, CodeTsAstV1Chunker, DockerfileFileV1Chunker, K8sManifestResourceV1Chunker, ManifestFileV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
@@ -50,7 +50,7 @@ use kebab_core::{
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_normalize::build_canonical_document;
 use kebab_parse_image::{ImageExtractor, OllamaVisionOcr, apply_caption, apply_ocr};
-use kebab_parse_code::{GoAstExtractor, JavaAstExtractor, JavascriptAstExtractor, KotlinAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor};
+use kebab_parse_code::{CAstExtractor, CppAstExtractor, GoAstExtractor, JavaAstExtractor, JavascriptAstExtractor, KotlinAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor};
 use kebab_parse_pdf::PdfTextExtractor;
 use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
@@ -948,12 +948,12 @@ fn ingest_one_asset(
                 force_reingest,
             );
         }
-        // p10-1A-2 / 1B: code ingest dispatch. p10-2: Tier 2 langs added. p10-3: shell added.
+        // p10-1A-2 / 1B: code ingest dispatch. p10-2: Tier 2 langs added. p10-3: shell added. p10-1D: c/cpp added.
         MediaType::Code(lang)
             if matches!(lang.as_str(),
                 "rust" | "python" | "typescript" | "javascript" | "go" | "java" | "kotlin"
                 | "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod"
-                | "shell") =>
+                | "shell" | "c" | "cpp") =>
         {
             return ingest_one_code_asset(
                 app,
@@ -1838,6 +1838,9 @@ fn ingest_one_code_asset(
             => ParserVersion("none-v1".to_string()),
         // p10-3: shell direct routes to Tier 3 (no parse step).
         "shell" => ParserVersion("none-v1".to_string()),
+        // p10-1D: C + C++ AST extractors.
+        "c"   => ParserVersion(kebab_parse_code::C_PARSER_VERSION.to_string()),
+        "cpp" => ParserVersion(kebab_parse_code::CPP_PARSER_VERSION.to_string()),
         other => anyhow::bail!("unsupported code_lang: {other}"),
     };
 
@@ -1857,6 +1860,9 @@ fn ingest_one_code_asset(
                      => ManifestFileV1Chunker.chunker_version(),
         // p10-3:
         "shell"      => CodeTextParagraphV1Chunker.chunker_version(),
+        // p10-1D: C + C++ AST chunkers.
+        "c"          => CodeCAstV1Chunker.chunker_version(),
+        "cpp"        => CodeCppAstV1Chunker.chunker_version(),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -1911,6 +1917,13 @@ fn ingest_one_code_asset(
         }
         // p10-3: shell reuses the same synthesizer.
         "shell" => synthesize_tier2_document(asset, &bytes, "shell", &parser_version),
+        // p10-1D: C + C++ AST extractors.
+        "c" => CAstExtractor::new()
+            .extract(&ctx, &bytes)
+            .context("kebab-parse-code::CAstExtractor::extract (code:c)"),
+        "cpp" => CppAstExtractor::new()
+            .extract(&ctx, &bytes)
+            .context("kebab-parse-code::CppAstExtractor::extract (code:cpp)"),
         other => anyhow::bail!("unreachable (extract): {other}"),
     };
 
@@ -1987,6 +2000,13 @@ fn ingest_one_code_asset(
             "shell" => CodeTextParagraphV1Chunker
                 .chunk(&canonical, chunk_policy)
                 .context("kb-chunk::CodeTextParagraphV1Chunker::chunk (code:shell)"),
+            // p10-1D: C + C++ AST chunkers.
+            "c" => CodeCAstV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kebab-chunk::CodeCAstV1Chunker::chunk (code:c)"),
+            "cpp" => CodeCppAstV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kebab-chunk::CodeCppAstV1Chunker::chunk (code:cpp)"),
             other => anyhow::bail!("unreachable (chunk): {other}"),
         }
     };
