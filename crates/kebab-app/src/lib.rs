@@ -39,7 +39,7 @@ use std::sync::Arc;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
-use kebab_chunk::{CodeGoAstV1Chunker, CodeJavaAstV1Chunker, CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTsAstV1Chunker, DockerfileFileV1Chunker, K8sManifestResourceV1Chunker, ManifestFileV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
+use kebab_chunk::{CodeGoAstV1Chunker, CodeJavaAstV1Chunker, CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTextParagraphV1Chunker, CodeTsAstV1Chunker, DockerfileFileV1Chunker, K8sManifestResourceV1Chunker, ManifestFileV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
@@ -948,11 +948,12 @@ fn ingest_one_asset(
                 force_reingest,
             );
         }
-        // p10-1A-2 / 1B: code ingest dispatch. p10-2: Tier 2 langs added.
+        // p10-1A-2 / 1B: code ingest dispatch. p10-2: Tier 2 langs added. p10-3: shell added.
         MediaType::Code(lang)
             if matches!(lang.as_str(),
                 "rust" | "python" | "typescript" | "javascript" | "go" | "java" | "kotlin"
-                | "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod") =>
+                | "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod"
+                | "shell") =>
         {
             return ingest_one_code_asset(
                 app,
@@ -1835,11 +1836,13 @@ fn ingest_one_code_asset(
         // p10-2: Tier 2 has no parse step — sentinel "none-v1".
         "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod"
             => ParserVersion("none-v1".to_string()),
+        // p10-3: shell direct routes to Tier 3 (no parse step).
+        "shell" => ParserVersion("none-v1".to_string()),
         other => anyhow::bail!("unsupported code_lang: {other}"),
     };
 
     // p10-1b Task D/G/J/L: chunker_version per-lang.
-    let chunker_version = match code_lang {
+    let mut chunker_version = match code_lang {
         "rust"       => CodeRustAstV1Chunker.chunker_version(),
         "python"     => CodePythonAstV1Chunker.chunker_version(),
         "typescript" => CodeTsAstV1Chunker.chunker_version(),
@@ -1852,6 +1855,8 @@ fn ingest_one_code_asset(
         "dockerfile" => DockerfileFileV1Chunker.chunker_version(),
         "toml" | "json" | "xml" | "groovy" | "go-mod"
                      => ManifestFileV1Chunker.chunker_version(),
+        // p10-3:
+        "shell"      => CodeTextParagraphV1Chunker.chunker_version(),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -1877,70 +1882,145 @@ fn ingest_one_code_asset(
     };
 
     // p10-1b Task D/G/J/L: extractor per-lang.
-    let mut canonical = match code_lang {
+    // p10-3: capture Result so Tier 1 extractor errors can fall back to Tier 3.
+    let canonical_result: anyhow::Result<kebab_core::CanonicalDocument> = match code_lang {
         "rust" => RustAstExtractor::new()
             .extract(&ctx, &bytes)
-            .context("kb-parse-code::RustAstExtractor::extract (code:rust)")?,
+            .context("kb-parse-code::RustAstExtractor::extract (code:rust)"),
         "python" => PythonAstExtractor::new()
             .extract(&ctx, &bytes)
-            .context("kb-parse-code::PythonAstExtractor::extract (code:python)")?,
+            .context("kb-parse-code::PythonAstExtractor::extract (code:python)"),
         "typescript" => TypescriptAstExtractor::new()
             .extract(&ctx, &bytes)
-            .context("kb-parse-code::TypescriptAstExtractor::extract (code:typescript)")?,
+            .context("kb-parse-code::TypescriptAstExtractor::extract (code:typescript)"),
         "javascript" => JavascriptAstExtractor::new()
             .extract(&ctx, &bytes)
-            .context("kb-parse-code::JavascriptAstExtractor::extract (code:javascript)")?,
+            .context("kb-parse-code::JavascriptAstExtractor::extract (code:javascript)"),
         "go" => GoAstExtractor::new()
             .extract(&ctx, &bytes)
-            .context("kb-parse-code::GoAstExtractor::extract (code:go)")?,
+            .context("kb-parse-code::GoAstExtractor::extract (code:go)"),
         "java" => JavaAstExtractor::new()
             .extract(&ctx, &bytes)
-            .context("kb-parse-code::JavaAstExtractor::extract (code:java)")?,
+            .context("kb-parse-code::JavaAstExtractor::extract (code:java)"),
         "kotlin" => KotlinAstExtractor::new()
             .extract(&ctx, &bytes)
-            .context("kb-parse-code::KotlinAstExtractor::extract (code:kotlin)")?,
+            .context("kb-parse-code::KotlinAstExtractor::extract (code:kotlin)"),
         // p10-2 Tier 2: no extractor — synthesize Document directly from raw bytes.
         "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod" => {
-            synthesize_tier2_document(asset, &bytes, code_lang, &parser_version)?
+            synthesize_tier2_document(asset, &bytes, code_lang, &parser_version)
         }
+        // p10-3: shell reuses the same synthesizer.
+        "shell" => synthesize_tier2_document(asset, &bytes, "shell", &parser_version),
         other => anyhow::bail!("unreachable (extract): {other}"),
     };
 
+    // p10-3: Tier 1 extractor failure → fall back to Tier 3 synthesized doc.
+    // Tier 2 (yaml/dockerfile/…) and shell errors are real (e.g. non-UTF-8) — propagate.
+    let mut canonical = match canonical_result {
+        Ok(d) => d,
+        Err(e) if code_lang == "shell"
+            || matches!(code_lang, "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod") =>
+        {
+            return Err(e).context("synthesize_tier2_document failed for tier 2/3 lang");
+        }
+        Err(e) => {
+            // Tier 1 extractor errored — fall back to Tier 3 synthesized doc.
+            tracing::warn!(
+                workspace_path = %asset.workspace_path.0,
+                code_lang = code_lang,
+                error = %e,
+                "tier1 extract errored; falling back to tier 3 synthesized doc"
+            );
+            chunker_version = CodeTextParagraphV1Chunker.chunker_version();
+            let tier3_parser_version = ParserVersion("none-v1".to_string());
+            synthesize_tier2_document(asset, &bytes, code_lang, &tier3_parser_version)
+                .context("synthesize_tier2_document for tier 3 fallback after extract error")?
+        }
+    };
+
     // p10-1b Task D/G/J/L: chunker per-lang.
-    let chunks = match code_lang {
-        "rust" => CodeRustAstV1Chunker
+    // p10-3: track whether the extract stage already fell back to Tier 3.
+    // Tier 2 langs already have "none-v1" parser_version normally, so exclude them
+    // from the extract_fell_back guard with the !matches! exclusion.
+    let extract_fell_back = canonical.parser_version.0 == "none-v1"
+        && !matches!(code_lang, "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod" | "shell");
+
+    let chunks_result: anyhow::Result<Vec<Chunk>> = if extract_fell_back {
+        // Tier 1 lang whose extractor errored — go straight to Tier 3 chunker.
+        CodeTextParagraphV1Chunker
             .chunk(&canonical, chunk_policy)
-            .context("kb-chunk::CodeRustAstV1Chunker::chunk (code:rust)")?,
-        "python" => CodePythonAstV1Chunker
-            .chunk(&canonical, chunk_policy)
-            .context("kb-chunk::CodePythonAstV1Chunker::chunk (code:python)")?,
-        "typescript" => CodeTsAstV1Chunker
-            .chunk(&canonical, chunk_policy)
-            .context("kb-chunk::CodeTsAstV1Chunker::chunk (code:typescript)")?,
-        "javascript" => CodeJsAstV1Chunker
-            .chunk(&canonical, chunk_policy)
-            .context("kb-chunk::CodeJsAstV1Chunker::chunk (code:javascript)")?,
-        "go" => CodeGoAstV1Chunker
-            .chunk(&canonical, chunk_policy)
-            .context("kb-chunk::CodeGoAstV1Chunker::chunk (code:go)")?,
-        "java" => CodeJavaAstV1Chunker
-            .chunk(&canonical, chunk_policy)
-            .context("kb-chunk::CodeJavaAstV1Chunker::chunk (code:java)")?,
-        "kotlin"     => CodeKotlinAstV1Chunker
-            .chunk(&canonical, chunk_policy)
-            .context("kb-chunk::CodeKotlinAstV1Chunker::chunk (code:kotlin)")?,
-        // p10-2 Tier 2:
-        "yaml"       => K8sManifestResourceV1Chunker
-            .chunk(&canonical, chunk_policy)
-            .context("kb-chunk::K8sManifestResourceV1Chunker::chunk")?,
-        "dockerfile" => DockerfileFileV1Chunker
-            .chunk(&canonical, chunk_policy)
-            .context("kb-chunk::DockerfileFileV1Chunker::chunk")?,
-        "toml" | "json" | "xml" | "groovy" | "go-mod"
-                     => ManifestFileV1Chunker
-            .chunk(&canonical, chunk_policy)
-            .context("kb-chunk::ManifestFileV1Chunker::chunk")?,
-        other => anyhow::bail!("unreachable (chunk): {other}"),
+            .context("kb-chunk::CodeTextParagraphV1Chunker::chunk (tier 3 after extract fallback)")
+    } else {
+        match code_lang {
+            "rust" => CodeRustAstV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kb-chunk::CodeRustAstV1Chunker::chunk (code:rust)"),
+            "python" => CodePythonAstV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kb-chunk::CodePythonAstV1Chunker::chunk (code:python)"),
+            "typescript" => CodeTsAstV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kb-chunk::CodeTsAstV1Chunker::chunk (code:typescript)"),
+            "javascript" => CodeJsAstV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kb-chunk::CodeJsAstV1Chunker::chunk (code:javascript)"),
+            "go" => CodeGoAstV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kb-chunk::CodeGoAstV1Chunker::chunk (code:go)"),
+            "java" => CodeJavaAstV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kb-chunk::CodeJavaAstV1Chunker::chunk (code:java)"),
+            "kotlin" => CodeKotlinAstV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kb-chunk::CodeKotlinAstV1Chunker::chunk (code:kotlin)"),
+            // p10-2 Tier 2:
+            "yaml" => K8sManifestResourceV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kb-chunk::K8sManifestResourceV1Chunker::chunk"),
+            "dockerfile" => DockerfileFileV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kb-chunk::DockerfileFileV1Chunker::chunk"),
+            "toml" | "json" | "xml" | "groovy" | "go-mod" => ManifestFileV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kb-chunk::ManifestFileV1Chunker::chunk"),
+            // p10-3:
+            "shell" => CodeTextParagraphV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kb-chunk::CodeTextParagraphV1Chunker::chunk (code:shell)"),
+            other => anyhow::bail!("unreachable (chunk): {other}"),
+        }
+    };
+
+    // p10-3: Tier 1/2 0-chunk OR error → Tier 3 fallback retry.
+    // "shell" direct path is already Tier 3 — don't retry-double-up.
+    let chunks: Vec<Chunk> = match chunks_result {
+        Ok(v) if !v.is_empty() => v,
+        other if code_lang == "shell" => other?,  // shell propagates directly
+        Ok(_empty) => {
+            tracing::warn!(
+                workspace_path = %asset.workspace_path.0,
+                code_lang = code_lang,
+                "tier1/2 emitted 0 chunks; falling back to tier 3 (code-text-paragraph-v1)"
+            );
+            chunker_version = CodeTextParagraphV1Chunker.chunker_version();
+            canonical.parser_version = ParserVersion("none-v1".to_string());
+            CodeTextParagraphV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kb-chunk::CodeTextParagraphV1Chunker::chunk (tier 3 fallback)")?
+        }
+        Err(e) => {
+            tracing::warn!(
+                workspace_path = %asset.workspace_path.0,
+                code_lang = code_lang,
+                error = %e,
+                "tier1/2 chunker errored; falling back to tier 3 (code-text-paragraph-v1)"
+            );
+            chunker_version = CodeTextParagraphV1Chunker.chunker_version();
+            canonical.parser_version = ParserVersion("none-v1".to_string());
+            CodeTextParagraphV1Chunker
+                .chunk(&canonical, chunk_policy)
+                .context("kb-chunk::CodeTextParagraphV1Chunker::chunk (tier 3 fallback after error)")?
+        }
     };
 
     // Stamp chunker + embedding versions so incremental skip detection has

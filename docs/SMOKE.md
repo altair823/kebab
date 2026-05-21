@@ -502,6 +502,52 @@ KB --json schema | jq '.stats.code_lang_breakdown'
 - **Dockerfile**: `<dockerfile>` (고정 심볼, 전체 파일이 단일 chunk).
 - **TOML / JSON / XML / Groovy / go.mod**: `<manifest>` (고정 심볼, 전체 파일이 단일 chunk). 단, 파일이 `tier2_shared` 의 oversize threshold 초과 시 줄 단위 fallback chunk.
 
+## P10-3 Tier 3 paragraph fallback
+
+P10-2 와 동일한 격리 KB 설정. `.sh` 파일은 direct, 비-k8s YAML 은 fallback 으로 들어간다.
+
+```bash
+# 1) shell script (direct Tier 3)
+cat > /tmp/kebab-smoke/workspace/deploy.sh <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+echo "ingesting..."
+kebab ingest
+
+echo "done"
+kebab schema --json | jq '.stats'
+EOF
+
+# 2) 비-k8s YAML (Tier 2 가 0 chunk → Tier 3 fallback)
+cat > /tmp/kebab-smoke/workspace/docker-compose.yml <<'EOF'
+version: '3'
+services:
+  api:
+    image: nginx:latest
+    ports:
+      - 8080:80
+EOF
+
+# 3) ingest
+KB ingest
+
+# 4) 언어별 검색 (citation.symbol = None 확인)
+KB search --mode hybrid "ingest" --code-lang shell --json | \
+  jq '{hits: [.hits[] | {symbol: .citation.symbol, lang: .citation.lang, chunker: .chunker_version}]}'
+# 기대: symbol = null, lang = "shell", chunker_version = "code-text-paragraph-v1"
+
+KB search --mode hybrid "nginx" --code-lang yaml --json | \
+  jq '{hits: [.hits[] | {symbol: .citation.symbol, lang: .citation.lang, chunker: .chunker_version}]}'
+# 기대: symbol = null, lang = "yaml", chunker_version = "code-text-paragraph-v1"
+
+# 5) schema stats 에 shell 카운트 확인
+KB --json schema | jq '.stats.code_lang_breakdown'
+# 기대: {"shell": N, "yaml": M, ...}
+```
+
+**Tier 3 citation.symbol 컨벤션**: 항상 `null`. 의미 단위 식별 안 함. `lang` 은 원본 lang 보존 (shell → `"shell"`, yaml → `"yaml"` 등).
+
 ## 검증 체크리스트
 
 - `kebab doctor` 가 `--config` path 를 honor 하고 그 안의 `storage.data_dir` 를 출력 (XDG default 가 아님).
@@ -537,6 +583,7 @@ rm -rf /tmp/kebab-smoke              # 통째로 정리
 - (P10-1C-Go) `.go` 파일을 워크스페이스에 두면 `kebab ingest` 가 `code-go-ast-v1` 로 처리. `--code-lang go` 검색이 `citation.symbol` 에 `<package>.<Func>` / `<package>.(*Receiver).<Method>` 형식 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"go": N` 등장 확인.
 - (P10-1C-JK) `.java` 파일은 `code-java-ast-v1`, `.kt`/`.kts` 파일은 `code-kotlin-ast-v1` 로 처리. `--code-lang java` / `--code-lang kotlin` 검색이 `citation.symbol` 에 `com.foo.Foo.bar` 형식 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"java": N` / `"kotlin": N` 등장 확인.
 - (P10-2) `.yaml`/`.yml` 파일은 apiVersion+kind 파싱으로 k8s resource 별 chunk 생성 (`k8s-manifest-resource-v1`). `Dockerfile`/`Dockerfile.*` 는 전체 파일 단일 chunk (`dockerfile-file-v1`). `.toml`/`.json`/`.xml`/`.groovy`/`go.mod` 는 전체 파일 단일 chunk (`manifest-file-v1`). `--code-lang yaml` / `--code-lang dockerfile` / `--code-lang toml` 검색이 `citation.symbol` 에 각각 `Deployment/default/my-app` / `<dockerfile>` / `<manifest>` 형식 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"yaml": N` / `"dockerfile": N` / `"toml": N` 등장 확인.
+- (P10-3) `.sh`/`.bash`/`.zsh` 파일은 direct Tier 3 (`code-text-paragraph-v1`). 비-k8s YAML (apiVersion+kind 없는 yaml) 은 k8s chunker 가 0 chunk → Tier 3 fallback 으로 picked up. `--code-lang shell` / `--code-lang yaml` 검색이 `citation.symbol = null`, `chunker_version = "code-text-paragraph-v1"` 결과를 반환하면 wiring 정상. `kebab schema --json | jq .stats.code_lang_breakdown` 에 `"shell": N` 등장 확인.
 - (P7-3 + follow-up) 동일 path 에 byte 가 다른 PDF 를 두 번째 ingest 하면 `purge_vector_orphans_for_workspace_path` 가 옛 chunk_id 를 LanceDB 에서 먼저 삭제, 이어서 `purge_orphan_at_workspace_path` 가 옛 doc / chunks / embedding_records 를 SQLite 에서 sweep. 새 byte 가 새 `doc_id` 로 색인됨. `IngestReport` 에 그 자산만 `new+=1` (다른 자산은 `updated`). 두 store 모두 정합 — 옛 본문 검색 시 옛 chunks 가 더 이상 surface 되지 않음.
 
 ### Embedding upgrade (fb-39b)
