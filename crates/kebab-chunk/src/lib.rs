@@ -16,6 +16,7 @@
 //! It consumes `CanonicalDocument` purely through `kb-core` types.
 
 mod code_c_ast_v1;
+mod code_cpp_ast_v1;
 mod code_go_ast_v1;
 mod code_java_ast_v1;
 mod code_js_ast_v1;
@@ -32,6 +33,7 @@ pub mod manifest_file_v1;
 pub mod code_text_paragraph_v1;
 
 pub use code_c_ast_v1::CodeCAstV1Chunker;
+pub use code_cpp_ast_v1::CodeCppAstV1Chunker;
 pub use code_go_ast_v1::CodeGoAstV1Chunker;
 pub use code_java_ast_v1::CodeJavaAstV1Chunker;
 pub use code_js_ast_v1::CodeJsAstV1Chunker;
