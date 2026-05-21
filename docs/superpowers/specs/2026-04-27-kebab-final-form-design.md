@@ -1551,6 +1551,8 @@ transitional 형태) 의 source of truth.
 
 **p10-2 활성화 (Tier 2 chunker) (2026-05-20)**: Tier 2 resource-aware chunker 3종 활성화 — k8s-manifest-resource-v1 (`.yaml`/`.yml`), dockerfile-file-v1 (`Dockerfile`), manifest-file-v1 (`Cargo.toml` 등 설정 파일). 추가 code_lang 매핑: XML (`.xml`, `pom.xml`), Groovy (`build.gradle`, `.gradle`), Go module (`go.mod`).
 
+**p10-3 활성화 (Tier 3 paragraph fallback) (2026-05-21)**: Tier 3 chunker `code-text-paragraph-v1` 활성화. shell script (`.sh`/`.bash`/`.zsh`) direct routing + Tier 1/2 가 0 chunk 또는 Err 시 자동 fallback 으로 retry. 비-k8s YAML / invalid YAML / AST 실패 케이스 모두 picked up. lang 은 입력 보존 (shell → "shell", yaml → "yaml" 등), symbol 은 항상 None.
+
 ### 10.2 MCP server transport (fb-30)
 
 `kebab mcp` 가 stdio JSON-RPC server. Rust SDK = `rmcp 1.6`. Tool surface
