@@ -14,6 +14,7 @@
 //! / llm / rag.
 
 pub mod c;
+pub mod cpp;
 pub mod go;
 pub mod java;
 pub mod javascript;
@@ -27,6 +28,7 @@ pub mod skip;
 pub mod typescript;
 
 pub use c::{PARSER_VERSION as C_PARSER_VERSION, CAstExtractor};
+pub use cpp::{PARSER_VERSION as CPP_PARSER_VERSION, CppAstExtractor};
 pub use go::{PARSER_VERSION as GO_PARSER_VERSION, GoAstExtractor};
 pub use java::{PARSER_VERSION as JAVA_PARSER_VERSION, JavaAstExtractor};
 pub use javascript::{PARSER_VERSION as JS_PARSER_VERSION, JavascriptAstExtractor};
