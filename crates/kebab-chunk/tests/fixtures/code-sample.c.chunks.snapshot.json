@@ -1,0 +1,86 @@
+[
+  {
+    "block_ids": [
+      "8149e12ca002489acb4a0f74c97a061a"
+    ],
+    "chunk_id": "ec3cf06ae56c8e9796bbc9196438b7c5",
+    "chunker_version": "code-c-ast-v1",
+    "doc_id": "6bec42dd593920a060541db16c4e8e45",
+    "heading_path": [],
+    "policy_hash": "ecfad2ec1223662d",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "c",
+        "line_end": 18,
+        "line_start": 1,
+        "symbol": "<top-level>"
+      }
+    ],
+    "text": "#include <stdio.h>\n#include <stdlib.h>\n\n#define MAX_BUF 4096\n\ntypedef enum {\n    OK = 0,\n    ERR_PARSE,\n    ERR_IO,\n} status_t;\n\ntypedef struct {\n    int id;\n    char name[64];\n    status_t status;\n} record_t;\n\nstatic int counter = 0;",
+    "token_estimate": 78
+  },
+  {
+    "block_ids": [
+      "1baaa89f21a47b2f32d6396a24a85454"
+    ],
+    "chunk_id": "c2d7a81c898106733ef2e703774a6a4a",
+    "chunker_version": "code-c-ast-v1",
+    "doc_id": "6bec42dd593920a060541db16c4e8e45",
+    "heading_path": [],
+    "policy_hash": "ecfad2ec1223662d",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "c",
+        "line_end": 23,
+        "line_start": 20,
+        "symbol": "parse_record"
+      }
+    ],
+    "text": "int parse_record(const char *line, record_t *out) {\n    if (line == NULL || out == NULL) return ERR_PARSE;\n    return OK;\n}",
+    "token_estimate": 41
+  },
+  {
+    "block_ids": [
+      "8d0e14cbcc6d1e92d7878ab796ea68b8"
+    ],
+    "chunk_id": "0e4d7b131ab64eba03b51903b5d8f96d",
+    "chunker_version": "code-c-ast-v1",
+    "doc_id": "6bec42dd593920a060541db16c4e8e45",
+    "heading_path": [],
+    "policy_hash": "ecfad2ec1223662d",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "c",
+        "line_end": 27,
+        "line_start": 25,
+        "symbol": "print_record"
+      }
+    ],
+    "text": "void print_record(const record_t *r) {\n    printf(\"[%d] %s (status=%d)\\n\", r->id, r->name, r->status);\n}",
+    "token_estimate": 35
+  },
+  {
+    "block_ids": [
+      "9c2ede84423871b615d48c38fefb1853"
+    ],
+    "chunk_id": "e076f8edb2ff141d7e99b4106bb95157",
+    "chunker_version": "code-c-ast-v1",
+    "doc_id": "6bec42dd593920a060541db16c4e8e45",
+    "heading_path": [],
+    "policy_hash": "ecfad2ec1223662d",
+    "source_spans": [
+      {
+        "kind": "code",
+        "lang": "c",
+        "line_end": 33,
+        "line_start": 29,
+        "symbol": "main"
+      }
+    ],
+    "text": "int main(void) {\n    record_t r = { .id = 1, .name = \"foo\", .status = OK };\n    print_record(&r);\n    return 0;\n}",
+    "token_estimate": 38
+  }
+]
