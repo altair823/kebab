@@ -99,6 +99,9 @@ tree-sitter-go         = "0.25.0"
 # JVM family grammars for code ingest (kebab-parse-code, p10-1C-JK).
 tree-sitter-java       = "0.23.5"
 tree-sitter-kotlin-ng  = "1.1.0"   # bare tree-sitter-kotlin requires ts <0.23; -ng uses tree-sitter-language 0.1 (ts 0.26 compat)
+# C/C++ family grammars for code ingest (kebab-parse-code, p10-1D).
+tree-sitter-c         = "0.24.2"
+tree-sitter-cpp       = "0.23.4"
 
 # Disk-footprint trim for dev / test builds. Codegen, opt-level, and
 # behavior are unchanged — only DWARF debug info is reduced (line
