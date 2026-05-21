@@ -44,6 +44,7 @@ impl Chunker for ManifestFileV1Chunker {
             "<manifest>",
             lang,
             VERSION_LABEL,
+            None,
         )?;
 
         tracing::debug!(

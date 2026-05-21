@@ -1286,6 +1286,64 @@ fn tier1_cpp_ingest_searchable() {
     );
 }
 
+/// P10 dogfood regression: a k8s YAML with 2 documents (Deployment + Service
+/// separated by `---`) must ingest without a UNIQUE constraint violation.
+/// Before the fix, push_chunks_with_oversize emitted split_key=None for each
+/// resource, giving every resource chunk the same id_hash → identical chunk_id
+/// → SQLite UNIQUE constraint failure on the second resource.
+#[test]
+fn tier2_k8s_multi_resource_yaml_ingests_without_collision() {
+    let env = TestEnv::lexical_only();
+
+    let k8s_dir = env.workspace_root.join("k8s");
+    std::fs::create_dir_all(&k8s_dir).unwrap();
+    std::fs::write(
+        k8s_dir.join("k8s-multi.yaml"),
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: prod\nspec:\n  replicas: 2\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: api\n  namespace: prod\nspec:\n  selector:\n    app: api\n",
+    )
+    .unwrap();
+
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
+
+    // The bug: this would land in report with an error + UNIQUE constraint message.
+    let item = report
+        .items
+        .as_ref()
+        .expect("items present")
+        .iter()
+        .find(|i| i.doc_path.0.ends_with("k8s-multi.yaml"))
+        .expect("k8s-multi.yaml in report");
+    assert!(
+        item.error.is_none(),
+        "multi-resource k8s yaml must ingest without error, got: {:?}",
+        item.error
+    );
+    assert!(
+        matches!(item.kind, IngestItemKind::New),
+        "expected New, got {:?}",
+        item.kind
+    );
+
+    // Both resources must be searchable (≥2 hits: Deployment/prod/api + Service/prod/api).
+    let query = kebab_core::SearchQuery {
+        text: "api".to_string(),
+        mode: kebab_core::SearchMode::Lexical,
+        k: 10,
+        filters: kebab_core::SearchFilters {
+            code_lang: vec!["yaml".to_string()],
+            ..Default::default()
+        },
+    };
+    let hits = kebab_app::search_with_config(env.config.clone(), query)
+        .expect("search must succeed");
+    assert!(
+        hits.len() >= 2,
+        "expected ≥2 hits (Deployment + Service), got {}",
+        hits.len()
+    );
+}
+
 /// p10-3 fix regression: a shell file (direct Tier 3, not a fallback)
 /// must also report Unchanged on re-ingest. Shell goes straight to
 /// CodeTextParagraphV1Chunker so `stored_is_tier3_fallback` is false
