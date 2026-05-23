@@ -150,21 +150,15 @@ INSERT INTO chunks_fts(chunk_id, doc_id, heading_path, text)
   - raw `MATCH '충돌'` (2자) → 0-hit (trigram 구조)
   실 위키 문서 fixture 가 필요한 후속 검증은 별도 task 로 deferral.
 
-- [ ] **Step 1: 한국어 trigram 매칭 테스트 (실패 확인)** — fixture chunk text `"해시 충돌은 키와 값을 매핑할 때 발생한다"` (V007 적용 store). Codex sqlite 3.45.1 검증 기준 동작:
-  - raw `MATCH '충돌은'` (공백 없는 3자 연속 substring) → hit. ✓
-  - quoted `MATCH '"해시 충돌"'` (whole phrase) → hit. ✓
-  - quoted `MATCH '"시 충"'` (phrase 2 chars + space + 1 char) → hit. ✓
-  - raw `MATCH '해시충'` → 0-hit (원문에 "해시충" 3-gram 이 연속으로 없음 — "해시" 공백 "충돌").
-  - raw `MATCH '시 충'` (공백 포함 unquoted) → 0-hit (FTS5 가 공백을 토큰 경계로 처리).
-  위 5개 assert. Expected: V007 적용 store 에서 PASS. store 테스트가 migration 을 V006 까지만 적용한다면 V007 까지 적용되도록 수정.
+- [x] **Step 1: 한국어 trigram 매칭 테스트** — `fts_trigram_korean_3char_substring_hits` (fts.rs §7). 5개 assert (raw 3자 hit, quoted phrase hit, `해시충` 0-hit) 모두 통과.
 
-- [ ] **Step 1b: 2자 query 0-hit 핀 (회귀 감지)** — `MATCH '충돌'` (2 Unicode chars) 이 반드시 0 결과를 반환. trigram 구조 변경 감지 회귀 테스트.
+- [x] **Step 1b: 2자 query 0-hit 핀** — `fts_trigram_korean_short_query_zero_hit_pinned` (`충돌`/`키` 0-hit).
 
-- [ ] **Step 1c: multi-token 한국어 query 테스트** — `crates/kebab-search` 또는 `crates/kebab-app` 통합 레벨. 사용자 query `해시 충돌` 이 `build_match_string()` 을 통해 hit 하는지. Expected: A4 시점 FAIL (현재 builder 가 `"해시" "충돌"` AND 로 trigram 0-hit), Task A5 builder 재설계 후 PASS.
+- [ ] **Step 1c: multi-token 한국어 query 테스트** — `crates/kebab-search` 또는 `crates/kebab-app` 통합 레벨. 사용자 query `해시 충돌` 이 `build_match_string()` 을 통해 hit. Expected: A4 시점 FAIL (현재 builder 가 `"해시" "충돌"` AND 로 trigram 0-hit), Task A5 builder 재설계 후 PASS.
 
-- [ ] **Step 2: 영어 substring 동작 핀** — 영어 텍스트에 대해 trigram substring 매칭 (예: `tokenizer` 텍스트가 `MATCH 'token'` 에 hit) 을 명시적으로 문서화·고정.
+- [x] **Step 2: 영어 substring 동작 핀** — `fts_trigram_english_substring_hits` (`token`→`tokenizer`, `to` 0-hit).
 
-- [ ] **Step 3: 통과 확인 (부분)** — `cargo test -p kebab-store-sqlite` → Step 1 / 1b / 2 PASS. Step 1c 는 A5 후.
+- [x] **Step 3: 통과 확인 (부분)** — `cargo test -p kebab-store-sqlite --test fts` → 13/13 PASS (Step 1/1b/2 + 기존 10). Step 1c 는 A5 후.
 
 - [ ] **Step 4: 통합 회귀 확인** — `cargo test -p kebab-app search_korean` (`러스트` 3자라 trigram 으로도 통과). `search_korean.rs` 에 `해시 충돌` multi-token assert 추가 (A5 후 통과).
 
