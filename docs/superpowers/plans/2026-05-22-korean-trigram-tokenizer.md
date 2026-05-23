@@ -142,7 +142,13 @@ INSERT INTO chunks_fts(chunk_id, doc_id, heading_path, text)
 - Modify: `crates/kebab-app/tests/search_korean.rs` (회귀 핀 + multi-token assert + fixture 통합)
 - Update: lexical BM25 snapshot (A1 Step 3 위치)
 
-- [ ] **Step 0: 한국어 fixture 도입 (Gemini round 3 medium)** — 도그푸딩에 사용한 `/build/cache/dogfood-p10b/` 한국어 위키 문서 중 대표적인 것 (예: `hash-table.md`) 을 `fixtures/search/korean/` 으로 복사 + git add. 위키 문서가 CC-BY 등 외부 라이선스라면 `fixtures/search/korean/LICENSE` 에 출처·라이선스 표기 같이 commit. 통합 테스트가 이 fixture 를 ingest 해 재현성 확보.
+- [x] **Step 0: 한국어 fixture 도입 (Gemini round 3 medium)** — 도그푸딩 실 문서 (`/build/cache/dogfood-p10b/workspace/docs/hash-table.md`, 한국어 위키 mediawiki HTML 출력 4512줄, CC-BY-SA) 는 크기·라이선스 부담으로 직접 commit 회피. 대신 도그푸딩 query 들 (`충돌은`/`해시 충돌`/`시 충`/`해시충`/`충돌`) 을 모두 cover 하는 **합성 fixture** `fixtures/search/korean/hash-table.md` 작성 + commit. 검증 query 별 기대 동작:
+  - raw `MATCH '충돌은'` → hit (`해시 충돌은 발생한다` 가 원문에 있음)
+  - quoted `MATCH '"해시 충돌"'` → hit (whole phrase)
+  - quoted `MATCH '"시 충"'` → hit (phrase)
+  - raw `MATCH '해시충'` → 0-hit (원문에 공백 없는 `해시충` 연속 없음)
+  - raw `MATCH '충돌'` (2자) → 0-hit (trigram 구조)
+  실 위키 문서 fixture 가 필요한 후속 검증은 별도 task 로 deferral.
 
 - [ ] **Step 1: 한국어 trigram 매칭 테스트 (실패 확인)** — fixture chunk text `"해시 충돌은 키와 값을 매핑할 때 발생한다"` (V007 적용 store). Codex sqlite 3.45.1 검증 기준 동작:
   - raw `MATCH '충돌은'` (공백 없는 3자 연속 substring) → hit. ✓
