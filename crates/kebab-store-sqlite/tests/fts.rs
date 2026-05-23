@@ -370,17 +370,19 @@ fn extract_design_5_5_fts_block() -> String {
     fts_slice[..last_end + "END;".len()].to_string()
 }
 
-/// Extract the §5.5 verbatim block from the V002 migration, between the
-/// `── §5.5 verbatim block ──` anchor markers the file already carries.
+/// Extract the §5.5 verbatim block from the V007 migration (replaced V002
+/// 's unicode61 tokenizer with trigram — V002 stays in place for
+/// historical cold-upgrade replay but V007 is now the source of truth),
+/// between the `── §5.5 verbatim block ──` anchor markers V007 carries.
 fn extract_migration_5_5_verbatim_block() -> String {
-    let migration = include_str!("../../../migrations/V002__fts.sql");
+    let migration = include_str!("../../../migrations/V007__fts_trigram.sql");
     // The opening anchor line ends with `── §5.5 verbatim block ─...`.
     let open_marker = "§5.5 verbatim block";
     let close_marker = "End §5.5 verbatim block";
 
     let open_idx = migration
         .find(open_marker)
-        .expect("V002 must carry the `§5.5 verbatim block` opening anchor");
+        .expect("V007 must carry the `§5.5 verbatim block` opening anchor");
     let after_open_line = open_idx
         + migration[open_idx..]
             .find('\n')
@@ -389,7 +391,7 @@ fn extract_migration_5_5_verbatim_block() -> String {
 
     let close_idx = migration[after_open_line..]
         .find(close_marker)
-        .expect("V002 must carry the `End §5.5 verbatim block` closing anchor")
+        .expect("V007 must carry the `End §5.5 verbatim block` closing anchor")
         + after_open_line;
     // Walk back from the close marker to the start of its comment line.
     let close_line_start = migration[..close_idx]
@@ -400,12 +402,14 @@ fn extract_migration_5_5_verbatim_block() -> String {
     migration[after_open_line..close_line_start].to_string()
 }
 
-/// CI diff guard: the §5.5 block in `migrations/V002__fts.sql` must
-/// match the design doc verbatim (whitespace-normalized). If the
-/// design doc moves the section, renames the heading, or edits the
-/// SQL, this test fails first. Same for migration drift.
+/// CI diff guard: the §5.5 block in `migrations/V007__fts_trigram.sql`
+/// must match the design doc verbatim (whitespace-normalized). V007
+/// replaced V002 's unicode61 tokenizer with trigram (2026-05-23).
+/// V002 stays in place for historical replay of cold-upgrade paths
+/// but is no longer compared against the design doc — V007 is now
+/// the source of truth.
 #[test]
-fn fts_v002_matches_design_section_5_5_verbatim() {
+fn fts_v007_matches_design_section_5_5_verbatim() {
     let design = extract_design_5_5_fts_block();
     let migration_block = extract_migration_5_5_verbatim_block();
 
@@ -428,7 +432,7 @@ fn fts_v002_matches_design_section_5_5_verbatim() {
     let migration_n = normalize_ws(&migration_block);
     assert_eq!(
         design_n, migration_n,
-        "V002__fts.sql §5.5 block must match design doc §5.5 verbatim \
+        "V007__fts_trigram.sql §5.5 block must match design doc §5.5 verbatim \
          (whitespace-normalized). If you intentionally changed one, \
          update the other in the same commit."
     );

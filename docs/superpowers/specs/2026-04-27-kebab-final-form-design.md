@@ -1004,6 +1004,17 @@ CREATE INDEX idx_blocks_doc_id ON blocks(doc_id);
 
 ### 5.5 Chunks + FTS5
 
+Tokenizer = `trigram` (V007, 2026-05-23). 한국어 어절(조사·어미가 붙은 단위)이
+unicode61 에서 단일 토큰화돼 lexical 부분 매칭이 불가능했던 문제를 해소
+(2자 미만 한국어 query 는 trigram 구조상 여전히 0-hit — 단일 토큰 측면에서는
+회귀 아님, multi-token query 는 `lexical.rs::build_match_string()` 가 whole-phrase
+후보 OR 결합으로 매칭). trade-off: 영어 lexical 도 substring 매칭으로 이동
+(recall↑, 단어 경계 정밀도↓), BM25 raw score 분포 변경 (RRF rank 기반 hybrid
+는 영향 미미), SQLite 파일 크기 ~2-10× 증가. 자세한 내용 = `tasks/HOTFIXES.md`
+(2026-05-22) + `docs/superpowers/specs/2026-05-22-korean-trigram-tokenizer-design.md`.
+`chunks_fts` 는 일반 FTS5 shadow table 이며 contentless 가 아님 (V002 / V007
+DDL 에 `content=''` 없음).
+
 ```sql
 CREATE TABLE chunks (
   chunk_id          TEXT PRIMARY KEY,
@@ -1026,7 +1037,7 @@ CREATE VIRTUAL TABLE chunks_fts USING fts5(
   doc_id       UNINDEXED,
   heading_path,
   text,
-  tokenize = 'unicode61 remove_diacritics 2'
+  tokenize = 'trigram'
 );
 
 CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
