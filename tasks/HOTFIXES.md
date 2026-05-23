@@ -14,6 +14,41 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-22 — p10 종합 도그푸딩 (round 2): 한국어 lexical 검색 한계 + code_lang_breakdown
+
+**Origin**: P10 종합 도그푸딩 round 2 (`/build/cache/dogfood-p10b/`). 다양한 OSS 코드베이스 8 repo (rust / python / go / ts / js / java / c / cpp) + 한국어 위키 기술 문서 10편 (pandoc HTML→gfm 변환). `multilingual-e5-small` embedding 활성화 후 ingest — `scanned=2663 updated=2080 errors=0` (k8s multi-resource chunk_id collision 은 같은 라운드에서 발견·수정 — 아래 2026-05-21 항목).
+
+### 한국어 lexical 검색이 FTS5 unicode61 토크나이저에서 무용 (vector/hybrid 가 우회)
+
+**Symptom**: `kebab search --mode lexical` 의 한국어 query 가 거의 0 hit. "충돌" 은 hash-table.md 본문에 37회(21회 단독 어절) 등장하나 lexical 0 hit. 4개 한국어 query 측정 — lexical: `충돌` 0 / `해시 충돌` 0 / `컴파일러 최적화` 0 / `트리 순회 방법` 1.
+
+**원인**: `chunks_fts` 의 `tokenize = 'unicode61 remove_diacritics 2'` (`migrations/V002__fts.sql:24`, design §5.5 verbatim 블록). unicode61 은 공백·구두점 경계로만 토큰을 끊는다 — 한국어는 어절 전체가 한 토큰이 되고 조사·어미가 붙은 채라 부분 매칭이 안 된다. V002 헤더 주석이 이미 "Korean morphological tokenizer is a P+ note" 로 예고한 사항.
+
+**검증 (vector/hybrid 우회 확인)**: 동일 4 query 를 `--mode vector` / `--mode hybrid` 로 측정 — 전부 10 hit. `multilingual-e5-small` semantic 검색이 한국어를 정상 처리. 즉 embedding 켠 KB 는 **기본 hybrid 모드에서 한국어 검색이 동작**한다. 단 hybrid 는 RRF(lexical+vector) fusion 이라 한국어 query 는 lexical 기여가 0 → 사실상 vector-only 로 reduced (score 증거: lexical 도 hit 한 `트리 순회 방법` 만 hybrid score 1.000, 나머지 한국어 query 는 0.500).
+
+**Status**: `--mode lexical` 단독은 한국어 무용. 기본 hybrid 는 vector 가 carry → 한국어 KB 사용 가능. 단 embedding `provider = "none"` 인 lexical-only KB 는 한국어 검색 불가.
+
+**Workaround**: 한국어 문서 KB 는 embedding 활성화 (`[models.embedding] provider = "fastembed"`) 를 사실상 필수로 둔다.
+
+**Next step (미진행 — 사용자 결정 대기)**: FTS5 builtin `trigram` tokenizer (`tokenize = 'trigram'`) 로 교체 시 한국어 3-gram 부분 매칭 가능. 비용·제약:
+- `chunks_fts` 재생성 = V00X migration + 전체 chunk re-index. design §5.5 verbatim 블록 + CI diff-check 동반 갱신 필요 (breaking schema → release cascade 트리거).
+- CJK 형태소 분석기는 SQLite 번들 FTS5 가 미지원 — 외부 tokenizer extension 은 단일 바이너리 정책과 충돌. trigram 이 현실적 선택.
+- 우선순위: 기본 hybrid 가 한국어를 cover 하므로 HIGH 아님. lexical 한국어 정확 키워드 매칭 + hybrid 완전 작동 가치만 남음 → MEDIUM.
+
+### code_lang_breakdown 이 chunk 수가 아닌 doc 수를 집계
+
+**Symptom**: `schema.v1.stats.code_lang_breakdown` 이 언어별 *문서* 수를 보고. 코드가 많은 KB 에서 언어별 chunk 분포를 보려 할 때 granularity 가 doc 단위라 덜 유용.
+
+**Status**: LOW. `code_lang_breakdown` 은 p10-1A-2 가 의도적으로 doc count 로 구현 (`store.rs::code_lang_breakdown` doc 주석 + `COUNT(*) FROM documents GROUP BY code_lang`). design §3.5 의 "언어별 분포" 의도와 엄밀히는 어긋나나 통계 표시 한정 — 검색/ingest 동작 무관.
+
+**Next step**: chunk 단위 집계를 추가/교체하는 소규모 follow-up. wire schema 영향 시 additive 필드 (`code_lang_chunk_breakdown`) 로 처리 검토.
+
+### ranking — glue chunk 이 top hit (deferred 유지)
+
+multi-root 도그푸딩(2026-05-20)에서 관찰한 본문 vs 테스트 / glue chunk ranking 편향이 round 2 에서도 재확인됨. 자동 heuristic 은 user intent misalignment 위험 → 사용자 명시 요청 전까지 surface 변경 0 으로 유지 (project memory `project_ranking_deferred` 결정 그대로).
+
+Cross-link: `tasks/p10/INDEX.md`, `migrations/V002__fts.sql`, design §5.5 / §3.5.
+
 ## 2026-05-21 — p10-2: k8s multi-resource YAML chunk_id collision
 
 **Origin**: P10 종합 도그푸딩 (`/tmp/kebab-p10-dogfood/`, 16 파일). 한 파일에 2+ k8s document (Deployment + Service, `---` 구분) 인 YAML 이 ingest 실패.
