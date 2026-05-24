@@ -63,14 +63,26 @@ pub struct Stats {
     /// p9-fb-37: docs whose `updated_at` exceeds the staleness threshold.
     #[serde(default)]
     pub stale_doc_count: u64,
-    /// p10-1A-1: code language breakdown (chunk counts by canonical lowercase
-    /// language identifier). Empty until 1A-2 produces code chunks.
+    /// p10-1A-1: code language breakdown (**doc** counts by canonical
+    /// lowercase language identifier). Empty until 1A-2 produces code
+    /// docs. v0.17.0 PR-C: doc-count semantics corrected here (the
+    /// previous "chunk counts" wording was a longstanding mis-label —
+    /// implementation has always been `COUNT(*) FROM documents
+    /// GROUP BY code_lang`). Use `code_lang_chunk_breakdown` for the
+    /// chunk-level companion.
     #[serde(default)]
     pub code_lang_breakdown: std::collections::BTreeMap<String, u32>,
-    /// p10-1A-1: repo breakdown (chunk counts by `metadata.repo` value).
-    /// Empty until 1A-2 produces code chunks.
+    /// p10-1A-1: repo breakdown (**doc** counts by `metadata.repo`
+    /// value). Empty until 1A-2 produces code docs. v0.17.0 PR-C:
+    /// doc-count wording corrected (mirror of code_lang_breakdown).
     #[serde(default)]
     pub repo_breakdown: std::collections::BTreeMap<String, u32>,
+    /// v0.17.0 PR-C: sister of [`Self::code_lang_breakdown`] returning
+    /// chunk counts instead of doc counts. Indexing-pressure metric —
+    /// one PDF spec → 200 chunks vs one Rust file → 5 chunks shows up
+    /// here in a way `code_lang_breakdown` (doc count) hides.
+    #[serde(default)]
+    pub code_lang_chunk_breakdown: std::collections::BTreeMap<String, u32>,
 }
 
 const KEBAB_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -171,6 +183,9 @@ fn collect_stats(
         // p10-1A-2 follow-up: dogfooding (2026-05-20) revealed this was a
         // placeholder — mirror of code_lang_breakdown for the repo field.
         repo_breakdown: store.repo_breakdown()?,
+        // v0.17.0 PR-C: chunk-level companion (closes HOTFIXES
+        // 2026-05-22 "code_lang_breakdown chunk granularity" LOW).
+        code_lang_chunk_breakdown: store.code_lang_chunk_breakdown()?,
     })
 }
 
@@ -210,6 +225,11 @@ mod tests_stats_ext {
             v.get("repo_breakdown").is_some(),
             "Stats JSON must include repo_breakdown: {v}"
         );
+        // v0.17.0 PR-C: chunk-level companion field.
+        assert!(
+            v.get("code_lang_chunk_breakdown").is_some(),
+            "Stats JSON must include code_lang_chunk_breakdown (v0.17.0 PR-C): {v}"
+        );
         // Empty BTreeMap serializes as `{}` — confirm it's an object, not null.
         assert!(
             v["code_lang_breakdown"].is_object(),
@@ -218,6 +238,10 @@ mod tests_stats_ext {
         assert!(
             v["repo_breakdown"].is_object(),
             "repo_breakdown must be an object: {v}"
+        );
+        assert!(
+            v["code_lang_chunk_breakdown"].is_object(),
+            "code_lang_chunk_breakdown must be an object: {v}"
         );
     }
 
