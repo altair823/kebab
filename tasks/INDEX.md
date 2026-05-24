@@ -148,6 +148,14 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
   - p10-2 Tier 2 resource-aware — ✅ 머지 (v0.14.0, `k8s-manifest-resource-v1` / `dockerfile-file-v1` / `manifest-file-v1`)
   - p10-3 Tier 3 paragraph + line-window fallback — ✅ 머지 (v0.15.0, `code-text-paragraph-v1`)
 
+  ### 🎯 P10 Dogfooding Feedback (v0.17.0)
+
+  도그푸딩 round 2 (2026-05-22) 에서 발견된 follow-up 셋. spec + plan: `docs/superpowers/specs/2026-05-22-korean-trigram-tokenizer-design.md`, `docs/superpowers/plans/2026-05-22-korean-trigram-tokenizer.md`. release: [v0.17.0](https://gitea.altair823.xyz/altair823-org/kebab/releases/tag/v0.17.0).
+
+  - **PR-A 한국어 trigram FTS5 tokenizer + lexical builder + hint** — ✅ 머지 (#159, 2026-05-24). `chunks_fts` 가 V007 migration 으로 `unicode61` → `trigram`. `lexical.rs::build_match_string` trigram-aware 재설계 (whole-phrase OR token-AND, 3자 미만 토큰 drop, raw FTS5 mode 유지). `SearchResponse.hint` additive 필드 + CLI/TUI 안내. 영어 lexical 도 substring 매칭으로 동작 변경.
+  - **PR-B C typedef alias unit + parser_version cascade** — ✅ 머지 (#160, 2026-05-24). `type_definition` 분기 — top-level typedef-wrapped anonymous struct/enum/union 의 alias 이름으로 synthetic unit. `PARSER_VERSION code-c-v1` → `code-c-v2` bump + same-workspace_path orphan purge cascade.
+  - **PR-C `code_lang_chunk_breakdown` additive wire field** — ✅ 머지 (#161, 2026-05-24). `schema.v1.stats` 에 chunk 수 집계 sister 필드 + 기존 `code_lang_breakdown` / `repo_breakdown` JSON schema description 정정 ("chunk count" 오기재 → "doc count").
+
 ## Post-merge 핫픽스
 
 머지 후 발견된 버그들과 그 follow-up PR들은 [HOTFIXES.md](HOTFIXES.md)에 dated 로그로 기록한다. 원래 task spec은 frozen 상태로 두고, post-merge 동작 변경은 HOTFIXES.md를 source of truth로 본다.
