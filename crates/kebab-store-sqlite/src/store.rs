@@ -464,6 +464,74 @@ impl SqliteStore {
         }
         Ok(out)
     }
+
+    /// v0.17.0 PR-B: sister of [`Self::stale_chunk_ids_at`] for the
+    /// `parser_version` bump cascade. When `doc_id` depends on
+    /// `parser_version` (design §9) and an extractor ships a new
+    /// `PARSER_VERSION`, the next ingest computes a fresh `doc_id` for
+    /// the *same* `(workspace_path, asset_id)` pair. The existing
+    /// asset_id-keyed [`Self::stale_chunk_ids_at`] does NOT fire (same
+    /// asset), so the legacy `chunks` rows and their LanceDB shadows
+    /// would orphan. This helper queries by `workspace_path` instead,
+    /// excluding the freshly-computed `keep_doc_id` so a re-entry
+    /// during the same ingest doesn't re-sweep the new row.
+    ///
+    /// Caller usage: pass the *new* `doc_id` if known; pass an empty
+    /// string when called before the new INSERT (the case in
+    /// `try_skip_unchanged`) — all existing docs at `workspace_path`
+    /// are then collected as stale.
+    pub fn stale_chunk_ids_for_workspace_path_except_doc_id(
+        &self,
+        workspace_path: &str,
+        keep_doc_id: &str,
+    ) -> Result<Vec<kebab_core::ChunkId>> {
+        let conn = self.lock_conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT c.chunk_id
+                 FROM chunks c
+                 INNER JOIN documents d ON c.doc_id = d.doc_id
+                 WHERE d.workspace_path = ?1 AND d.doc_id != ?2",
+            )
+            .map_err(StoreError::from)?;
+        let rows = stmt
+            .query_map(params![workspace_path, keep_doc_id], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(StoreError::from)?;
+        let mut out: Vec<kebab_core::ChunkId> = Vec::new();
+        for row in rows {
+            let id = row.map_err(StoreError::from)?;
+            out.push(kebab_core::ChunkId(id));
+        }
+        Ok(out)
+    }
+
+    /// v0.17.0 PR-B: sweep the SQLite document chain (`documents` →
+    /// `blocks` / `chunks` / `embedding_records` via CASCADE) for every
+    /// row at `workspace_path` whose `doc_id` differs from `keep_doc_id`.
+    /// Pair with [`Self::stale_chunk_ids_for_workspace_path_except_doc_id`]
+    /// — caller fetches the chunk_ids first, hands them to
+    /// `VectorStore::delete_by_chunk_ids`, then calls this sweep.
+    /// `assets` row is preserved (same bytes, same asset_id — only the
+    /// derived `doc_id` changed).
+    ///
+    /// `keep_doc_id = ""` deletes every doc at `workspace_path`
+    /// (semantics mirror the sister helper above — used by
+    /// `try_skip_unchanged` before the new INSERT exists).
+    pub fn purge_document_at_workspace_path_except_doc_id(
+        &self,
+        workspace_path: &str,
+        keep_doc_id: &str,
+    ) -> Result<()> {
+        let conn = self.lock_conn();
+        conn.execute(
+            "DELETE FROM documents WHERE workspace_path = ?1 AND doc_id != ?2",
+            params![workspace_path, keep_doc_id],
+        )
+        .map_err(StoreError::from)?;
+        Ok(())
+    }
 }
 
 /// Sweep stale `assets` + `documents` + downstream rows when the file

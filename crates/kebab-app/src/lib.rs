@@ -880,6 +880,22 @@ fn try_skip_unchanged(
     //    logic self-documenting and guards against future id_for_doc
     //    changes.
     if existing_doc.parser_version != *current_parser_version {
+        // v0.17.0 PR-B: parser_version bump cascade. Same bytes (same
+        // asset_id) → asset-keyed `stale_chunk_ids_at` is a no-op, but
+        // the stale `documents` row at this workspace_path still
+        // collides with `idx_docs_workspace_path` on the next INSERT
+        // and the LanceDB rows under the old chunk_ids orphan. Sweep
+        // both stores here, before returning Ok(None), so the caller's
+        // full-ingest path lands a clean slate. The `keep_doc_id = ""`
+        // sentinel removes every doc at this path (the new doc_id is
+        // not yet known here — it's computed downstream from the new
+        // PARSER_VERSION).
+        purge_workspace_path_for_parser_bump(app, asset).with_context(|| {
+            format!(
+                "parser-bump orphan purge at {}",
+                asset.workspace_path.0
+            )
+        })?;
         return Ok(None);
     }
     // 3. Chunker unchanged.
@@ -1484,6 +1500,53 @@ fn record_image_analysis_failure(
         note: Some(note.clone()),
     });
     warning_notes.push(note);
+}
+
+/// v0.17.0 PR-B: parser-bump cascade. When a code extractor ships a
+/// new `PARSER_VERSION` (e.g. `code-c-v1` → `code-c-v2`), the same
+/// (workspace_path, asset_id) pair re-emerges with a fresh `doc_id`.
+/// The existing asset-keyed [`purge_vector_orphans_for_workspace_path`]
+/// only fires on asset_id changes (file bytes edited) and is a no-op
+/// here. Without an explicit doc-keyed sweep the next INSERT raises
+/// `idx_docs_workspace_path` UNIQUE and the LanceDB rows under the
+/// stale chunk_ids orphan. This helper:
+///
+/// 1. Fetches every stale chunk_id at `workspace_path` from SQLite
+///    (`keep_doc_id = ""` means "all existing docs are stale" —
+///    `try_skip_unchanged` calls this before the new doc_id is
+///    computed).
+/// 2. Deletes the matching vectors from every Lance table (no-op if
+///    embeddings are disabled).
+/// 3. Sweeps the SQLite `documents` row (CASCADE drops `blocks` /
+///    `chunks` / `embedding_records`). The `assets` row stays — same
+///    bytes, same asset_id, only the derived `doc_id` changed.
+fn purge_workspace_path_for_parser_bump(
+    app: &App,
+    asset: &RawAsset,
+) -> anyhow::Result<()> {
+    let path = &asset.workspace_path.0;
+    let stale = app
+        .sqlite
+        .stale_chunk_ids_for_workspace_path_except_doc_id(path, "")
+        .context("SqliteStore::stale_chunk_ids_for_workspace_path_except_doc_id")?;
+    if !stale.is_empty() {
+        if let Some(vec_store) = app.vector().context("App::vector")? {
+            use kebab_core::VectorStore as _;
+            vec_store
+                .delete_by_chunk_ids(&stale)
+                .context("VectorStore::delete_by_chunk_ids (parser-bump orphans)")?;
+        }
+    }
+    app.sqlite
+        .purge_document_at_workspace_path_except_doc_id(path, "")
+        .context("SqliteStore::purge_document_at_workspace_path_except_doc_id")?;
+    tracing::debug!(
+        target: "kebab-app",
+        path = %path,
+        count = stale.len(),
+        "purged orphan vectors + document for parser_version bump"
+    );
+    Ok(())
 }
 
 /// HOTFIXES 2026-05-02 P7-3 follow-up: when a tracked file's bytes
