@@ -81,12 +81,17 @@
         },
         "code_lang_breakdown": {
           "type": "object",
-          "description": "p10-1A-1: per-language code chunk count. Key = lowercase language name (e.g. 'rust', 'python'). Populated after 1A-2 lands; empty on markdown-only corpora.",
+          "description": "p10-1A-1: per-language **doc** count (one entry per indexed code document). Key = lowercase language name (e.g. 'rust', 'python'). Empty on markdown-only corpora. Pair with `code_lang_chunk_breakdown` for chunk-level granularity (one file's 200 chunks vs one doc).",
           "additionalProperties": { "type": "integer", "minimum": 0 }
         },
         "repo_breakdown": {
           "type": "object",
-          "description": "p10-1A-1: per-repo code chunk count. Key = repo name as detected by kebab-parse-code::repo. Empty on markdown-only corpora.",
+          "description": "p10-1A-1: per-repo **doc** count. Key = repo name as detected by kebab-parse-code::repo. Empty on markdown-only corpora.",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "code_lang_chunk_breakdown": {
+          "type": "object",
+          "description": "v0.17.0 PR-C: per-language **chunk** count (closes HOTFIXES 2026-05-22 'code_lang_breakdown chunk granularity'). Companion to `code_lang_breakdown` (doc count) — chunk-level granularity is the indexing-pressure metric (a 200-chunk PDF + a 5-chunk Rust file both appear as `1 doc` but `200` vs `5` chunks). Key = lowercase language name. Empty on markdown-only corpora.",
           "additionalProperties": { "type": "integer", "minimum": 0 }
         }
       }

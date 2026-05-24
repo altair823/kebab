@@ -78,6 +78,18 @@ Cross-link: `tasks/p10/INDEX.md`, `migrations/V002__fts.sql`, design §5.5 / §3
 
 Cross-link: `crates/kebab-parse-code/src/c.rs::recover_typedef_alias`, `tasks/p10/p10-1d-c-cpp-ast-chunker.md` Risks/notes section.
 
+## 2026-05-24 — v0.17.0 PR-C: `code_lang_chunk_breakdown` additive wire 필드 (closure of 2026-05-22 LOW)
+
+`schema.v1.stats` 에 `code_lang_chunk_breakdown: { <lang>: <chunk_count> }` additive 필드 추가. 기존 `code_lang_breakdown` (doc 수) 와 sister — chunk 수 집계로 indexing 압력 granularity 노출. 한 PDF spec → 200 chunks vs 한 Rust file → 5 chunks 가 동일한 `1 doc` 으로 보이던 한계 closure.
+
+**구현**: `crates/kebab-store-sqlite/src/store.rs::code_lang_chunk_breakdown()` — `chunks INNER JOIN documents` 후 `json_extract(d.metadata_json, '$.code_lang')` GROUP BY, `COUNT(c.chunk_id)`. `BTreeMap<String, u32>` 반환 (기존 helper 와 동일 shape). `crates/kebab-app/src/schema.rs::Stats` 에 동일 이름 필드 추가 + `collect_stats` builder 에서 호출. `docs/wire-schema/v1/schema.schema.json` 에 additive 필드 명세. **additive 변경 — wire breaking 아님, `schema_version` bump 불필요.**
+
+**Gemini round 2 권고 반영**: 기존 `code_lang_breakdown` / `repo_breakdown` 의 JSON schema description 이 "code chunk count" 로 잘못 적혀 있던 (실제는 doc count) 부분을 "doc count" 로 정정. 신규 필드만 "chunk count" 로 명시. 사용자가 두 metric 의 의미 차이를 schema 만 보고도 구분 가능.
+
+**사용자 영향**: `kebab schema --json` 출력에 신규 키 등장. MCP `schema` tool 도 동일. 옛 v0.16.x 가 보낸 호출은 그대로 동작 (additive).
+
+Cross-link: `crates/kebab-store-sqlite/src/store.rs::code_lang_chunk_breakdown`, `docs/wire-schema/v1/schema.schema.json`.
+
 ## 2026-05-21 — p10-2: k8s multi-resource YAML chunk_id collision
 
 **Origin**: P10 종합 도그푸딩 (`/tmp/kebab-p10-dogfood/`, 16 파일). 한 파일에 2+ k8s document (Deployment + Service, `---` 구분) 인 YAML 이 ingest 실패.

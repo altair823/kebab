@@ -892,6 +892,45 @@ impl SqliteStore {
         Ok(out)
     }
 
+    /// v0.17.0 PR-C: per-code-language **chunk** count for
+    /// `schema.v1.stats`. Companion to [`Self::code_lang_breakdown`] —
+    /// that one returns *document* counts. Stats observers wanting
+    /// indexing-pressure granularity (a single PDF spec → 200 chunks,
+    /// vs a single Rust file → 5 chunks) need the chunk-level view.
+    ///
+    /// SQL joins `chunks → documents`, reads
+    /// `metadata_json->'$.code_lang'` on the doc side, groups by the
+    /// language, and skips rows where `code_lang IS NULL`. Returns
+    /// `BTreeMap<String, u32>` mirroring the doc-count helper above
+    /// so callers can serialize both with the same shape.
+    pub fn code_lang_chunk_breakdown(
+        &self,
+    ) -> anyhow::Result<std::collections::BTreeMap<String, u32>> {
+        use anyhow::Context;
+        let conn = self.read_conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT json_extract(d.metadata_json, '$.code_lang') AS cl, \
+                        COUNT(c.chunk_id) \
+                 FROM chunks c \
+                 INNER JOIN documents d ON c.doc_id = d.doc_id \
+                 WHERE cl IS NOT NULL \
+                 GROUP BY cl",
+            )
+            .context("prepare code_lang_chunk_breakdown")?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u32))
+            })
+            .context("query code_lang_chunk_breakdown")?;
+        let mut out = std::collections::BTreeMap::new();
+        for row in rows {
+            let (k, v) = row.context("read code_lang_chunk_breakdown row")?;
+            out.insert(k, v);
+        }
+        Ok(out)
+    }
+
     /// p10-1A-2 follow-up (dogfooding 2026-05-20): per-repo doc count for
     /// `schema.v1`.
     ///
@@ -1039,6 +1078,108 @@ mod tests {
         );
         // only one key total
         assert_eq!(bd.len(), 1, "expected exactly 1 entry, got: {bd:?}");
+    }
+
+    /// v0.17.0 PR-C: `code_lang_chunk_breakdown` counts *chunks* (not
+    /// docs) grouped by `documents.metadata_json.code_lang`. Differs
+    /// from `code_lang_breakdown` (doc count) by joining `chunks` and
+    /// summing chunk rows so one Rust file with 3 chunks reports
+    /// `rust=3` here vs `rust=1` in the doc-count helper.
+    ///
+    /// Uses a side rusqlite connection (FK enforcement off) so a single
+    /// doc + multiple chunks fixture can be inserted without standing
+    /// up `assets` companions.
+    #[test]
+    fn code_lang_chunk_breakdown_counts_chunks_not_docs() {
+        let (dir, store) = open_fresh_store();
+        let db_path = dir.path().join("kebab.sqlite");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
+
+        // 1 Rust doc + 3 chunks → chunk_breakdown rust=3 / doc_breakdown rust=1.
+        conn.execute(
+            "INSERT INTO documents (
+                doc_id, asset_id, workspace_path,
+                source_type, trust_level, parser_version,
+                doc_version, schema_version,
+                metadata_json, provenance_json,
+                created_at, updated_at
+            ) VALUES (
+                'doc-rust-1', 'asset-1', 'src/main.rs',
+                'reference', 'primary', 'test-v1',
+                1, 1,
+                '{\"code_lang\":\"rust\"}', '{}',
+                '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z'
+            )",
+            [],
+        )
+        .unwrap();
+        for i in 0..3u32 {
+            conn.execute(
+                "INSERT INTO chunks (
+                    chunk_id, doc_id, text, heading_path_json, section_label,
+                    source_spans_json, token_estimate, chunker_version,
+                    policy_hash, block_ids_json, created_at
+                ) VALUES (?, 'doc-rust-1', ?, '[]', NULL, '[]', 0, 'cv1', 'h', '[]', '2024-01-01T00:00:00Z')",
+                rusqlite::params![format!("rust-chunk-{i:0>26}"), format!("body {i}")],
+            )
+            .unwrap();
+        }
+
+        // 1 markdown doc + 1 chunk → code_lang = null → must be skipped.
+        conn.execute(
+            "INSERT INTO documents (
+                doc_id, asset_id, workspace_path,
+                source_type, trust_level, parser_version,
+                doc_version, schema_version,
+                metadata_json, provenance_json,
+                created_at, updated_at
+            ) VALUES (
+                'doc-md-1', 'asset-2', 'notes/readme.md',
+                'markdown', 'primary', 'test-v1',
+                1, 1,
+                '{\"code_lang\":null}', '{}',
+                '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z'
+            )",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO chunks (
+                chunk_id, doc_id, text, heading_path_json, section_label,
+                source_spans_json, token_estimate, chunker_version,
+                policy_hash, block_ids_json, created_at
+            ) VALUES ('md-chunk-00000000000000000000000', 'doc-md-1', 'm', '[]', NULL, '[]', 0, 'cv1', 'h', '[]', '2024-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        drop(conn);
+
+        let chunk_bd = store.code_lang_chunk_breakdown().unwrap();
+        assert_eq!(
+            chunk_bd.get("rust"),
+            Some(&3u32),
+            "expected rust=3 chunks (1 doc × 3 chunks): {chunk_bd:?}"
+        );
+        assert!(
+            !chunk_bd.contains_key("null"),
+            "null code_lang must be skipped: {chunk_bd:?}"
+        );
+        assert_eq!(
+            chunk_bd.len(),
+            1,
+            "expected exactly 1 language entry: {chunk_bd:?}"
+        );
+
+        // Sanity: the existing doc-count helper still returns 1 for rust,
+        // proving the two metrics differ as intended.
+        let doc_bd = store.code_lang_breakdown().unwrap();
+        assert_eq!(
+            doc_bd.get("rust"),
+            Some(&1u32),
+            "doc-count helper unchanged: {doc_bd:?}"
+        );
     }
 
     /// p10-1A-2 follow-up: `repo_breakdown` counts docs by
