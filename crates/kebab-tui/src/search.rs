@@ -333,7 +333,7 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
             s.mode = cycle_mode(s.mode);
             // Force re-search at the new mode if there's a query.
             if !s.input.as_str().trim().is_empty() {
-                s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
+                mark_input_changed(s);
             }
             KeyOutcome::Continue
         }
@@ -360,7 +360,7 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
         (KeyCode::Backspace, _) => {
             if !s.input.is_empty() {
                 s.input.pop_char();
-                s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
+                mark_input_changed(s);
             }
             KeyOutcome::Continue
         }
@@ -388,7 +388,7 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
         }
         (KeyCode::Delete, _) => {
             if s.input.delete_after().is_some() {
-                s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
+                mark_input_changed(s);
             }
             KeyOutcome::Continue
         }
@@ -402,7 +402,7 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
                 s.preview = None;
             } else {
                 s.input.push_char('j');
-                s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
+                mark_input_changed(s);
             }
             KeyOutcome::Continue
         }
@@ -412,7 +412,7 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
                 s.preview = None;
             } else {
                 s.input.push_char('k');
-                s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
+                mark_input_changed(s);
             }
             KeyOutcome::Continue
         }
@@ -426,13 +426,23 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
             // bindings (and don't currently match any Search
             // command, so they're a safe fall-through to Continue).
             s.input.push_char(c);
-            s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
+            mark_input_changed(s);
             KeyOutcome::Continue
         }
         // Normal mode + un-handled Char → no-op (no typing in
         // Normal). Modifier chords always no-op.
         _ => KeyOutcome::Continue,
     }
+}
+
+/// v0.17.0 A5 Step 5: every input-mutation site in `handle_key_search`
+/// funnels through this helper so the debounce stamp and the
+/// short-query advisory stay in sync. Reset is eager — the stale
+/// advisory from the previous result set must not visually overlap
+/// with a fresh typing session.
+fn mark_input_changed(s: &mut crate::app::SearchState) {
+    s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
+    s.short_query_hint = None;
 }
 
 fn cycle_mode(m: SearchMode) -> SearchMode {
@@ -603,6 +613,11 @@ pub(crate) fn fire_search(state: &mut App) -> anyhow::Result<()> {
         s.generation = s.generation.wrapping_add(1);
         s.searching = true;
         s.input_dirty_at = None;
+        // v0.17.0 A5 Step 5: hint belongs to the *prior* result set —
+        // a fresh worker spawn invalidates it so the status bar
+        // doesn't keep showing the old advisory while the new
+        // query is in flight.
+        s.short_query_hint = None;
         let q_text = s.input.as_str().to_string();
         s.last_query = Some((q_text.clone(), s.mode));
         (q_text, s.mode, s.generation)
@@ -676,6 +691,18 @@ pub fn poll_worker(state: &mut App) {
             s.searching = false;
             match result {
                 Ok(hits) => {
+                    // v0.17.0 A5 Step 5: stale-aware short-query hint.
+                    // The worker carries no copy of the query text;
+                    // we ground the advisory on `s.last_query` which
+                    // was snapshotted at `fire_search` time and (by
+                    // the generation guard above) still matches what
+                    // the user submitted for *this* result set. If
+                    // input has drifted since spawn, the gen-check
+                    // already returned early.
+                    let q_text =
+                        s.last_query.as_ref().map(|(t, _)| t.as_str()).unwrap_or("");
+                    s.short_query_hint =
+                        kebab_app::short_query_hint(q_text, hits.is_empty());
                     s.hits = hits;
                     s.selected_hit = 0;
                     s.preview = None;
@@ -683,6 +710,7 @@ pub fn poll_worker(state: &mut App) {
                 Err(e) => {
                     s.hits.clear();
                     s.selected_hit = 0;
+                    s.short_query_hint = None;
                     state.error_overlay =
                         Some(crate::error_popup::ErrorOverlay::from_anyhow(&e));
                 }

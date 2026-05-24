@@ -393,6 +393,20 @@ fn dynamic_status(app: &App) -> String {
     if app.search.as_ref().map(|s| s.searching).unwrap_or(false) {
         return "searching…".to_string();
     }
+    // v0.17.0 A5 Step 5: short-query advisory has higher priority than
+    // the idle slot but lower than active operations (streaming /
+    // searching / ingest progress) — the user should always see what
+    // is happening *now* before reading guidance about the last
+    // empty result. Slot only fires while focused on Search.
+    if app.focus == Pane::Search {
+        if let Some(hint) = app
+            .search
+            .as_ref()
+            .and_then(|s| s.short_query_hint.as_deref())
+        {
+            return hint.to_string();
+        }
+    }
     if let Some(state) = app.ingest_state.as_ref() {
         return crate::ingest_progress::status_line(state);
     }

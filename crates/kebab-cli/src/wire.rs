@@ -92,6 +92,14 @@ pub fn wire_search_response(r: &kebab_app::SearchResponse) -> Value {
             map.insert("trace".to_string(), trace_v);
         }
     }
+    // v0.17.0 A5 Step 4b: emit `hint` only when set. Keeps responses
+    // that don't carry a hint backward-compatible with v0 consumers
+    // that don't know the field.
+    if let Some(hint) = &r.hint {
+        if let Value::Object(ref mut map) = v {
+            map.insert("hint".to_string(), Value::String(hint.clone()));
+        }
+    }
     tag_object(v, "search_response.v1")
 }
 
@@ -292,6 +300,7 @@ mod tests {
             next_cursor: Some("opaque-cursor-abc".to_string()),
             truncated: true,
             trace: None,
+            hint: None,
         };
         let v = wire_search_response(&r);
         assert_eq!(schema_of(&v), Some("search_response.v1"));
@@ -405,6 +414,7 @@ mod tests {
                 }],
                 timing: TraceTiming { lexical_ms: 5, vector_ms: 0, fusion_ms: 1, total_ms: 7 },
             }),
+            hint: None,
         };
         let v = wire_search_response(&r);
         assert_eq!(schema_of(&v), Some("search_response.v1"));
@@ -420,6 +430,7 @@ mod tests {
             next_cursor: None,
             truncated: false,
             trace: None,
+            hint: None,
         };
         let v = wire_search_response(&r);
         assert!(v.get("trace").is_none(), "trace field absent when None");

@@ -69,7 +69,7 @@ pub mod reset;
 pub mod schema;
 mod staleness;
 
-pub use app::{App, SearchResponse};
+pub use app::{App, SearchResponse, short_query_hint};
 pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
 pub use reset::{ResetReport, ResetScope, enumerate_orphans};
 pub use error_wire::{ERROR_V1_ID, ErrorV1, StructuredError, classify};

@@ -933,6 +933,15 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     let next = resp.next_cursor.as_deref().unwrap_or("(none)");
                     eprintln!("[truncated; use --cursor {next} for the next page]");
                 }
+                // v0.17.0 A5 Step 4: short-query advisory. `resp.hint`
+                // is `Some` only when the result list is empty and the
+                // trimmed query is shorter than the trigram tokenizer
+                // can resolve (raw FTS5 mode opts out). stderr so it
+                // doesn't pollute the stdout hit list. `--json` skips
+                // this branch entirely; the field rides the wire.
+                if let Some(hint) = &resp.hint {
+                    eprintln!("[hint] {hint}");
+                }
                 if *trace {
                     if let Some(t) = &resp.trace {
                         eprintln!();

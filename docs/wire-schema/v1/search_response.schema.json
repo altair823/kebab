@@ -29,6 +29,10 @@
           }
         }
       }
+    },
+    "hint": {
+      "type": "string",
+      "description": "v0.17.0 A5 Step 4b: advisory string set when the empty hit list is likely due to a query shorter than the FTS5 trigram tokenizer's 3-char minimum. Field is omitted when no advisory applies. Raw FTS5 mode ('...') opts out. MCP / agent consumers should surface this so users understand the empty result rather than retrying the same short query."
     }
   }
 }
