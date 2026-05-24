@@ -14,6 +14,24 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-24 — v0.17.0: 한국어 trigram FTS5 tokenizer 채택 (closure of 2026-05-22 한국어 lexical)
+
+V007 migration 으로 `chunks_fts` 의 tokenizer 를 `unicode61` → `trigram` 으로 교체. `chunks` 원본 + embedding + vector index 는 그대로, FTS shadow 만 재구축 + 자동 backfill — 사용자는 `kebab ingest` 재실행 불필요 (binary 만 교체하면 다음 open 시 V007 가 즉시 적용). 같은 라운드의 다른 두 follow-up (`code_lang_chunk_breakdown`, C typedef) 은 별 PR (PR-C / PR-B).
+
+**한국어 lexical 동작**: 3자 이상 substring 매칭. `해시 충돌` 같은 2자 토큰 multi-token query 는 `crates/kebab-search/src/lexical.rs::build_match_string` 의 trigram-aware 재설계로 `("해시 충돌") OR ("해시" "충돌")` 형태가 되어 whole-phrase 후보로 hit (각 토큰 2자라 token-AND 후보는 trigram 에서 0-hit, 자동 drop). 한영 혼합 `Rust 충돌은` (둘 다 ≥3자) 도 OR-combined. 2자 이하 query (`충돌` / `키`) 는 정상 0 hit + CLI stderr `[hint] 3자 이상 키워드 권장 (trigram tokenizer 제약)` + `search_response.v1.hint` additive 필드 + TUI status bar 동일 안내. raw FTS5 single-quote mode (`'...'`) 는 사용자 명시 의도이므로 hint 안 나옴. 회귀 핀: `lexical_multi_token_korean_query_hits` + `lexical_mixed_korean_english_multi_token_query_hits` (`crates/kebab-app/tests/search_korean.rs`).
+
+**영어 lexical 동작 변경**: substring 매칭으로 바뀜. `token` query 가 `tokenizer` 도 hit (recall ↑, 단어 경계 정밀도 ↓). 의도된 변경, 회귀 핀 = `fts_trigram_english_substring_hits` (`crates/kebab-store-sqlite/tests/fts.rs`).
+
+**lexical BM25 score 분포**: 알고리즘 동일하지만 token stream 이 word → overlapping trigram 으로 바뀌어 raw score / TF / doc-length 모두 달라짐. `crates/kebab-search/tests/lexical.rs::lexical_snapshot_run_1` + `crates/kebab-search/tests/hybrid.rs::hybrid_snapshot_run_1` 둘 다 trigram baseline 으로 regenerate. hybrid (RRF) 는 rank 기반이라 ranking 영향 미미하나 `retrieval.lexical_score` 노출값은 변동.
+
+**디스크 용량**: trigram 인덱스는 unicode61 대비 통상 2-10배. V007 자동 backfill 후 `kebab.sqlite` 파일 크기 증가 (도그푸딩 KB 기준 ~2-5배 또는 수백 MB). release notes 명시.
+
+**`heading_path_json` JSON 노이즈 (관찰, 미수정)**: trigram 이 JSON 표기 (`[`, `"`, `,`) 와 그 안의 단어 (`app`, `src`) 까지 3-gram 색인 → query 가 우연히 JSON 구문 / 흔한 경로 단어와 겹쳐 false positive 가능. v0.17.0 에서는 컬럼 구성 유지, 도그푸딩 후 column filter (`{text} : <q>` 한정) 또는 평문 heading 변환 결정. 후속 도그푸딩 entry 로 등재 예정.
+
+**MCP / agent 가시성**: `search_response.v1` 에 `hint: Option<String>` additive 필드. 결과가 비어 있고 query trimmed.chars().count() < 3 + raw mode 아닐 때만 set (helper `kebab_app::short_query_hint`). `integrations/claude-code/kebab/SKILL.md` 의 search 절에 "한국어 lexical 은 3자 이상 권장, `hint` 필드 확인" 안내 추가.
+
+Cross-link: `migrations/V007__fts_trigram.sql`, `crates/kebab-search/src/lexical.rs::build_match_string`, design §5.5, `docs/superpowers/specs/2026-05-22-korean-trigram-tokenizer-design.md`.
+
 ## 2026-05-22 — p10 종합 도그푸딩 (round 2): 한국어 lexical 검색 한계 + code_lang_breakdown
 
 **Origin**: P10 종합 도그푸딩 round 2 (`/build/cache/dogfood-p10b/`). 다양한 OSS 코드베이스 8 repo (rust / python / go / ts / js / java / c / cpp) + 한국어 위키 기술 문서 10편 (pandoc HTML→gfm 변환). `multilingual-e5-small` embedding 활성화 후 ingest — `scanned=2663 updated=2080 errors=0` (k8s multi-resource chunk_id collision 은 같은 라운드에서 발견·수정 — 아래 2026-05-21 항목).
@@ -26,14 +44,11 @@ git history.
 
 **검증 (vector/hybrid 우회 확인)**: 동일 4 query 를 `--mode vector` / `--mode hybrid` 로 측정 — 전부 10 hit. `multilingual-e5-small` semantic 검색이 한국어를 정상 처리. 즉 embedding 켠 KB 는 **기본 hybrid 모드에서 한국어 검색이 동작**한다. 단 hybrid 는 RRF(lexical+vector) fusion 이라 한국어 query 는 lexical 기여가 0 → 사실상 vector-only 로 reduced (score 증거: lexical 도 hit 한 `트리 순회 방법` 만 hybrid score 1.000, 나머지 한국어 query 는 0.500).
 
-**Status**: `--mode lexical` 단독은 한국어 무용. 기본 hybrid 는 vector 가 carry → 한국어 KB 사용 가능. 단 embedding `provider = "none"` 인 lexical-only KB 는 한국어 검색 불가.
+**Status**: ✅ closed — v0.17.0 (2026-05-24) 에서 V007 trigram migration + `lexical.rs::build_match_string` trigram-aware 재설계로 해소. 영향은 위 2026-05-24 절 참조. 이하는 closure 전 원래 round-2 관찰 기록 (frozen).
 
-**Workaround**: 한국어 문서 KB 는 embedding 활성화 (`[models.embedding] provider = "fastembed"`) 를 사실상 필수로 둔다.
+**Workaround (pre-v0.17.0)**: 한국어 문서 KB 는 embedding 활성화 (`[models.embedding] provider = "fastembed"`) 가 사실상 필수였다 — vector / hybrid 가 한국어를 carry.
 
-**Next step (미진행 — 사용자 결정 대기)**: FTS5 builtin `trigram` tokenizer (`tokenize = 'trigram'`) 로 교체 시 한국어 3-gram 부분 매칭 가능. 비용·제약:
-- `chunks_fts` 재생성 = V00X migration + 전체 chunk re-index. design §5.5 verbatim 블록 + CI diff-check 동반 갱신 필요 (breaking schema → release cascade 트리거).
-- CJK 형태소 분석기는 SQLite 번들 FTS5 가 미지원 — 외부 tokenizer extension 은 단일 바이너리 정책과 충돌. trigram 이 현실적 선택.
-- 우선순위: 기본 hybrid 가 한국어를 cover 하므로 HIGH 아님. lexical 한국어 정확 키워드 매칭 + hybrid 완전 작동 가치만 남음 → MEDIUM.
+**Resolution (v0.17.0)**: FTS5 builtin `trigram` tokenizer 채택. `chunks_fts` 재생성 = V007 migration (`chunks` 원본 / embedding / vector 불변, FTS shadow 만 자동 backfill — re-ingest 불필요). design §5.5 verbatim 블록 + CI diff-check (`fts_v007_matches_design_section_5_5_verbatim`) 동반 갱신.
 
 ### code_lang_breakdown 이 chunk 수가 아닌 doc 수를 집계
 

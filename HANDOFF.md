@@ -32,7 +32,8 @@ P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 
 머지 후 발견된 모든 deviation / hotfix 의 dated 로그는 [tasks/HOTFIXES.md](tasks/HOTFIXES.md). 본 요약은 \"누군가가 인수받을 때 알아두면 시간을 많이 절약하는\" 항목만:
 
-- **2026-05-22 P10 종합 도그푸딩 round 2 (한국어 lexical 검색 한계)** — `kebab search --mode lexical` 의 한국어 query 가 FTS5 `unicode61` 토크나이저에서 거의 0 hit (어절 단위 토큰화 → 부분 매칭 불가). 기본 hybrid 모드는 `multilingual-e5-small` vector 가 carry 해 한국어 검색 정상 (검증: 한국어 4 query 전부 vector/hybrid 10 hit vs lexical 0~1) — **한국어 문서 KB 는 embedding 활성화 필수**. `trigram` tokenizer 로의 fix 는 V00X migration + 전체 re-index 동반이라 보류. 자세한 내용: `tasks/HOTFIXES.md` (2026-05-22).
+- **2026-05-24 v0.17.0 한국어 trigram tokenizer 채택 (closure of 2026-05-22 한국어 lexical)** — `chunks_fts` 가 FTS5 `unicode61` → `trigram` 으로 V007 migration (자동 backfill, re-ingest 불필요). `lexical.rs::build_match_string` trigram-aware 재설계 — multi-token 한국어 query (`해시 충돌`) 가 whole-phrase 후보로 hit, 한영 혼합 (`Rust 충돌은`) 도 OR-combined. 2자 이하 query 는 0-hit + CLI/TUI/wire `hint` 안내. 영어 lexical 도 substring 매칭으로 바뀜 (recall ↑ / 단어 경계 ↓). `kebab.sqlite` 크기 ~2-5배 증가 (trigram index). 자세한 내용: `tasks/HOTFIXES.md` (2026-05-24).
+- **2026-05-22 P10 종합 도그푸딩 round 2 (한국어 lexical 검색 한계)** — `kebab search --mode lexical` 의 한국어 query 가 FTS5 `unicode61` 토크나이저에서 거의 0 hit (어절 단위 토큰화 → 부분 매칭 불가). 기본 hybrid 모드는 `multilingual-e5-small` vector 가 carry 해 한국어 검색 정상. **closure**: 위 2026-05-24 v0.17.0 entry.
 - **2026-05-20 P10-1B (Rust 1A symbol path 비일관 + expression-level 함수 미방출)** — (a) Rust `code-rust-ast-v1` 은 file-scope nesting 만 (workspace path prefix 없음), 1B 의 Python/TypeScript/JavaScript 는 workspace 경로 → module path prefix 사용 (비일관 수용, retrofit = chunker_version bump + reindex 필요, 사용자 명시 요청까지 보류); (b) TS/JS 의 `const foo = () => {...}` 같은 expression-level 함수는 `<top-level>` glue 로 처리됨 (declaration-level 단위만 1B 1차 범위). 자세한 내용: `tasks/HOTFIXES.md` (2026-05-20) 두 항목.
 - **2026-05-19 P10-1A-2 (code_rust_ast_v1.rs + SourceType)** — `AST_CHUNK_MAX_LINES` 상수가 `IngestCodeCfg.ast_chunk_max_lines` 를 읽지 않고 모듈 상수 200 고정 (Chunker trait 이 per-medium config 미노출); `SourceType::Code` variant 부재로 code 파일이 `SourceType::Note` 로 분류됨 — 두 항목 모두 `tasks/HOTFIXES.md` (2026-05-19) 에 기록.
 - **2026-05-07 fb-26 (progress.rs)** — `Aborted` unconditional writeln (TTY duplicate) + `Completed` TTY no summary fixed; `KEBAB_PROGRESS=plain` env + quiet suppression added
@@ -85,7 +86,7 @@ P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 구조적으로 미완인 component 는 P9-5 하나뿐. 나머지는 도그푸딩 follow-up (아래 "P10 dogfooding 백로그") 또는 사용자 결정 대기.
 
 - **P9-5 desktop tauri** — 마지막 남은 P9 component. `kebab-desktop` crate + Tauri 앱, 별도 분기. PDF citation rendering UI 가치 큼. 사용자 우선순위 (P9 우선 · 책/PDF 위주) 와 부합.
-- **P10 도그푸딩 round 2 follow-up** — 한국어 lexical tokenizer (MEDIUM) / code_lang_breakdown chunk 단위 집계 (LOW) / C typedef-wrapped struct (LOW, 관망). 상세는 아래 "P10 dogfooding 백로그" 절.
+- **P10 도그푸딩 round 2 follow-up** — 한국어 lexical tokenizer ✅ v0.17.0. 잔여: code_lang_breakdown chunk 단위 집계 (LOW, PR-C) / C typedef-wrapped struct (LOW, PR-B). 상세는 아래 "P10 dogfooding 백로그" 절.
 - **P8 audio brainstorm** — whisper-rs 시스템 dep 받을지 / 외부 transcription endpoint 사용할지 사용자 결정 필요. 사용자 패턴 (책+PDF 위주, audio 의향 없음) 상 보류.
 - **fb-41 multi-hop reasoning** — ⏳ 미구현, XL, eval 인프라 선행 + brainstorm 필요.
 - **Rust symbol path retrofit** — Rust `code-rust-ast-v1` symbol 이 file-scope-only (1B+ 는 module prefix). `code-rust-ast-v2` bump + Rust corpus re-ingest 비용 → 사용자 명시 요청까지 보류. HOTFIXES `2026-05-20`.
@@ -106,7 +107,7 @@ P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 
 P10 종합 도그푸딩 round 2 (`/build/cache/dogfood-p10b/`, OSS 8 repo + 한국어 위키 문서 10편) 에서 발견된 follow-up 후보. 자세한 내용 + 우선순위 근거는 `tasks/HOTFIXES.md` (2026-05-22).
 
-- **한국어 lexical tokenizer (MEDIUM)** — `chunks_fts` 를 FTS5 `trigram` tokenizer 로 교체 → 한국어 3-gram 부분 매칭. V00X migration + 전체 chunk re-index + design §5.5 verbatim 블록 갱신 동반 (breaking schema, release cascade). 기본 hybrid 가 한국어를 cover 하므로 HIGH 아님 — 사용자 결정 대기.
+- **한국어 lexical tokenizer** — ✅ v0.17.0 (2026-05-24) 머지. V007 trigram migration 자동 backfill + `build_match_string` 재설계 + CLI/TUI/wire hint. HOTFIXES `2026-05-24` 참조.
 - **code_lang_breakdown chunk 단위 집계 (LOW)** — `schema.v1.stats` 의 언어별 분포를 doc 수 → chunk 수로. 소규모, wire additive 필드.
 - **ranking glue chunk 편향 (deferred)** — 자동 heuristic 은 user intent misalignment 위험. 사용자 명시 요청 전까지 surface 변경 0 유지. 1주+ 실사용 후 재 brainstorm.
 
