@@ -46,3 +46,88 @@ fn korean_lexical_query_returns_korean_document() {
         hits.iter().map(|h| &h.doc_path.0).collect::<Vec<_>>()
     );
 }
+
+/// A4 Step 1c — multi-token Korean query (`해시 충돌`) must hit when
+/// the lexical builder routes it through a whole-phrase MATCH candidate.
+///
+/// Expected: FAIL until A5 (`build_match_string` redesign) lands — the
+/// current builder emits `"해시" "충돌"` AND, but FTS5 trigram tokenizer
+/// has no 2-char terms so each side is 0-hit. A5 introduces a whole-
+/// phrase candidate (`"해시 충돌"`) OR'd with the token AND, restoring
+/// hits for the dominant Korean usage pattern.
+#[test]
+fn lexical_multi_token_korean_query_hits() {
+    let env = TestEnv::lexical_only();
+
+    // Copy the synthetic Korean fixture (introduced in A4 Step 0) into
+    // the test workspace. The fixture contains the exact phrase
+    // "해시 충돌" multiple times.
+    let dest = env.workspace_root.join("hash-table.md");
+    let src = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("fixtures")
+        .join("search")
+        .join("korean")
+        .join("hash-table.md");
+    std::fs::copy(&src, &dest).expect("copy korean fixture");
+
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true)
+        .expect("ingest must succeed");
+
+    let hits = kebab_app::search_with_config(
+        env.config.clone(),
+        common::lexical_query("해시 충돌"),
+    )
+    .expect("search must succeed");
+
+    assert!(
+        !hits.is_empty(),
+        "multi-token Korean query '해시 충돌' must hit the hash-table fixture; got {:?}",
+        hits.iter().map(|h| &h.doc_path.0).collect::<Vec<_>>()
+    );
+    let any_hash_table = hits.iter().any(|h| h.doc_path.0.contains("hash-table"));
+    assert!(
+        any_hash_table,
+        "expected at least one hit on the hash-table fixture, got: {:?}",
+        hits.iter().map(|h| &h.doc_path.0).collect::<Vec<_>>()
+    );
+}
+
+/// A4 Step 1c — mixed Korean+English multi-token query (`Rust 충돌은`).
+/// Both tokens are ≥3 chars, so the redesigned builder (A5) emits
+/// `("Rust 충돌은") OR ("Rust" AND "충돌은")`. With trigram tokenizer
+/// each side has substring coverage in the document, so the AND branch
+/// alone is enough. Expected: FAIL pre-A5, PASS post-A5.
+#[test]
+fn lexical_mixed_korean_english_multi_token_query_hits() {
+    let env = TestEnv::lexical_only();
+    let doc_path = env.workspace_root.join("rust-hash.md");
+    std::fs::write(
+        &doc_path,
+        "# Rust 해시 테이블\n\nRust 의 std::collections::HashMap 에서 \
+         해시 충돌은 SipHash 로 완화한다.\n",
+    )
+    .expect("write rust-hash fixture");
+
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true)
+        .expect("ingest must succeed");
+
+    let hits = kebab_app::search_with_config(
+        env.config.clone(),
+        common::lexical_query("Rust 충돌은"),
+    )
+    .expect("search must succeed");
+
+    assert!(
+        !hits.is_empty(),
+        "mixed Korean+English multi-token query 'Rust 충돌은' must hit the rust-hash fixture; got {:?}",
+        hits.iter().map(|h| &h.doc_path.0).collect::<Vec<_>>()
+    );
+    let any_rust_hash = hits.iter().any(|h| h.doc_path.0.contains("rust-hash"));
+    assert!(
+        any_rust_hash,
+        "expected at least one hit on the rust-hash fixture, got: {:?}",
+        hits.iter().map(|h| &h.doc_path.0).collect::<Vec<_>>()
+    );
+}

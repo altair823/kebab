@@ -47,8 +47,20 @@ fn search_json_emits_search_response_v1_wrapper() {
 fn search_json_truncates_with_max_tokens() {
     let dir = tempfile::tempdir().unwrap();
     let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
-    let body: String = "rust ownership is a memory model. ".repeat(10);
-    fs::write(workspace.join("a.md"), format!("# T\n\n{body}\n")).unwrap();
+    // v0.17.0 trigram tokenizer makes FTS5 snippet() tokens 3-char wide
+    // (was full words under unicode61), so an individual snippet stays
+    // around ~60 chars — too short to ever exceed the snippet-shorten
+    // budget cap on a single-hit fixture. To still exercise the budget
+    // loop deterministically, we ingest multiple hits and pick a budget
+    // small enough that the loop has to *pop* hits, which flips
+    // truncated=true regardless of snippet length.
+    for i in 0..5 {
+        fs::write(
+            workspace.join(format!("d{i}.md")),
+            format!("# T{i}\n\nrust ownership is a memory model.\n"),
+        )
+        .unwrap();
+    }
     common::ingest(&cfg, &workspace);
 
     let (stdout, _stderr) = common::run_search_with_args(
@@ -211,8 +223,15 @@ fn search_stale_cursor_returns_error_v1_with_stale_cursor_code() {
 fn search_plain_emits_truncated_hint_to_stderr() {
     let dir = tempfile::tempdir().unwrap();
     let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
-    let body: String = "rust ownership is a memory model. ".repeat(10);
-    fs::write(workspace.join("a.md"), format!("# T\n\n{body}\n")).unwrap();
+    // v0.17.0 trigram tokenizer — same multi-doc rationale as
+    // `search_json_truncates_with_max_tokens` above.
+    for i in 0..5 {
+        fs::write(
+            workspace.join(format!("d{i}.md")),
+            format!("# T{i}\n\nrust ownership is a memory model.\n"),
+        )
+        .unwrap();
+    }
     common::ingest(&cfg, &workspace);
 
     let (_stdout, stderr) = common::run_search_with_args(
@@ -222,5 +241,78 @@ fn search_plain_emits_truncated_hint_to_stderr() {
     assert!(
         stderr.contains("[truncated;"),
         "stderr must carry truncated hint: {stderr:?}"
+    );
+}
+
+#[test]
+fn search_plain_emits_short_query_hint_to_stderr() {
+    // v0.17.0 A5 Step 6: 2-char query under trigram tokenizer emits
+    // empty hits + stderr `[hint]` advisory. Empty workspace is enough
+    // — hits are always empty so the hint condition depends only on
+    // query length (<3 chars trimmed) + non-raw mode + hits.is_empty.
+    let dir = tempfile::tempdir().unwrap();
+    let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
+    common::ingest(&cfg, &workspace);
+
+    let (_stdout, stderr) = common::run_search_with_args(
+        &cfg,
+        &["--mode", "lexical", "ab"],
+    );
+    assert!(
+        stderr.contains("[hint]"),
+        "stderr must carry short-query hint: {stderr:?}"
+    );
+    assert!(
+        stderr.contains("3자 이상"),
+        "hint message must mention '3자 이상' (Korean advisory): {stderr:?}"
+    );
+}
+
+#[test]
+fn search_json_emits_hint_field_for_short_query() {
+    // v0.17.0 A5 Step 6: --json mode carries the same advisory on the
+    // `search_response.v1.hint` additive field. Empty hits + 2-char
+    // query + non-raw mode trips the helper. Verifies the MCP-visible
+    // surface (agents read the field instead of parsing stderr).
+    let dir = tempfile::tempdir().unwrap();
+    let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
+    common::ingest(&cfg, &workspace);
+
+    let (stdout, _stderr) = common::run_search_with_args(
+        &cfg,
+        &["--json", "--mode", "lexical", "ab"],
+    );
+    let v: Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
+    assert!(
+        v["hits"].as_array().unwrap().is_empty(),
+        "empty hits expected for short query in empty KB: {v}"
+    );
+    assert_eq!(
+        v["hint"].as_str().expect("hint field set on short empty result"),
+        "3자 이상 키워드 권장 (trigram tokenizer 제약)",
+        "hint must carry the standard advisory: {v}"
+    );
+}
+
+#[test]
+fn search_json_omits_hint_field_when_query_is_long_enough() {
+    // v0.17.0 A5 Step 6 (negative case): 3+ char query never trips
+    // hint, even on an empty KB. Verifies `serialize_search_response`
+    // omits the additive `hint` field when `None` so existing wire
+    // consumers stay backward-compatible.
+    let dir = tempfile::tempdir().unwrap();
+    let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
+    common::ingest(&cfg, &workspace);
+
+    let (stdout, _stderr) = common::run_search_with_args(
+        &cfg,
+        &["--json", "--mode", "lexical", "abc"],
+    );
+    let v: Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
+    assert!(
+        v.get("hint").is_none(),
+        "hint must be absent for ≥3-char queries: {v}"
     );
 }

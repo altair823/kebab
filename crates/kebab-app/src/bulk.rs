@@ -96,6 +96,11 @@ fn serialize_search_response(r: &SearchResponse) -> Value {
             None => Value::Null,
         };
         map.insert("trace".to_string(), trace_v);
+        // v0.17.0 A5 Step 4b: only emit `hint` when set — matches
+        // the CLI wire wrapper's additive emit pattern.
+        if let Some(hint) = &r.hint {
+            map.insert("hint".to_string(), Value::String(hint.clone()));
+        }
     }
     v
 }

@@ -38,12 +38,16 @@ fn fetch_chunk_returns_target_only_when_no_context() {
 #[test]
 fn fetch_chunk_with_context_returns_neighbors() {
     let env = common::TestEnv::new();
-    let body = "# H1\n\nA1\n\n# H2\n\nA2\n\n# H3\n\nA3\n\n# H4\n\nA4\n\n# H5\n\nA5\n";
+    // v0.17.0 trigram tokenizer: terms must be ≥3 Unicode chars to
+    // match. The earlier fixture used 2-char tokens like `A1`/`A3` for
+    // section bodies — those zero-hit under trigram. Use 5-char unique
+    // words per section so the query can pin one chunk deterministically.
+    let body = "# H1\n\napples\n\n# H2\n\nbanana\n\n# H3\n\ncherry\n\n# H4\n\ndurian\n\n# H5\n\nelder\n";
     common::ingest_md(&env, "multi.md", body);
     let app = env.app();
 
     let q = kebab_core::SearchQuery {
-        text: "A3".to_string(),
+        text: "cherry".to_string(),
         mode: kebab_core::SearchMode::Lexical,
         k: 1,
         filters: kebab_core::SearchFilters::default(),

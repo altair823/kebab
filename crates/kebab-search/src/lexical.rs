@@ -162,18 +162,35 @@ impl Retriever for LexicalRetriever {
 
 /// Translate a user-typed query into an FTS5 match string.
 ///
-/// Rules (from the task spec):
+/// v0.17.0 — trigram-aware redesign (see design §5.5 + plan
+/// `docs/superpowers/plans/2026-05-22-korean-trigram-tokenizer.md`
+/// Task A5). The FTS5 tokenizer is `trigram` so any term shorter than
+/// three Unicode chars has no index entry and would zero out an AND
+/// branch. Korean compounds typically split into 2-char eojeols (e.g.
+/// `해시 충돌`), so a naive token AND drops the dominant usage pattern.
 ///
-/// - The query is wrapped in a single pair of `'...'` → strip the quotes
-///   and pass the inner text through verbatim. The user has explicitly
-///   opted into FTS5 syntax (e.g. `'rust AND cargo'`, `'foo*'`).
+/// Rules:
 ///
-/// - Otherwise: split on whitespace, escape every token by wrapping it
-///   in `"..."` (FTS5 string literal), with any inner `"` doubled. Join
-///   with spaces — FTS5 default operator is implicit AND.
+/// - Raw mode (unchanged): the query is wrapped in a single pair of
+///   `'...'` → strip the quotes and pass the inner text through verbatim.
+///   The user has explicitly opted into FTS5 syntax (e.g.
+///   `'rust AND cargo'`, `'foo*'`).
 ///
-/// - An empty / whitespace-only token list → return `None` (caller
-///   short-circuits to `Ok(vec![])`).
+/// - Otherwise build up to two MATCH candidates:
+///   1. **whole-phrase**: the entire trimmed input wrapped as one FTS5
+///      string literal, *only* if it has ≥3 Unicode chars. FTS5 treats
+///      a quoted string with spaces as a phrase match.
+///   2. **token AND**: whitespace-split tokens, kept only when each has
+///      ≥3 Unicode chars (shorter ones are dropped — they would zero
+///      out the AND under trigram).
+///
+/// - Combine: `(whole) OR (token_and)` when both exist *and differ*;
+///   either alone when only one exists; `None` when neither exists
+///   (caller short-circuits to `Ok(vec![])`, avoiding an FTS5 syntax
+///   error from an empty MATCH).
+///
+/// - A single-token long query (`러스트`, `foo`) yields `whole == token_and`
+///   → return the bare quoted form so the OR doesn't duplicate.
 fn build_match_string(text: &str) -> Option<String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -186,14 +203,27 @@ fn build_match_string(text: &str) -> Option<String> {
         }
         return Some(inner_trim.to_string());
     }
-    let tokens: Vec<String> = trimmed
-        .split_whitespace()
-        .map(escape_fts5_token)
-        .collect();
-    if tokens.is_empty() {
-        None
-    } else {
-        Some(tokens.join(" "))
+
+    const MIN_TRIGRAM_CHARS: usize = 3;
+
+    let whole_candidate: Option<String> = (trimmed.chars().count() >= MIN_TRIGRAM_CHARS)
+        .then(|| escape_fts5_token(trimmed));
+
+    let token_and_candidate: Option<String> = {
+        let toks: Vec<String> = trimmed
+            .split_whitespace()
+            .filter(|t| t.chars().count() >= MIN_TRIGRAM_CHARS)
+            .map(escape_fts5_token)
+            .collect();
+        (!toks.is_empty()).then(|| toks.join(" "))
+    };
+
+    match (whole_candidate, token_and_candidate) {
+        (None, None) => None,
+        (Some(w), None) => Some(w),
+        (None, Some(a)) => Some(a),
+        (Some(w), Some(a)) if w == a => Some(w),
+        (Some(w), Some(a)) => Some(format!("({w}) OR ({a})")),
     }
 }
 
@@ -555,30 +585,31 @@ mod tests {
     }
 
     #[test]
-    fn build_match_string_default_is_quoted_and_anded() {
+    fn build_match_string_default_emits_or_of_phrase_and_and() {
+        // Two long tokens: both whole-phrase and token-AND candidates
+        // exist and differ, so the builder combines them with OR.
         let s = build_match_string("rust cargo").unwrap();
-        // Two tokens, each quoted, joined by a space (implicit AND).
-        assert_eq!(s, r#""rust" "cargo""#);
+        assert_eq!(s, r#"("rust cargo") OR ("rust" "cargo")"#);
     }
 
     #[test]
     fn build_match_string_escapes_special_chars() {
         // `*`, `(`, `)`, `:`, `^`, `"` should all be wrapped inside
         // FTS5 string-literal quotes so they're treated as literal
-        // text rather than FTS5 operators.
+        // text rather than FTS5 operators. Every token is ≥3 chars,
+        // so both the whole-phrase and token-AND candidates exist.
         let s = build_match_string(r#"foo* (bar) baz:qux ^head he"llo"#).unwrap();
         assert_eq!(
             s,
-            r#""foo*" "(bar)" "baz:qux" "^head" "he""llo""#
+            r#"("foo* (bar) baz:qux ^head he""llo") OR ("foo*" "(bar)" "baz:qux" "^head" "he""llo")"#
         );
         // The doubled `""` is FTS5's way of embedding a literal quote
-        // inside a string literal.
+        // inside a string literal. Appears in both whole-phrase and
+        // token-AND halves.
         assert!(s.contains(r#"he""llo"#));
-        // Sanity: every special character lives between matching `"`
-        // delimiters — there is no bare-token (unquoted) span anywhere.
-        // We check this by confirming the string starts and ends with `"`
-        // and the count of unescaped `"` is even (each token is wrapped).
-        assert!(s.starts_with('"') && s.ends_with('"'));
+        // Sanity: the combined expression is `(...) OR (...)` so it
+        // starts with `(` and ends with `)`.
+        assert!(s.starts_with('(') && s.ends_with(')'));
     }
 
     #[test]
@@ -586,6 +617,55 @@ mod tests {
         // The FTS5 expression is preserved verbatim.
         let s = build_match_string("'foo OR bar*'").unwrap();
         assert_eq!(s, "foo OR bar*");
+    }
+
+    // ── v0.17.0 trigram-aware redesign coverage ──────────────────────────
+
+    /// 2-char Korean query (`충돌`) yields neither a whole-phrase nor a
+    /// token-AND candidate → `None`. Caller short-circuits to an empty
+    /// hit list rather than executing an FTS5 syntax error on `""` MATCH.
+    #[test]
+    fn build_match_string_short_korean_returns_none() {
+        assert!(build_match_string("충돌").is_none());
+        assert!(build_match_string("키").is_none());
+        assert!(build_match_string(" 충돌 ").is_none());
+    }
+
+    /// `해시 충돌` — both tokens are 2 chars (dropped from the AND), but
+    /// the whole-phrase candidate (`"해시 충돌"`, 5 chars total) survives.
+    /// This is the dominant Korean usage pattern targeted by A5.
+    #[test]
+    fn build_match_string_whole_phrase_only_when_all_tokens_short() {
+        let s = build_match_string("해시 충돌").unwrap();
+        assert_eq!(s, r#""해시 충돌""#);
+    }
+
+    /// Single long token: whole-phrase and token-AND candidates collapse
+    /// to the same string. The builder returns the bare quoted form so
+    /// the MATCH expression doesn't carry a redundant `(x) OR (x)`.
+    #[test]
+    fn build_match_string_single_long_token_no_duplicate_or() {
+        assert_eq!(build_match_string("러스트").unwrap(), r#""러스트""#);
+        assert_eq!(build_match_string("rust").unwrap(), r#""rust""#);
+    }
+
+    /// Mixed Korean+English multi-token query where every token is ≥3
+    /// chars: both candidates exist and differ, OR-combined.
+    #[test]
+    fn build_match_string_mixed_lang_emits_or_of_phrase_and_and() {
+        let s = build_match_string("Rust 충돌은").unwrap();
+        assert_eq!(s, r#"("Rust 충돌은") OR ("Rust" "충돌은")"#);
+    }
+
+    /// One ≥3 token + one <3 token: short token is dropped from the
+    /// AND, leaving a single long token there; whole-phrase exists
+    /// independently. Both candidates differ → OR-combined.
+    #[test]
+    fn build_match_string_drops_short_token_in_and_keeps_whole() {
+        // "키" (1 char) dropped from AND; "해시테이블" (5 chars) kept.
+        // Whole phrase "키 해시테이블" (7 chars) keeps the short token.
+        let s = build_match_string("키 해시테이블").unwrap();
+        assert_eq!(s, r#"("키 해시테이블") OR ("해시테이블")"#);
     }
 
     #[test]

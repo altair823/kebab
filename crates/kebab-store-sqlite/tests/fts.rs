@@ -370,17 +370,19 @@ fn extract_design_5_5_fts_block() -> String {
     fts_slice[..last_end + "END;".len()].to_string()
 }
 
-/// Extract the §5.5 verbatim block from the V002 migration, between the
-/// `── §5.5 verbatim block ──` anchor markers the file already carries.
+/// Extract the §5.5 verbatim block from the V007 migration (replaced V002
+/// 's unicode61 tokenizer with trigram — V002 stays in place for
+/// historical cold-upgrade replay but V007 is now the source of truth),
+/// between the `── §5.5 verbatim block ──` anchor markers V007 carries.
 fn extract_migration_5_5_verbatim_block() -> String {
-    let migration = include_str!("../../../migrations/V002__fts.sql");
+    let migration = include_str!("../../../migrations/V007__fts_trigram.sql");
     // The opening anchor line ends with `── §5.5 verbatim block ─...`.
     let open_marker = "§5.5 verbatim block";
     let close_marker = "End §5.5 verbatim block";
 
     let open_idx = migration
         .find(open_marker)
-        .expect("V002 must carry the `§5.5 verbatim block` opening anchor");
+        .expect("V007 must carry the `§5.5 verbatim block` opening anchor");
     let after_open_line = open_idx
         + migration[open_idx..]
             .find('\n')
@@ -389,7 +391,7 @@ fn extract_migration_5_5_verbatim_block() -> String {
 
     let close_idx = migration[after_open_line..]
         .find(close_marker)
-        .expect("V002 must carry the `End §5.5 verbatim block` closing anchor")
+        .expect("V007 must carry the `End §5.5 verbatim block` closing anchor")
         + after_open_line;
     // Walk back from the close marker to the start of its comment line.
     let close_line_start = migration[..close_idx]
@@ -400,12 +402,14 @@ fn extract_migration_5_5_verbatim_block() -> String {
     migration[after_open_line..close_line_start].to_string()
 }
 
-/// CI diff guard: the §5.5 block in `migrations/V002__fts.sql` must
-/// match the design doc verbatim (whitespace-normalized). If the
-/// design doc moves the section, renames the heading, or edits the
-/// SQL, this test fails first. Same for migration drift.
+/// CI diff guard: the §5.5 block in `migrations/V007__fts_trigram.sql`
+/// must match the design doc verbatim (whitespace-normalized). V007
+/// replaced V002 's unicode61 tokenizer with trigram (2026-05-23).
+/// V002 stays in place for historical replay of cold-upgrade paths
+/// but is no longer compared against the design doc — V007 is now
+/// the source of truth.
 #[test]
-fn fts_v002_matches_design_section_5_5_verbatim() {
+fn fts_v007_matches_design_section_5_5_verbatim() {
     let design = extract_design_5_5_fts_block();
     let migration_block = extract_migration_5_5_verbatim_block();
 
@@ -428,7 +432,7 @@ fn fts_v002_matches_design_section_5_5_verbatim() {
     let migration_n = normalize_ws(&migration_block);
     assert_eq!(
         design_n, migration_n,
-        "V002__fts.sql §5.5 block must match design doc §5.5 verbatim \
+        "V007__fts_trigram.sql §5.5 block must match design doc §5.5 verbatim \
          (whitespace-normalized). If you intentionally changed one, \
          update the other in the same commit."
     );
@@ -476,4 +480,116 @@ fn fts_store_drop_releases_wal_files() {
         std::fs::remove_file(&db_path)
             .expect("main DB file should be removable after store drop");
     }
+}
+
+// ── 7. Trigram tokenizer behavior (V007) — Korean + English ──────────
+
+/// V007 의 trigram tokenizer 가 한국어 3자 이상 연속 substring 을
+/// 매칭하는지. Codex round 1/2 가 sqlite 3.45.1 로 검증한 동작을 pin:
+/// - raw query 가 3자 이상 공백 없는 substring 인 경우 hit.
+/// - raw query 가 공백을 포함하면 FTS5 가 토큰 경계로 분리 →
+///   양 토큰이 3자 미만이면 0-hit.
+/// - quoted phrase ("..." 안에 공백 포함) 는 통째로 substring 매칭.
+#[test]
+fn fts_trigram_korean_3char_substring_hits() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config()).unwrap();
+    store.run_migrations().unwrap();
+
+    let conn = raw_conn_no_fk(&env);
+    insert_chunk(
+        &conn,
+        &"k".repeat(32),
+        &"d".repeat(32),
+        "[]",
+        "해시 충돌은 키와 값을 매핑할 때 발생한다",
+    );
+
+    // raw 3+ chars 공백 없는 연속 substring → hit.
+    assert_eq!(
+        count_match(&conn, "충돌은"),
+        1,
+        "raw 3-char 공백 없는 substring '충돌은' must hit"
+    );
+    assert_eq!(
+        count_match(&conn, "발생한"),
+        1,
+        "raw 3-char 공백 없는 substring '발생한' must hit"
+    );
+
+    // quoted phrase (공백 포함) → substring 매칭으로 hit.
+    assert_eq!(
+        count_match(&conn, "\"해시 충돌\""),
+        1,
+        "quoted whole phrase '해시 충돌' (5 chars including space)"
+    );
+    assert_eq!(
+        count_match(&conn, "\"시 충\""),
+        1,
+        "quoted phrase '시 충' across the space boundary"
+    );
+
+    // raw with no whitespace but substring not present in source → 0-hit.
+    assert_eq!(
+        count_match(&conn, "해시충"),
+        0,
+        "원문에 공백 없는 '해시충' trigram 이 없으므로 0-hit"
+    );
+}
+
+/// V007 trigram 의 핵심 제약: 3 Unicode chars 미만 query 는 색인 단위가
+/// 없어 항상 0-hit. design §3.4 + 사용자 결정 (lexical core 정상 0-hit,
+/// CLI/TUI wrapper 가 안내 메시지 출력). 회귀 감지 — trigram 구조 변경
+/// 또는 다른 tokenizer 도입 시 이 test 가 먼저 fail 한다.
+#[test]
+fn fts_trigram_korean_short_query_zero_hit_pinned() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config()).unwrap();
+    store.run_migrations().unwrap();
+
+    let conn = raw_conn_no_fk(&env);
+    insert_chunk(
+        &conn,
+        &"k".repeat(32),
+        &"d".repeat(32),
+        "[]",
+        "해시 충돌은 키와 값을 매핑할 때 발생한다",
+    );
+
+    // 2자 한국어 query — 도그푸딩에서 보고된 핵심 케이스 ('충돌'/'값').
+    assert_eq!(count_match(&conn, "충돌"), 0, "2-char Korean query");
+    // 1자 한국어 query.
+    assert_eq!(count_match(&conn, "키"), 0, "1-char Korean query");
+}
+
+/// V007 trigram 은 영어에도 substring 매칭으로 동작 — recall ↑, 단어
+/// 경계 정밀도 ↓. design §3.4 의 동작 변경을 명시적으로 핀.
+#[test]
+fn fts_trigram_english_substring_hits() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config()).unwrap();
+    store.run_migrations().unwrap();
+
+    let conn = raw_conn_no_fk(&env);
+    insert_chunk(
+        &conn,
+        &"e".repeat(32),
+        &"d".repeat(32),
+        "[]",
+        "the tokenizer normalizes whitespace before matching",
+    );
+
+    // trigram substring — 'token' hits inside 'tokenizer'.
+    assert_eq!(
+        count_match(&conn, "token"),
+        1,
+        "substring of 'tokenizer' — trigram recall"
+    );
+    assert_eq!(
+        count_match(&conn, "izer"),
+        1,
+        "substring of 'tokenizer'"
+    );
+    // 3-char-minimum applies to English too.
+    assert_eq!(count_match(&conn, "to"), 0, "2-char English query");
 }
