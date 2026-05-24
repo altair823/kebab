@@ -47,8 +47,20 @@ fn search_json_emits_search_response_v1_wrapper() {
 fn search_json_truncates_with_max_tokens() {
     let dir = tempfile::tempdir().unwrap();
     let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
-    let body: String = "rust ownership is a memory model. ".repeat(10);
-    fs::write(workspace.join("a.md"), format!("# T\n\n{body}\n")).unwrap();
+    // v0.17.0 trigram tokenizer makes FTS5 snippet() tokens 3-char wide
+    // (was full words under unicode61), so an individual snippet stays
+    // around ~60 chars — too short to ever exceed the snippet-shorten
+    // budget cap on a single-hit fixture. To still exercise the budget
+    // loop deterministically, we ingest multiple hits and pick a budget
+    // small enough that the loop has to *pop* hits, which flips
+    // truncated=true regardless of snippet length.
+    for i in 0..5 {
+        fs::write(
+            workspace.join(format!("d{i}.md")),
+            format!("# T{i}\n\nrust ownership is a memory model.\n"),
+        )
+        .unwrap();
+    }
     common::ingest(&cfg, &workspace);
 
     let (stdout, _stderr) = common::run_search_with_args(
@@ -211,8 +223,15 @@ fn search_stale_cursor_returns_error_v1_with_stale_cursor_code() {
 fn search_plain_emits_truncated_hint_to_stderr() {
     let dir = tempfile::tempdir().unwrap();
     let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
-    let body: String = "rust ownership is a memory model. ".repeat(10);
-    fs::write(workspace.join("a.md"), format!("# T\n\n{body}\n")).unwrap();
+    // v0.17.0 trigram tokenizer — same multi-doc rationale as
+    // `search_json_truncates_with_max_tokens` above.
+    for i in 0..5 {
+        fs::write(
+            workspace.join(format!("d{i}.md")),
+            format!("# T{i}\n\nrust ownership is a memory model.\n"),
+        )
+        .unwrap();
+    }
     common::ingest(&cfg, &workspace);
 
     let (_stdout, stderr) = common::run_search_with_args(
