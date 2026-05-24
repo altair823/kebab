@@ -31,7 +31,7 @@ use time::OffsetDateTime;
 
 use crate::scaffold::{filename_from_workspace_path, strip_extension};
 
-pub const PARSER_VERSION: &str = "code-c-v1";
+pub const PARSER_VERSION: &str = "code-c-v2";
 
 /// C AST extractor. Per-unit blocks via tree-sitter-c 0.24.2
 /// (`LANGUAGE: LanguageFn`) parsed by tree-sitter 0.26.
@@ -257,13 +257,33 @@ fn build_blocks(
                     flush_glue(&mut glue, &mut units);
                     units.push((name.to_string(), s, e, true));
                 } else {
-                    // Anonymous struct/enum/union — glue.
+                    // Anonymous struct/enum/union at the top level (not
+                    // wrapped in typedef) — glue. typedef-wrapped case
+                    // is recovered in the `type_definition` arm below.
                     glue.push((s, e));
                 }
             }
-            // Everything else: preprocessor directives, declarations
-            // (typedef / global var / fn prototype), type_definition,
-            // linkage_specification, etc. — all collapse into glue.
+            "type_definition" => {
+                // v0.17.0 PR-B: typedef-wrapped anonymous aggregate
+                // recovery. `typedef struct { ... } Foo;` exposes only
+                // the alias `Foo` as a useful symbol — the inner
+                // struct_specifier has no `name` field. Pre-v0.17.0
+                // this whole construct collapsed into glue and hid the
+                // alias from search (HOTFIXES 2026-05-21). v2 recovers
+                // the alias from the `declarator` field and emits a
+                // synthetic unit so `Citation::Code.symbol = "Foo"`.
+                // Plain `typedef int MyInt;` (no inner aggregate) stays
+                // glue — there's no struct body to name.
+                if let Some(name) = recover_typedef_alias(child, source) {
+                    flush_glue(&mut glue, &mut units);
+                    units.push((name, s, e, true));
+                } else {
+                    glue.push((s, e));
+                }
+            }
+            // Everything else: preprocessor directives, plain declarations
+            // (global var / fn prototype), linkage_specification, etc.
+            // — all collapse into glue.
             _ => {
                 glue.push((s, e));
             }
@@ -321,6 +341,62 @@ fn build_blocks(
         }));
     }
     Ok(blocks)
+}
+
+/// v0.17.0 PR-B: try to recover the typedef alias name from a
+/// `type_definition` node *iff* the inner type-specifier is an
+/// anonymous struct/enum/union. Returns `None` for any other shape
+/// (named aggregate handled elsewhere, plain type alias has no body
+/// worth naming).
+fn recover_typedef_alias(node: tree_sitter::Node, source: &str) -> Option<String> {
+    let mut has_anon_aggregate = false;
+    let mut cursor = node.walk();
+    for sub in node.children(&mut cursor) {
+        match sub.kind() {
+            "struct_specifier" | "enum_specifier" | "union_specifier" => {
+                if sub.child_by_field_name("name").is_none() {
+                    has_anon_aggregate = true;
+                } else {
+                    // Named inner aggregate (e.g. `typedef struct Pt {...} P;`)
+                    // — the named struct itself is the primary symbol and
+                    // is *not* extracted at the top level today (it lives
+                    // inside `type_definition`, not as a sibling
+                    // `struct_specifier`). For v2 we keep behavior conservative:
+                    // return None so the type_definition stays glue, matching
+                    // pre-v2 behavior for this minor case. Real-world C tends
+                    // to use one of: bare named struct, typedef alias only,
+                    // or typedef on anonymous body — the latter is what we fix.
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+    if !has_anon_aggregate {
+        return None;
+    }
+    let decl = node.child_by_field_name("declarator")?;
+    extract_typedef_alias_name(decl, source).map(str::to_string)
+}
+
+/// Extract the typedef alias identifier from a declarator subtree.
+/// Handles the common shapes: direct `type_identifier`, or one wrapped
+/// in pointer / function declarator nodes (the alias is always the
+/// rightmost `type_identifier` descendant).
+fn extract_typedef_alias_name<'a>(
+    decl: tree_sitter::Node,
+    source: &'a str,
+) -> Option<&'a str> {
+    if decl.kind() == "type_identifier" {
+        return Some(&source[decl.start_byte()..decl.end_byte()]);
+    }
+    let mut cursor = decl.walk();
+    for sub in decl.children(&mut cursor) {
+        if let Some(found) = extract_typedef_alias_name(sub, source) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn flush_glue(glue: &mut Vec<(u32, u32)>, units: &mut Vec<(String, u32, u32, bool)>) {
@@ -489,20 +565,72 @@ mod tests {
     }
 
     #[test]
-    fn c_extractor_typedef_struct_falls_into_glue() {
-        // typedef struct { ... } Foo; — inner struct_specifier is anonymous,
-        // outer node is type_definition → glue. See HOTFIXES.md 2026-05-21.
+    fn c_extractor_typedef_struct_emits_unit() {
+        // v0.17.0 PR-B: `typedef struct { ... } Foo;` was previously a
+        // hotfix-tracked deviation (HOTFIXES.md 2026-05-21) — the inner
+        // struct_specifier is anonymous so the named-struct arm didn't
+        // fire, dropping the whole construct into glue and hiding the
+        // `Foo` alias from symbol search. The v2 extractor recovers the
+        // typedef alias from the `declarator` field on the
+        // `type_definition` node and emits a synthetic unit with that
+        // name. parser_version bumped `code-c-v1` → `code-c-v2`.
         let src = "typedef struct { int x; int y; } Point;\n";
         let doc = tests_support::extract_c(src, "x/typedef.c");
         let s = syms(&doc);
+        // The typedef alias surfaces as a Code symbol.
+        assert!(
+            s.iter().any(|x| x == "Point"),
+            "expected 'Point' unit from typedef alias: {s:?}"
+        );
+        // No `<module>` (the file has exactly one semantic unit now,
+        // the typedef alias — no glue-only fallback needed).
+        assert!(
+            !s.iter().any(|x| x == "<module>"),
+            "no <module> fallback expected when typedef emits a unit: {s:?}"
+        );
+    }
+
+    #[test]
+    fn c_extractor_typedef_enum_emits_unit() {
+        // Parallel coverage for enum_specifier — same typedef-alias
+        // synthesis path. `typedef enum { A, B } Color;` → unit `Color`.
+        let src = "typedef enum { A, B } Color;\n";
+        let doc = tests_support::extract_c(src, "x/typedef_enum.c");
+        let s = syms(&doc);
+        assert!(
+            s.iter().any(|x| x == "Color"),
+            "expected 'Color' unit from typedef enum alias: {s:?}"
+        );
+    }
+
+    #[test]
+    fn c_extractor_typedef_union_emits_unit() {
+        // Parallel coverage for union_specifier.
+        let src = "typedef union { int i; float f; } IntOrFloat;\n";
+        let doc = tests_support::extract_c(src, "x/typedef_union.c");
+        let s = syms(&doc);
+        assert!(
+            s.iter().any(|x| x == "IntOrFloat"),
+            "expected 'IntOrFloat' unit from typedef union alias: {s:?}"
+        );
+    }
+
+    #[test]
+    fn c_extractor_typedef_to_existing_type_stays_glue() {
+        // Negative case: `typedef int MyInt;` has no inner struct/enum/
+        // union — there's no struct body to attach the alias to, so the
+        // construct falls into glue (becomes `<module>` when alone).
+        // Confirms the new arm only fires for anonymous-struct typedef.
+        let src = "typedef int MyInt;\n";
+        let doc = tests_support::extract_c(src, "x/typedef_alias.c");
+        let s = syms(&doc);
         assert!(
             s.iter().any(|x| x == "<module>"),
-            "expected <module> for typedef struct: {s:?}"
+            "expected <module> for plain typedef alias: {s:?}"
         );
-        // The typedef alias should NOT surface as a Code symbol
         assert!(
-            !s.iter().any(|x| x == "Point"),
-            "unexpected 'Point' unit for typedef struct: {s:?}"
+            !s.iter().any(|x| x == "MyInt"),
+            "plain typedef alias must not emit a unit: {s:?}"
         );
     }
 

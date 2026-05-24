@@ -1145,8 +1145,8 @@ fn tier1_c_ingest_searchable() {
         .expect("parser.c item present");
     assert_eq!(
         c_item.parser_version.as_ref().map(|p| p.0.as_str()),
-        Some("code-c-v1"),
-        "parser_version must be code-c-v1"
+        Some("code-c-v2"),
+        "parser_version must be code-c-v2 (v0.17.0 PR-B: typedef-wrapped struct/enum/union 이 typedef alias unit 으로 방출)"
     );
     assert_eq!(
         c_item.chunker_version.as_ref().map(|c| c.0.as_str()),
