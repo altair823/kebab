@@ -64,6 +64,20 @@ multi-root 도그푸딩(2026-05-20)에서 관찰한 본문 vs 테스트 / glue c
 
 Cross-link: `tasks/p10/INDEX.md`, `migrations/V002__fts.sql`, design §5.5 / §3.5.
 
+## 2026-05-24 — v0.17.0 PR-B: C typedef-wrapped struct/enum/union 이 typedef alias unit 으로 방출 (closure of 2026-05-21)
+
+`crates/kebab-parse-code/src/c.rs::extract_blocks` 에 `type_definition` 분기 추가. 내부 anonymous `struct_specifier` / `enum_specifier` / `union_specifier` (name field 없음) 인 typedef 일 때 declarator 의 typedef alias identifier 를 추출해 synthetic unit 방출. named inner aggregate (`typedef struct Pt { ... } P;`) 와 plain alias (`typedef int MyInt;`) 는 기존대로 glue (top-level typedef-wrapped anonymous aggregate 만 v2 의 1차 범위).
+
+**parser_version cascade**: `PARSER_VERSION` `code-c-v1` → `code-c-v2` bump. design §9 — `doc_id = (workspace_path, asset_id, parser_version)`. 같은 file (asset_id 불변) + 새 parser_version → 새 doc_id. 즉 같은 workspace_path 에 옛 doc_id 와 새 doc_id 가 동시 INSERT 시도 → `idx_docs_workspace_path` UNIQUE 충돌.
+
+**Same-workspace_path orphan purge (B1 Step 5b)**: `crates/kebab-store-sqlite/src/store.rs` 에 두 helper 신규 — `stale_chunk_ids_for_workspace_path_except_doc_id(workspace_path, keep_doc_id)` (chunk_ids 수집) + `purge_document_at_workspace_path_except_doc_id(workspace_path, keep_doc_id)` (CASCADE document/chunks 제거). `crates/kebab-app/src/lib.rs::try_skip_unchanged` 의 parser_mismatch 분기에서 `purge_workspace_path_for_parser_bump` wrapper 호출 → 옛 chunk_ids 의 LanceDB orphan 도 `delete_by_chunk_ids` 로 정리 후 SQLite document row 제거 → 이후 `Ok(None)` 반환 → caller 가 새 doc_id 로 INSERT. 기존 `purge_orphan_at_workspace_path` (asset_id 변경 케이스) 는 그대로 — bytes 변경 경로 회귀 없음.
+
+**사용자 영향**: 기존 v0.16.x KB 의 C 파일은 v0.17.0 binary 로 다음 ingest 시 자동 재처리 (parser_version mismatch → cleanup → 새 doc). 명시적 re-ingest 명령 불필요 (다음 `kebab ingest` 가 자연스럽게 처리). `typedef struct {...} Foo;` 가 `Citation::Code.symbol = "Foo"` 로 search 에 노출.
+
+**미해결 (Risks)**: nested typedef (`typedef struct { struct {...} inner; } Outer;`) 의 inner 익명 struct 는 여전히 glue — v2 의 1차 범위는 top-level typedef alias 만.
+
+Cross-link: `crates/kebab-parse-code/src/c.rs::recover_typedef_alias`, `tasks/p10/p10-1d-c-cpp-ast-chunker.md` Risks/notes section.
+
 ## 2026-05-21 — p10-2: k8s multi-resource YAML chunk_id collision
 
 **Origin**: P10 종합 도그푸딩 (`/tmp/kebab-p10-dogfood/`, 16 파일). 한 파일에 2+ k8s document (Deployment + Service, `---` 구분) 인 YAML 이 ingest 실패.
@@ -84,11 +98,11 @@ Cross-link: `tasks/p10/p10-2-tier2-resource-aware.md` Risks/notes section.
 
 **Symptom**: `typedef struct { ... } Foo;` in a `.c` file does NOT emit a struct-level unit. tree-sitter-c classifies the construct as a top-level `type_definition` with an *anonymous* inner `struct_specifier` (no `name` field), so the extractor's `struct_specifier` arm doesn't fire — the whole declaration falls into `<top-level>` glue. The named typedef alias `Foo` is therefore not searchable as a symbol.
 
-**Status**: Consistent with spec p10-1d-c-cpp-ast-chunker.md's Risks/notes ("Anonymous union / struct … anonymous → glue"), but the spec's main body line 22 ("struct_specifier (named, top-level) → 1 unit") suggests this idiom WOULD emit. Tension noted, not yet fixed.
+**Status**: ✅ closed — v0.17.0 (2026-05-24) PR-B 에서 extractor 의 `type_definition` 분기 추가로 해소. 영향은 위 2026-05-24 PR-B 절 참조. 이하는 closure 전 round-2 dogfood 관찰 기록 (frozen).
 
-**Workaround**: search the struct by its field/function names, or use `--code-lang c` to broaden scope. Typedef-aliased struct names won't surface as `Citation::Code.symbol`.
+**Workaround (pre-v0.17.0)**: search the struct by its field/function names, or use `--code-lang c` to broaden scope. Typedef-aliased struct names won't surface as `Citation::Code.symbol`.
 
-**Next step**: dogfood real C code for a week+; if this turns out to be a frequent pain point (kernel-style code, libuv, etc.), revisit the extractor to detect `type_definition` → inner `struct_specifier` and emit a synthetic unit named after the typedef alias.
+**Resolution (v0.17.0)**: extractor 가 top-level `type_definition` 노드를 만나 내부 anonymous `struct_specifier` / `enum_specifier` / `union_specifier` 가 있으면 `declarator` field 의 typedef alias 이름으로 synthetic unit 방출. `PARSER_VERSION` `code-c-v1` → `code-c-v2` bump. design §9 cascade 동작 — 같은 `(workspace_path, asset_id)` 의 `doc_id` 가 새 parser_version 으로 다르게 계산됨. 옛 doc/chunks row + LanceDB orphan 회피용 same-workspace_path orphan purge helper 동반 (`stale_chunk_ids_for_workspace_path_except_doc_id` + `purge_document_at_workspace_path_except_doc_id`).
 
 Cross-link: `tasks/p10/p10-1d-c-cpp-ast-chunker.md` Risks/notes section.
 
