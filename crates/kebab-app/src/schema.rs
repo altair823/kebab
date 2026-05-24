@@ -63,12 +63,18 @@ pub struct Stats {
     /// p9-fb-37: docs whose `updated_at` exceeds the staleness threshold.
     #[serde(default)]
     pub stale_doc_count: u64,
-    /// p10-1A-1: code language breakdown (chunk counts by canonical lowercase
-    /// language identifier). Empty until 1A-2 produces code chunks.
+    /// p10-1A-1: code language breakdown (**doc** counts by canonical
+    /// lowercase language identifier). Empty until 1A-2 produces code
+    /// docs. v0.17.0 PR-C: doc-count semantics corrected here (the
+    /// previous "chunk counts" wording was a longstanding mis-label —
+    /// implementation has always been `COUNT(*) FROM documents
+    /// GROUP BY code_lang`). Use `code_lang_chunk_breakdown` for the
+    /// chunk-level companion.
     #[serde(default)]
     pub code_lang_breakdown: std::collections::BTreeMap<String, u32>,
-    /// p10-1A-1: repo breakdown (chunk counts by `metadata.repo` value).
-    /// Empty until 1A-2 produces code chunks.
+    /// p10-1A-1: repo breakdown (**doc** counts by `metadata.repo`
+    /// value). Empty until 1A-2 produces code docs. v0.17.0 PR-C:
+    /// doc-count wording corrected (mirror of code_lang_breakdown).
     #[serde(default)]
     pub repo_breakdown: std::collections::BTreeMap<String, u32>,
     /// v0.17.0 PR-C: sister of [`Self::code_lang_breakdown`] returning
