@@ -320,12 +320,8 @@ fn multi_hop_decide_parse_failure_falls_through_to_synthesize() {
     );
     assert_eq!(
         answer.refusal_reason, None,
-        "decide parse failure is graceful degrade, not refusal"
-    );
-    assert_ne!(
-        answer.refusal_reason,
-        Some(RefusalReason::MultiHopDecomposeFailed),
-        "MultiHopDecomposeFailed is reserved for the initial decompose hop"
+        "decide parse failure is graceful degrade, not refusal — \
+         MultiHopDecomposeFailed is reserved for the initial decompose hop"
     );
     assert_eq!(
         lm_handle.calls(),
@@ -345,4 +341,115 @@ fn multi_hop_decide_parse_failure_falls_through_to_synthesize() {
         "parse-degraded decide is not a cap-driven forced_stop — \
          flag stays false even though we synthesize early"
     );
+}
+
+// ── 6. refuse path: NoChunks preserves partial hop trace ──────────────────
+//
+// PR-3b-ii widens `refuse_no_chunks` to accept `hops:
+// Option<Vec<HopRecord>>` and wires `ask_multi_hop` to forward the
+// partial trace. This test pins that contract — a refusal Answer
+// still carries the decompose + decide hops the loop accumulated
+// before pool came up empty.
+
+#[test]
+fn multi_hop_refuse_no_chunks_preserves_hops_trace() {
+    let env = RagEnv::new();
+    // Retriever returns 0 hits — pool stays empty → refuse_no_chunks.
+    let retriever = Arc::new(ScriptedRetriever::new(vec![vec![]]));
+    let retriever_handle = retriever.clone();
+    let retriever_dyn: Arc<dyn Retriever> = retriever;
+
+    // Only one LM call needed (decompose). Decide is skipped because
+    // `pool.is_empty()` triggers the (Vec::new(), 0) shortcut. If a
+    // bug calls the LM beyond decompose, ScriptedLm panics on
+    // exhaustion and the test fails loudly.
+    let lm = Arc::new(ScriptedLm::new(vec![r#"["q1"]"#]));
+    let lm_handle = lm.clone();
+    let lm_dyn: Arc<dyn LanguageModel> = lm;
+    let pipeline =
+        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+
+    let answer = pipeline.ask("q", multi_hop_opts()).unwrap();
+
+    assert!(!answer.grounded);
+    assert_eq!(answer.refusal_reason, Some(RefusalReason::NoChunks));
+    assert_eq!(retriever_handle.calls(), 1, "single sub-query → single retrieve");
+    assert_eq!(lm_handle.calls(), 1, "decompose only — decide skipped (empty pool), no synthesize");
+
+    let hops = answer
+        .hops
+        .expect("PR-3b-ii: refuse_no_chunks must preserve the partial hop trace");
+    assert_eq!(
+        hops.len(),
+        2,
+        "[Decompose, Decide(empty_pool_skip)] — synthesize never ran"
+    );
+    assert_eq!(hops[0].kind, HopKind::Decompose);
+    assert_eq!(hops[0].sub_queries, vec!["q1"]);
+    assert_eq!(hops[1].kind, HopKind::Decide);
+    assert!(hops[1].sub_queries.is_empty());
+    assert_eq!(
+        hops[1].context_chunks_added, 0,
+        "retrieve returned 0 hits → 0 added to pool"
+    );
+}
+
+// ── 7. refuse path: ScoreGate preserves partial hop trace ─────────────────
+
+#[test]
+fn multi_hop_refuse_score_gate_preserves_hops_trace() {
+    let env = RagEnv::new();
+    let cid = i32_below_gate_chunk(&env);
+    // Top score 0.10 is well below the default gate (0.30) — the
+    // score-gate refusal fires after the pool has been built, so
+    // the decide LLM call did run and the hop trace contains both
+    // Decompose and Decide entries.
+    let hits = vec![mk_hit(1, &cid, &id32("d_low"), "notes/low.md", 0.10, &["Low"])];
+    let retriever = Arc::new(ScriptedRetriever::new(vec![hits]));
+    let retriever_dyn: Arc<dyn Retriever> = retriever;
+
+    // decompose + decide (pool not empty so decide fires) — synthesize
+    // never runs because we refuse before pack_context.
+    let lm = Arc::new(ScriptedLm::new(vec![
+        r#"["q1"]"#,
+        r#"[]"#,
+    ]));
+    let lm_handle = lm.clone();
+    let lm_dyn: Arc<dyn LanguageModel> = lm;
+    let pipeline =
+        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+
+    let answer = pipeline.ask("q", multi_hop_opts()).unwrap();
+
+    assert!(!answer.grounded);
+    assert_eq!(answer.refusal_reason, Some(RefusalReason::ScoreGate));
+    assert_eq!(
+        lm_handle.calls(),
+        2,
+        "decompose + decide ran; synthesize skipped by gate"
+    );
+
+    let hops = answer
+        .hops
+        .expect("PR-3b-ii: refuse_score_gate must preserve the partial hop trace");
+    assert_eq!(
+        hops.len(),
+        2,
+        "[Decompose, Decide(stop)] — synthesize never ran"
+    );
+    assert_eq!(hops[0].kind, HopKind::Decompose);
+    assert_eq!(hops[1].kind, HopKind::Decide);
+    assert_eq!(
+        hops[1].context_chunks_added, 1,
+        "the low-score chunk did enter the pool — gate fires after pool build"
+    );
+}
+
+/// Seed a chunk + return its id. Helper for the score-gate test so
+/// the test body stays focused on the hop-trace assertions.
+fn i32_below_gate_chunk(env: &RagEnv) -> String {
+    let cid = id32("c_low");
+    let did = id32("d_low");
+    env.seed_chunk(&cid, &did, "notes/low.md", "low score text", &["Low"]);
+    cid
 }

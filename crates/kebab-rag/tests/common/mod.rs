@@ -266,10 +266,11 @@ pub fn id32(prefix: &str) -> String {
 /// of `RagPipeline::ask_multi_hop` — each can return a different
 /// payload (`["q1","q2"]`, `[]`, `"final answer [#1]"`, etc.).
 ///
-/// Internally `Arc<Vec<String>> + AtomicUsize` so the type is
-/// `Send + Sync` and can be wrapped in `Arc<dyn LanguageModel>`.
-/// Tests can read `calls()` for an assertion on the expected LLM
-/// call count.
+/// Internally `Vec<String>` (immutable after construction) plus an
+/// `AtomicUsize` index counter, so the type is `Send + Sync` and
+/// tests wrap it in `Arc::new(ScriptedLm::new(...))` to share with
+/// the pipeline. Tests can read `calls()` for an assertion on the
+/// expected LLM call count.
 ///
 /// Exhaustion (more calls than scripted responses) panics — tests
 /// that need an "infinite" final response can supply a longer
@@ -291,8 +292,10 @@ pub struct ScriptedLm {
 impl ScriptedLm {
     /// Build a scripted LM with the default model_id/provider used by
     /// the rest of the test suite (`mock-lm` / `mock`) and the
-    /// MockLanguageModel-equivalent canned usage. Call `with_*`
-    /// builders if a test needs to override the defaults.
+    /// MockLanguageModel-equivalent canned usage. No knobs are
+    /// exposed today — every multi-hop test exercises the pipeline
+    /// flow, not the LM identity. Add builders only when a test
+    /// genuinely needs to override defaults.
     pub fn new(responses: Vec<&str>) -> Self {
         Self {
             model_id: "mock-lm".to_string(),
