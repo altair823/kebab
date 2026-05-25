@@ -4328,6 +4328,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kebab-nli"
+version = "0.17.2"
+dependencies = [
+ "anyhow",
+ "kebab-config",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
 name = "kebab-normalize"
 version = "0.17.2"
 dependencies = [
