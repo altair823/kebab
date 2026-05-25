@@ -130,6 +130,13 @@ pub struct LlmCfg {
     /// user. Config-driven so 16-GB / CPU-only deployments using small
     /// (≤4B) models can keep the original 300s and large-model dogfood
     /// can dial it up (e.g. 1200s) without rebuilding.
+    ///
+    /// **Edge case — `0` is NOT a disable sentinel.**
+    /// `reqwest::ClientBuilder::timeout(Duration::from_secs(0))` sets a
+    /// 0-second read timeout, so every request fails *immediately* with
+    /// `error: kb-rag: ollama timeout`. To approximate "no cap", use a
+    /// large finite value (e.g. `u64::MAX` ≈ 5.8 × 10¹¹ years, or
+    /// just a generous number like `86400`).
     #[serde(default = "default_llm_request_timeout_secs")]
     pub request_timeout_secs: u64,
 }

@@ -54,6 +54,11 @@ use crate::error::LlmError;
 // rebuild. Cold-loading an 8B+ model on first call routinely takes
 // 60-90 s plus multi-minute inference; 300s was the legacy hard
 // ceiling and remains the default for back-compat.
+//
+// Edge case: `request_timeout_secs = 0` becomes
+// `Duration::from_secs(0)` which is reqwest's "fail immediately", NOT
+// "disable". The field doc explains the workaround (use u64::MAX or a
+// large finite value).
 
 /// `reqwest::blocking` adapter implementing [`LanguageModel`] over Ollama's
 /// local HTTP API. Construction is cheap and offline; the first network
