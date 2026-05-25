@@ -189,9 +189,13 @@ pub struct RagCfg {
     #[serde(default = "default_multi_hop_max_depth")]
     pub multi_hop_max_depth: u32,
     /// p9-fb-41: cap on how many sub-queries the LLM may emit in a
-    /// single decompose / decide call. Mirrors
-    /// [`MULTI_HOP_MAX_SUB_QUERIES_DEFAULT`] in kebab-rag — the
-    /// const is the hard floor while this is the runtime knob.
+    /// single decompose / decide call. This is the *prompt-side
+    /// soft hint* — the value the pipeline injects into the
+    /// decompose / decide prompts so the LLM knows what to aim for.
+    /// kebab-rag enforces a separate compile-time hard ceiling
+    /// (`MULTI_HOP_MAX_SUB_QUERIES_HARD_CAP`, currently 10) as a
+    /// safety net against misbehaving models — if you raise this
+    /// knob above the hard cap, bump the const in the same PR.
     /// Default `5`.
     #[serde(default = "default_multi_hop_max_sub_queries_per_iter")]
     pub multi_hop_max_sub_queries_per_iter: u32,

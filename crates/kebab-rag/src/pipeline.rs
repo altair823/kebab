@@ -309,10 +309,10 @@ impl RagPipeline {
 
         // ── 2. Score gate ──────────────────────────────────────────────────
         if hits.is_empty() {
-            return self.refuse_no_chunks(query, &opts, k_effective, started);
+            return self.refuse_no_chunks(query, &opts, k_effective, started, None);
         }
         if top_score < self.config.rag.score_gate {
-            return self.refuse_score_gate(query, &opts, &hits, k_effective, started);
+            return self.refuse_score_gate(query, &opts, &hits, k_effective, started, None);
         }
 
         // ── 3. Pack context ────────────────────────────────────────────────
@@ -330,7 +330,7 @@ impl RagPipeline {
                 "kb-rag: all retrieved chunks were unfetchable from the store; \
                  falling back to NoChunks refusal"
             );
-            return self.refuse_no_chunks(query, &opts, k_effective, started);
+            return self.refuse_no_chunks(query, &opts, k_effective, started, None);
         }
 
         // ── 4. Render prompt ───────────────────────────────────────────────
@@ -697,6 +697,16 @@ impl RagPipeline {
                 if forced_stop || pool.is_empty() {
                     (Vec::new(), 0)
                 } else {
+                    // Snippet-based preview: each pool entry contributes
+                    // its `SearchHit.snippet` (already truncated upstream
+                    // by the retriever). `max_pool_chunks` acts as the
+                    // implicit cap on this string's length — the loop
+                    // breaks before we accumulate more pool entries.
+                    // We intentionally do NOT route this through
+                    // `pack_context` (no full chunk text fetch, no
+                    // marker numbering): decide only needs gist to
+                    // judge sufficiency, and full text is reserved for
+                    // the terminal synthesize call.
                     let preview = pool
                         .iter()
                         .enumerate()
@@ -711,13 +721,14 @@ impl RagPipeline {
                         depth_remaining,
                         &opts,
                     )?;
-                    match decide_result {
-                        Some(qs) if !qs.is_empty() => (qs, ms),
-                        // Empty array OR parse failure → stop signal.
-                        // Parse failure is NOT a refusal — graceful
-                        // degrade to early synthesize (per spec §9).
-                        _ => (Vec::new(), ms),
-                    }
+                    // `parse_decompose_response` post-condition: when
+                    // it returns `Some(qs)`, `qs` is guaranteed
+                    // non-empty (and trimmed + hard-capped). `None`
+                    // covers both "parse failure" and "empty array
+                    // after trim" — both mean stop. Parse failure is
+                    // NOT a refusal here (spec §9 — graceful degrade
+                    // to early synthesize on the decide hop only).
+                    (decide_result.unwrap_or_default(), ms)
                 };
 
             hops.push(HopRecord {
@@ -756,11 +767,27 @@ impl RagPipeline {
         let top_score = pool.first().map(|h| h.retrieval.fusion_score).unwrap_or(0.0);
 
         // ── 3. Score gate / no chunks ──────────────────────────────────────
+        // PR-3b-ii: forward the partial hop trace into the refusal so
+        // a `--multi-hop` user can still see which decompose / decide
+        // signals fired before the score-gate / no-chunks bailout.
         if pool.is_empty() {
-            return self.refuse_no_chunks(query, &opts, k_effective, started);
+            return self.refuse_no_chunks(
+                query,
+                &opts,
+                k_effective,
+                started,
+                Some(hops),
+            );
         }
         if top_score < self.config.rag.score_gate {
-            return self.refuse_score_gate(query, &opts, &pool, k_effective, started);
+            return self.refuse_score_gate(
+                query,
+                &opts,
+                &pool,
+                k_effective,
+                started,
+                Some(hops),
+            );
         }
 
         // ── 4. Pack context ────────────────────────────────────────────────
@@ -772,7 +799,13 @@ impl RagPipeline {
                 pool_size = pool.len(),
                 "kb-rag: multi-hop pool chunks all unfetchable; falling back to NoChunks"
             );
-            return self.refuse_no_chunks(query, &opts, k_effective, started);
+            return self.refuse_no_chunks(
+                query,
+                &opts,
+                k_effective,
+                started,
+                Some(hops),
+            );
         }
 
         // ── 5. Synthesize prompt ───────────────────────────────────────────
@@ -1262,12 +1295,20 @@ impl RagPipeline {
 
     /// Refusal path for empty hits — `RefusalReason::NoChunks`. No LLM
     /// call. The persisted row records `chunks_returned = 0`.
+    ///
+    /// `hops` is `None` on the single-pass path; the multi-hop path
+    /// (PR-3b-ii) forwards the partial hop trace accumulated up to
+    /// the refusal point so a `--multi-hop` user can still see which
+    /// decompose / decide signals fired before retrieval came up
+    /// empty. The trace is wire-additive (`Answer.hops` already
+    /// `skip_serializing_if = None`).
     fn refuse_no_chunks(
         &self,
         query: &str,
         opts: &AskOpts,
         k_effective: usize,
         started: std::time::Instant,
+        hops: Option<Vec<HopRecord>>,
     ) -> Result<Answer> {
         let trace_id = mint_trace_id(query, 0.0, &self.llm.model_ref().id);
         let elapsed_ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
@@ -1298,11 +1339,12 @@ impl RagPipeline {
             created_at: OffsetDateTime::now_utc(),
             conversation_id: opts.conversation_id.clone(),
             turn_index: opts.turn_index,
-            // p9-fb-41 Step 2 of PR-3: every Answer literal carries
-            // `hops`. Single-pass + refusal paths leave it `None`;
-            // only the multi-hop happy path will set `Some(...)` in
-            // Step 5 once the decide loop populates a hop trace.
-            hops: None,
+            // p9-fb-41 PR-3b-ii: single-pass callers pass `None`;
+            // `ask_multi_hop` forwards the partial hop trace it
+            // built up to the refusal point. Either way `Answer.hops`
+            // stays `skip_serializing_if = None`, so single-pass
+            // wire output is unchanged.
+            hops,
         };
         if let Err(e) = self.docs.put_answer(&answer, query, None) {
             tracing::warn!(target: "kebab-rag", error = %e, "kb-rag: put_answer (NoChunks) failed");
@@ -1313,6 +1355,11 @@ impl RagPipeline {
     /// Refusal path for top-1 below the gate — `RefusalReason::ScoreGate`.
     /// No LLM call. Lists up to three near-miss candidates verbatim in
     /// `answer` so the user gets actionable context.
+    ///
+    /// `hops` is `None` on the single-pass path; the multi-hop path
+    /// (PR-3b-ii) forwards the partial hop trace accumulated before
+    /// the gate refusal. See [`Self::refuse_no_chunks`] for the
+    /// shared rationale.
     fn refuse_score_gate(
         &self,
         query: &str,
@@ -1320,6 +1367,7 @@ impl RagPipeline {
         hits: &[SearchHit],
         k_effective: usize,
         started: std::time::Instant,
+        hops: Option<Vec<HopRecord>>,
     ) -> Result<Answer> {
         let top_score = hits[0].retrieval.fusion_score;
         let gate = self.config.rag.score_gate;
@@ -1385,11 +1433,8 @@ impl RagPipeline {
             created_at: OffsetDateTime::now_utc(),
             conversation_id: opts.conversation_id.clone(),
             turn_index: opts.turn_index,
-            // p9-fb-41 Step 2 of PR-3: every Answer literal carries
-            // `hops`. Single-pass + refusal paths leave it `None`;
-            // only the multi-hop happy path will set `Some(...)` in
-            // Step 5 once the decide loop populates a hop trace.
-            hops: None,
+            // p9-fb-41 PR-3b-ii: see refuse_no_chunks' identical comment.
+            hops,
         };
         if let Err(e) = self.docs.put_answer(&answer, query, None) {
             tracing::warn!(target: "kebab-rag", error = %e, "kb-rag: put_answer (ScoreGate) failed");
@@ -1443,11 +1488,27 @@ fn compute_stale(
 /// (design §9) can tell the two paths apart in `eval_runs.config_snapshot_json`.
 pub(crate) const PROMPT_TEMPLATE_VERSION_MULTI_HOP: &str = "rag-multi-hop-v1";
 
-/// Max sub-questions the decompose call may emit per iteration. PR-2
-/// ships with a fixed depth=2 pipeline (decompose once + synthesize),
-/// so this cap acts on the single decompose call. PR-3 (dynamic iter)
-/// will reuse the same cap for the per-iter decide call too.
-pub(crate) const MULTI_HOP_MAX_SUB_QUERIES_DEFAULT: usize = 5;
+/// Hard parse-side cap on how many sub-question strings
+/// [`parse_decompose_response`] will accept from a single LLM response,
+/// regardless of `RagCfg.multi_hop_max_sub_queries_per_iter`.
+///
+/// This is intentionally a *defensive* compile-time cap, not the
+/// user-tunable knob:
+///
+/// - `RagCfg.multi_hop_max_sub_queries_per_iter` (default 5) is the
+///   *prompt-side soft hint* — the value the pipeline injects into the
+///   decompose / decide prompts so the LLM knows what to aim for.
+///   Users can raise it via config / env.
+/// - `MULTI_HOP_MAX_SUB_QUERIES_HARD_CAP` (this const) is the
+///   *parse-side hard ceiling* — a misbehaving model that emits 100
+///   sub-questions gets cropped here so the retrieve loop does not
+///   spawn an unbounded number of search calls per iter.
+///
+/// In practice this is generous (the soft hint is 5 by default, the
+/// hard cap is 10) so user-tunable expansion to ~10 stays unaffected.
+/// If a future config knob exceeds this number, raise the const in
+/// the same PR.
+pub(crate) const MULTI_HOP_MAX_SUB_QUERIES_HARD_CAP: usize = 10;
 
 const MULTI_HOP_DECOMPOSE_SYSTEM_PROMPT: &str = "당신은 사용자의 질문을 다단계 검색에 필요한 sub-question 들로 분해하는 도구다.\n- multi-hop 정보가 필요한 경우 독립적으로 검색 가능한 sub-question 들로 분해한다.\n- 각 sub-question 은 자기 자신만으로 의미가 통해야 한다 (대명사 / \"위 답변\" 같은 reference 금지).\n- 원본이 이미 단순하면 원본 그대로 1 개만 반환한다.\n- 응답은 JSON array of strings 만 출력한다. 다른 prose / markdown fence / 설명 금지.";
 
@@ -1590,13 +1651,21 @@ fn mint_trace_id(query: &str, top_score: f32, model_id: &str) -> TraceId {
 /// into a vector of sub-question strings. Strips a leading markdown
 /// code-fence (```json ... ```), then deserializes as a JSON array of
 /// strings, then trims each entry + drops empties + caps at
-/// [`MULTI_HOP_MAX_SUB_QUERIES_DEFAULT`].
+/// [`MULTI_HOP_MAX_SUB_QUERIES_HARD_CAP`].
 ///
 /// Returns `None` when:
 /// - parse fails outright (not a JSON array of strings),
 /// - the array deserializes but is empty after trim/drop,
 ///
-/// in which case the caller surfaces `RefusalReason::MultiHopDecomposeFailed`.
+/// in which case the caller surfaces `RefusalReason::MultiHopDecomposeFailed`
+/// (for the initial decompose hop) or treats the signal as
+/// "synthesize now" (for the decide hop — see
+/// [`RagPipeline::multi_hop_decide`]).
+///
+/// `Some(non_empty)` is the only success shape: the post-conditions
+/// guarantee at least one trimmed non-empty entry, capped at
+/// [`MULTI_HOP_MAX_SUB_QUERIES_HARD_CAP`]. Callers therefore do
+/// not need a defensive `if !qs.is_empty()` guard.
 fn parse_decompose_response(raw: &str) -> Option<Vec<String>> {
     let stripped = strip_markdown_json_fence(raw.trim());
     let arr: Vec<String> = serde_json::from_str(stripped).ok()?;
@@ -1604,7 +1673,7 @@ fn parse_decompose_response(raw: &str) -> Option<Vec<String>> {
         .into_iter()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .take(MULTI_HOP_MAX_SUB_QUERIES_DEFAULT)
+        .take(MULTI_HOP_MAX_SUB_QUERIES_HARD_CAP)
         .collect();
     if cleaned.is_empty() {
         None
@@ -1696,12 +1765,15 @@ mod tests {
     }
 
     #[test]
-    fn parse_decompose_response_caps_at_max_sub_queries() {
-        // 7 entries; cap is MULTI_HOP_MAX_SUB_QUERIES_DEFAULT (=5).
-        let raw = r#"["a","b","c","d","e","f","g"]"#;
+    fn parse_decompose_response_caps_at_hard_cap() {
+        // 12 entries; parse-side hard cap = 10. Pins the cap and the
+        // truncation order (first-N keep, tail drop) so a future
+        // refactor can't accidentally relax the safety ceiling or
+        // re-order the take/filter chain.
+        let raw = r#"["a","b","c","d","e","f","g","h","i","j","k","l"]"#;
         let out = parse_decompose_response(raw).unwrap();
-        assert_eq!(out.len(), MULTI_HOP_MAX_SUB_QUERIES_DEFAULT);
-        assert_eq!(out, vec!["a", "b", "c", "d", "e"]);
+        assert_eq!(out.len(), MULTI_HOP_MAX_SUB_QUERIES_HARD_CAP);
+        assert_eq!(out, vec!["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]);
     }
 
     #[test]

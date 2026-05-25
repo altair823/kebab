@@ -79,8 +79,18 @@ pub struct HopRecord {
     /// the final iter is the synthesize call.
     pub iter: u32,
     pub kind: HopKind,
-    /// Sub-queries the LLM emitted at this iter. For the synthesize
-    /// hop this is empty (no sub-queries — just the final answer).
+    /// Sub-queries associated with this hop. The meaning depends on
+    /// `kind`:
+    ///
+    /// - [`HopKind::Decompose`]: the initial sub-queries the LLM
+    ///   broke the original user query into. These drive the
+    ///   `iter=1` retrieval round.
+    /// - [`HopKind::Decide`]: the *new* sub-queries the LLM
+    ///   emitted to drive the next retrieval round. Empty when the
+    ///   LLM signalled stop OR when `forced_stop = true` (cap hit
+    ///   or parse-degraded).
+    /// - [`HopKind::Synthesize`]: always empty — the final hop
+    ///   produces the user-visible answer, not more sub-queries.
     #[serde(default)]
     pub sub_queries: Vec<String>,
     /// Number of *new* chunks the retrieval round contributed to the
@@ -98,6 +108,13 @@ pub struct HopRecord {
     /// Wall-clock latency of the LLM call for this hop, in
     /// milliseconds. Useful for cost / latency analysis when a
     /// `kebab eval` run records `Answer.hops`.
+    ///
+    /// `0` is overloaded: it means "no LLM call happened at this
+    /// hop" when (a) the hop was a Decide skipped due to
+    /// `forced_stop` (depth-cap or pool-cap fired before the LLM
+    /// was asked) or (b) the pool was empty before any decide
+    /// could run. Treat `0` as "absent or instantaneous" rather
+    /// than as a genuine measurement.
     pub llm_call_ms: u32,
 }
 
