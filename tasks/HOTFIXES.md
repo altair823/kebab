@@ -69,7 +69,7 @@ v0.17.0 의 한국어 trigram tokenizer 채택 entry (2026-05-24 위) 가 미수
 - `kebab.sqlite` 크기 변화 없음 (색인 column 그대로 유지). re-ingest 불필요 (FTS query 시점의 매칭 범위만 변경).
 - BM25 score 영향: `lexical_snapshot_run_1` + `hybrid_snapshot_run_1` 둘 다 column filter 적용 후에도 점수 동일 (text 본문에만 매칭되던 query 라 column filter 가 점수 분포에 영향 안 줌). fixture regenerate 불필요.
 
-**MCP / agent 가시성**: `search_response.v1` 의 wire shape 변경 없음. 사용자가 heading 검색을 명시 의도하던 케이스는 raw mode 안내 — `integrations/claude-code/kebab/SKILL.md` 의 search 절은 v0.17.0 의 raw mode 안내 (`'foo OR bar*'`) 가 그대로 적용. 별도 SKILL.md 갱신 불필요 (raw mode 가 이미 documented escape hatch).
+**MCP / agent 가시성**: `search_response.v1` 의 wire shape 변경 없음. heading 검색 의도 사용자 / agent 를 위해 `integrations/claude-code/kebab/SKILL.md` 의 search 절에 column scoping + heading_path raw-mode escape hatch 안내 한 bullet 추가 (회차 1 follow-up 반영). 새 escape hatch (`'heading_path : <token>'`) 는 v0.17.0 의 raw mode (`'foo OR bar*'`) 와 같은 single-quote opt-out 패턴 위에 build — 새 surface 가 아닌 documented column-filter 활용.
 
 Cross-link: `crates/kebab-search/src/lexical.rs::build_match_string`, `migrations/V007__fts_trigram.sql` (verbatim 유지), design §5.5 (verbatim 유지, query-time 동작만 변경).
 
