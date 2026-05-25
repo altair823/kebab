@@ -205,9 +205,10 @@ pub struct RagCfg {
     /// with `forced_stop = true`.
     ///
     /// Default `15` — tuned down from the original 30 in the v0.18
-    /// pre-cut dogfood (`tasks/HOTFIXES.md` 2026-05-25 fb-41 post-PR-7
-    /// entry). With 30 chunks the synthesize prompt was large enough
-    /// for gemma3:4b to lose the citation rule + drift into unrelated
+    /// pre-cut dogfood (`tasks/HOTFIXES.md` 2026-05-25 fb-41 entry,
+    /// "post-PR-7 dogfood retest + PR-8 partial mitigation" sub-section).
+    /// With 30 chunks the synthesize prompt was large enough for
+    /// gemma3:4b to lose the citation rule + drift into unrelated
     /// chunks; 15 keeps the prompt tight while still allowing 3-iter
     /// cross-doc reasoning over ~5 chunks per iter.
     #[serde(default = "default_multi_hop_max_pool_chunks")]
