@@ -91,9 +91,17 @@ async fn ask_tool_routes_multi_hop_true_to_decompose_first() {
     };
     let mh_v: serde_json::Value = serde_json::from_str(&mh_text).unwrap();
     assert_eq!(mh_v["schema_version"], "error.v1");
-    assert_eq!(
-        mh_v["code"], "model_unreachable",
-        "multi-hop dispatch must hit the LLM and surface model_unreachable; got {mh_v}"
+    // The dispatch contract is "multi-hop reached the LLM". The exact
+    // error code depends on how the host TCP stack reports an
+    // unreachable port — fast-path `ECONNREFUSED` classifies as
+    // `model_unreachable`, but environments that take the connect
+    // timeout path (some CI / Docker network stacks) surface
+    // `timeout`. Accept either.
+    let mh_code = mh_v["code"].as_str().unwrap_or("");
+    assert!(
+        matches!(mh_code, "model_unreachable" | "timeout"),
+        "multi-hop dispatch must reach the LLM and surface model_unreachable/timeout; \
+         got code={mh_code:?} from {mh_v}"
     );
 
     // Single-pass branch — empty KB short-circuits at retrieve, no LLM
