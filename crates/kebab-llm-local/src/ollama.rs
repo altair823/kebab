@@ -48,10 +48,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::LlmError;
 
-/// Hard ceiling on a single HTTP exchange. Cold-loading a 14B model on
-/// first call can take ~30s; 5 minutes is generous without being
-/// open-ended.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+// v0.17.0 post-dogfood: the per-request ceiling now lives in
+// `kebab_config::LlmCfg::request_timeout_secs` (default 300s) so users
+// running larger models on CPU-only hosts can extend it without a
+// rebuild. Cold-loading an 8B+ model on first call routinely takes
+// 60-90 s plus multi-minute inference; 300s was the legacy hard
+// ceiling and remains the default for back-compat.
+//
+// Edge case: `request_timeout_secs = 0` becomes
+// `Duration::from_secs(0)` which is reqwest's "fail immediately", NOT
+// "disable". The field doc explains the workaround (use u64::MAX or a
+// large finite value).
 
 /// `reqwest::blocking` adapter implementing [`LanguageModel`] over Ollama's
 /// local HTTP API. Construction is cheap and offline; the first network
@@ -79,7 +86,7 @@ impl OllamaLanguageModel {
     pub fn new(config: &kebab_config::Config) -> anyhow::Result<Self> {
         let llm = &config.models.llm;
         let client = reqwest::blocking::Client::builder()
-            .timeout(REQUEST_TIMEOUT)
+            .timeout(Duration::from_secs(llm.request_timeout_secs))
             .build()?;
         Ok(Self {
             client,
@@ -262,9 +269,11 @@ struct OllamaLine {
 ///
 /// Timeout invariant: the iterator has no inherent stop condition for an
 /// indefinitely-stalled server — only the underlying
-/// `reqwest::blocking::Client`'s read timeout (`REQUEST_TIMEOUT`, 300s)
-/// breaks the hang. Callers needing tighter cancellation should adjust
-/// the client timeout in [`OllamaLanguageModel::new`].
+/// `reqwest::blocking::Client`'s read timeout (configured via
+/// `kebab_config::LlmCfg::request_timeout_secs`, default 300 s) breaks
+/// the hang. Callers needing tighter / looser bounds should set
+/// `[models.llm] request_timeout_secs = N` (or
+/// `KEBAB_MODELS_LLM_REQUEST_TIMEOUT_SECS=N`) before building.
 struct OllamaStream {
     reader: BufReader<reqwest::blocking::Response>,
     line_buf: Vec<u8>,

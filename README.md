@@ -6,6 +6,8 @@
 
 - **Rust toolchain** ≥ 1.85 (workspace 가 edition 2024 + resolver 3 사용). [rustup](https://rustup.rs) 권장.
 - **Ollama** — `kebab ask` 와 이미지 OCR/caption 가 사용. `https://ollama.com/download` 에서 설치 후 `ollama serve` 실행. 기본 LLM 은 gemma4 계열 (`ollama pull gemma4:e4b`) — OCR / caption 도 같은 family 라 모델 하나만 pull 하면 됨. 더 큰 variant 원하면 `gemma4:26b` 등으로 config override. config 의 `[models.llm].endpoint` 에 host:port 명시.
+  - **CPU only / RAM ≤ 16 GB 환경 권장 모델**: gemma4:e4b (8B) 는 CPU 추론에 무거워 RAG 한 답변이 5분을 넘기기 쉽다 — `[models.llm] request_timeout_secs` 의 기본 300 s 한도에 걸려 `error: kb-rag: llm.generate_stream` 으로 떨어진다 (HOTFIXES 2026-05-25). `gemma3:4b` / `qwen2.5:3b` / `phi3:mini` 같은 ≤ 4B Q4 모델로 바꾸면 답변 1-3 분에 안정 동작 (확장 도그푸딩에서 검증). 모델 storage 가 부담이면 `OLLAMA_MODELS=/path` env 로 위치 분리 가능.
+  - **`request_timeout_secs` 노브 (v0.17.0)**: `[models.llm] request_timeout_secs = 1200` (또는 `KEBAB_MODELS_LLM_REQUEST_TIMEOUT_SECS=1200`) 로 한도를 늘려 큰 모델도 시도 가능. 단 응답 동안 RAM 점유가 길어진다. **`= 0` 은 disable 이 아니라 "즉시 timeout"** (reqwest 의 의미상) — "사실상 무제한" 의도면 `u64::MAX` 또는 `86400` 같이 큰 finite 값 사용.
 - **빌드 디스크** — 첫 빌드 시 `target/` 가 6–10 GB (Lance + DataFusion + fastembed). 여유 확인.
 - **fastembed 모델** — 첫 `kebab ingest` 시 `multilingual-e5-large` (~1.3 GB, fb-39b) 자동 다운로드. `config.toml` 에서 `model = "multilingual-e5-small"` 로 명시하면 이전 모델 사용.
 

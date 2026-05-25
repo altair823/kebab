@@ -21,6 +21,11 @@ cargo build --release -p kebab-cli   # debug 도 무방. 디버그가 더 빠르
 # Mac 등 별도 호스트에서
 OLLAMA_HOST=0.0.0.0:11434 ollama serve
 ollama pull gemma4:e4b           # 기본 default. 더 큰 variant 원하면 gemma4:26b
+# CPU only / RAM ≤ 16 GB 환경이면 ≤ 4B Q4 모델 권장 (gemma3:4b / qwen2.5:3b 등) —
+# 8B+ 모델은 첫 RAG 답변이 5분 (기본 [models.llm] request_timeout_secs)
+# 한도를 넘기 쉬워 `error: kb-rag: llm.generate_stream` 으로 떨어짐.
+# 노브 늘리려면 config 에 request_timeout_secs = 1200 추가
+# 또는 KEBAB_MODELS_LLM_REQUEST_TIMEOUT_SECS=1200 env. HOTFIXES 2026-05-25 참조.
 ```
 
 본 머신에서 reachability 검증:
