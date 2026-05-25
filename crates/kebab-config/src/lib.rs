@@ -202,8 +202,15 @@ pub struct RagCfg {
     /// p9-fb-41: hard ceiling on the deduped chunk pool. When the
     /// accumulated pool would exceed this many chunks the pipeline
     /// stops accepting new retrieval results and forces synthesize
-    /// with `forced_stop = true`. Default `30` — generous for
-    /// 5-hop / 10-hits multi-hop runs while still bounded.
+    /// with `forced_stop = true`.
+    ///
+    /// Default `15` — tuned down from the original 30 in the v0.18
+    /// pre-cut dogfood (`tasks/HOTFIXES.md` 2026-05-25 fb-41 entry,
+    /// "post-PR-7 dogfood retest + PR-8 partial mitigation" sub-section).
+    /// With 30 chunks the synthesize prompt was large enough for
+    /// gemma3:4b to lose the citation rule + drift into unrelated
+    /// chunks; 15 keeps the prompt tight while still allowing 3-iter
+    /// cross-doc reasoning over ~5 chunks per iter.
     #[serde(default = "default_multi_hop_max_pool_chunks")]
     pub multi_hop_max_pool_chunks: u32,
 }
@@ -217,7 +224,7 @@ fn default_multi_hop_max_sub_queries_per_iter() -> u32 {
 }
 
 fn default_multi_hop_max_pool_chunks() -> u32 {
-    30
+    15
 }
 
 /// Settings for the image ingest pipeline (P6). `ocr` controls OCR
@@ -1164,8 +1171,11 @@ theme = "dark"
     }
 
     #[test]
-    fn default_multi_hop_max_pool_chunks_is_30() {
-        assert_eq!(Config::defaults().rag.multi_hop_max_pool_chunks, 30);
+    fn default_multi_hop_max_pool_chunks_is_15() {
+        // v0.18 dogfood (HOTFIXES 2026-05-25 fb-41 post-PR-7) tuned
+        // this down from 30 → 15 to keep the synthesize prompt tight
+        // enough for gemma3:4b to follow the citation rule.
+        assert_eq!(Config::defaults().rag.multi_hop_max_pool_chunks, 15);
     }
 
     #[test]
@@ -1200,7 +1210,8 @@ theme = "dark"
             .expect("parse legacy config");
         assert_eq!(c.rag.multi_hop_max_depth, 3);
         assert_eq!(c.rag.multi_hop_max_sub_queries_per_iter, 5);
-        assert_eq!(c.rag.multi_hop_max_pool_chunks, 30);
+        // v0.18 dogfood (post-PR-7): pool default 30 → 15.
+        assert_eq!(c.rag.multi_hop_max_pool_chunks, 15);
     }
 
     #[test]
