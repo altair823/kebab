@@ -29,6 +29,14 @@ pub struct Answer {
     /// 이면 single-shot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_index: Option<u32>,
+    /// p9-fb-41: multi-hop hop trace. `None` for single-pass asks.
+    /// Each entry records one hop (`decompose` / `decide` / `synthesize`)
+    /// — the LLM call category, the sub-queries emitted, retrieval
+    /// counts, and a `forced_stop` flag for cap-driven termination.
+    /// Wire-additive: `answer.v1` schema_version unchanged; consumers
+    /// reading older single-pass answers see `hops: None` (or absent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hops: Option<Vec<HopRecord>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -53,6 +61,62 @@ pub struct Turn {
     pub citations: Vec<AnswerCitation>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+}
+
+/// p9-fb-41: one entry in [`Answer::hops`] — the per-iteration trace
+/// of a multi-hop ask. The pipeline appends a `HopRecord` per LLM
+/// call (decompose / decide / synthesize) so a `--multi-hop` user
+/// can see what sub-queries the LLM emitted, how many chunks each
+/// hop contributed, whether the iter stopped on the model's own
+/// signal or hit a cap, and the per-hop LLM latency.
+///
+/// Wire-additive — every field uses `#[serde(default)]` where it
+/// could plausibly be omitted by a future schema reader.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HopRecord {
+    /// 0-based hop index within this ask. `iter=0` is always the
+    /// initial decompose call; subsequent iters are decide calls;
+    /// the final iter is the synthesize call.
+    pub iter: u32,
+    pub kind: HopKind,
+    /// Sub-queries the LLM emitted at this iter. For the synthesize
+    /// hop this is empty (no sub-queries — just the final answer).
+    #[serde(default)]
+    pub sub_queries: Vec<String>,
+    /// Number of *new* chunks the retrieval round contributed to the
+    /// pool (dedup'd by `chunk_id` — repeated hits from a previous
+    /// iter do not count). `0` for the decompose hop (no retrieval
+    /// yet) and the synthesize hop.
+    pub context_chunks_added: u32,
+    /// `true` when the pipeline cut the iter loop short because a
+    /// safety cap fired (`max_depth` / `max_total_sub_queries` /
+    /// `max_pool_chunks`) rather than because the LLM signalled
+    /// stop. The user-visible answer still reflects all chunks
+    /// accumulated up to that point — `forced_stop` is a tracing
+    /// signal, not a refusal.
+    pub forced_stop: bool,
+    /// Wall-clock latency of the LLM call for this hop, in
+    /// milliseconds. Useful for cost / latency analysis when a
+    /// `kebab eval` run records `Answer.hops`.
+    pub llm_call_ms: u32,
+}
+
+/// p9-fb-41: which stage of the multi-hop pipeline a [`HopRecord`]
+/// describes. The serde tag matches the wire shape so agents /
+/// CLIs can branch on the snake_case string without referencing
+/// the Rust enum.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HopKind {
+    /// First hop — LLM decomposed the user query into sub-queries.
+    Decompose,
+    /// Subsequent hop — LLM was asked whether more retrieval is
+    /// needed and either emitted new sub-queries (`continue`) or
+    /// returned an empty array (`stop`).
+    Decide,
+    /// Terminal hop — LLM produced the final user-visible answer
+    /// over the accumulated chunk pool.
+    Synthesize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]

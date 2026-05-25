@@ -531,6 +531,11 @@ impl RagPipeline {
             created_at: OffsetDateTime::now_utc(),
             conversation_id: opts.conversation_id.clone(),
             turn_index: opts.turn_index,
+            // p9-fb-41 Step 2 of PR-3: every Answer literal carries
+            // `hops`. Single-pass + refusal paths leave it `None`;
+            // only the multi-hop happy path will set `Some(...)` in
+            // Step 5 once the decide loop populates a hop trace.
+            hops: None,
         };
 
         // Drop the moved `finish_reason` early into a tracing breadcrumb; the
@@ -843,6 +848,11 @@ impl RagPipeline {
             created_at: OffsetDateTime::now_utc(),
             conversation_id: opts.conversation_id.clone(),
             turn_index: opts.turn_index,
+            // p9-fb-41 Step 2 of PR-3: every Answer literal carries
+            // `hops`. Single-pass + refusal paths leave it `None`;
+            // only the multi-hop happy path will set `Some(...)` in
+            // Step 5 once the decide loop populates a hop trace.
+            hops: None,
         };
 
         tracing::debug!(
@@ -979,6 +989,11 @@ impl RagPipeline {
             created_at: OffsetDateTime::now_utc(),
             conversation_id: opts.conversation_id.clone(),
             turn_index: opts.turn_index,
+            // p9-fb-41 Step 2 of PR-3: every Answer literal carries
+            // `hops`. Single-pass + refusal paths leave it `None`;
+            // only the multi-hop happy path will set `Some(...)` in
+            // Step 5 once the decide loop populates a hop trace.
+            hops: None,
         };
         if let Some(sink) = &opts.stream_sink {
             let _ = sink.send(StreamEvent::Final {
@@ -1100,6 +1115,11 @@ impl RagPipeline {
             created_at: OffsetDateTime::now_utc(),
             conversation_id: opts.conversation_id.clone(),
             turn_index: opts.turn_index,
+            // p9-fb-41 Step 2 of PR-3: every Answer literal carries
+            // `hops`. Single-pass + refusal paths leave it `None`;
+            // only the multi-hop happy path will set `Some(...)` in
+            // Step 5 once the decide loop populates a hop trace.
+            hops: None,
         };
         if let Err(e) = self.docs.put_answer(&answer, query, None) {
             tracing::warn!(target: "kebab-rag", error = %e, "kb-rag: put_answer (NoChunks) failed");
@@ -1182,6 +1202,11 @@ impl RagPipeline {
             created_at: OffsetDateTime::now_utc(),
             conversation_id: opts.conversation_id.clone(),
             turn_index: opts.turn_index,
+            // p9-fb-41 Step 2 of PR-3: every Answer literal carries
+            // `hops`. Single-pass + refusal paths leave it `None`;
+            // only the multi-hop happy path will set `Some(...)` in
+            // Step 5 once the decide loop populates a hop trace.
+            hops: None,
         };
         if let Err(e) = self.docs.put_answer(&answer, query, None) {
             tracing::warn!(target: "kebab-rag", error = %e, "kb-rag: put_answer (ScoreGate) failed");
@@ -1789,6 +1814,7 @@ mod stream_event_serde_tests {
             created_at: datetime!(2026-05-09 12:00:00 UTC),
             conversation_id: None,
             turn_index: None,
+            hops: None,
         };
         let ev = StreamEvent::Final { answer };
         let v = serde_json::to_value(&ev).unwrap();

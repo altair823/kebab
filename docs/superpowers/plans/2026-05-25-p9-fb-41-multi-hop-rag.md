@@ -85,7 +85,37 @@ XL 작업 — 6 PR 분할 (각 머지 후 누적, 마지막 PR 후 v0.18.0 cut).
 
 ---
 
-## PR-3: Dynamic iteration (decide loop + caps)
+## PR-3 분할 (작업 양 측면, 2026-05-25 사용자 결정)
+
+**원래 plan**: PR-3 가 wire additive (`Answer.hops`) + RagCfg 노브 + decide loop + ScriptedLm + helper refactor + 5+ tests 단일 PR.
+
+**실제 분할** (~1500+ 줄 단일 PR → review 부담 + 회기 위험 ↓):
+- **PR-3a (본 PR)**: wire additive (HopRecord + HopKind + Answer.hops) + RagCfg 3 노브 + 모든 Answer literal 갱신 (hops:None). **RAG pipeline 동작 미변경** — additive only.
+- **PR-3b (후속)**: dynamic decide loop + ScriptedLm helper + 5+ integration tests + format! named arg + 회차 1 carry-over (mirror refactor / history block helper).
+
+## PR-3a: Wire additive + RagCfg 노브 (HopRecord type + Answer.hops field)
+
+**Goal**: 후속 PR (PR-3b decide loop) 의 wire / config foundation. RAG pipeline 동작 변경 없음 — `Answer.hops` 가 모든 path 에서 `None`, RagCfg 새 3 노브가 default 만 적용. PR-3b 가 이 위에서 decide loop 구현.
+
+**Files**:
+- `crates/kebab-core/src/answer.rs`:
+  - `HopRecord` struct (`iter`, `kind`, `sub_queries`, `context_chunks_added`, `forced_stop`, `llm_call_ms`).
+  - `HopKind` enum (`Decompose` / `Decide` / `Synthesize`).
+  - `Answer.hops: Option<Vec<HopRecord>>` field — `#[serde(default, skip_serializing_if = "Option::is_none")]`.
+- `crates/kebab-core/src/lib.rs`: `pub use answer::{HopKind, HopRecord, ...}`.
+- `crates/kebab-config/src/lib.rs`:
+  - `RagCfg` 에 `multi_hop_max_depth: u32` (default 3), `multi_hop_max_sub_queries_per_iter: u32` (default 5), `multi_hop_max_pool_chunks: u32` (default 30). `#[serde(default)]` + env override + legacy parse.
+- 모든 Answer literal site 갱신 (9 sites: kebab-rag/src/pipeline.rs ×6 + kebab-cli/src/main.rs + kebab-tui/tests/ask.rs + kebab-eval/src/metrics.rs): `hops: None` 명시. 향후 PR-3b 의 ask_multi_hop happy path 만 `Some(hops_trace)` 채움.
+
+**Tests**:
+- `default_multi_hop_max_depth_is_3`, `default_multi_hop_max_sub_queries_per_iter_is_5`, `default_multi_hop_max_pool_chunks_is_30`.
+- `env_overrides_multi_hop_knobs`.
+- `legacy_config_without_multi_hop_knobs_uses_defaults` (LEGACY_PRE_TIMEOUT_TOML 공유).
+- 모든 기존 RAG / TUI / CLI / eval test 가 hops:None 추가 후도 통과 (회귀 핀).
+
+**Wire 영향**: `answer.v1` JSON Schema 의 `hops` optional 필드 — `skip_serializing_if` 가 `None` 일 때 emit 안 함이라 옛 single-pass response 에 변동 없음. wire breaking 아님. JSON Schema 갱신은 PR-3b 또는 PR-4 (실제 emit 시점).
+
+## PR-3b: Dynamic iteration (decide loop + caps) — 후속 PR
 
 **Goal**: depth=2 fixed → dynamic N-hop. LLM 의 decide signal + max_depth / max_sub_queries / max_pool_chunks cap.
 

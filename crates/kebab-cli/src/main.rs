@@ -1639,6 +1639,7 @@ mod tests {
             created_at: OffsetDateTime::now_utc(),
             conversation_id: None,
             turn_index: None,
+            hops: None,
         }
     }
 
