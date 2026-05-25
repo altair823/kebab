@@ -228,6 +228,22 @@ pub struct OcrCfg {
     /// Cap the long edge of the image (in pixels) before sending. Larger
     /// images bloat prompt cost. Default `1600`.
     pub max_pixels: u32,
+    /// v0.17.2 post-dogfood: Hard ceiling on a single HTTP exchange to
+    /// the OCR endpoint. Sister knob to [`LlmCfg::request_timeout_secs`]
+    /// — kept separate because OCR latency is typically shorter than
+    /// chat-LLM cold start, and large vision models on CPU-only hosts
+    /// occasionally need a different budget. See HOTFIXES 2026-05-25
+    /// for the rationale.
+    ///
+    /// **Edge case — `0` is NOT a disable sentinel.** Same semantics as
+    /// [`LlmCfg::request_timeout_secs`]: `Duration::from_secs(0)` means
+    /// "every request fails immediately" (reqwest 0.12.x — the read
+    /// timeout is applied as a 0-second deadline), not "no timeout".
+    /// To approximate "no cap", use a large finite value (e.g.
+    /// `u64::MAX` ≈ 5.8 × 10¹¹ years, or just a generous number like
+    /// `86400`).
+    #[serde(default = "default_ocr_request_timeout_secs")]
+    pub request_timeout_secs: u64,
 }
 
 impl OcrCfg {
@@ -239,8 +255,16 @@ impl OcrCfg {
             endpoint: None,
             languages: vec!["eng".to_string(), "kor".to_string()],
             max_pixels: 1600,
+            request_timeout_secs: default_ocr_request_timeout_secs(),
         }
     }
+}
+
+/// v0.17.2 post-dogfood: matches the legacy hard-coded ceiling so
+/// existing configs that omit the field keep behaving identically.
+/// Overridable per config / `KEBAB_IMAGE_OCR_REQUEST_TIMEOUT_SECS`.
+fn default_ocr_request_timeout_secs() -> u64 {
+    300
 }
 
 /// Caption settings (P6-3). Caption uses the same Ollama-vision /
@@ -722,6 +746,11 @@ impl Config {
                         self.image.ocr.max_pixels = n;
                     }
                 }
+                "KEBAB_IMAGE_OCR_REQUEST_TIMEOUT_SECS" => {
+                    if let Ok(n) = v.parse::<u64>() {
+                        self.image.ocr.request_timeout_secs = n;
+                    }
+                }
 
                 // image.caption (P6-3)
                 "KEBAB_IMAGE_CAPTION_ENABLED" => {
@@ -834,6 +863,83 @@ fn parse_bool(s: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// Legacy TOML fixture written before the `request_timeout_secs`
+    /// knobs (LLM in v0.17.1, OCR follow-up) existed. Shared by
+    /// `legacy_config_without_request_timeout_secs_uses_default`
+    /// (LLM-side) and `legacy_config_without_ocr_request_timeout_secs_uses_default`
+    /// (OCR-side) so both invariants pin against the same on-disk
+    /// shape — schema drift in the legacy form only needs one edit.
+    const LEGACY_PRE_TIMEOUT_TOML: &str = r#"
+schema_version = 1
+
+[workspace]
+root = "/tmp/x"
+exclude = []
+
+[storage]
+data_dir = "/tmp/x"
+sqlite = "/tmp/x/kebab.sqlite"
+vector_dir = "/tmp/x/lancedb"
+asset_dir = "/tmp/x/assets"
+artifact_dir = "/tmp/x/artifacts"
+model_dir = "/tmp/x/models"
+runs_dir = "/tmp/x/runs"
+copy_threshold_mb = 100
+
+[indexing]
+max_parallel_extractors = 2
+max_parallel_embeddings = 1
+watch_filesystem = false
+
+[chunking]
+target_tokens = 500
+overlap_tokens = 80
+respect_markdown_headings = true
+chunker_version = "md-heading-v1"
+
+[models.embedding]
+provider = "fastembed"
+model = "multilingual-e5-large"
+version = "v1"
+dimensions = 1024
+batch_size = 64
+
+[models.llm]
+provider = "ollama"
+model = "gemma3:4b"
+context_tokens = 4096
+endpoint = "http://127.0.0.1:11434"
+temperature = 0.0
+seed = 0
+
+[search]
+default_k = 10
+hybrid_fusion = "rrf"
+rrf_k = 60
+snippet_chars = 220
+
+[rag]
+prompt_template_version = "rag-v2"
+score_gate = 0.3
+explain_default = false
+max_context_tokens = 8000
+
+[image.ocr]
+enabled = false
+engine = "ollama-vision"
+model = "gemma3:4b"
+languages = ["eng"]
+max_pixels = 1600
+
+[image.caption]
+enabled = false
+max_pixels = 768
+prompt_template_version = "caption-v1"
+
+[ui]
+theme = "dark"
+"#;
+
     #[test]
     fn defaults_are_serde_roundtrip_stable() {
         let c = Config::defaults();
@@ -924,80 +1030,12 @@ mod tests {
 
     /// v0.17.0 post-dogfood: a config file written before the field
     /// existed (no `request_timeout_secs` key) must still parse and fall
-    /// back to the 300s default — backwards-compat invariant.
+    /// back to the 300s default — backwards-compat invariant. Fixture
+    /// shared with the OCR-side invariant via [`LEGACY_PRE_TIMEOUT_TOML`].
     #[test]
     fn legacy_config_without_request_timeout_secs_uses_default() {
-        let toml_src = r#"
-schema_version = 1
-
-[workspace]
-root = "/tmp/x"
-exclude = []
-
-[storage]
-data_dir = "/tmp/x"
-sqlite = "/tmp/x/kebab.sqlite"
-vector_dir = "/tmp/x/lancedb"
-asset_dir = "/tmp/x/assets"
-artifact_dir = "/tmp/x/artifacts"
-model_dir = "/tmp/x/models"
-runs_dir = "/tmp/x/runs"
-copy_threshold_mb = 100
-
-[indexing]
-max_parallel_extractors = 2
-max_parallel_embeddings = 1
-watch_filesystem = false
-
-[chunking]
-target_tokens = 500
-overlap_tokens = 80
-respect_markdown_headings = true
-chunker_version = "md-heading-v1"
-
-[models.embedding]
-provider = "fastembed"
-model = "multilingual-e5-large"
-version = "v1"
-dimensions = 1024
-batch_size = 64
-
-[models.llm]
-provider = "ollama"
-model = "gemma3:4b"
-context_tokens = 4096
-endpoint = "http://127.0.0.1:11434"
-temperature = 0.0
-seed = 0
-
-[search]
-default_k = 10
-hybrid_fusion = "rrf"
-rrf_k = 60
-snippet_chars = 220
-
-[rag]
-prompt_template_version = "rag-v2"
-score_gate = 0.3
-explain_default = false
-max_context_tokens = 8000
-
-[image.ocr]
-enabled = false
-engine = "ollama-vision"
-model = "gemma3:4b"
-languages = ["eng"]
-max_pixels = 1600
-
-[image.caption]
-enabled = false
-max_pixels = 768
-prompt_template_version = "caption-v1"
-
-[ui]
-theme = "dark"
-"#;
-        let c: Config = toml::from_str(toml_src).expect("parse legacy config");
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
+            .expect("parse legacy config");
         assert_eq!(c.models.llm.request_timeout_secs, 300);
     }
 
@@ -1020,6 +1058,38 @@ theme = "dark"
         assert_eq!(c.image.ocr.model, "gemma4:e4b");
         assert_eq!(c.image.ocr.languages, vec!["eng", "kor"]);
         assert_eq!(c.image.ocr.max_pixels, 1600);
+    }
+
+    /// v0.17.2 post-dogfood: matches the legacy hard-coded 300s cap so
+    /// existing configs that omit the new field keep behaving identically.
+    #[test]
+    fn default_ocr_request_timeout_secs_is_300() {
+        assert_eq!(
+            Config::defaults().image.ocr.request_timeout_secs,
+            300
+        );
+    }
+
+    #[test]
+    fn env_overrides_image_ocr_request_timeout_secs() {
+        let mut env = HashMap::new();
+        env.insert(
+            "KEBAB_IMAGE_OCR_REQUEST_TIMEOUT_SECS".to_string(),
+            "900".to_string(),
+        );
+        let c = Config::defaults().apply_env(&env);
+        assert_eq!(c.image.ocr.request_timeout_secs, 900);
+    }
+
+    /// post-v0.17.1 dogfood: a config file written before the OCR
+    /// timeout field existed must still parse and fall back to the
+    /// 300s default — backwards-compat invariant. Fixture shared
+    /// with the LLM-side invariant via [`LEGACY_PRE_TIMEOUT_TOML`].
+    #[test]
+    fn legacy_config_without_ocr_request_timeout_secs_uses_default() {
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
+            .expect("parse legacy config");
+        assert_eq!(c.image.ocr.request_timeout_secs, 300);
     }
 
     #[test]

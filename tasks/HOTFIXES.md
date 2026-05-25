@@ -25,13 +25,29 @@ v0.17.0 후속 도그푸딩에서 발견: 사용자가 default `gemma4:e4b` (8B 
 - `README.md` 사전 요구 절 + `docs/SMOKE.md` 의 ollama 안내에 권장 모델 (≤ 4B Q4 — `gemma3:4b` / `qwen2.5:3b` / `phi3:mini`) + timeout 노브 anchor 한 줄. 8B+ 시도 시 timeout 패턴 사전 안내.
 - `crates/kebab-config/src/lib.rs::Config::defaults` 의 LlmCfg literal 에 `request_timeout_secs: default_llm_request_timeout_secs()` + comment 한 줄로 CPU only 권장 안내.
 
-**미진행 (scope 밖)**:
-- `crates/kebab-parse-image/src/ocr.rs::REQUEST_TIMEOUT` 도 동일한 hard-coded 300 s — OCR 이 보통 짧아 LLM 만큼 부담 안 되지만, 일관성 측면에서 다음 round 에 같은 노브 (또는 별 노브) 로 재검토.
-- `kebab ask --stream` (fb-33) 권장 강조: 5분 cold-start 동안 첫 token 빠르게 surface — UX 개선. README/SKILL.md 추가 한 줄 후속.
+**미진행 (scope 밖) — closure 갱신**:
+- ~~`crates/kebab-parse-image/src/ocr.rs::REQUEST_TIMEOUT` 도 동일한 hard-coded 300 s — OCR 이 보통 짧아 LLM 만큼 부담 안 되지만, 일관성 측면에서 다음 round 에 같은 노브 (또는 별 노브) 로 재검토.~~ → **closure**: 아래 2026-05-25 v0.17.2 OCR timeout entry 참조 (별 노브 `[image.ocr] request_timeout_secs` 신설).
+- ~~`kebab ask --stream` (fb-33) 권장 강조: 5분 cold-start 동안 첫 token 빠르게 surface — UX 개선. README/SKILL.md 추가 한 줄 후속.~~ → **closure**: PR #163 (v0.17.1 cut) 에서 이미 README + SMOKE + SKILL.md 세 곳 모두 추가됨 (`README.md:22` cold start 권장 단락, `docs/SMOKE.md:45/209` 예제, `SKILL.md:114/119` 사용 가이드). 본 entry 의 미진행 표기가 outdated 였음.
 
 **후속 도그푸딩 baseline 보존**: `/build/cache/dogfood-v017/` (466 MB workspace + DB + memory.log), `/build/cache/ollama/` (21 GB binary + gemma3:4b/gemma4:e4b 모델). 다음 round 회귀 비교용.
 
 Cross-link: `crates/kebab-config/src/lib.rs::LlmCfg::request_timeout_secs`, `crates/kebab-llm-local/src/ollama.rs::OllamaLanguageModel::new`.
+
+## 2026-05-25 — post-v0.17.1 dogfood: `[image.ocr] request_timeout_secs` 노브 (closure of v0.17.1 미진행)
+
+v0.17.1 entry 의 첫 번째 미진행 항목 closure. LLM 쪽이 v0.17.1 에서 `[models.llm] request_timeout_secs` 로 풀려난 패턴을 OCR 어댑터에 동일 적용. 별 노브로 분리한 이유 (사용자 결정): OCR 은 통상 LLM 대비 짧고 cold start 패턴도 다름 — 두 노브를 독립 조절할 수 있어야 16 GB / CPU only 환경에서 vision 모델만 다른 timeout 을 쓰기 편함. release tag 는 본 entry 시점 미결정 — cut 합의 시점에 동일 entry 가 v0.17.2 / v0.18.0 등으로 anchor 갱신.
+
+**변경**:
+- `crates/kebab-config/src/lib.rs::OcrCfg` 에 `request_timeout_secs: u64` additive 필드 (`#[serde(default = "default_ocr_request_timeout_secs")]`, default `300`). 옛 config 가 필드 누락해도 그대로 파싱 + 동일 동작 (3 신규 unit test 가 default / env override / legacy parse 핀).
+- env override `KEBAB_IMAGE_OCR_REQUEST_TIMEOUT_SECS`.
+- `crates/kebab-parse-image/src/ocr.rs` 의 `REQUEST_TIMEOUT` 상수 제거. `OllamaVisionOcr::build` 시그니처가 `request_timeout_secs: u64` 추가, `new(&Config)` 는 `config.image.ocr.request_timeout_secs` 전달. `from_parts` (테스트 전용 surface) 도 동일하게 시그니처 확장 — caller 9 call site (`crates/kebab-parse-image/src/ocr.rs::tests` 5 test / 6 call site, `crates/kebab-parse-image/tests/ocr.rs::from_parts_clamps_max_pixels_into_legal_range` 1 test / 3 call site) 모두 `300` 명시 갱신.
+- `OcrCfg::defaults()` 에 `request_timeout_secs: default_ocr_request_timeout_secs()` 추가. `Config::defaults()` 는 `ImageCfg::defaults()` 경유라 cascade.
+
+**Edge case 동일**: `0` 은 disable 아닌 "즉시 timeout" (`Duration::from_secs(0)` 의 reqwest 의미). LlmCfg 의 doc comment 와 같은 안내가 OcrCfg field doc 에 명시.
+
+**사용자 영향**: 기존 v0.17.x KB / config 는 변경 불필요 — 새 필드는 serde default 로 채워지고 동작도 동일 (300s). vision 모델 cold start 가 길면 `KEBAB_IMAGE_OCR_REQUEST_TIMEOUT_SECS=600` 또는 config 에서 `[image.ocr] request_timeout_secs = 600` 설정.
+
+Cross-link: `crates/kebab-config/src/lib.rs::OcrCfg::request_timeout_secs`, `crates/kebab-parse-image/src/ocr.rs::OllamaVisionOcr::build`.
 
 ## 2026-05-24 — v0.17.0: 한국어 trigram FTS5 tokenizer 채택 (closure of 2026-05-22 한국어 lexical)
 
