@@ -619,6 +619,72 @@ impl RagPipeline {
     /// eval `compare` can isolate multi-hop runs from single-pass.
     pub fn ask_multi_hop(&self, query: &str, opts: AskOpts) -> Result<Answer> {
         let started = std::time::Instant::now();
+        let k_effective = opts.k.max(self.config.search.default_k);
+
+        // ── 0. Pre-decompose score-gate probe (v0.18 dogfood fix) ──────────
+        //
+        // p9-fb-41 v0.18 pre-cut dogfood (`/build/cache/dogfood-v018/
+        // results/SUMMARY.md`) found that an out-of-corpus query
+        // ("What is the chemical formula of caffeine?") on the multi-
+        // hop path returned `grounded=true` with hallucinated content +
+        // a misattributed citation marker. Cause: multi-hop's 5-sub-
+        // query union pool fills with chunks each loosely matching one
+        // sub-query, then the post-pool score gate (which inspects
+        // `pool[0].fusion_score`) sees a sub-query's hit and passes —
+        // even though the *original* query never matched anything
+        // above the gate.
+        //
+        // Fix: probe the original query exactly the way single-pass
+        // `ask` would, before any decompose / decide LLM call. If
+        // top_score < gate (or hits empty), refuse with the same
+        // envelope single-pass would emit. Multi-hop's safety floor
+        // is now identical to single-pass's — multi-hop only *adds*
+        // the cross-doc reasoning when the original query is already
+        // in scope.
+        //
+        // Cost: one extra retrieve call (~ms, no LLM). Negligible vs.
+        // the LLM-dominated multi-hop latency.
+        let probe_query = SearchQuery {
+            text: query.to_string(),
+            mode: opts.mode,
+            k: k_effective,
+            filters: SearchFilters::default(),
+        };
+        let mut probe_hits = self
+            .retriever
+            .search(&probe_query)
+            .context("kb-rag: multi-hop probe retriever.search")?;
+        let probe_now = OffsetDateTime::now_utc();
+        let probe_threshold = self.config.search.stale_threshold_days;
+        for h in &mut probe_hits {
+            h.stale = compute_stale(h.indexed_at, probe_now, probe_threshold);
+        }
+        if probe_hits.is_empty() {
+            return self.refuse_no_chunks(query, &opts, k_effective, started, None);
+        }
+        if probe_hits[0].retrieval.fusion_score < self.config.rag.score_gate {
+            return self.refuse_score_gate(
+                query,
+                &opts,
+                &probe_hits,
+                k_effective,
+                started,
+                None,
+            );
+        }
+
+        // probe_hits are inspected for the gate decision only — the
+        // decompose-driven pool below builds from scratch, even if
+        // the first sub-query happens to equal the original query.
+        // Re-using probe_hits as the pool's initial seed would save
+        // one retrieve in that case, but would change the meaning of
+        // `HopRecord.context_chunks_added` on the first decide hop
+        // (currently "chunks from decompose-driven retrieve" — would
+        // become "probe + decompose"). Kept dropped for invariant
+        // clarity; revisit if the per-call retrieve cost ever becomes
+        // the multi-hop latency bottleneck (currently dominated by
+        // LLM calls, not retrieves).
+
         let mut hops: Vec<HopRecord> = Vec::new();
 
         // ── 1. Decompose (iter 0) ──────────────────────────────────────────
@@ -647,7 +713,7 @@ impl RagPipeline {
         // is needed. The LLM emits new sub-queries (continue) or `[]`
         // (stop); the loop also breaks when `max_depth` or
         // `max_pool_chunks` cap fires (`forced_stop = true`).
-        let k_effective = opts.k.max(self.config.search.default_k);
+        // `k_effective` already computed at the probe step above.
         let max_depth = self.config.rag.multi_hop_max_depth;
         let max_pool = self.config.rag.multi_hop_max_pool_chunks as usize;
         let mut pool: Vec<SearchHit> = Vec::new();
