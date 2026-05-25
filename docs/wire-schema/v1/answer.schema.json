@@ -20,7 +20,23 @@
     "answer":                  { "type": "string" },
     "citations":               { "type": "array" },
     "grounded":                { "type": "boolean" },
-    "refusal_reason":          { "type": ["string", "null"] },
+    "refusal_reason":          {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "score_gate",
+            "llm_self_judge",
+            "no_index",
+            "no_chunks",
+            "llm_stream_aborted",
+            "multi_hop_decompose_failed"
+          ]
+        },
+        { "type": "null" }
+      ],
+      "description": "p9-fb-41: `multi_hop_decompose_failed` added in PR-3a for the multi-hop pipeline (only emitted when AskOpts.multi_hop = true and the decompose LLM call fails to parse). Other variants are unchanged from earlier phases."
+    },
     "model":                   { "type": "object" },
     "embedding":               { "type": ["object", "null"] },
     "prompt_template_version": { "type": "string" },
@@ -35,6 +51,52 @@
       "type": ["integer", "null"],
       "minimum": 0,
       "description": "p9-fb-15: 같은 conversation 안 0-based 순서. null 이면 single-shot."
+    },
+    "hops": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/HopRecord" }
+        },
+        { "type": "null" }
+      ],
+      "description": "p9-fb-41 multi-hop trace. Present (non-null array) only when the ask routed through the multi-hop pipeline (`AskOpts.multi_hop = true`); single-pass answers omit the field entirely (serde `skip_serializing_if = None`). Each entry records one LLM hop — decompose / decide / synthesize — with sub-queries, retrieval count, and per-hop latency. Wire-additive: pre-fb-41 readers tolerate the missing field; new readers branch on its presence to render the per-hop trace."
+    }
+  },
+  "$defs": {
+    "HopRecord": {
+      "type": "object",
+      "required": ["iter", "kind", "context_chunks_added", "forced_stop", "llm_call_ms"],
+      "properties": {
+        "iter": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0-based hop index. iter=0 is always the initial decompose; subsequent iters are decide calls; the final iter is the synthesize call."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["decompose", "decide", "synthesize"]
+        },
+        "sub_queries": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Per-kind semantics. Decompose: the initial sub-queries the LLM produced. Decide: the *new* sub-queries to retrieve next iter (empty when the LLM signalled stop or when forced_stop=true). Synthesize: always empty."
+        },
+        "context_chunks_added": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of *new* chunks the retrieval round contributed to the pool (deduped by chunk_id). 0 for decompose / synthesize hops."
+        },
+        "forced_stop": {
+          "type": "boolean",
+          "description": "True when the pipeline cut the loop short due to a safety cap (max_depth / max_pool_chunks) rather than the LLM's own stop signal. Tracing signal, not a refusal."
+        },
+        "llm_call_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Wall-clock latency of the LLM call for this hop. `0` is overloaded — means 'no LLM call happened' when (a) the Decide hop was skipped due to forced_stop or (b) the pool was empty before any decide could run. Treat 0 as absent or instantaneous."
+        }
+      }
     }
   }
 }

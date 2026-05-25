@@ -250,6 +250,18 @@ enum Cmd {
         /// `answer.v1`. Off by default to preserve final-only behavior.
         #[arg(long)]
         stream: bool,
+
+        /// p9-fb-41: route this ask through the multi-hop pipeline
+        /// — the query is decomposed into sub-questions, each
+        /// retrieved independently, then synthesized over the
+        /// merged chunk pool. Cost trade-off: 2–5× LLM calls
+        /// (decompose + 0..N decide + synthesize) vs. single-pass.
+        /// Worth it for compound questions (X 와 Y 의 관계, prereq
+        /// chain, cross-doc reasoning); single-pass is faster for
+        /// simple fact lookups. The full per-hop trace is exposed
+        /// on `Answer.hops` in `--json` mode.
+        #[arg(long)]
+        multi_hop: bool,
     },
 
     /// Wipe XDG data dirs (and optionally the Lance vector store) so the
@@ -973,6 +985,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             hide_citations,
             session,
             stream,
+            multi_hop,
         } => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
             if *stream {
@@ -999,7 +1012,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     history: Vec::new(),
                     conversation_id: None,
                     turn_index: None,
-                    multi_hop: false,
+                    multi_hop: *multi_hop,
                 };
                 let cfg2 = cfg.clone();
                 let q = query.clone();
@@ -1075,7 +1088,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     history: Vec::new(),
                     conversation_id: None,
                     turn_index: None,
-                    multi_hop: false,
+                    multi_hop: *multi_hop,
                 };
                 let ans = match session.as_deref() {
                     Some(sid) => kebab_app::ask_with_session_with_config(cfg, sid, query, opts)?,
