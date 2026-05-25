@@ -206,6 +206,47 @@ impl Retriever for MockRetriever {
     }
 }
 
+/// p9-fb-41 PR-3b-ii: scripted retriever. Returns a different
+/// `Vec<SearchHit>` per `search` call from a pre-supplied sequence,
+/// so a multi-hop test can simulate "iter 1 returns chunk A, iter 2
+/// returns chunks A+B" (pool dedup) or "different sub-queries hit
+/// different docs". Exhaustion returns an empty `Vec` (no panic) —
+/// the pipeline already handles "no hits this round" gracefully via
+/// the dedup loop, and a panic would conflate "test forgot a row"
+/// with "pipeline made an unexpected extra retrieval call".
+///
+/// Use [`ScriptedRetriever::calls`] to assert the expected number
+/// of retrievals occurred.
+pub struct ScriptedRetriever {
+    hits_per_call: Vec<Vec<SearchHit>>,
+    next: std::sync::atomic::AtomicUsize,
+}
+
+impl ScriptedRetriever {
+    pub fn new(hits_per_call: Vec<Vec<SearchHit>>) -> Self {
+        Self {
+            hits_per_call,
+            next: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    pub fn calls(&self) -> usize {
+        self.next.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl Retriever for ScriptedRetriever {
+    fn search(&self, _q: &SearchQuery) -> anyhow::Result<Vec<SearchHit>> {
+        let idx = self
+            .next
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(self.hits_per_call.get(idx).cloned().unwrap_or_default())
+    }
+    fn index_version(&self) -> IndexVersion {
+        IndexVersion("test-iv".to_string())
+    }
+}
+
 /// Pad a short prefix to the 32-hex shape `kebab_core` newtypes expect.
 pub fn id32(prefix: &str) -> String {
     let mut s = prefix.to_string();
@@ -214,4 +255,129 @@ pub fn id32(prefix: &str) -> String {
     }
     s.truncate(32);
     s
+}
+
+/// p9-fb-41 PR-3b-ii: scripted language model. Returns a different
+/// canned response per `generate_stream` call from a pre-supplied
+/// `Vec<String>`. Mirrors `MockLanguageModel`'s streaming contract
+/// (one `TokenChunk::Token` per Unicode scalar, terminal `Done` with
+/// `canned_usage`, stop-string truncation honoured) but lets a test
+/// distinguish the decompose / per-iter decide / synthesize LLM calls
+/// of `RagPipeline::ask_multi_hop` — each can return a different
+/// payload (`["q1","q2"]`, `[]`, `"final answer [#1]"`, etc.).
+///
+/// Internally `Arc<Vec<String>> + AtomicUsize` so the type is
+/// `Send + Sync` and can be wrapped in `Arc<dyn LanguageModel>`.
+/// Tests can read `calls()` for an assertion on the expected LLM
+/// call count.
+///
+/// Exhaustion (more calls than scripted responses) panics — tests
+/// that need an "infinite" final response can supply a longer
+/// script; the panic message names the call index so the test
+/// failure points at the missing entry.
+pub struct ScriptedLm {
+    model_id: String,
+    provider: String,
+    context_tokens: usize,
+    /// Canned responses in call order. Index `i` is returned on the
+    /// `i`-th `generate_stream` call (0-based).
+    responses: Vec<String>,
+    /// 0-based index of the next response to return on `generate_stream`.
+    next: std::sync::atomic::AtomicUsize,
+    canned_finish: kebab_core::FinishReason,
+    canned_usage: kebab_core::TokenUsage,
+}
+
+impl ScriptedLm {
+    /// Build a scripted LM with the default model_id/provider used by
+    /// the rest of the test suite (`mock-lm` / `mock`) and the
+    /// MockLanguageModel-equivalent canned usage. Call `with_*`
+    /// builders if a test needs to override the defaults.
+    pub fn new(responses: Vec<&str>) -> Self {
+        Self {
+            model_id: "mock-lm".to_string(),
+            provider: "mock".to_string(),
+            context_tokens: 32_768,
+            responses: responses.into_iter().map(str::to_string).collect(),
+            next: std::sync::atomic::AtomicUsize::new(0),
+            canned_finish: kebab_core::FinishReason::Stop,
+            canned_usage: kebab_core::TokenUsage {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                latency_ms: 7,
+            },
+        }
+    }
+
+    /// Total `generate_stream` invocations so far. Tests use this to
+    /// assert "exactly N LLM calls happened" without scanning the
+    /// HopRecord trace (the trace is the user-visible signal; this
+    /// is the lower-level call counter).
+    pub fn calls(&self) -> usize {
+        self.next.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Earliest byte position of any non-empty stop string in
+    /// `canned`. Same precedence rule as `MockLanguageModel`:
+    /// `Iterator::min` returns the first equal element, so ties
+    /// break by `stop` declaration order. `str::find` returns a
+    /// UTF-8 char boundary by contract, so the resulting prefix
+    /// slice is sound.
+    fn apply_stop<'a>(canned: &'a str, stop: &[String]) -> (&'a str, bool) {
+        let earliest = stop
+            .iter()
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| canned.find(s.as_str()))
+            .min();
+        match earliest {
+            Some(idx) => (&canned[..idx], true),
+            None => (canned, false),
+        }
+    }
+}
+
+impl kebab_core::LanguageModel for ScriptedLm {
+    fn model_ref(&self) -> kebab_core::ModelRef {
+        kebab_core::ModelRef {
+            id: self.model_id.clone(),
+            provider: self.provider.clone(),
+            dimensions: None,
+        }
+    }
+
+    fn context_tokens(&self) -> usize {
+        self.context_tokens
+    }
+
+    fn generate_stream(
+        &self,
+        req: kebab_core::GenerateRequest,
+    ) -> anyhow::Result<
+        Box<dyn Iterator<Item = anyhow::Result<kebab_core::TokenChunk>> + Send>,
+    > {
+        let idx = self
+            .next
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let canned = self.responses.get(idx).unwrap_or_else(|| {
+            panic!(
+                "ScriptedLm exhausted: call #{idx} requested but only {} responses scripted",
+                self.responses.len()
+            )
+        });
+        let (truncated, stop_hit) = Self::apply_stop(canned, &req.stop);
+        let mut chunks: Vec<kebab_core::TokenChunk> = truncated
+            .chars()
+            .map(|c| kebab_core::TokenChunk::Token(c.to_string()))
+            .collect();
+        let finish_reason = if stop_hit {
+            kebab_core::FinishReason::Stop
+        } else {
+            self.canned_finish.clone()
+        };
+        chunks.push(kebab_core::TokenChunk::Done {
+            finish_reason,
+            usage: self.canned_usage.clone(),
+        });
+        Ok(Box::new(chunks.into_iter().map(Ok)))
+    }
 }
