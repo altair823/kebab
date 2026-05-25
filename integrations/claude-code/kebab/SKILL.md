@@ -80,13 +80,14 @@ Use when the user wants a synthesized answer, not a list of links.
 
 Input:
 ```json
-{ "query": "<question>", "session_id": "<optional-slug>", "mode": "hybrid" }
+{ "query": "<question>", "session_id": "<optional-slug>", "mode": "hybrid", "multi_hop": false }
 ```
 
-- Returns `answer.v1`: `answer` (markdown), `citations[]`, `grounded` (bool), `refusal_reason`, `model`, `conversation_id`, `turn_index`.
+- Returns `answer.v1`: `answer` (markdown), `citations[]`, `grounded` (bool), `refusal_reason`, `model`, `conversation_id`, `turn_index`, `hops` (multi-hop only).
 - **If `grounded == false`** → KB doesn't have enough context. Don't paraphrase the refusal as if it were an answer. Tell the user the KB came up dry and fall back to your own knowledge or ask for the source.
 - For follow-up turns on the same topic, pass `session_id` (e.g. `"team-onboarding-2026-05"`) and reuse it across the conversation. Sessions persist until `kebab reset --data-only`.
 - p9-fb-40: 기본 `prompt_template_version = "rag-v2"`. 답변이 더 strict — fact 인용 시 verbatim span, 학습 지식 동원 금지, 근거 모호 시 "확실하지 않다" 출현 가능. user 가 `[rag] prompt_template_version = "rag-v1"` 명시 시 legacy 동작.
+- **p9-fb-41 `multi_hop: true`** — opt the ask into the multi-hop pipeline. The query is decomposed into sub-questions, each retrieved independently (LLM-driven decide loop, up to `rag.multi_hop_max_depth` iters), then synthesized over the merged chunk pool. Cost trade-off: 2–5× LLM calls vs. single-pass. **Use** for compound questions ("X 와 Y 의 차이는?", prereq chains, cross-doc reasoning where one chunk alone is insufficient). **Don't** for simple fact-finding (single-pass is faster + cheaper). When set, `answer.v1.hops[]` carries the per-hop trace (`{iter, kind, sub_queries[], context_chunks_added, forced_stop, llm_call_ms}`) — surface a brief "Searched in N hops" note when the trace is non-trivial. Decompose-failure (model emitted non-JSON) → `refusal_reason = "multi_hop_decompose_failed"`; treat like any other refusal.
 
 ### `mcp__kebab__fetch` — when you need raw text
 

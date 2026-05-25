@@ -20,6 +20,15 @@ pub struct AskInput {
     pub session_id: Option<String>,
     /// Optional retrieval mode override ("lexical" / "vector" / "hybrid"). Default "hybrid".
     pub mode: Option<String>,
+    /// p9-fb-41: opt the ask into the multi-hop pipeline. Default `false`.
+    /// When `true`, the query is decomposed into sub-questions, each
+    /// retrieved independently, then synthesized over the merged
+    /// chunk pool. Cost trade-off: 2–5× LLM calls vs. single-pass.
+    /// Use for compound questions / cross-doc reasoning / prereq
+    /// chains; keep `false` for simple fact lookups. The full
+    /// per-hop trace (`decompose` / `decide` / `synthesize`) is
+    /// exposed on `Answer.hops`.
+    pub multi_hop: Option<bool>,
 }
 
 pub fn handle(state: &KebabAppState, input: AskInput) -> CallToolResult {
@@ -38,7 +47,7 @@ pub fn handle(state: &KebabAppState, input: AskInput) -> CallToolResult {
         history: Vec::new(),
         conversation_id: None,
         turn_index: None,
-        multi_hop: false,
+        multi_hop: input.multi_hop.unwrap_or(false),
     };
     let cfg_clone = (*state.config).clone();
     let result = match input.session_id {
