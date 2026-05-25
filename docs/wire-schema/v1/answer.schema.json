@@ -30,12 +30,14 @@
             "no_index",
             "no_chunks",
             "llm_stream_aborted",
-            "multi_hop_decompose_failed"
+            "multi_hop_decompose_failed",
+            "nli_verification_failed",
+            "nli_model_unavailable"
           ]
         },
         { "type": "null" }
       ],
-      "description": "p9-fb-41: `multi_hop_decompose_failed` added in PR-2 alongside the multi-hop pipeline skeleton (only emitted when AskOpts.multi_hop = true and the decompose LLM call fails to parse). Other variants are unchanged from earlier phases."
+      "description": "p9-fb-41: `multi_hop_decompose_failed` added in PR-2 alongside the multi-hop pipeline skeleton (only emitted when AskOpts.multi_hop = true and the decompose LLM call fails to parse). `nli_verification_failed` + `nli_model_unavailable` added in PR-9c-1 — both emitted only on the multi-hop path when `[rag].nli_threshold > 0`; surface declared in PR-9c-1, behavior wired in PR-9c-2."
     },
     "model":                   { "type": "object" },
     "embedding":               { "type": ["object", "null"] },
@@ -61,6 +63,13 @@
         { "type": "null" }
       ],
       "description": "p9-fb-41 multi-hop trace. Present (non-null array) only when the ask routed through the multi-hop pipeline (`AskOpts.multi_hop = true`); single-pass answers omit the field entirely (serde `skip_serializing_if = None`). Each entry records one LLM hop — decompose / decide / synthesize — with sub-queries, retrieval count, and per-hop latency. Wire-additive: pre-fb-41 readers tolerate the missing field; new readers branch on its presence to render the per-hop trace."
+    },
+    "verification": {
+      "anyOf": [
+        { "$ref": "#/$defs/VerificationSummary" },
+        { "type": "null" }
+      ],
+      "description": "p9-fb-41 PR-9c-1: NLI-based groundedness verification summary. Present only when `[rag].nli_threshold > 0` and multi-hop ask reached step 8.5 (single-pass ask never verifies). Surface declared in PR-9c-1; the actual stamp lands in PR-9c-2. Wire-additive: pre-v0.18 readers tolerate the missing field."
     }
   },
   "$defs": {
@@ -95,6 +104,24 @@
           "type": "integer",
           "minimum": 0,
           "description": "Wall-clock latency of the LLM call for this hop. `0` is overloaded — means 'no LLM call happened' when (a) the Decide hop was skipped due to forced_stop or (b) the pool was empty before any decide could run. Treat 0 as absent or instantaneous."
+        }
+      }
+    },
+    "VerificationSummary": {
+      "type": "object",
+      "required": ["nli_score", "nli_threshold", "nli_passed"],
+      "properties": {
+        "nli_score": {
+          "type": "number",
+          "description": "p9-fb-41 PR-9c-1: NLI entailment channel score (faithfulness) — `NliScores::faithfulness()` of `(premise = packed chunks, hypothesis = answer)`."
+        },
+        "nli_threshold": {
+          "type": "number",
+          "description": "p9-fb-41 PR-9c-1: mirror of `[rag].nli_threshold` at the time the verification ran (audit field — same value the pipeline gates on)."
+        },
+        "nli_passed": {
+          "type": "boolean",
+          "description": "p9-fb-41 PR-9c-1: `nli_score >= nli_threshold`. When false, the matching wire emit also carries `refusal_reason = \"nli_verification_failed\"`."
         }
       }
     }

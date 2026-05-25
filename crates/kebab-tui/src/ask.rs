@@ -261,6 +261,16 @@ fn render_status(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::
                 Some(RefusalReason::MultiHopDecomposeFailed) => {
                     "  refusal=multi_hop_decompose_failed"
                 }
+                // p9-fb-41 PR-9c-1: NLI refusals don't yet appear on
+                // live answers (PR-9c-2 wires the gate), but the
+                // match must stay exhaustive so the new variants
+                // compile without `_ => unreachable!()`.
+                Some(RefusalReason::NliVerificationFailed) => {
+                    "  refusal=nli_verification_failed"
+                }
+                Some(RefusalReason::NliModelUnavailable) => {
+                    "  refusal=nli_model_unavailable"
+                }
                 None => "",
             };
             let mut lines = vec![

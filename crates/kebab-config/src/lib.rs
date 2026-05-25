@@ -103,6 +103,34 @@ pub struct ChunkingCfg {
 pub struct ModelsCfg {
     pub embedding: EmbeddingModelCfg,
     pub llm: LlmCfg,
+    /// p9-fb-41 PR-9c-1: NLI verifier model + provider knob.
+    /// `#[serde(default)]` so pre-v0.18 config files that predate the
+    /// `[models.nli]` section still load with built-in defaults
+    /// (`Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7` / `onnx`).
+    /// The verifier itself is gated by `[rag].nli_threshold` — even
+    /// with a model configured here, threshold `0.0` (the default)
+    /// skips the verification step entirely.
+    #[serde(default = "NliCfg::defaults")]
+    pub nli: NliCfg,
+}
+
+/// p9-fb-41 PR-9c-1: NLI verifier configuration. The model id flows to
+/// `OnnxNliVerifier::new` via `kebab-nli` (PR-9c-2 wiring); the provider
+/// is reserved for future verifier swap-in (currently only `"onnx"` is
+/// recognized — anything else falls back to the same path).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NliCfg {
+    pub model: String,
+    pub provider: String,
+}
+
+impl NliCfg {
+    pub fn defaults() -> Self {
+        Self {
+            model: "Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7".to_string(),
+            provider: "onnx".to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -213,6 +241,22 @@ pub struct RagCfg {
     /// cross-doc reasoning over ~5 chunks per iter.
     #[serde(default = "default_multi_hop_max_pool_chunks")]
     pub multi_hop_max_pool_chunks: u32,
+    /// p9-fb-41 PR-9c-1: minimum NLI entailment score required for the
+    /// multi-hop synthesize answer to be returned as `grounded=true`
+    /// (spec §2.6 single gate). When the post-synthesize NLI verifier
+    /// returns `NliScores::faithfulness() < nli_threshold` the
+    /// pipeline refuses with `RefusalReason::NliVerificationFailed`.
+    ///
+    /// Default `0.0` = verification disabled — no NLI call, multi-hop
+    /// matches its PR-3b behavior exactly. Set to e.g. `0.5` to
+    /// activate the gate. Knob lives on `[rag]` (the gate is a RAG
+    /// policy, not a model property); the model itself comes from
+    /// `[models.nli].model`.
+    ///
+    /// Single-pass `ask` ignores this knob entirely — only multi-hop
+    /// runs through the verification step (PR-9c-2 wires it).
+    #[serde(default = "default_nli_threshold")]
+    pub nli_threshold: f32,
 }
 
 fn default_multi_hop_max_depth() -> u32 {
@@ -225,6 +269,13 @@ fn default_multi_hop_max_sub_queries_per_iter() -> u32 {
 
 fn default_multi_hop_max_pool_chunks() -> u32 {
     15
+}
+
+/// p9-fb-41 PR-9c-1: NLI gate disabled by default per spec §2.6
+/// (verification opt-in — users explicitly raise the threshold once
+/// they're ready to trade refusal-rate for groundedness).
+fn default_nli_threshold() -> f32 {
+    0.0
 }
 
 /// Settings for the image ingest pipeline (P6). `ocr` controls OCR
@@ -464,6 +515,7 @@ impl Config {
                     seed: 0,
                     request_timeout_secs: default_llm_request_timeout_secs(),
                 },
+                nli: NliCfg::defaults(),
             },
             search: SearchCfg {
                 default_k: 10,
@@ -482,6 +534,7 @@ impl Config {
                 multi_hop_max_sub_queries_per_iter:
                     default_multi_hop_max_sub_queries_per_iter(),
                 multi_hop_max_pool_chunks: default_multi_hop_max_pool_chunks(),
+                nli_threshold: default_nli_threshold(),
             },
             image: ImageCfg::defaults(),
             ui: UiCfg::defaults(),
@@ -725,6 +778,10 @@ impl Config {
                     }
                 }
 
+                // models.nli (p9-fb-41 PR-9c-1)
+                "KEBAB_MODELS_NLI_MODEL" => self.models.nli.model = v.clone(),
+                "KEBAB_MODELS_NLI_PROVIDER" => self.models.nli.provider = v.clone(),
+
                 // search
                 "KEBAB_SEARCH_DEFAULT_K" => {
                     if let Ok(n) = v.parse::<usize>() {
@@ -780,6 +837,24 @@ impl Config {
                         self.rag.multi_hop_max_pool_chunks = n;
                     }
                 }
+                // p9-fb-41 PR-9c-1: NLI gate threshold. Parse failure
+                // emits a `tracing::warn!` (not silent like the other
+                // numeric env overrides) because this knob gates the
+                // NLI verification entirely — a malformed env value
+                // would silently disable a security-flavored gate the
+                // user thought they enabled, which is the failure mode
+                // most worth surfacing. The default (`0.0`) survives
+                // on parse failure so behaviour stays well-defined.
+                "KEBAB_RAG_NLI_THRESHOLD" => match v.parse::<f32>() {
+                    Ok(f) => self.rag.nli_threshold = f,
+                    Err(e) => tracing::warn!(
+                        target: "kebab-config",
+                        env_key = "KEBAB_RAG_NLI_THRESHOLD",
+                        env_value = %v,
+                        error = %e,
+                        "invalid KEBAB_RAG_NLI_THRESHOLD; keeping prior value (0.0 = NLI gate disabled)"
+                    ),
+                },
 
                 // image.ocr
                 "KEBAB_IMAGE_OCR_ENABLED" => {
@@ -1212,6 +1287,84 @@ theme = "dark"
         assert_eq!(c.rag.multi_hop_max_sub_queries_per_iter, 5);
         // v0.18 dogfood (post-PR-7): pool default 30 → 15.
         assert_eq!(c.rag.multi_hop_max_pool_chunks, 15);
+    }
+
+    // ── p9-fb-41 PR-9c-1: NLI verification knobs ─────────────────────────
+
+    #[test]
+    fn default_nli_threshold_is_zero() {
+        // Spec §2.6: NLI gate disabled by default — verification is
+        // opt-in. `0.0` keeps multi-hop behavior identical to PR-3b.
+        assert_eq!(Config::defaults().rag.nli_threshold, 0.0);
+    }
+
+    #[test]
+    fn default_nli_model_is_xenova_mdeberta() {
+        // Pin the default model id so a refactor that touches NliCfg
+        // can't silently flip to a different verifier model.
+        assert_eq!(
+            Config::defaults().models.nli.model,
+            "Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7"
+        );
+        assert_eq!(Config::defaults().models.nli.provider, "onnx");
+    }
+
+    /// A config file written before the `[models.nli]` / `nli_threshold`
+    /// keys existed must still parse and fall back to the documented
+    /// defaults. Fixture shared via [`LEGACY_PRE_TIMEOUT_TOML`] (predates
+    /// all PR-9c-1 fields).
+    #[test]
+    fn legacy_config_without_nli_uses_defaults() {
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
+            .expect("parse legacy config");
+        assert_eq!(c.rag.nli_threshold, 0.0);
+        assert_eq!(
+            c.models.nli.model,
+            "Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7"
+        );
+        assert_eq!(c.models.nli.provider, "onnx");
+    }
+
+    #[test]
+    fn env_override_nli_threshold() {
+        let mut env = HashMap::new();
+        env.insert("KEBAB_RAG_NLI_THRESHOLD".to_string(), "0.5".to_string());
+        let c = Config::defaults().apply_env(&env);
+        assert!((c.rag.nli_threshold - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn env_override_nli_model_and_provider() {
+        let mut env = HashMap::new();
+        env.insert(
+            "KEBAB_MODELS_NLI_MODEL".to_string(),
+            "user/custom-nli-model".to_string(),
+        );
+        env.insert(
+            "KEBAB_MODELS_NLI_PROVIDER".to_string(),
+            "candle".to_string(),
+        );
+        let c = Config::defaults().apply_env(&env);
+        assert_eq!(c.models.nli.model, "user/custom-nli-model");
+        assert_eq!(c.models.nli.provider, "candle");
+    }
+
+    /// Malformed `KEBAB_RAG_NLI_THRESHOLD` keeps the prior value (does
+    /// NOT silently disable nor crash). The `tracing::warn!` surface
+    /// is observable only when the user has tracing wired; the
+    /// behavior contract is "default survives".
+    #[test]
+    fn env_malformed_nli_threshold_keeps_prior_value() {
+        let mut env = HashMap::new();
+        env.insert(
+            "KEBAB_RAG_NLI_THRESHOLD".to_string(),
+            "not-a-float".to_string(),
+        );
+        let c = Config::defaults().apply_env(&env);
+        assert_eq!(
+            c.rag.nli_threshold, 0.0,
+            "malformed env value must keep the default unchanged"
+        );
     }
 
     #[test]

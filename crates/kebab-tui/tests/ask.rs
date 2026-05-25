@@ -78,6 +78,7 @@ fn make_answer(grounded: bool, refusal: Option<RefusalReason>, body: &str) -> An
         conversation_id: None,
         turn_index: None,
         hops: None,
+        verification: None,
     }
 }
 

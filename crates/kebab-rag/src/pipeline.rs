@@ -197,6 +197,14 @@ pub struct RagPipeline {
     retriever: Arc<dyn Retriever>,
     llm: Arc<dyn LanguageModel>,
     docs: Arc<SqliteStore>,
+    /// p9-fb-41 PR-9c-1: optional NLI verifier injected via
+    /// [`Self::with_verifier`]. Not yet read — PR-9c-2 wires the
+    /// `ask_multi_hop` step 8.5 (post-synthesize gate) that consumes
+    /// it. Until then the field is `#[allow(dead_code)]`; the
+    /// attribute is removed in the PR-9c-2 commit that adds the
+    /// read site so leftover dead code can never sneak in.
+    #[allow(dead_code)]
+    verifier: Option<Arc<dyn kebab_nli::NliVerifier>>,
 }
 
 impl RagPipeline {
@@ -204,6 +212,10 @@ impl RagPipeline {
     /// validated here — callers are expected to pass already-built
     /// `Arc`'d trait objects (kb-app builds them from config; tests
     /// inject mocks).
+    ///
+    /// The NLI verifier is NOT a constructor arg — it threads in via
+    /// the [`Self::with_verifier`] builder so the historical 4-arg
+    /// signature stays stable across the PR-9c-1 surface bump.
     pub fn new(
         config: kebab_config::Config,
         retriever: Arc<dyn Retriever>,
@@ -215,7 +227,24 @@ impl RagPipeline {
             retriever,
             llm,
             docs,
+            verifier: None,
         }
+    }
+
+    /// p9-fb-41 PR-9c-1: inject the post-synthesize NLI verifier.
+    /// Caller (kebab-app facade, PR-9c-2) builds an
+    /// `Arc<OnnxNliVerifier>` from `cfg.models.nli` when
+    /// `cfg.rag.nli_threshold > 0`, then chains
+    /// `RagPipeline::new(...).with_verifier(v)`.
+    ///
+    /// Currently unused — PR-9c-2 wires the read site (step 8.5 of
+    /// `ask_multi_hop`). `#[allow(dead_code)]` survives only until
+    /// that PR's commit, which removes it together with adding the
+    /// hook that reads `self.verifier`.
+    #[allow(dead_code)]
+    pub fn with_verifier(mut self, v: Arc<dyn kebab_nli::NliVerifier>) -> Self {
+        self.verifier = Some(v);
+        self
     }
 
     /// p9-fb-15: convenience for multi-turn ask. Stuffs `history`,
@@ -537,6 +566,10 @@ impl RagPipeline {
             // only the multi-hop happy path will set `Some(...)` in
             // Step 5 once the decide loop populates a hop trace.
             hops: None,
+            // p9-fb-41 PR-9c-1: surface-only field — single-pass
+            // never verifies (multi-hop step 8.5 is the only path
+            // that stamps `Some(...)`, wired in PR-9c-2).
+            verification: None,
         };
 
         // Drop the moved `finish_reason` early into a tracing breadcrumb; the
@@ -1068,6 +1101,11 @@ impl RagPipeline {
             // currently lose the trace (cleanup deferred — would
             // require widening helper signatures, PR-3b-ii / follow-up).
             hops: Some(hops),
+            // p9-fb-41 PR-9c-1: surface-only field — PR-9c-2 wires
+            // step 8.5 between citation-validate and Answer-build to
+            // stamp this with the actual NLI score when
+            // `cfg.rag.nli_threshold > 0`. Until then, stays None.
+            verification: None,
         };
 
         tracing::debug!(
@@ -1276,6 +1314,9 @@ impl RagPipeline {
             // only the multi-hop happy path will set `Some(...)` in
             // Step 5 once the decide loop populates a hop trace.
             hops: None,
+            // p9-fb-41 PR-9c-1: surface-only field — decompose-failure
+            // refusal never reaches the NLI gate.
+            verification: None,
         };
         if let Some(sink) = &opts.stream_sink {
             let _ = sink.send(StreamEvent::Final {
@@ -1411,6 +1452,9 @@ impl RagPipeline {
             // stays `skip_serializing_if = None`, so single-pass
             // wire output is unchanged.
             hops,
+            // p9-fb-41 PR-9c-1: NoChunks refusal never reaches the
+            // synthesize / NLI gate.
+            verification: None,
         };
         if let Err(e) = self.docs.put_answer(&answer, query, None) {
             tracing::warn!(target: "kebab-rag", error = %e, "kb-rag: put_answer (NoChunks) failed");
@@ -1501,6 +1545,9 @@ impl RagPipeline {
             turn_index: opts.turn_index,
             // p9-fb-41 PR-3b-ii: see refuse_no_chunks' identical comment.
             hops,
+            // p9-fb-41 PR-9c-1: ScoreGate refusal never reaches the
+            // synthesize / NLI gate.
+            verification: None,
         };
         if let Err(e) = self.docs.put_answer(&answer, query, None) {
             tracing::warn!(target: "kebab-rag", error = %e, "kb-rag: put_answer (ScoreGate) failed");
@@ -2134,6 +2181,7 @@ mod stream_event_serde_tests {
             conversation_id: None,
             turn_index: None,
             hops: None,
+            verification: None,
         };
         let ev = StreamEvent::Final { answer };
         let v = serde_json::to_value(&ev).unwrap();

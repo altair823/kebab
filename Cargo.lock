@@ -4451,6 +4451,7 @@ dependencies = [
  "kebab-config",
  "kebab-core",
  "kebab-llm",
+ "kebab-nli",
  "kebab-search",
  "kebab-store-sqlite",
  "regex",

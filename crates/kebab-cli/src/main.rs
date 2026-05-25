@@ -1653,6 +1653,7 @@ mod tests {
             conversation_id: None,
             turn_index: None,
             hops: None,
+            verification: None,
         }
     }
 

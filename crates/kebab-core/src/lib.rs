@@ -57,7 +57,7 @@ pub use search::{
 };
 pub use answer::{
     Answer, AnswerCitation, AnswerRetrievalSummary, HopKind, HopRecord, ModelRef,
-    RefusalReason, TokenUsage, TraceId, Turn,
+    RefusalReason, TokenUsage, TraceId, Turn, VerificationSummary,
 };
 pub use ingest::{IngestItem, IngestItemKind, IngestReport, SkipExamples};
 pub use jobs::{JobFilter, JobId, JobKind, JobRow, JobStatus};
