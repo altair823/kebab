@@ -133,29 +133,15 @@ impl OnnxNliVerifier {
     /// so a user reading kebab logs can see which artifact source the
     /// pipeline picked.
     fn fetch(&self, filename: &str) -> Result<PathBuf> {
-        let api = hf_hub::api::sync::ApiBuilder::new()
-            .with_cache_dir(self.cache_dir.clone())
-            .build()
-            .with_context(|| {
-                format!(
-                    "kebab-nli: hf-hub ApiBuilder::build failed (cache_dir={})",
-                    self.cache_dir.display()
-                )
-            })?;
-        let repo = api.model(self.model_id.clone());
-
-        // `ApiRepo::get` returns the local path if cached, otherwise
-        // downloads. We can't tell after the fact whether the file
-        // was already cached without an extra `Cache::repo::get`
-        // probe, so do that probe first to emit the right log line.
-        let cache_path = api
-            .repo(hf_hub::Repo::new(
-                self.model_id.clone(),
-                hf_hub::RepoType::Model,
-            ))
+        // Round-1 review N1 fix: `Api::get` triggers download on miss,
+        // so we can't use it as a hit probe. `Cache::get` is fs-only —
+        // returns Some(path) if cached, None otherwise. No network.
+        let repo = hf_hub::Repo::new(self.model_id.clone(), hf_hub::RepoType::Model);
+        let cached = hf_hub::Cache::new(self.cache_dir.clone())
+            .repo(repo.clone())
             .get(filename)
-            .ok();
-        if cache_path.is_some() {
+            .is_some();
+        if cached {
             tracing::info!(
                 target: "kebab-nli",
                 model_id = %self.model_id,
@@ -172,13 +158,24 @@ impl OnnxNliVerifier {
             );
         }
 
-        repo.get(filename).with_context(|| {
-            format!(
-                "kebab-nli: hf-hub fetch failed for {filename} (model_id={}, cache_dir={})",
-                self.model_id,
-                self.cache_dir.display()
-            )
-        })
+        let api = hf_hub::api::sync::ApiBuilder::new()
+            .with_cache_dir(self.cache_dir.clone())
+            .build()
+            .with_context(|| {
+                format!(
+                    "kebab-nli: hf-hub ApiBuilder::build failed (cache_dir={})",
+                    self.cache_dir.display()
+                )
+            })?;
+        api.model(self.model_id.clone())
+            .get(filename)
+            .with_context(|| {
+                format!(
+                    "kebab-nli: hf-hub fetch failed for {filename} (model_id={}, cache_dir={})",
+                    self.model_id,
+                    self.cache_dir.display()
+                )
+            })
     }
 
     fn load_session(&self) -> Result<Session> {
@@ -290,10 +287,22 @@ fn sanitize_model_id(s: &str) -> String {
 mod tests {
     use super::*;
     use kebab_config::Config;
+    use tempfile::TempDir;
+
+    /// Round-1 review N2 fix: redirect Config.storage.{data,model}_dir
+    /// into a tempdir so unit tests don't litter the user's XDG dirs
+    /// with empty `nli/` subdirs.
+    fn tempdir_config() -> (TempDir, Config) {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut cfg = Config::defaults();
+        cfg.storage.data_dir = tmp.path().to_string_lossy().into_owned();
+        cfg.storage.model_dir = "{data_dir}/models".to_string();
+        (tmp, cfg)
+    }
 
     #[test]
     fn new_succeeds_on_default_config() {
-        let cfg = Config::defaults();
+        let (_tmp, cfg) = tempdir_config();
         let v = OnnxNliVerifier::new(&cfg).expect("new should succeed on default config");
         // cache_dir must include the sanitized model id (no '/').
         let s = v.cache_dir.to_string_lossy();
@@ -313,7 +322,7 @@ mod tests {
     /// Replaces PR-9a's `score_returns_err_in_skeleton` (stub-only).
     #[test]
     fn score_empty_hypothesis_returns_err() {
-        let cfg = Config::defaults();
+        let (_tmp, cfg) = tempdir_config();
         let v = OnnxNliVerifier::new(&cfg).unwrap();
         let err = v.score("anything", "").expect_err("empty hypothesis must error");
         assert!(
