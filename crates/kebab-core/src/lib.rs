@@ -56,8 +56,8 @@ pub use search::{
     TraceCandidate, TraceFusionInput, TraceTiming,
 };
 pub use answer::{
-    Answer, AnswerCitation, AnswerRetrievalSummary, ModelRef, RefusalReason, TokenUsage,
-    TraceId, Turn,
+    Answer, AnswerCitation, AnswerRetrievalSummary, HopKind, HopRecord, ModelRef,
+    RefusalReason, TokenUsage, TraceId, Turn,
 };
 pub use ingest::{IngestItem, IngestItemKind, IngestReport, SkipExamples};
 pub use jobs::{JobFilter, JobId, JobKind, JobRow, JobStatus};

@@ -181,6 +181,39 @@ pub struct RagCfg {
     pub score_gate: f32,
     pub explain_default: bool,
     pub max_context_tokens: usize,
+    /// p9-fb-41: hard ceiling on the number of multi-hop iterations
+    /// (decompose iter + decide iters). When the LLM keeps returning
+    /// `continue` past this depth the pipeline cuts to `synthesize`
+    /// with `HopRecord.forced_stop = true`. Default `3` — enough for
+    /// most cross-doc reasoning, low enough to bound LLM cost.
+    #[serde(default = "default_multi_hop_max_depth")]
+    pub multi_hop_max_depth: u32,
+    /// p9-fb-41: cap on how many sub-queries the LLM may emit in a
+    /// single decompose / decide call. Mirrors
+    /// [`MULTI_HOP_MAX_SUB_QUERIES_DEFAULT`] in kebab-rag — the
+    /// const is the hard floor while this is the runtime knob.
+    /// Default `5`.
+    #[serde(default = "default_multi_hop_max_sub_queries_per_iter")]
+    pub multi_hop_max_sub_queries_per_iter: u32,
+    /// p9-fb-41: hard ceiling on the deduped chunk pool. When the
+    /// accumulated pool would exceed this many chunks the pipeline
+    /// stops accepting new retrieval results and forces synthesize
+    /// with `forced_stop = true`. Default `30` — generous for
+    /// 5-hop / 10-hits multi-hop runs while still bounded.
+    #[serde(default = "default_multi_hop_max_pool_chunks")]
+    pub multi_hop_max_pool_chunks: u32,
+}
+
+fn default_multi_hop_max_depth() -> u32 {
+    3
+}
+
+fn default_multi_hop_max_sub_queries_per_iter() -> u32 {
+    5
+}
+
+fn default_multi_hop_max_pool_chunks() -> u32 {
+    30
 }
 
 /// Settings for the image ingest pipeline (P6). `ocr` controls OCR
@@ -434,6 +467,10 @@ impl Config {
                 score_gate: 0.30,
                 explain_default: false,
                 max_context_tokens: 8000,
+                multi_hop_max_depth: default_multi_hop_max_depth(),
+                multi_hop_max_sub_queries_per_iter:
+                    default_multi_hop_max_sub_queries_per_iter(),
+                multi_hop_max_pool_chunks: default_multi_hop_max_pool_chunks(),
             },
             image: ImageCfg::defaults(),
             ui: UiCfg::defaults(),
@@ -715,6 +752,21 @@ impl Config {
                 "KEBAB_RAG_MAX_CONTEXT_TOKENS" => {
                     if let Ok(n) = v.parse::<usize>() {
                         self.rag.max_context_tokens = n;
+                    }
+                }
+                "KEBAB_RAG_MULTI_HOP_MAX_DEPTH" => {
+                    if let Ok(n) = v.parse::<u32>() {
+                        self.rag.multi_hop_max_depth = n;
+                    }
+                }
+                "KEBAB_RAG_MULTI_HOP_MAX_SUB_QUERIES_PER_ITER" => {
+                    if let Ok(n) = v.parse::<u32>() {
+                        self.rag.multi_hop_max_sub_queries_per_iter = n;
+                    }
+                }
+                "KEBAB_RAG_MULTI_HOP_MAX_POOL_CHUNKS" => {
+                    if let Ok(n) = v.parse::<u32>() {
+                        self.rag.multi_hop_max_pool_chunks = n;
                     }
                 }
 
@@ -1090,6 +1142,61 @@ theme = "dark"
         let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
             .expect("parse legacy config");
         assert_eq!(c.image.ocr.request_timeout_secs, 300);
+    }
+
+    // ── p9-fb-41: multi-hop RAG knobs ────────────────────────────────────
+
+    #[test]
+    fn default_multi_hop_max_depth_is_3() {
+        assert_eq!(Config::defaults().rag.multi_hop_max_depth, 3);
+    }
+
+    #[test]
+    fn default_multi_hop_max_sub_queries_per_iter_is_5() {
+        assert_eq!(
+            Config::defaults().rag.multi_hop_max_sub_queries_per_iter,
+            5
+        );
+    }
+
+    #[test]
+    fn default_multi_hop_max_pool_chunks_is_30() {
+        assert_eq!(Config::defaults().rag.multi_hop_max_pool_chunks, 30);
+    }
+
+    #[test]
+    fn env_overrides_multi_hop_knobs() {
+        let mut env = HashMap::new();
+        env.insert(
+            "KEBAB_RAG_MULTI_HOP_MAX_DEPTH".to_string(),
+            "5".to_string(),
+        );
+        env.insert(
+            "KEBAB_RAG_MULTI_HOP_MAX_SUB_QUERIES_PER_ITER".to_string(),
+            "7".to_string(),
+        );
+        env.insert(
+            "KEBAB_RAG_MULTI_HOP_MAX_POOL_CHUNKS".to_string(),
+            "50".to_string(),
+        );
+        let c = Config::defaults().apply_env(&env);
+        assert_eq!(c.rag.multi_hop_max_depth, 5);
+        assert_eq!(c.rag.multi_hop_max_sub_queries_per_iter, 7);
+        assert_eq!(c.rag.multi_hop_max_pool_chunks, 50);
+    }
+
+    /// post-PR-3 fb-41: a config file written before the multi-hop
+    /// knobs existed must still parse and fall back to the documented
+    /// defaults — backwards-compat invariant. Fixture shared with the
+    /// LLM / OCR timeout invariants via [`LEGACY_PRE_TIMEOUT_TOML`]
+    /// (that fixture also predates the multi_hop_* fields).
+    #[test]
+    fn legacy_config_without_multi_hop_knobs_uses_defaults() {
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
+            .expect("parse legacy config");
+        assert_eq!(c.rag.multi_hop_max_depth, 3);
+        assert_eq!(c.rag.multi_hop_max_sub_queries_per_iter, 5);
+        assert_eq!(c.rag.multi_hop_max_pool_chunks, 30);
     }
 
     #[test]
