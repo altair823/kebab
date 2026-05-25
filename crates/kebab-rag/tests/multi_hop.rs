@@ -58,7 +58,9 @@ fn multi_hop_decide_stop_triggers_synthesize() {
     let did = id32("d1");
     env.seed_chunk(&cid, &did, "notes/a.md", "Body text.", &["Intro"]);
     let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
-    let retriever = Arc::new(ScriptedRetriever::new(vec![hits]));
+    // PR-7: ScriptedRetriever entry 0 = probe retrieve (pre-decompose
+    // score-gate), entry 1 = decompose-driven retrieve for "q1".
+    let retriever = Arc::new(ScriptedRetriever::new(vec![hits.clone(), hits]));
     let retriever_handle = retriever.clone();
     let retriever_dyn: Arc<dyn Retriever> = retriever;
 
@@ -84,8 +86,8 @@ fn multi_hop_decide_stop_triggers_synthesize() {
     );
     assert_eq!(
         retriever_handle.calls(),
-        1,
-        "single sub-query → single retrieval"
+        2,
+        "probe retrieve + 1 sub-query retrieve = 2"
     );
 
     let hops = answer.hops.expect("multi-hop happy path stamps Some(hops)");
@@ -115,9 +117,10 @@ fn multi_hop_decide_continue_adds_more_chunks() {
     let did2 = id32("d2");
     env.seed_chunk(&cid1, &did1, "notes/a.md", "Chunk one.", &["A"]);
     env.seed_chunk(&cid2, &did2, "notes/b.md", "Chunk two.", &["B"]);
-    // iter 1 retrieves chunk 1; iter 2 retrieves chunk 2 (different
-    // chunk_id → pool grows).
+    // PR-7: entry 0 = probe (above gate), entry 1 = iter 1 retrieves
+    // chunk 1, entry 2 = iter 2 retrieves chunk 2.
     let retriever = Arc::new(ScriptedRetriever::new(vec![
+        vec![mk_hit(1, &cid1, &did1, "notes/a.md", 0.85, &["A"])],
         vec![mk_hit(1, &cid1, &did1, "notes/a.md", 0.85, &["A"])],
         vec![mk_hit(1, &cid2, &did2, "notes/b.md", 0.80, &["B"])],
     ]));
@@ -146,8 +149,8 @@ fn multi_hop_decide_continue_adds_more_chunks() {
     );
     assert_eq!(
         retriever_handle.calls(),
-        2,
-        "iter 1 retrieves q1, iter 2 retrieves q2"
+        3,
+        "probe + iter 1 retrieves q1 + iter 2 retrieves q2"
     );
     assert_eq!(
         answer.retrieval.chunks_returned, 2,
@@ -187,7 +190,8 @@ fn multi_hop_max_depth_force_stops() {
     cfg.rag.multi_hop_max_depth = 1;
 
     let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
-    let retriever = Arc::new(ScriptedRetriever::new(vec![hits]));
+    // PR-7: entry 0 = probe, entry 1 = decompose-driven retrieve.
+    let retriever = Arc::new(ScriptedRetriever::new(vec![hits.clone(), hits]));
     let retriever_handle = retriever.clone();
     let retriever_dyn: Arc<dyn Retriever> = retriever;
 
@@ -210,7 +214,7 @@ fn multi_hop_max_depth_force_stops() {
         2,
         "depth-cap skips decide → only decompose + synthesize"
     );
-    assert_eq!(retriever_handle.calls(), 1);
+    assert_eq!(retriever_handle.calls(), 2, "probe + 1 decompose retrieve");
 
     let hops = answer.hops.expect("happy path stamps hops");
     assert_eq!(hops.len(), 3, "[Decompose, Decide(forced_stop), Synthesize]");
@@ -238,9 +242,10 @@ fn multi_hop_pool_chunks_dedup_by_chunk_id() {
     let did = id32("d1");
     env.seed_chunk(&cid, &did, "notes/a.md", "Shared chunk text.", &["X"]);
     // Both sub-queries retrieve the same chunk_id — dedup must
-    // keep exactly one pool entry.
+    // keep exactly one pool entry. PR-7: entry 0 = probe.
     let shared_hit = mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["X"]);
     let retriever = Arc::new(ScriptedRetriever::new(vec![
+        vec![shared_hit.clone()],
         vec![shared_hit.clone()],
         vec![shared_hit],
     ]));
@@ -262,8 +267,8 @@ fn multi_hop_pool_chunks_dedup_by_chunk_id() {
     assert!(answer.grounded);
     assert_eq!(
         retriever_handle.calls(),
-        2,
-        "two sub-queries → two retrieval calls"
+        3,
+        "probe + two sub-query retrieves"
     );
     assert_eq!(
         answer.retrieval.chunks_returned, 1,
@@ -295,7 +300,8 @@ fn multi_hop_decide_parse_failure_falls_through_to_synthesize() {
     let did = id32("d1");
     env.seed_chunk(&cid, &did, "notes/a.md", "Body text.", &["Intro"]);
     let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
-    let retriever = Arc::new(ScriptedRetriever::new(vec![hits]));
+    // PR-7: entry 0 = probe, entry 1 = decompose-driven retrieve.
+    let retriever = Arc::new(ScriptedRetriever::new(vec![hits.clone(), hits]));
     let retriever_dyn: Arc<dyn Retriever> = retriever;
 
     // Decide LLM emits non-JSON garbage. Spec §9: this is NOT a
@@ -347,15 +353,25 @@ fn multi_hop_decide_parse_failure_falls_through_to_synthesize() {
 //
 // PR-3b-ii widens `refuse_no_chunks` to accept `hops:
 // Option<Vec<HopRecord>>` and wires `ask_multi_hop` to forward the
-// partial trace. This test pins that contract — a refusal Answer
-// still carries the decompose + decide hops the loop accumulated
-// before pool came up empty.
+// partial trace. PR-7 added a pre-decompose probe — so this test
+// now exercises the *decompose-driven* empty-pool path: probe
+// passes (KB has at least one relevant chunk), decompose emits
+// sub-queries, but the sub-query retrieve hits nothing → pool stays
+// empty → refuse_no_chunks with the partial hop trace preserved.
+// (For the *probe-driven* refusal, see
+// `multi_hop_empty_probe_pool_refuses_before_any_llm_call` —
+// that path returns hops=None because decompose never ran.)
 
 #[test]
 fn multi_hop_refuse_no_chunks_preserves_hops_trace() {
     let env = RagEnv::new();
-    // Retriever returns 0 hits — pool stays empty → refuse_no_chunks.
-    let retriever = Arc::new(ScriptedRetriever::new(vec![vec![]]));
+    let cid = id32("c1");
+    let did = id32("d1");
+    env.seed_chunk(&cid, &did, "notes/a.md", "Body text.", &["Intro"]);
+    let probe_hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
+    // PR-7: entry 0 = probe (passes gate), entry 1 = decompose-driven
+    // retrieve (empty — sub-query returned nothing).
+    let retriever = Arc::new(ScriptedRetriever::new(vec![probe_hits, vec![]]));
     let retriever_handle = retriever.clone();
     let retriever_dyn: Arc<dyn Retriever> = retriever;
 
@@ -373,7 +389,11 @@ fn multi_hop_refuse_no_chunks_preserves_hops_trace() {
 
     assert!(!answer.grounded);
     assert_eq!(answer.refusal_reason, Some(RefusalReason::NoChunks));
-    assert_eq!(retriever_handle.calls(), 1, "single sub-query → single retrieve");
+    assert_eq!(
+        retriever_handle.calls(),
+        2,
+        "probe (passes) + 1 decompose-driven retrieve (empty)"
+    );
     assert_eq!(lm_handle.calls(), 1, "decompose only — decide skipped (empty pool), no synthesize");
 
     let hops = answer
@@ -398,14 +418,25 @@ fn multi_hop_refuse_no_chunks_preserves_hops_trace() {
 
 #[test]
 fn multi_hop_refuse_score_gate_preserves_hops_trace() {
+    // PR-7 narrowed this path: with the pre-decompose probe gate,
+    // the *probe* must pass (high-score chunk) for decompose to
+    // run at all. The *decompose-driven* retrieve can then return
+    // a below-gate hit that triggers the post-pool gate refusal —
+    // which is the surface that preserves hops.
+    //
+    // For the *probe-driven* gate refusal (single-pass-equivalent
+    // safety floor), see
+    // `multi_hop_below_probe_gate_refuses_before_any_llm_call` —
+    // that returns hops=None because decompose never ran.
     let env = RagEnv::new();
-    let (cid, did) = seed_low_score_chunk(&env);
-    // Top score 0.10 is well below the default gate (0.30) — the
-    // score-gate refusal fires after the pool has been built, so
-    // the decide LLM call did run and the hop trace contains both
-    // Decompose and Decide entries.
-    let hits = vec![mk_hit(1, &cid, &did, "notes/low.md", 0.10, &["Low"])];
-    let retriever = Arc::new(ScriptedRetriever::new(vec![hits]));
+    let (low_cid, low_did) = seed_low_score_chunk(&env);
+    let high_cid = id32("c_high");
+    let high_did = id32("d_high");
+    env.seed_chunk(&high_cid, &high_did, "notes/high.md", "high score body", &["High"]);
+
+    let probe_hits = vec![mk_hit(1, &high_cid, &high_did, "notes/high.md", 0.85, &["High"])];
+    let decompose_hits = vec![mk_hit(1, &low_cid, &low_did, "notes/low.md", 0.10, &["Low"])];
+    let retriever = Arc::new(ScriptedRetriever::new(vec![probe_hits, decompose_hits]));
     let retriever_dyn: Arc<dyn Retriever> = retriever;
 
     // decompose + decide (pool not empty so decide fires) — synthesize
@@ -455,4 +486,135 @@ fn seed_low_score_chunk(env: &RagEnv) -> (String, String) {
     let did = id32("d_low");
     env.seed_chunk(&cid, &did, "notes/low.md", "low score text", &["Low"]);
     (cid, did)
+}
+
+// ── p9-fb-41 v0.18 dogfood fix: pre-decompose score-gate probe ────────────
+//
+// Out-of-corpus query that single-pass would have refused via
+// score-gate must also refuse on the multi-hop path — *before* any
+// decompose / decide / synthesize LLM call. Otherwise the decompose
+// can emit sub-queries that pull in chunks loosely matching each
+// sub-query, fill the pool past the gate, and let the synthesize
+// hallucinate over chunks that were never relevant to the *original*
+// query. Dogfood S7 (`/build/cache/dogfood-v018/results/SUMMARY.md`)
+// is the symptom; these tests pin the fix.
+
+#[test]
+fn multi_hop_below_probe_gate_refuses_before_any_llm_call() {
+    let env = RagEnv::new();
+    let cid = id32("c_low");
+    let did = id32("d_low");
+    env.seed_chunk(&cid, &did, "notes/low.md", "low score body", &["Low"]);
+    // Single hit far below the default 0.30 gate.
+    let hits = vec![mk_hit(1, &cid, &did, "notes/low.md", 0.05, &["Low"])];
+    let retriever = Arc::new(ScriptedRetriever::new(vec![hits]));
+    let retriever_handle = retriever.clone();
+    let retriever_dyn: Arc<dyn Retriever> = retriever;
+
+    // Empty LM script — ANY LLM call panics on exhaustion. The fix
+    // must short-circuit before decompose.
+    let lm = Arc::new(ScriptedLm::new(vec![]));
+    let lm_handle = lm.clone();
+    let lm_dyn: Arc<dyn LanguageModel> = lm;
+    let pipeline =
+        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+
+    let answer = pipeline.ask("out-of-corpus query", multi_hop_opts()).unwrap();
+
+    assert!(!answer.grounded);
+    assert_eq!(answer.refusal_reason, Some(RefusalReason::ScoreGate));
+    assert_eq!(
+        lm_handle.calls(),
+        0,
+        "below-gate must short-circuit BEFORE any LLM call (no decompose, decide, or synthesize)"
+    );
+    assert_eq!(
+        retriever_handle.calls(),
+        1,
+        "only the probe retrieve happened — no decompose-driven retrieves"
+    );
+    // S7 dogfood: in the pre-fix world the multi-hop path would have
+    // returned grounded=true with hallucinated content. This test
+    // pins the safe envelope.
+    assert!(
+        answer.hops.is_none(),
+        "pre-decompose refusal carries no hop trace (decompose never ran)"
+    );
+}
+
+#[test]
+fn multi_hop_empty_probe_pool_refuses_before_any_llm_call() {
+    let env = RagEnv::new();
+    // Retriever returns 0 hits — probe is empty.
+    let retriever = Arc::new(ScriptedRetriever::new(vec![vec![]]));
+    let retriever_handle = retriever.clone();
+    let retriever_dyn: Arc<dyn Retriever> = retriever;
+
+    let lm = Arc::new(ScriptedLm::new(vec![]));
+    let lm_handle = lm.clone();
+    let lm_dyn: Arc<dyn LanguageModel> = lm;
+    let pipeline =
+        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+
+    let answer = pipeline.ask("q", multi_hop_opts()).unwrap();
+
+    assert!(!answer.grounded);
+    assert_eq!(answer.refusal_reason, Some(RefusalReason::NoChunks));
+    assert_eq!(
+        lm_handle.calls(),
+        0,
+        "empty probe must short-circuit BEFORE any LLM call"
+    );
+    assert_eq!(
+        retriever_handle.calls(),
+        1,
+        "only the probe retrieve happened — no decompose retrieves"
+    );
+    assert!(answer.hops.is_none());
+}
+
+#[test]
+fn multi_hop_above_probe_gate_proceeds_to_decompose() {
+    // Sanity counterpart: a query that PASSES the probe gate still
+    // exercises the full multi-hop flow (decompose → decide → synth).
+    // Guards against the fix accidentally short-circuiting valid
+    // multi-hop calls.
+    let env = RagEnv::new();
+    let cid = id32("c1");
+    let did = id32("d1");
+    env.seed_chunk(&cid, &did, "notes/a.md", "Body text.", &["Intro"]);
+    // Probe retrieve returns a high-score hit (above gate),
+    // decompose-driven retrieve returns the same chunk again.
+    let probe_hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
+    let decompose_hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
+    let retriever = Arc::new(ScriptedRetriever::new(vec![probe_hits, decompose_hits]));
+    let retriever_handle = retriever.clone();
+    let retriever_dyn: Arc<dyn Retriever> = retriever;
+
+    let lm = Arc::new(ScriptedLm::new(vec![
+        r#"["q1"]"#,
+        r#"[]"#,
+        "answer [#1]",
+    ]));
+    let lm_handle = lm.clone();
+    let lm_dyn: Arc<dyn LanguageModel> = lm;
+    let pipeline =
+        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+
+    let answer = pipeline.ask("valid query", multi_hop_opts()).unwrap();
+
+    assert!(answer.grounded);
+    assert_eq!(answer.refusal_reason, None);
+    assert_eq!(
+        lm_handle.calls(),
+        3,
+        "decompose + decide + synthesize all ran"
+    );
+    assert_eq!(
+        retriever_handle.calls(),
+        2,
+        "probe retrieve + decompose-driven retrieve"
+    );
+    let hops = answer.hops.expect("happy path stamps hops");
+    assert_eq!(hops.len(), 3);
 }

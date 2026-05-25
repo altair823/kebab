@@ -14,6 +14,58 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-25 — fb-41 pre-v0.18 dogfood: multi-hop score-gate 우회 (S7 hallucination 회귀 핀)
+
+v0.18.0 cut 전 fb-41 multi-hop RAG 도그푸딩 (`/build/cache/dogfood-v018/`, 33 assets / 205 chunks corpus — 16 신규 markdown 5 클러스터 + v017 carryover, gemma3:4b CPU only / 16 GB RAM) 에서 발견된 **score_gate 우회 + hallucination 케이스**.
+
+### Symptom (S7)
+
+Query: `"What is the chemical formula of caffeine?"` (KB 에 없는 fact).
+- **Single-pass** `kebab ask`: retrieve 의 top score 가 default `rag.score_gate = 0.30` 미만 → `refuse_score_gate` → 안전한 refusal.
+- **Multi-hop** `kebab ask --multi-hop`: `grounded = true`, 본문 `"카페인의 화학식은 C₉H₁₅N₃O 입니다 [#6]"` (**hallucination** — 실제 C₈H₁₀N₄O₂) + `[#6]` 가 *Adam optimizer chunk* 의 `g_t = ∂L/∂θ_i` 본문을 인용 (시각적으로 화학식 비슷한 short structured token 매칭 trigger).
+
+### Root cause
+
+`ask_multi_hop` (`crates/kebab-rag/src/pipeline.rs`) 의 score-gate 검사가 *pool 의 top_score* 만 봄. multi-hop 의 pool 은 *5 sub-queries 의 union* — 한 sub-query 의 top score 가 gate 위면 pool 의 다른 chunks 가 원본 query 와 무관해도 gate 통과 + synthesize 단계 진입 → LLM 이 chunks 위에서 hallucinate.
+
+같은 query 에 대해 single-pass 는 *원본 query 의 retrieve top score* 검사 → reject. multi-hop 만 hole.
+
+### Fix (PR-7)
+
+`ask_multi_hop` entry 에 **pre-decompose probe** 추가:
+1. *원본 query* 로 retrieve 한 번 (LLM call 0회, ~ms).
+2. probe empty → `refuse_no_chunks(None)` (decompose 안 함, hop trace 도 없음).
+3. probe top_score < gate → `refuse_score_gate(None)` (decompose 안 함).
+4. probe pass → 기존 decompose / decide / synthesize flow 그대로.
+
+Multi-hop 의 safety floor 가 single-pass 와 정확히 일치 — multi-hop 은 *원본 query 가 이미 KB 범위 내* 일 때만 cross-doc reasoning 추가.
+
+### Test 갱신
+
+- 신규 3 회귀 핀 (`crates/kebab-rag/tests/multi_hop.rs`):
+  - `multi_hop_below_probe_gate_refuses_before_any_llm_call` — S7 회귀 직접 핀. low-score chunk + empty LM script → score_gate refusal, LM calls 0회, hops=None.
+  - `multi_hop_empty_probe_pool_refuses_before_any_llm_call` — empty retrieve 시 NoChunks refusal, LM calls 0회.
+  - `multi_hop_above_probe_gate_proceeds_to_decompose` — probe pass 시 full multi-hop flow (decompose + decide + synth) 정상 동작.
+- 기존 7 multi-hop test 의 `ScriptedRetriever` 에 probe entry prepend + `retriever_handle.calls()` expectation +1.
+- `multi_hop_refuse_no_chunks_preserves_hops_trace` / `multi_hop_refuse_score_gate_preserves_hops_trace` 의 의미 좁힘 — 이제 *decompose-driven* refusal (probe pass 후 sub-query retrieve 가 empty 또는 below-gate) 만 검증. *probe-driven* refusal 은 hops=None (decompose 안 함) — 신규 test 가 그 path 핀.
+
+### 다른 도그푸딩 발견 (별 fix 보류)
+
+같은 도그푸딩에서 발견된 다른 항목들 — PR-7 본 fix 의 scope 밖, v0.18.1 또는 후속 PR 대상:
+
+- **synthesize citation marker 일관성 부족** (S1/S2/S3, P1) — 30-chunk pool 의 large prompt 에서 gemma3:4b 가 `[#N]` citation rule 잃음 → 답변 본문 정상이나 `grounded=false (LlmSelfJudge)` 로 노출. **권장 mitigation**: `MULTI_HOP_SYNTHESIZE_SYSTEM_PROMPT` 의 citation rule 강화 또는 `multi_hop_max_pool_chunks` default 30 → 15.
+- **latency 20-25× cost** — single-pass 30s vs multi-hop 590-685s (synthesize 단계가 cost dominant). spec 의 "2-5× LLM cost" 보다 큼. pool size 축소가 mitigation.
+- **release binary path confusion** — `/home/altair823/kebab/target/release/kebab` (v0.17.1 stale) vs `/build/out/cargo-target/release/kebab` (v0.17.2 latest). CARGO_TARGET_DIR env 의 영향. docs 한 줄 권장.
+
+### 사용자 영향
+
+PR-7 머지 후 (v0.18.0 cut 직전):
+- multi-hop 의 safety 가 single-pass 와 동일. KB 밖 query 가 hallucination 답변 못 받음.
+- Multi-hop 의 정상 use case (compound / cross-doc reasoning) 는 영향 없음 — probe 가 통과하면 기존 flow 그대로.
+- Wire 변경 없음 (`Answer.hops` 의 노출 동일, refusal_reason 값 동일).
+
+Cross-link: `/build/cache/dogfood-v018/results/SUMMARY.md` (전체 dogfood 보고서), spec `docs/superpowers/specs/2026-05-25-p9-fb-41-multi-hop-rag-design.md`.
+
 ## 2026-05-25 — v0.17.0 post-dogfood: `[models.llm] request_timeout_secs` 노브 + 권장 모델 가이드
 
 v0.17.0 후속 도그푸딩에서 발견: 사용자가 default `gemma4:e4b` (8B Q4, 9.6 GB) 를 CPU only / 16 GB RAM 환경에서 시도 시 첫 RAG 답변이 5 분 (hard-coded 300 s) 한도를 항상 넘겨 `error: kb-rag: llm.generate_stream` 으로 떨어졌다. 메모리도 ollama RSS 10.7 GB / free 2 GB 까지 압박. 후속 도그푸딩 32 분 / 199 mem-monitor sample 결과는 `tasks/HOTFIXES.md` 의 본 entry 와 conversation 의 도그푸딩 보고 참조.
