@@ -112,6 +112,9 @@ XL 작업 — 6 PR 분할 (각 머지 후 누적, 마지막 PR 후 v0.18.0 cut).
    - cap 도달 (max_depth / max_total_sub_queries / max_pool_chunks) 시 forced_stop=true 로 break.
    - synthesize → Answer.hops 에 누적된 HopRecord array 첨부.
 6. decide JSON parse failure → forced_stop synthesize (refusal 아님, 안전한 graceful degrade).
+7. **PR-2 회차 1 carry-over** — 같은 PR 에서 함께 해소:
+   - `ask` + `ask_multi_hop` 의 §4-§9 mirror (~150 줄 중복) → 공통 helper `synthesize_with_packed_context` 추출. history block 처리도 helper 화. drift 위험 차단.
+   - `MULTI_HOP_DECOMPOSE_USER_TEMPLATE` 의 `.replace("{query}", ...).replace("{max_sub_queries}", ...)` corner case → `format!` named arg 또는 strict substitution helper 로 교체. 사용자 query 에 literal `{max_sub_queries}` 포함 시 mis-replace 회피.
 
 **Test**:
 - `multi_hop_decide_stop_triggers_synthesize` — decide 가 `[]` 반환 시 즉시 synthesize.

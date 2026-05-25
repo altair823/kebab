@@ -252,6 +252,9 @@ fn render_status(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::
                 Some(RefusalReason::NoIndex) => "  refusal=no_index",
                 Some(RefusalReason::NoChunks) => "  refusal=no_chunks",
                 Some(RefusalReason::LlmStreamAborted) => "  refusal=llm_stream_aborted",
+                Some(RefusalReason::MultiHopDecomposeFailed) => {
+                    "  refusal=multi_hop_decompose_failed"
+                }
                 None => "",
             };
             vec![
@@ -519,6 +522,7 @@ fn spawn_ask_worker(state: &mut App) {
         history,
         conversation_id: Some(conversation_id),
         turn_index: Some(turn_index),
+        multi_hop: false,
     };
     let handle =
         thread::spawn(move || kebab_app::ask_with_config(cfg, &query, opts));

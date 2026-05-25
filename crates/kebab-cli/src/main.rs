@@ -999,6 +999,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     history: Vec::new(),
                     conversation_id: None,
                     turn_index: None,
+                    multi_hop: false,
                 };
                 let cfg2 = cfg.clone();
                 let q = query.clone();
@@ -1074,6 +1075,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     history: Vec::new(),
                     conversation_id: None,
                     turn_index: None,
+                    multi_hop: false,
                 };
                 let ans = match session.as_deref() {
                     Some(sid) => kebab_app::ask_with_session_with_config(cfg, sid, query, opts)?,
