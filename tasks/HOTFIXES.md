@@ -56,11 +56,12 @@ v0.17.0 의 한국어 trigram tokenizer 채택 entry (2026-05-24 위) 가 미수
 **변경**:
 - `crates/kebab-search/src/lexical.rs::build_match_string` 가 non-raw 분기에서 combined expression 을 `text : (<expr>)` 로 wrap. FTS5 column filter syntax (`column:expr`) 가 OR/AND sub-expression 허용 — 한국어 trigram 빌더의 `(whole) OR (token_and)` 형태가 그대로 들어감.
 - Raw mode (`'...'`) 는 변경 없음 — 사용자가 명시 의도로 `'heading_path : agent'` 같은 explicit column filter opt-in 가능 (escape hatch).
-- 9 신규 / 갱신 unit test:
+- 9 unit test (8 갱신 + 1 신규) + 2 신규 통합 test (`crates/kebab-search/tests/lexical.rs`) = 11 total:
   - `build_match_string_*` 8 expected string 갱신 (column filter prefix 추가)
-  - `build_match_string_raw_mode_preserves_heading_filter` 신규 — raw mode 가 `heading_path : ...` 보존
-  - `lexical_heading_only_token_does_not_hit_default_mode` 신규 (`crates/kebab-search/tests/lexical.rs`) — heading-only unique token 이 default mode 에서 0 hit
-  - `lexical_raw_mode_can_opt_into_heading_path_filter` 신규 — 같은 fixture 가 raw mode 로 hit 확인
+  - `build_match_string_raw_mode_preserves_heading_filter` 신규 unit — raw mode 가 `heading_path : ...` 보존
+  - `lexical_heading_only_token_does_not_hit_default_mode` 신규 통합 — heading-only unique token 이 default mode 에서 0 hit
+  - `lexical_raw_mode_can_opt_into_heading_path_filter` 신규 통합 — 같은 fixture 가 raw mode 로 hit 확인
+- `integrations/claude-code/kebab/SKILL.md` 의 search 절에 column scoping + heading_path raw-mode escape hatch 안내 한 bullet 추가 (회차 1 follow-up suggestion 반영, 본 PR 에 포함).
 
 **사용자 영향**:
 - 기본 lexical / hybrid 검색에서 heading 만 매칭되던 false positive 차단. 한국어 / 영어 substring 매칭의 recall 은 그대로 (text 본문에 있는 token 은 변함없이 hit). 본문 검색의 precision 가 올라감.
