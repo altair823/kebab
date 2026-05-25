@@ -14,30 +14,28 @@ Design: `docs/superpowers/specs/2026-05-25-p9-fb-41-multi-hop-rag-design.md`.
 
 XL 작업 — 6 PR 분할 (각 머지 후 누적, 마지막 PR 후 v0.18.0 cut).
 
-## PR-1: Multi-hop eval golden set + baseline
+## PR-1: Multi-hop eval golden set + baseline (PR #166)
 
-**Goal**: 구현 전 baseline 측정 anchor 확보. RAG pipeline 미변경 — metric 인프라 + fixture 만.
+**Goal**: 구현 전 baseline 측정 anchor 확보. RAG pipeline 미변경 — fixture 만 (별 type / loader 변경 없이 기존 `GoldenQuery` 그대로).
 
-**Files**:
-- `tasks/eval/multi-hop-golden.toml` 신규 — 15 question (5 cross-doc + 5 intra-doc + 5 single-fact negative).
-- `crates/kebab-eval/src/golden.rs` 또는 sister 모듈 — multi-hop fixture parsing 지원. 기존 single-pass fixture 와 같은 `[[question]]` table 형식, `multi_hop_required: bool` 필드 추가.
-- `crates/kebab-eval/src/runner.rs` — multi-hop fixture 인식 시 현재는 `--multi-hop` flag 없으니 single-pass 로 그대로 실행 (baseline 측정 의도). PR-4 머지 후 multi-hop path 도 호출하도록 갱신.
-- `crates/kebab-eval/tests/multi_hop_golden_smoke.rs` — fixture parse + baseline run round-trip pin (실제 LLM 호출 없음, mock LLM 또는 `#[ignore]`).
+**실제 변경** (kebab-eval crate 구조 survey 후 plan 초안 대비 단순화):
+- `fixtures/multi_hop_golden.yaml` 신규 — YAML 형식 (TOML 아님). fb-39 의 `fixtures/golden_queries.yaml` 와 sister naming. 15 question (5 cross-doc + 5 intra-doc + 5 single-fact negative; 한국어 12 + 영어 3 mix).
+- 기존 `GoldenQuery` struct (id, query, lang, expected_doc_ids, expected_chunk_ids, must_contain, forbidden, difficulty) 재사용 — **별 type / loader / runner 변경 없음**. 기존 `kebab_eval::load_golden_set` 가 fixture path 인자 그대로 받아 parse.
+- `crates/kebab-eval/tests/loader.rs::loads_multi_hop_golden_fixture` 신규 회귀 핀 — fixture parse OK + 15 question + 5/5/5 bucket 분포 + 모든 question 의 `must_contain` 최소 1 개.
 
-**Implementation order**:
-1. fixture file 작성 (15 question, kebab repo 자체 corpus 기반). 질문 작성은 작업 시 사용자에게 1-2 sample 제공 + 나머지 자동 생성 (workspace 의 README / HANDOFF / design doc 기반 cross-doc 질문 합성).
-2. `MultiHopGoldenQuestion` struct + TOML deserialize.
-3. eval runner 가 새 fixture 인식 + 기존 metric (`precision_at_5`, `precision_at_10`, `citation_coverage`) 호출.
-4. baseline run command: `kebab-eval --fixture multi-hop-golden.toml --baseline-report /tmp/mh-baseline-v0.17.2.json`. 결과 commit 하지 않음 (artifact 는 별 디렉토리).
+**plan 초안 대비 deviation (회차 1 리뷰 정정)**:
+- ~~`tasks/eval/multi-hop-golden.toml`~~ → `fixtures/multi_hop_golden.yaml` (workspace root, fb-39 sister naming, YAML).
+- ~~`crates/kebab-eval/src/golden.rs::MultiHopGoldenQuestion` 신규 struct + TOML deserialize~~ → 기존 `GoldenQuery` 재사용, 변경 없음.
+- ~~runner 분기 추가~~ → PR-4 의 책임 (CLI flag 도입 시점). PR-1 은 fixture 만.
+- ~~`crates/kebab-eval/tests/multi_hop_golden_smoke.rs` 신규~~ → 기존 `tests/loader.rs` 에 한 test 추가.
 
-**Test**:
-- fixture parse 통과 (15 question 모두 valid).
-- baseline run 가 P@k 계산 출력 (실제 수치는 baseline anchor 라 PR commit 에 포함 안 함, separate run 으로 캡처).
+원인: plan 초안 작성 시점에 kebab-eval crate 구조 (이미 generic loader 보유, fixture path 인자 받음) 미survey. 실제 작업 시 더 간단한 path 발견.
+
+**Test** (실제):
+- `cargo test -p kebab-eval --test loader -j 1` — 3 test 모두 통과 (기존 2 + 신규 `loads_multi_hop_golden_fixture`).
+- baseline run 은 별 run script — 사용자가 `kebab eval run --fixture fixtures/multi_hop_golden.yaml` 으로 실행 + 결과 캡처. fixture 의 `expected_chunk_ids` 가 비어 있어 `precision_at_k_chunk` skip; `must_contain` + `forbidden` 기반 rule metric 작동.
 
 **Wire 영향**: 없음.
-
-**Risks**:
-- fixture 질문 품질 — 너무 쉽거나 너무 어려우면 baseline vs multi-hop 차이가 noise 에 묻힘. 사용자 sample 1-2 question 확인 후 진행.
 
 ---
 

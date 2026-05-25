@@ -52,16 +52,16 @@
   difficulty: multi-hop
 
 - id: mh-c-005
-  query: "kebab 의 wire schema v1 에 정의된 모든 schema id 의 목록과, 그 중 fb-32 가 추가한 staleness 필드 (`indexed_at`, `stale`) 가 어떤 schema 들에 etched 됐는지?"
-  lang: ko
+  query: "Which wire schemas in kebab's v1 contract carry the `indexed_at` / `stale` staleness fields added by fb-32? List every schema id under wire schema v1."
+  lang: en
   must_contain: ["schema_version", "indexed_at", "stale", "search_hit", "citation"]
   difficulty: multi-hop
 
 # ── Intra-doc multi-hop ──────────────────────────────────────────────
 
 - id: mh-i-001
-  query: "design doc §3 chunking 의 boundary 규칙과 §5 storage 의 chunk_id recipe — 두 절이 어떻게 cascade 로 연결되는가?"
-  lang: ko
+  query: "How do the boundary rules in design §3 chunking and the chunk_id recipe in §5 storage cascade together? What pieces of the chunk_id come from each section?"
+  lang: en
   must_contain: ["chunker_version", "policy_hash", "chunk_id"]
   difficulty: multi-hop
 
@@ -98,8 +98,8 @@
   difficulty: easy
 
 - id: mh-s-002
-  query: "kebab 의 license 는?"
-  lang: ko
+  query: "What license does kebab ship under?"
+  lang: en
   must_contain: ["MIT", "Apache"]
   difficulty: easy
 
@@ -112,7 +112,7 @@
 - id: mh-s-004
   query: "kebab tui 의 mode machine 에서 NORMAL → INSERT 토글 키는?"
   lang: ko
-  must_contain: ["i"]
+  must_contain: ["INSERT", "i 입력모드"]
   difficulty: easy
 
 - id: mh-s-005
