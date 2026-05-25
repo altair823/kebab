@@ -35,7 +35,7 @@
         },
         { "type": "null" }
       ],
-      "description": "p9-fb-41: `multi_hop_decompose_failed` added in PR-3a for the multi-hop pipeline (only emitted when AskOpts.multi_hop = true and the decompose LLM call fails to parse). Other variants are unchanged from earlier phases."
+      "description": "p9-fb-41: `multi_hop_decompose_failed` added in PR-2 alongside the multi-hop pipeline skeleton (only emitted when AskOpts.multi_hop = true and the decompose LLM call fails to parse). Other variants are unchanged from earlier phases."
     },
     "model":                   { "type": "object" },
     "embedding":               { "type": ["object", "null"] },
