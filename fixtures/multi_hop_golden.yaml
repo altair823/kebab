@@ -1,0 +1,122 @@
+# Multi-hop golden query suite for `kebab eval run` (fb-41 baseline + post-merge Δ).
+#
+# Sister to `fixtures/golden_queries.yaml` (single-pass). Same `GoldenQuery`
+# shape (kebab_eval::types::GoldenQuery) so the existing runner can ingest
+# both fixtures without code changes — the multi-hop pipeline (fb-41 PR-2+)
+# will dispatch on AskOpts.multi_hop, NOT on the fixture file.
+#
+# Curators: `expected_chunk_ids` / `expected_doc_ids` MUST refer to real
+# rows in the active workspace's SQLite store at run time. Leave empty
+# until you have ingested the corpus (`kebab ingest` over the kebab repo
+# itself). The runner skips metrics that need ground-truth refs.
+#
+# fb-41 measurement protocol:
+#   1) Pre-PR-2 (current binary, single-pass): baseline run → capture
+#      P@5, P@10, must_contain pass rate, citation_coverage.
+#   2) Post-PR-3 (multi-hop enabled): same fixture, AskOpts.multi_hop=true
+#      → re-run → Δ vs baseline.
+#   3) Cross-doc + intra-doc questions are the ones we expect to improve.
+#      Single-fact negatives detect multi-hop regression (added LLM hops
+#      should not make simple lookups worse).
+#
+# Question buckets (5 / 5 / 5):
+#   - `mh-c-*` — cross-doc multi-hop (README + HANDOFF + design doc, two
+#                or more docs needed)
+#   - `mh-i-*` — intra-doc multi-hop (same doc, two sections joined)
+#   - `mh-s-*` — single-fact negative (multi-hop should not regress)
+
+# ── Cross-doc multi-hop ──────────────────────────────────────────────
+
+- id: mh-c-001
+  query: "kebab 가 지원하는 모든 미디어 타입 (markdown / image / pdf / code) 과 각 타입의 chunker_version 은?"
+  lang: ko
+  must_contain: ["markdown", "image", "pdf", "chunker_version"]
+  difficulty: multi-hop
+
+- id: mh-c-002
+  query: "v0.17.0 의 trigram tokenizer migration (V007) 가 한국어 lexical 검색에 미친 영향과, 그로 인해 발생한 heading_path_json 노이즈 문제는 어떤 후속 release 에서 해결됐나?"
+  lang: ko
+  must_contain: ["trigram", "heading_path", "v0.17.2", "column filter"]
+  difficulty: multi-hop
+
+- id: mh-c-003
+  query: "kebab 의 RAG pipeline 에서 LLM endpoint timeout 노브 (`request_timeout_secs`) 가 LLM 과 OCR 두 곳에 별도로 존재하는데, 둘이 분리된 이유와 각각의 default 값은?"
+  lang: ko
+  must_contain: ["request_timeout_secs", "models.llm", "image.ocr", "300"]
+  difficulty: multi-hop
+
+- id: mh-c-004
+  query: "kebab MCP server (fb-30) 가 노출하는 tool 의 개수와 각 tool 이 호출하는 kebab-app facade fn 은? mutation tool (fb-31) 도입 후 read-only 정책은 어떻게 변경됐나?"
+  lang: ko
+  must_contain: ["search", "ask", "schema", "doctor", "ingest_file", "ingest_stdin"]
+  difficulty: multi-hop
+
+- id: mh-c-005
+  query: "kebab 의 wire schema v1 에 정의된 모든 schema id 의 목록과, 그 중 fb-32 가 추가한 staleness 필드 (`indexed_at`, `stale`) 가 어떤 schema 들에 etched 됐는지?"
+  lang: ko
+  must_contain: ["schema_version", "indexed_at", "stale", "search_hit", "citation"]
+  difficulty: multi-hop
+
+# ── Intra-doc multi-hop ──────────────────────────────────────────────
+
+- id: mh-i-001
+  query: "design doc §3 chunking 의 boundary 규칙과 §5 storage 의 chunk_id recipe — 두 절이 어떻게 cascade 로 연결되는가?"
+  lang: ko
+  must_contain: ["chunker_version", "policy_hash", "chunk_id"]
+  difficulty: multi-hop
+
+- id: mh-i-002
+  query: "HANDOFF.md 의 phase 로드맵 표에서 P10 의 현재 status 와, 같은 doc 의 다음 task 후보 절에 등장하는 미구현 fb-* 항목들?"
+  lang: ko
+  must_contain: ["P10", "fb-41"]
+  difficulty: multi-hop
+
+- id: mh-i-003
+  query: "README 의 kebab ingest 명령이 지원한다고 명시한 모든 확장자와, 같은 README 의 Configuration 절에 등장하는 `workspace.exclude` default pattern 의 관계?"
+  lang: ko
+  must_contain: [".md", ".pdf", ".png", "workspace.exclude"]
+  difficulty: multi-hop
+
+- id: mh-i-004
+  query: "CLAUDE.md 의 facade rule (kebab-app 만 UI binary 가 import 가능) 과, 같은 doc 의 Allowed / forbidden deps 절에서 kebab-core 의 의존성 제약 — 두 규약이 어떻게 일관성 있게 작동하는가?"
+  lang: ko
+  must_contain: ["kebab-app", "kebab-core", "facade"]
+  difficulty: multi-hop
+
+- id: mh-i-005
+  query: "p10 의 tier 1 AST chunker 와 tier 3 paragraph fallback 의 차이, 그리고 둘이 같은 file 에 적용되는 dispatch 순서?"
+  lang: ko
+  must_contain: ["AST", "paragraph", "fallback"]
+  difficulty: multi-hop
+
+# ── Single-fact negative (regression detection) ──────────────────────
+
+- id: mh-s-001
+  query: "kebab 의 default embedding model 은?"
+  lang: ko
+  must_contain: ["multilingual-e5-large"]
+  difficulty: easy
+
+- id: mh-s-002
+  query: "kebab 의 license 는?"
+  lang: ko
+  must_contain: ["MIT", "Apache"]
+  difficulty: easy
+
+- id: mh-s-003
+  query: "kebab.sqlite 파일의 default 위치는?"
+  lang: ko
+  must_contain: ["~/.local/share/kebab", ".local/share"]
+  difficulty: easy
+
+- id: mh-s-004
+  query: "kebab tui 의 mode machine 에서 NORMAL → INSERT 토글 키는?"
+  lang: ko
+  must_contain: ["i"]
+  difficulty: easy
+
+- id: mh-s-005
+  query: "kebab 의 RRF k 파라미터 default 값은?"
+  lang: ko
+  must_contain: ["60"]
+  difficulty: easy
