@@ -908,6 +908,16 @@ impl RagPipeline {
         let req = GenerateRequest {
             system: MULTI_HOP_DECOMPOSE_SYSTEM_PROMPT.to_string(),
             user,
+            // Empty stop is intentional. Instruction-following models
+            // (gemma3:4b+ / gemma4:e4b / Claude / GPT-4) honor the
+            // "JSON array only" prompt rule, so prose past the
+            // closing `]` is rare. If a downstream LM does append
+            // prose, `parse_decompose_response` returns `None` and
+            // the caller surfaces `MultiHopDecomposeFailed` — that
+            // is the policy. Adding a trailing-`]` stop sequence
+            // risks truncating the array (LM emits the close bracket
+            // and we cut the response one token too early), which
+            // is a worse failure mode than the explicit refusal.
             stop: Vec::new(),
             // JSON array of up to 5 sub-questions is short. 512 is a
             // comfortable cap that fits in any context window without
@@ -1493,6 +1503,16 @@ mod tests {
         let raw = r#"["  rust async  ", "tokio runtime"]"#;
         let out = parse_decompose_response(raw).unwrap();
         assert_eq!(out, vec!["rust async", "tokio runtime"]);
+    }
+
+    /// Partial-empty case — drop the empties, keep the rest. Pins
+    /// the trim-then-filter chain in `parse_decompose_response` so a
+    /// future refactor that reorders the steps (e.g. take-then-trim)
+    /// can't accidentally swallow valid sub-queries.
+    #[test]
+    fn parse_decompose_response_drops_partial_empty_keeps_valid() {
+        let out = parse_decompose_response(r#"["", "valid q", "  "]"#).unwrap();
+        assert_eq!(out, vec!["valid q"]);
     }
 
     #[test]
