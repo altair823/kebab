@@ -399,12 +399,12 @@ fn multi_hop_refuse_no_chunks_preserves_hops_trace() {
 #[test]
 fn multi_hop_refuse_score_gate_preserves_hops_trace() {
     let env = RagEnv::new();
-    let cid = i32_below_gate_chunk(&env);
+    let (cid, did) = seed_low_score_chunk(&env);
     // Top score 0.10 is well below the default gate (0.30) — the
     // score-gate refusal fires after the pool has been built, so
     // the decide LLM call did run and the hop trace contains both
     // Decompose and Decide entries.
-    let hits = vec![mk_hit(1, &cid, &id32("d_low"), "notes/low.md", 0.10, &["Low"])];
+    let hits = vec![mk_hit(1, &cid, &did, "notes/low.md", 0.10, &["Low"])];
     let retriever = Arc::new(ScriptedRetriever::new(vec![hits]));
     let retriever_dyn: Arc<dyn Retriever> = retriever;
 
@@ -445,11 +445,14 @@ fn multi_hop_refuse_score_gate_preserves_hops_trace() {
     );
 }
 
-/// Seed a chunk + return its id. Helper for the score-gate test so
-/// the test body stays focused on the hop-trace assertions.
-fn i32_below_gate_chunk(env: &RagEnv) -> String {
+/// Seed a chunk + return its `(chunk_id, doc_id)` pair. Helper for
+/// the score-gate test so the test body stays focused on the
+/// hop-trace assertions; returning the pair (instead of the chunk_id
+/// alone) avoids the caller having to re-derive `id32("d_low")` and
+/// keeps the id pair as a single source of truth.
+fn seed_low_score_chunk(env: &RagEnv) -> (String, String) {
     let cid = id32("c_low");
     let did = id32("d_low");
     env.seed_chunk(&cid, &did, "notes/low.md", "low score text", &["Low"]);
-    cid
+    (cid, did)
 }
