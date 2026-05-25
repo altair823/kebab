@@ -16,14 +16,15 @@
         "model_not_pulled",
         "timeout",
         "io_error",
-        "generic"
+        "generic",
+        "multi_hop_decompose_failed"
       ]
     },
     "message": { "type": "string" },
     "details": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Per-code free-form context. config_invalid: { path, cause }. not_indexed: { expected, found }. model_unreachable: { endpoint, source }. model_not_pulled: { model }. timeout: { source }. io_error: { kind }. generic: { chain (when --verbose) }."
+      "description": "Per-code free-form context. config_invalid: { path, cause }. not_indexed: { expected, found }. model_unreachable: { endpoint, source }. model_not_pulled: { model }. timeout: { source }. io_error: { kind }. generic: { chain (when --verbose) }. multi_hop_decompose_failed: {} (reserved — currently emitted as Answer.refusal_reason on stdout, NOT as error.v1 on stderr; the enum member is forward-looking for a future RefusalReason → error_wire promotion)."
     },
     "hint": {
       "anyOf": [
