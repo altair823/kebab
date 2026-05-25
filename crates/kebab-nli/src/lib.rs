@@ -25,7 +25,7 @@ pub struct NliScores {
 
 impl NliScores {
     /// Faithfulness score = entailment channel. The rag crate compares this
-    /// against `rag.nli_faithfulness_min` to decide whether to refuse.
+    /// against `rag.nli_threshold` to decide whether to refuse.
     pub fn faithfulness(&self) -> f32 {
         self.entailment
     }
