@@ -1060,3 +1060,99 @@ fn lexical_snapshot_run_1() {
     let expected: serde_json::Value = serde_json::from_str(&baseline_text).unwrap();
     assert_eq!(actual, expected, "lexical run-1 snapshot drift");
 }
+
+// ── post-v0.17.1 dogfood — `text` column filter ──────────────────────────
+
+/// Heading-only token (unique to `chunks.heading_path_json`, absent
+/// from `chunks.text`) must NOT hit in default mode after the column
+/// filter clamp. Pins HOTFIXES 2026-05-24 closure — the JSON
+/// punctuation + path segments in `heading_path_json` are no longer
+/// matchable from a plain query.
+#[test]
+fn lexical_heading_only_token_does_not_hit_default_mode() {
+    let env = Env::new();
+    let conn = env.raw_conn();
+    insert_document(
+        &conn,
+        &id32("d"),
+        "notes/heading-only.md",
+        "Heading-only fixture",
+        "en",
+        "primary",
+        &[],
+    );
+    insert_chunk(
+        &conn,
+        &id32("c1"),
+        &id32("d"),
+        "bravo charlie delta echo",
+        &["kubernetes-agent-controller"],
+        Some("Heading"),
+        r#"[{"kind":"line","start":1,"end":2}]"#,
+        "v1",
+    );
+    drop(conn);
+
+    let r = env.retriever();
+    let hits = r
+        .search(&SearchQuery {
+            // "kubernetes-agent-controller" is in heading_path only.
+            text: "kubernetes-agent-controller".to_string(),
+            mode: SearchMode::Lexical,
+            k: 10,
+            filters: SearchFilters::default(),
+        })
+        .unwrap();
+    assert!(
+        hits.is_empty(),
+        "heading-only token must not hit text column; got {} hits",
+        hits.len()
+    );
+}
+
+/// Raw mode (`'heading_path : <token>'`) is the opt-in escape hatch
+/// for users who deliberately want heading-column matching after the
+/// default text-only clamp. The same fixture that 0-hits in default
+/// mode must hit when the user explicitly scopes to `heading_path`.
+#[test]
+fn lexical_raw_mode_can_opt_into_heading_path_filter() {
+    let env = Env::new();
+    let conn = env.raw_conn();
+    insert_document(
+        &conn,
+        &id32("d"),
+        "notes/heading-only.md",
+        "Heading-only fixture",
+        "en",
+        "primary",
+        &[],
+    );
+    insert_chunk(
+        &conn,
+        &id32("c1"),
+        &id32("d"),
+        "bravo charlie delta echo",
+        &["kubernetes-agent-controller"],
+        Some("Heading"),
+        r#"[{"kind":"line","start":1,"end":2}]"#,
+        "v1",
+    );
+    drop(conn);
+
+    let r = env.retriever();
+    let hits = r
+        .search(&SearchQuery {
+            // Raw mode: outer single quotes opt out of column-filter
+            // wrapping and pass the FTS5 expression through verbatim.
+            text: "'heading_path : \"kubernetes-agent-controller\"'".to_string(),
+            mode: SearchMode::Lexical,
+            k: 10,
+            filters: SearchFilters::default(),
+        })
+        .unwrap();
+    assert_eq!(
+        hits.len(),
+        1,
+        "raw-mode heading_path filter must hit the seeded chunk"
+    );
+}
