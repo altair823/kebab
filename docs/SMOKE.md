@@ -28,6 +28,25 @@ ollama pull gemma4:e4b           # 기본 default. 더 큰 variant 원하면 gem
 # 또는 KEBAB_MODELS_LLM_REQUEST_TIMEOUT_SECS=1200 env. HOTFIXES 2026-05-25 참조.
 ```
 
+sudo / systemd 없이 격리 디렉토리에 설치하는 경로 (컨테이너 / WSL2 / 회사 머신
+유용):
+
+```bash
+# tarball 만 받아 사용자 디렉토리에 풀고 OLLAMA_MODELS 로 모델 디렉토리 분리.
+mkdir -p /opt/ollama/{models,logs}
+curl -fL https://ollama.com/download/ollama-linux-amd64.tar.zst -o /tmp/ollama.tar.zst
+zstd -d /tmp/ollama.tar.zst -o /tmp/ollama.tar && tar -xf /tmp/ollama.tar -C /opt/ollama/
+OLLAMA_MODELS=/opt/ollama/models OLLAMA_HOST=127.0.0.1:11434 \
+    /opt/ollama/bin/ollama serve > /opt/ollama/logs/serve.log 2>&1 &
+/opt/ollama/bin/ollama pull gemma3:4b
+# 종료: pkill -f "ollama serve"
+```
+
+cold start 가 긴 모델 (8B+ 또는 첫 호출) 은 `kebab ask --stream` 으로 시도 권장
+— 토큰을 stderr 에 ndjson 으로 흘려 받아 5분 timeout 한도 안에서도 첫 토큰이
+빨리 surface 됨 (fb-33). 자세한 명령은 아래 "Streaming ask (fb-33)" 절.
+```
+
 본 머신에서 reachability 검증:
 
 ```bash
