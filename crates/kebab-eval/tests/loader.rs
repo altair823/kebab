@@ -38,7 +38,44 @@ fn loads_minimal_well_formed_yaml() {
     assert_eq!(qs[1].difficulty.as_deref(), Some("easy"));
 }
 
-// ── 2. duplicate IDs error lists every offender (sorted, deduplicated) ───────
+// ── 2. fb-41 multi-hop golden fixture loads + sanity-checks ─────────────────
+
+/// fb-41 baseline + post-merge Δ measurement fixture. The shared
+/// loader must accept `fixtures/multi_hop_golden.yaml` and the bucket
+/// distribution must stay 5 cross-doc + 5 intra-doc + 5 single-fact
+/// negative — curators dropping or re-id'ing a question hit a clear
+/// failure mode here before it reaches the runner.
+#[test]
+fn loads_multi_hop_golden_fixture() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("fixtures")
+        .join("multi_hop_golden.yaml");
+    let qs = load_golden_set(&path).expect("multi_hop_golden.yaml must parse");
+
+    assert_eq!(qs.len(), 15, "fb-41 fixture must have 15 questions");
+
+    let cross_doc = qs.iter().filter(|q| q.id.starts_with("mh-c-")).count();
+    let intra_doc = qs.iter().filter(|q| q.id.starts_with("mh-i-")).count();
+    let single = qs.iter().filter(|q| q.id.starts_with("mh-s-")).count();
+    assert_eq!(cross_doc, 5, "expected 5 mh-c-* (cross-doc) questions");
+    assert_eq!(intra_doc, 5, "expected 5 mh-i-* (intra-doc) questions");
+    assert_eq!(single, 5, "expected 5 mh-s-* (single-fact negative) questions");
+
+    // Every question carries at least one `must_contain` so the
+    // rule-based answer-correctness metric (P5-2) has a signal even
+    // before `expected_chunk_ids` are filled in.
+    for q in &qs {
+        assert!(
+            !q.must_contain.is_empty(),
+            "{}: must_contain is empty — baseline measurement needs a signal",
+            q.id
+        );
+    }
+}
+
+// ── 3. duplicate IDs error lists every offender (sorted, deduplicated) ───────
 
 #[test]
 fn rejects_duplicate_ids() {
