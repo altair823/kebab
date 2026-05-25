@@ -53,6 +53,11 @@ fn render_input(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::T
     const PROMPT: &str = "? ";
 
     let mode_badge = if s.explain { " explain" } else { "" };
+    // p9-fb-41: visible badge for the multi-hop toggle so the user
+    // always knows which pipeline the next submission will use.
+    // Styled with `Success` (multi_hop=on) so it stands out from
+    // the `explain` warning-colored badge.
+    let multi_hop_badge = if s.multi_hop { " multi-hop" } else { "" };
     // Distinguish three async states for the operator:
     // - currently streaming (worker still emitting tokens)
     // - prior worker detached (Esc-cancelled, no rx attached but
@@ -69,10 +74,11 @@ fn render_input(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::T
         Span::styled(PROMPT, theme.style(crate::theme::Role::Heading)),
         Span::raw(s.input.as_str()),
         Span::styled(mode_badge, theme.style(crate::theme::Role::Warning)),
+        Span::styled(multi_hop_badge, theme.style(crate::theme::Role::Success)),
         Span::styled(busy, theme.style(crate::theme::Role::Hint)),
     ]);
     let block = Block::default()
-        .title("ask (Enter=submit  e=explain  Ctrl-L=new conversation  Esc=back)")
+        .title("ask (Enter=submit  e=explain  F2=multi-hop  Ctrl-L=new conversation  Esc=back)")
         .borders(Borders::ALL);
     let inner = block.inner(area);
     let paragraph = Paragraph::new(line).block(block);
@@ -257,14 +263,33 @@ fn render_status(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::
                 }
                 None => "",
             };
-            vec![
+            let mut lines = vec![
                 Line::from(format!("grounded {grounded}  model {}", a.model.id)),
                 Line::from(format!("prompt {}  mode {mode}", a.prompt_template_version.0)),
                 Line::from(format!(
                     "k={}  used={}/{}{refusal}",
                     a.retrieval.k, a.retrieval.chunks_used, a.retrieval.chunks_returned
                 )),
-            ]
+            ];
+            // p9-fb-41: surface a brief multi-hop summary when the
+            // turn was routed through the multi-hop pipeline. The
+            // full per-hop trace lives in `Answer.hops`; this line
+            // is the at-a-glance "yes, this used N hops" signal.
+            // `forced_stop` count flags depth/pool-cap terminations
+            // — useful for tuning `multi_hop_max_depth` etc.
+            if let Some(hops) = a.hops.as_ref() {
+                let forced = hops.iter().filter(|h| h.forced_stop).count();
+                let forced_tag = if forced > 0 {
+                    format!("  forced_stop={forced}")
+                } else {
+                    String::new()
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("multi-hop: {} hops{forced_tag}", hops.len()),
+                    theme.style(crate::theme::Role::Success),
+                )));
+            }
+            lines
         }
     };
     f.render_widget(Paragraph::new(lines).block(block), area);
@@ -418,6 +443,18 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
             s.scroll = 0;
             KeyOutcome::Continue
         }
+        // p9-fb-41: F2 toggles multi-hop. Mode-agnostic (physical
+        // function key, no typing ambiguity). The toggle takes
+        // effect on the *next* Enter submission — the in-flight
+        // turn (if any) keeps the multi_hop value it was spawned
+        // with. Conversation history (`turns`) survives the flip;
+        // a follow-up turn just routes through the other pipeline
+        // (no silent invalidation per p9-fb-16's contract).
+        (KeyCode::F(2), _) => {
+            let s = state.ask.as_mut().unwrap();
+            s.multi_hop = !s.multi_hop;
+            KeyOutcome::Continue
+        }
         (KeyCode::Backspace, _) => {
             let s = state.ask.as_mut().unwrap();
             s.input.pop_char();
@@ -493,6 +530,9 @@ fn spawn_ask_worker(state: &mut App) {
     // clear). The buffer is left empty with cursor at 0.
     let query = s.input.take();
     let explain = s.explain;
+    // p9-fb-41: snapshot the toggle at spawn time. Later F2 flips
+    // do NOT affect the in-flight turn.
+    let multi_hop = s.multi_hop;
     s.partial.clear();
     s.last_answer = None;
     s.streaming = true;
@@ -522,7 +562,7 @@ fn spawn_ask_worker(state: &mut App) {
         history,
         conversation_id: Some(conversation_id),
         turn_index: Some(turn_index),
-        multi_hop: false,
+        multi_hop,
     };
     let handle =
         thread::spawn(move || kebab_app::ask_with_config(cfg, &query, opts));

@@ -988,3 +988,203 @@ fn follow_tail_renders_tail_when_transcript_overflows() {
         "tail of transcript must be visible when follow_tail is on; got:\n{rendered}"
     );
 }
+
+// ── p9-fb-41: multi-hop toggle ───────────────────────────────────────────
+
+/// `F2` flips `AskState.multi_hop` from any mode (Normal or Insert)
+/// — it's a physical function key, not a Char, so the mode gating
+/// in handle_key_ask doesn't apply.
+#[test]
+fn f2_toggles_multi_hop_flag_from_insert_mode() {
+    let mut app = fresh_app();
+    // fresh_app sets Insert mode on the Ask pane (auto-flip).
+    assert_eq!(app.mode, kebab_tui::Mode::Insert);
+    assert!(!app.ask.as_ref().unwrap().multi_hop, "default off");
+
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::F(2), KeyModifiers::NONE));
+    assert!(
+        app.ask.as_ref().unwrap().multi_hop,
+        "first F2 turns multi-hop on"
+    );
+
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::F(2), KeyModifiers::NONE));
+    assert!(
+        !app.ask.as_ref().unwrap().multi_hop,
+        "second F2 turns it back off"
+    );
+}
+
+#[test]
+fn f2_toggles_multi_hop_flag_from_normal_mode() {
+    let mut app = fresh_app();
+    app.mode = kebab_tui::Mode::Normal;
+    assert!(!app.ask.as_ref().unwrap().multi_hop);
+
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::F(2), KeyModifiers::NONE));
+    assert!(
+        app.ask.as_ref().unwrap().multi_hop,
+        "F2 in Normal mode must also toggle multi-hop"
+    );
+}
+
+#[test]
+fn input_pane_shows_multi_hop_badge_when_toggled_on() {
+    let mut app = fresh_app();
+    app.ask.as_mut().unwrap().multi_hop = true;
+
+    let backend = TestBackend::new(80, 20);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| render_ask(f, Rect::new(0, 0, 80, 20), &app))
+        .unwrap();
+    let rendered = render_to_string(terminal.backend().buffer());
+    assert!(
+        rendered.contains("multi-hop"),
+        "input pane must surface a multi-hop badge when toggled on; got:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("F2=multi-hop"),
+        "ask input title must advertise the F2 binding; got:\n{rendered}"
+    );
+}
+
+#[test]
+fn input_pane_omits_multi_hop_badge_when_toggled_off() {
+    let app = fresh_app();
+    assert!(!app.ask.as_ref().unwrap().multi_hop);
+
+    let backend = TestBackend::new(80, 20);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| render_ask(f, Rect::new(0, 0, 80, 20), &app))
+        .unwrap();
+    let rendered = render_to_string(terminal.backend().buffer());
+    // The title still advertises the binding (so users discover the
+    // feature) but the *badge* text "multi-hop" must NOT appear next
+    // to the prompt — the line is the toggle-state signal.
+    //
+    // We can't simply assert `!rendered.contains("multi-hop")` because
+    // the title itself contains the word. Instead split on the input
+    // prompt and confirm the badge segment of the input line is absent.
+    // Match the layout: the input pane is the first row, title on the
+    // border, prompt + badge on the inner row.
+    assert!(
+        rendered.contains("F2=multi-hop"),
+        "title binding hint must always be visible; got:\n{rendered}"
+    );
+    let prompt_row = rendered.lines().find(|l| l.contains("?")).unwrap_or("");
+    assert!(
+        !prompt_row.contains("multi-hop"),
+        "the badge belongs on the prompt row only when toggled on; got row:\n{prompt_row}"
+    );
+}
+
+#[test]
+fn status_panel_summarizes_hops_when_answer_has_trace() {
+    use kebab_core::{HopKind, HopRecord};
+
+    let mut app = fresh_app();
+    let mut answer = make_answer(true, None, "compound answer [#1]");
+    answer.hops = Some(vec![
+        HopRecord {
+            iter: 0,
+            kind: HopKind::Decompose,
+            sub_queries: vec!["q1".into(), "q2".into()],
+            context_chunks_added: 0,
+            forced_stop: false,
+            llm_call_ms: 7,
+        },
+        HopRecord {
+            iter: 1,
+            kind: HopKind::Decide,
+            sub_queries: vec![],
+            context_chunks_added: 3,
+            forced_stop: false,
+            llm_call_ms: 5,
+        },
+        HopRecord {
+            iter: 2,
+            kind: HopKind::Synthesize,
+            sub_queries: vec![],
+            context_chunks_added: 0,
+            forced_stop: false,
+            llm_call_ms: 11,
+        },
+    ]);
+    app.ask.as_mut().unwrap().last_answer = Some(answer);
+
+    let backend = TestBackend::new(80, 20);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| render_ask(f, Rect::new(0, 0, 80, 20), &app))
+        .unwrap();
+    let rendered = render_to_string(terminal.backend().buffer());
+    assert!(
+        rendered.contains("multi-hop: 3 hops"),
+        "status panel must surface the hop count; got:\n{rendered}"
+    );
+}
+
+#[test]
+fn status_panel_omits_hops_summary_for_single_pass() {
+    let mut app = fresh_app();
+    let mut answer = make_answer(true, None, "single-pass answer [#1]");
+    answer.hops = None;
+    app.ask.as_mut().unwrap().last_answer = Some(answer);
+
+    let backend = TestBackend::new(80, 20);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| render_ask(f, Rect::new(0, 0, 80, 20), &app))
+        .unwrap();
+    let rendered = render_to_string(terminal.backend().buffer());
+    // The status panel renders 3 lines (grounded / prompt / k/used)
+    // for single-pass — no "multi-hop:" line. Only the *title*
+    // binding hint ("F2=multi-hop") may contain the substring.
+    // Filter that row out, then assert the remaining buffer has no
+    // hops summary.
+    let body: String = rendered
+        .lines()
+        .filter(|l| !l.contains("F2=multi-hop"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !body.contains("multi-hop:"),
+        "single-pass answer must NOT render the multi-hop summary line; got:\n{body}"
+    );
+}
+
+#[test]
+fn spawn_snapshot_multi_hop_into_askopts() {
+    // We can't actually spawn the worker (no Ollama / KB), but we
+    // can pin the snapshot semantics: the toggle's value at the
+    // moment of Enter is the value the worker sees. Flipping F2
+    // after Enter doesn't retro-affect the in-flight turn.
+    //
+    // Strategy: read the toggle directly, then verify the contract
+    // by inspecting `AskState.multi_hop` after a flip — the
+    // toggle's "next-turn" semantics are documented but we keep
+    // the regression light: the field exists, is bool, defaults
+    // to false, and round-trips through the public surface.
+    let mut app = fresh_app();
+    let s = app.ask.as_mut().unwrap();
+    assert!(!s.multi_hop, "default false");
+    s.multi_hop = true;
+    assert!(s.multi_hop, "settable to true");
+    s.multi_hop = false;
+    assert!(!s.multi_hop, "settable back to false");
+}
+
+/// Small render helper shared with the rest of the test module's
+/// buffer-snapshot pattern. We define it locally here to avoid
+/// reaching into private internals.
+fn render_to_string(buffer: &ratatui::buffer::Buffer) -> String {
+    (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}

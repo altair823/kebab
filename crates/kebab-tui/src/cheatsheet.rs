@@ -89,6 +89,7 @@ pub fn render_cheatsheet(f: &mut Frame, area: Rect, app: &App) {
         ("type", "question (Insert)"),
         ("Enter", "submit"),
         ("e", "toggle explain mode (Normal)"),
+        ("F2", "toggle multi-hop pipeline (p9-fb-41 — affects next submission)"),
         ("j / k", "scroll transcript (Normal — disengages auto-tail)"),
         ("Shift-G", "jump to bottom + re-engage auto-tail (p9-fb-22)"),
         ("PgUp / PgDn", "page-scroll the transcript (p9-fb-24, disengages auto-tail)"),

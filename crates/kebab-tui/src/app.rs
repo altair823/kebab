@@ -257,6 +257,13 @@ pub struct AskState {
     /// `Turn`; this slot is just the easiest place for the panel
     /// renderer to look.
     pub last_answer: Option<kebab_core::Answer>,
+    /// p9-fb-41: toggle for the multi-hop pipeline. `F2` flips it
+    /// from the Ask pane; the next `Enter` snapshot picks the value
+    /// into `AskOpts.multi_hop` before spawning the worker. Default
+    /// `false` (single-pass). Conversation history (`turns`) survives
+    /// the toggle — flipping mid-conversation just changes the
+    /// pipeline used for the *next* turn.
+    pub multi_hop: bool,
 }
 
 impl Default for AskState {
@@ -277,6 +284,7 @@ impl Default for AskState {
             current_question: None,
             conversation_id: None,
             last_answer: None,
+            multi_hop: false,
         }
     }
 }
