@@ -1154,18 +1154,15 @@ fn status_panel_omits_hops_summary_for_single_pass() {
     );
 }
 
+/// Light field-shape pin: the toggle exists, is bool, defaults
+/// to false, and round-trips through the public `AskState` surface.
+/// The actual spawn-time snapshot semantics (toggle value at Enter
+/// is the value the worker sees) are guaranteed by the
+/// `let multi_hop = s.multi_hop;` line at the top of
+/// `spawn_ask_worker` — exercised in live multi-hop dogfood rather
+/// than here (worker thread needs Ollama + a real KB).
 #[test]
-fn spawn_snapshot_multi_hop_into_askopts() {
-    // We can't actually spawn the worker (no Ollama / KB), but we
-    // can pin the snapshot semantics: the toggle's value at the
-    // moment of Enter is the value the worker sees. Flipping F2
-    // after Enter doesn't retro-affect the in-flight turn.
-    //
-    // Strategy: read the toggle directly, then verify the contract
-    // by inspecting `AskState.multi_hop` after a flip — the
-    // toggle's "next-turn" semantics are documented but we keep
-    // the regression light: the field exists, is bool, defaults
-    // to false, and round-trips through the public surface.
+fn ask_state_multi_hop_field_default_false_and_round_trips() {
     let mut app = fresh_app();
     let s = app.ask.as_mut().unwrap();
     assert!(!s.multi_hop, "default false");
@@ -1174,6 +1171,7 @@ fn spawn_snapshot_multi_hop_into_askopts() {
     s.multi_hop = false;
     assert!(!s.multi_hop, "settable back to false");
 }
+
 
 /// Small render helper shared with the rest of the test module's
 /// buffer-snapshot pattern. We define it locally here to avoid
