@@ -673,6 +673,18 @@ impl RagPipeline {
             );
         }
 
+        // probe_hits are inspected for the gate decision only — the
+        // decompose-driven pool below builds from scratch, even if
+        // the first sub-query happens to equal the original query.
+        // Re-using probe_hits as the pool's initial seed would save
+        // one retrieve in that case, but would change the meaning of
+        // `HopRecord.context_chunks_added` on the first decide hop
+        // (currently "chunks from decompose-driven retrieve" — would
+        // become "probe + decompose"). Kept dropped for invariant
+        // clarity; revisit if the per-call retrieve cost ever becomes
+        // the multi-hop latency bottleneck (currently dominated by
+        // LLM calls, not retrieves).
+
         let mut hops: Vec<HopRecord> = Vec::new();
 
         // ── 1. Decompose (iter 0) ──────────────────────────────────────────
