@@ -169,12 +169,26 @@ impl Retriever for LexicalRetriever {
 /// branch. Korean compounds typically split into 2-char eojeols (e.g.
 /// `해시 충돌`), so a naive token AND drops the dominant usage pattern.
 ///
+/// post-v0.17.1 dogfood — `text` column filter (closure of HOTFIXES
+/// 2026-05-24 `heading_path_json` 노이즈). The `chunks_fts` virtual
+/// table indexes both `heading_path` (the JSON-serialized
+/// `chunks.heading_path_json` per V002/V007 triggers) and `text`. Under
+/// the trigram tokenizer the JSON punctuation (`[`, `"`, `,`) plus the
+/// path segments (`app`, `src`, …) become indexable 3-grams, so a
+/// query can hit a chunk purely because its file's heading JSON shares
+/// a path segment with the query — false positives that have no body
+/// relevance. The default match expression therefore scopes to the
+/// `text` column. The `heading_path` column stays indexed (V007 / §5.5
+/// verbatim block is preserved) so a user who *wants* heading matching
+/// can opt in via raw mode (`'heading_path : foo'`).
+///
 /// Rules:
 ///
 /// - Raw mode (unchanged): the query is wrapped in a single pair of
 ///   `'...'` → strip the quotes and pass the inner text through verbatim.
 ///   The user has explicitly opted into FTS5 syntax (e.g.
-///   `'rust AND cargo'`, `'foo*'`).
+///   `'rust AND cargo'`, `'foo*'`, `'heading_path : agent'`). No column
+///   scoping is applied — the raw expression is honored as-is.
 ///
 /// - Otherwise build up to two MATCH candidates:
 ///   1. **whole-phrase**: the entire trimmed input wrapped as one FTS5
@@ -191,6 +205,10 @@ impl Retriever for LexicalRetriever {
 ///
 /// - A single-token long query (`러스트`, `foo`) yields `whole == token_and`
 ///   → return the bare quoted form so the OR doesn't duplicate.
+///
+/// - Finally wrap the combined expression in `text : (<expr>)` so the
+///   match is scoped to the body column. FTS5's column-filter syntax
+///   accepts an arbitrary OR/AND sub-expression inside the parens.
 fn build_match_string(text: &str) -> Option<String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -218,13 +236,14 @@ fn build_match_string(text: &str) -> Option<String> {
         (!toks.is_empty()).then(|| toks.join(" "))
     };
 
-    match (whole_candidate, token_and_candidate) {
-        (None, None) => None,
-        (Some(w), None) => Some(w),
-        (None, Some(a)) => Some(a),
-        (Some(w), Some(a)) if w == a => Some(w),
-        (Some(w), Some(a)) => Some(format!("({w}) OR ({a})")),
-    }
+    let expression = match (whole_candidate, token_and_candidate) {
+        (None, None) => return None,
+        (Some(w), None) => w,
+        (None, Some(a)) => a,
+        (Some(w), Some(a)) if w == a => w,
+        (Some(w), Some(a)) => format!("({w}) OR ({a})"),
+    };
+    Some(format!("text : ({expression})"))
 }
 
 /// Return `Some(inner)` if `s` is wrapped in a matching pair of single
@@ -587,9 +606,11 @@ mod tests {
     #[test]
     fn build_match_string_default_emits_or_of_phrase_and_and() {
         // Two long tokens: both whole-phrase and token-AND candidates
-        // exist and differ, so the builder combines them with OR.
+        // exist and differ, so the builder combines them with OR
+        // inside a `text : (...)` column filter (post-v0.17.1 dogfood:
+        // text-only scoping to avoid heading_path_json false positives).
         let s = build_match_string("rust cargo").unwrap();
-        assert_eq!(s, r#"("rust cargo") OR ("rust" "cargo")"#);
+        assert_eq!(s, r#"text : (("rust cargo") OR ("rust" "cargo"))"#);
     }
 
     #[test]
@@ -597,26 +618,39 @@ mod tests {
         // `*`, `(`, `)`, `:`, `^`, `"` should all be wrapped inside
         // FTS5 string-literal quotes so they're treated as literal
         // text rather than FTS5 operators. Every token is ≥3 chars,
-        // so both the whole-phrase and token-AND candidates exist.
+        // so both the whole-phrase and token-AND candidates exist,
+        // wrapped in the `text : (...)` column filter.
         let s = build_match_string(r#"foo* (bar) baz:qux ^head he"llo"#).unwrap();
         assert_eq!(
             s,
-            r#"("foo* (bar) baz:qux ^head he""llo") OR ("foo*" "(bar)" "baz:qux" "^head" "he""llo")"#
+            r#"text : (("foo* (bar) baz:qux ^head he""llo") OR ("foo*" "(bar)" "baz:qux" "^head" "he""llo"))"#
         );
         // The doubled `""` is FTS5's way of embedding a literal quote
         // inside a string literal. Appears in both whole-phrase and
         // token-AND halves.
         assert!(s.contains(r#"he""llo"#));
-        // Sanity: the combined expression is `(...) OR (...)` so it
-        // starts with `(` and ends with `)`.
-        assert!(s.starts_with('(') && s.ends_with(')'));
+        // Sanity: outermost wrapper is the column filter.
+        assert!(s.starts_with("text : ("));
+        assert!(s.ends_with(')'));
     }
 
     #[test]
     fn build_match_string_passthrough_when_single_quoted() {
-        // The FTS5 expression is preserved verbatim.
+        // Raw mode bypasses column scoping — the FTS5 expression is
+        // preserved verbatim, including any explicit column filter
+        // (e.g. `'heading_path : foo'`) the user opts into.
         let s = build_match_string("'foo OR bar*'").unwrap();
         assert_eq!(s, "foo OR bar*");
+    }
+
+    /// Raw mode preserves an explicit `heading_path :` column filter
+    /// — opt-in path for users who deliberately want heading matching
+    /// (post-v0.17.1 dogfood default scopes to `text` only).
+    #[test]
+    fn build_match_string_raw_mode_preserves_heading_filter() {
+        let s = build_match_string("'heading_path : agent'").unwrap();
+        assert_eq!(s, "heading_path : agent");
+        assert!(!s.starts_with("text : "));
     }
 
     // ── v0.17.0 trigram-aware redesign coverage ──────────────────────────
@@ -634,38 +668,43 @@ mod tests {
     /// `해시 충돌` — both tokens are 2 chars (dropped from the AND), but
     /// the whole-phrase candidate (`"해시 충돌"`, 5 chars total) survives.
     /// This is the dominant Korean usage pattern targeted by A5.
+    /// The whole-phrase candidate is then wrapped in the `text : (...)`
+    /// column filter.
     #[test]
     fn build_match_string_whole_phrase_only_when_all_tokens_short() {
         let s = build_match_string("해시 충돌").unwrap();
-        assert_eq!(s, r#""해시 충돌""#);
+        assert_eq!(s, r#"text : ("해시 충돌")"#);
     }
 
     /// Single long token: whole-phrase and token-AND candidates collapse
     /// to the same string. The builder returns the bare quoted form so
-    /// the MATCH expression doesn't carry a redundant `(x) OR (x)`.
+    /// the MATCH expression doesn't carry a redundant `(x) OR (x)`,
+    /// wrapped in `text : (...)`.
     #[test]
     fn build_match_string_single_long_token_no_duplicate_or() {
-        assert_eq!(build_match_string("러스트").unwrap(), r#""러스트""#);
-        assert_eq!(build_match_string("rust").unwrap(), r#""rust""#);
+        assert_eq!(build_match_string("러스트").unwrap(), r#"text : ("러스트")"#);
+        assert_eq!(build_match_string("rust").unwrap(), r#"text : ("rust")"#);
     }
 
     /// Mixed Korean+English multi-token query where every token is ≥3
-    /// chars: both candidates exist and differ, OR-combined.
+    /// chars: both candidates exist and differ, OR-combined inside
+    /// `text : (...)`.
     #[test]
     fn build_match_string_mixed_lang_emits_or_of_phrase_and_and() {
         let s = build_match_string("Rust 충돌은").unwrap();
-        assert_eq!(s, r#"("Rust 충돌은") OR ("Rust" "충돌은")"#);
+        assert_eq!(s, r#"text : (("Rust 충돌은") OR ("Rust" "충돌은"))"#);
     }
 
     /// One ≥3 token + one <3 token: short token is dropped from the
     /// AND, leaving a single long token there; whole-phrase exists
-    /// independently. Both candidates differ → OR-combined.
+    /// independently. Both candidates differ → OR-combined inside
+    /// `text : (...)`.
     #[test]
     fn build_match_string_drops_short_token_in_and_keeps_whole() {
         // "키" (1 char) dropped from AND; "해시테이블" (5 chars) kept.
         // Whole phrase "키 해시테이블" (7 chars) keeps the short token.
         let s = build_match_string("키 해시테이블").unwrap();
-        assert_eq!(s, r#"("키 해시테이블") OR ("해시테이블")"#);
+        assert_eq!(s, r#"text : (("키 해시테이블") OR ("해시테이블"))"#);
     }
 
     #[test]
