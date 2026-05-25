@@ -24,6 +24,7 @@ members = [
     "crates/kebab-tui",
     "crates/kebab-mcp",
     "crates/kebab-parse-code",
+    "crates/kebab-nli",
 ]
 
 [workspace.package]
@@ -102,6 +103,19 @@ tree-sitter-kotlin-ng  = "1.1.0"   # bare tree-sitter-kotlin requires ts <0.23; 
 # C/C++ family grammars for code ingest (kebab-parse-code, p10-1D).
 tree-sitter-c         = "0.24.2"
 tree-sitter-cpp       = "0.23.4"
+# fb-41 PR-9 (kebab-nli): mDeBERTa-v3 XNLI verifier deps. Versions match
+# the fastembed 4.9 transitive set so the ONNX Runtime + tokenizer stack
+# stays single-versioned across the workspace. ort `default-features=false`
+# drops the bundled binary downloader (fastembed already provides one);
+# tokenizers `default-features=false, onig` swaps the default `esaxx` regex
+# backend for `onig` so the build doesn't need libstdc++ headers (verified
+# via PR-9a pre-flight: SentencePiece tokenizer.json loads + KR/EN encode).
+# hf-hub uses `ureq + rustls-tls` to stay aligned with kebab-embed-local's
+# pure-Rust TLS stack.
+ort          = { version = "=2.0.0-rc.9", default-features = false, features = ["ndarray"] }
+tokenizers   = { version = "0.21", default-features = false, features = ["onig"] }
+hf-hub       = { version = "0.4", default-features = false, features = ["ureq", "rustls-tls"] }
+ndarray      = "0.16"
 
 # Disk-footprint trim for dev / test builds. Codegen, opt-level, and
 # behavior are unchanged — only DWARF debug info is reduced (line
