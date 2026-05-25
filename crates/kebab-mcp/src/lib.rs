@@ -49,7 +49,7 @@ pub fn build_tools_vec() -> Vec<Tool> {
         ),
         Tool::new(
             "ask",
-            "RAG question answering over the knowledge base. Returns answer.v1 JSON. Pass session_id for multi-turn context.",
+            "RAG question answering over the knowledge base. Returns answer.v1 JSON. Pass session_id for multi-turn context. Set multi_hop=true for compound / cross-doc questions (decompose → retrieve → synthesize; 2-5× LLM cost; per-hop trace on Answer.hops).",
             schema_for_type::<tools::ask::AskInput>(),
         ),
         Tool::new(
