@@ -322,7 +322,8 @@ async fn ocr_downscales_large_image_before_sending() {
 #[test]
 fn from_parts_clamps_max_pixels_into_legal_range() {
     // Below MIN_LONG_EDGE — bumped up to the floor.
-    let too_small = OllamaVisionOcr::from_parts("http://x", "m", vec![], 10).unwrap();
+    let too_small =
+        OllamaVisionOcr::from_parts("http://x", "m", vec![], 10, 300).unwrap();
     assert_eq!(
         too_small.max_pixels(),
         256,
@@ -331,7 +332,7 @@ fn from_parts_clamps_max_pixels_into_legal_range() {
 
     // Above MAX_LONG_EDGE — capped at the ceiling.
     let too_big =
-        OllamaVisionOcr::from_parts("http://x", "m", vec![], 99_999).unwrap();
+        OllamaVisionOcr::from_parts("http://x", "m", vec![], 99_999, 300).unwrap();
     assert_eq!(
         too_big.max_pixels(),
         4096,
@@ -339,7 +340,8 @@ fn from_parts_clamps_max_pixels_into_legal_range() {
     );
 
     // Inside the legal range — pass through untouched.
-    let in_range = OllamaVisionOcr::from_parts("http://x", "m", vec![], 1024).unwrap();
+    let in_range =
+        OllamaVisionOcr::from_parts("http://x", "m", vec![], 1024, 300).unwrap();
     assert_eq!(in_range.max_pixels(), 1024);
 }
 

@@ -39,10 +39,6 @@ use crate::image_prep;
 /// Engine name written into `OcrText.engine` for the Ollama-vision adapter.
 pub const OLLAMA_VISION_ENGINE: &str = "ollama-vision";
 
-/// Hard ceiling on the OCR HTTP exchange. Cold-loading a vision model on
-/// first call can take ~30s; 5 minutes is generous without being open-ended.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
-
 /// Lower bound on `config.image.ocr.max_pixels`. Anything below this is
 /// silently bumped to keep the model from receiving an unreadable thumbnail.
 const MIN_LONG_EDGE: u32 = 256;
@@ -139,7 +135,13 @@ impl OllamaVisionOcr {
             Some(s) if !s.is_empty() => s.to_string(),
             _ => config.models.llm.endpoint.clone(),
         };
-        Self::build(endpoint, ocr.model.clone(), ocr.languages.clone(), ocr.max_pixels)
+        Self::build(
+            endpoint,
+            ocr.model.clone(),
+            ocr.languages.clone(),
+            ocr.max_pixels,
+            ocr.request_timeout_secs,
+        )
     }
 
     /// Build directly from explicit fields. Useful for tests that need
@@ -153,8 +155,15 @@ impl OllamaVisionOcr {
         model: impl Into<String>,
         languages: Vec<String>,
         max_pixels: u32,
+        request_timeout_secs: u64,
     ) -> Result<Self> {
-        Self::build(endpoint.into(), model.into(), languages, max_pixels)
+        Self::build(
+            endpoint.into(),
+            model.into(),
+            languages,
+            max_pixels,
+            request_timeout_secs,
+        )
     }
 
     /// Shared validation + construction. Centralised so `new` and
@@ -164,6 +173,7 @@ impl OllamaVisionOcr {
         model: String,
         languages: Vec<String>,
         requested_max_pixels: u32,
+        request_timeout_secs: u64,
     ) -> Result<Self> {
         if endpoint.is_empty() {
             anyhow::bail!(
@@ -183,7 +193,7 @@ impl OllamaVisionOcr {
             );
         }
         let client = reqwest::blocking::Client::builder()
-            .timeout(REQUEST_TIMEOUT)
+            .timeout(Duration::from_secs(request_timeout_secs))
             .build()
             .context("building OCR HTTP client")?;
         Ok(Self {
@@ -375,6 +385,7 @@ mod tests {
             "m",
             vec!["eng".into(), "kor".into()],
             1024,
+            300,
         )
         .unwrap();
         let p = engine.build_prompt(Some(&Lang("ko".into())));
@@ -389,6 +400,7 @@ mod tests {
             "m",
             vec!["eng".into()],
             1024,
+            300,
         )
         .unwrap();
         let p = engine.build_prompt(Some(&Lang("und".into())));
@@ -400,7 +412,7 @@ mod tests {
     /// the constructor cannot drift to "silently accept a bad config".
     #[test]
     fn build_rejects_empty_endpoint() {
-        let r = OllamaVisionOcr::from_parts("", "m", vec![], 1024);
+        let r = OllamaVisionOcr::from_parts("", "m", vec![], 1024, 300);
         let err = r.expect_err("empty endpoint must bail").to_string();
         assert!(
             err.contains("endpoint is empty"),
@@ -413,7 +425,7 @@ mod tests {
     /// so testing `from_parts` covers both.
     #[test]
     fn build_rejects_empty_model_after_trim() {
-        let r = OllamaVisionOcr::from_parts("http://x", "   ", vec![], 1024);
+        let r = OllamaVisionOcr::from_parts("http://x", "   ", vec![], 1024, 300);
         let err = r.expect_err("empty model must bail").to_string();
         assert!(
             err.contains("model is empty"),
@@ -428,10 +440,10 @@ mod tests {
     #[test]
     fn build_clamps_max_pixels_outside_legal_range() {
         let too_small =
-            OllamaVisionOcr::from_parts("http://x", "m", vec![], 1).unwrap();
+            OllamaVisionOcr::from_parts("http://x", "m", vec![], 1, 300).unwrap();
         assert_eq!(too_small.max_pixels(), MIN_LONG_EDGE);
         let too_big =
-            OllamaVisionOcr::from_parts("http://x", "m", vec![], u32::MAX).unwrap();
+            OllamaVisionOcr::from_parts("http://x", "m", vec![], u32::MAX, 300).unwrap();
         assert_eq!(too_big.max_pixels(), MAX_LONG_EDGE);
     }
 }
