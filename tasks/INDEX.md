@@ -156,6 +156,10 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
   - **PR-B C typedef alias unit + parser_version cascade** — ✅ 머지 (#160, 2026-05-24). `type_definition` 분기 — top-level typedef-wrapped anonymous struct/enum/union 의 alias 이름으로 synthetic unit. `PARSER_VERSION code-c-v1` → `code-c-v2` bump + same-workspace_path orphan purge cascade.
   - **PR-C `code_lang_chunk_breakdown` additive wire field** — ✅ 머지 (#161, 2026-05-24). `schema.v1.stats` 에 chunk 수 집계 sister 필드 + 기존 `code_lang_breakdown` / `repo_breakdown` JSON schema description 정정 ("chunk count" 오기재 → "doc count").
 
+  **v0.17.1 post-dogfood polish** (release: [v0.17.1](https://gitea.altair823.xyz/altair823-org/kebab/releases/tag/v0.17.1)):
+  - **PR #162 `[models.llm] request_timeout_secs` config + 권장 모델 가이드** — ✅ 머지 (2026-05-25). 8B+ 모델 CPU 추론 시 5분 hard timeout 회피용 노브. additive serde default + env override + 0-edge doc. README + SMOKE 에 CPU only / ≤16GB RAM ⇒ ≤4B Q4 모델 권장 한 단락.
+  - **PR #163 sudo 없이 ollama 설치 + ask --stream 권장 (docs only)** — ✅ 머지 (2026-05-25). README + SMOKE 에 tarball + OLLAMA_MODELS env 설치 패턴 + cold start 긴 모델은 progressive 토큰 권고 (p9-fb-33 surface).
+
 ## Post-merge 핫픽스
 
 머지 후 발견된 버그들과 그 follow-up PR들은 [HOTFIXES.md](HOTFIXES.md)에 dated 로그로 기록한다. 원래 task spec은 frozen 상태로 두고, post-merge 동작 변경은 HOTFIXES.md를 source of truth로 본다.
