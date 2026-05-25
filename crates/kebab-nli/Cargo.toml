@@ -8,13 +8,17 @@ repository    = { workspace = true }
 description   = "fb-41: NLI-based post-synthesis verification (XNLI mDeBERTa-v3). PR-9a = trait + scaffolding; ONNX inference lands in PR-9b."
 
 [dependencies]
-# PR-9a scope: kebab-config for the OnnxNliVerifier::new(&Config) signature
-# the rag crate will call once PR-9d wires verification into ask_multi_hop.
-# ort / tokenizers / hf-hub / ndarray are intentionally NOT depended on here
-# — they sit in workspace.dependencies until PR-9b adds the real adapter.
+# PR-9b: ONNX inference path activated. ort / tokenizers / hf-hub / ndarray
+# all source from `[workspace.dependencies]` so the workspace pins a single
+# version + feature set for the whole NLI + embed stack.
 kebab-config = { path = "../kebab-config" }
 anyhow       = { workspace = true }
 serde        = { workspace = true }
+ort          = { workspace = true }
+tokenizers   = { workspace = true }
+hf-hub       = { workspace = true }
+ndarray      = { workspace = true }
+tracing      = { workspace = true }
 
 [dev-dependencies]
 tempfile     = { workspace = true }

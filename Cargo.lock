@@ -4332,9 +4332,14 @@ name = "kebab-nli"
 version = "0.17.2"
 dependencies = [
  "anyhow",
+ "hf-hub",
  "kebab-config",
+ "ndarray",
+ "ort",
  "serde",
  "tempfile",
+ "tokenizers",
+ "tracing",
 ]
 
 [[package]]
