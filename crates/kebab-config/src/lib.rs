@@ -122,6 +122,16 @@ pub struct LlmCfg {
     pub endpoint: String,
     pub temperature: f32,
     pub seed: u64,
+    /// v0.17.0 post-dogfood: Hard ceiling on a single HTTP exchange to
+    /// the LLM endpoint (Ollama, etc.). Cold-loading an 8B+ model on
+    /// CPU-only hosts can spend 60-90s on model load + several minutes
+    /// on a first inference, blowing past the old hard-coded 300s cap
+    /// and surfacing as `error: kb-rag: llm.generate_stream` to the
+    /// user. Config-driven so 16-GB / CPU-only deployments using small
+    /// (≤4B) models can keep the original 300s and large-model dogfood
+    /// can dial it up (e.g. 1200s) without rebuilding.
+    #[serde(default = "default_llm_request_timeout_secs")]
+    pub request_timeout_secs: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -145,6 +155,13 @@ pub struct SearchCfg {
 
 fn default_cache_capacity() -> usize {
     256
+}
+
+/// v0.17.0 post-dogfood: matches the legacy hard-coded ceiling so
+/// existing configs that omit the field keep behaving identically.
+/// Overridable per config / `KEBAB_MODELS_LLM_REQUEST_TIMEOUT_SECS`.
+fn default_llm_request_timeout_secs() -> u64 {
+    300
 }
 
 fn default_stale_threshold_days() -> u32 {
@@ -363,12 +380,14 @@ impl Config {
                     // gemma4 계열 통일 — OCR (P6-2) + caption (P6-3)
                     // 어댑터가 같은 family 사용. 사용자가 더 큰
                     // variant (gemma4:26b 등) 원하면 자기 config.toml
-                    // 에서 override.
+                    // 에서 override. CPU-only / ≤16 GB RAM 환경이면
+                    // gemma3:4b 같은 ≤4B Q4 모델 권장 (README 참조).
                     model: "gemma4:e4b".to_string(),
                     context_tokens: 32768,
                     endpoint: "http://127.0.0.1:11434".to_string(),
                     temperature: 0.0,
                     seed: 0,
+                    request_timeout_secs: default_llm_request_timeout_secs(),
                 },
             },
             search: SearchCfg {
@@ -621,6 +640,11 @@ impl Config {
                         self.models.llm.seed = n;
                     }
                 }
+                "KEBAB_MODELS_LLM_REQUEST_TIMEOUT_SECS" => {
+                    if let Ok(n) = v.parse::<u64>() {
+                        self.models.llm.request_timeout_secs = n;
+                    }
+                }
 
                 // search
                 "KEBAB_SEARCH_DEFAULT_K" => {
@@ -871,6 +895,103 @@ mod tests {
         let c = Config::defaults().apply_env(&env);
         assert_eq!(c.models.llm.endpoint, "http://10.0.0.1:11434");
         assert!((c.models.llm.temperature - 0.7).abs() < 1e-6);
+    }
+
+    /// v0.17.0 post-dogfood: matches the legacy hard-coded 300s cap so
+    /// existing configs that omit the new field are not affected.
+    #[test]
+    fn default_llm_request_timeout_secs_is_300() {
+        assert_eq!(Config::defaults().models.llm.request_timeout_secs, 300);
+    }
+
+    #[test]
+    fn env_overrides_models_llm_request_timeout_secs() {
+        let mut env = HashMap::new();
+        env.insert(
+            "KEBAB_MODELS_LLM_REQUEST_TIMEOUT_SECS".to_string(),
+            "1200".to_string(),
+        );
+        let c = Config::defaults().apply_env(&env);
+        assert_eq!(c.models.llm.request_timeout_secs, 1200);
+    }
+
+    /// v0.17.0 post-dogfood: a config file written before the field
+    /// existed (no `request_timeout_secs` key) must still parse and fall
+    /// back to the 300s default — backwards-compat invariant.
+    #[test]
+    fn legacy_config_without_request_timeout_secs_uses_default() {
+        let toml_src = r#"
+schema_version = 1
+
+[workspace]
+root = "/tmp/x"
+exclude = []
+
+[storage]
+data_dir = "/tmp/x"
+sqlite = "/tmp/x/kebab.sqlite"
+vector_dir = "/tmp/x/lancedb"
+asset_dir = "/tmp/x/assets"
+artifact_dir = "/tmp/x/artifacts"
+model_dir = "/tmp/x/models"
+runs_dir = "/tmp/x/runs"
+copy_threshold_mb = 100
+
+[indexing]
+max_parallel_extractors = 2
+max_parallel_embeddings = 1
+watch_filesystem = false
+
+[chunking]
+target_tokens = 500
+overlap_tokens = 80
+respect_markdown_headings = true
+chunker_version = "md-heading-v1"
+
+[models.embedding]
+provider = "fastembed"
+model = "multilingual-e5-large"
+version = "v1"
+dimensions = 1024
+batch_size = 64
+
+[models.llm]
+provider = "ollama"
+model = "gemma3:4b"
+context_tokens = 4096
+endpoint = "http://127.0.0.1:11434"
+temperature = 0.0
+seed = 0
+
+[search]
+default_k = 10
+hybrid_fusion = "rrf"
+rrf_k = 60
+snippet_chars = 220
+
+[rag]
+prompt_template_version = "rag-v2"
+score_gate = 0.3
+explain_default = false
+max_context_tokens = 8000
+
+[image.ocr]
+enabled = false
+engine = "ollama-vision"
+model = "gemma3:4b"
+languages = ["eng"]
+max_pixels = 1600
+
+[image.caption]
+enabled = false
+max_pixels = 768
+prompt_template_version = "caption-v1"
+
+[ui]
+theme = "dark"
+"#;
+        let c: Config = toml::from_str(toml_src).expect("parse legacy config");
+        assert_eq!(c.models.llm.request_timeout_secs, 300);
     }
 
     #[test]

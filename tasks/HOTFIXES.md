@@ -14,6 +14,25 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-25 — v0.17.0 post-dogfood: `[models.llm] request_timeout_secs` 노브 + 권장 모델 가이드
+
+v0.17.0 확장 도그푸딩에서 발견: 사용자가 default `gemma4:e4b` (8B Q4, 9.6 GB) 를 CPU only / 16 GB RAM 환경에서 시도 시 첫 RAG 답변이 인 5 분 (hard-coded 300 s) 한도를 항상 넘겨 `error: kb-rag: llm.generate_stream` 으로 떨어졌다. 메모리도 ollama RSS 10.7 GB / free 2 GB 까지 압박. 확장 도그푸딩 32 분 / 199 mem-monitor sample 결과는 `tasks/HOTFIXES.md` 의 본 entry 와 conversation 의 도그푸딩 보고 참조.
+
+**변경**:
+- `crates/kebab-config/src/lib.rs::LlmCfg` 에 `request_timeout_secs: u64` additive 필드 (`#[serde(default = "default_llm_request_timeout_secs")]`, default `300`). 옛 config 가 필드 누락해도 그대로 파싱 + 동일 동작 (3 신규 unit test 가 default / env override / legacy parse 핀).
+- env override `KEBAB_MODELS_LLM_REQUEST_TIMEOUT_SECS`.
+- `crates/kebab-llm-local/src/ollama.rs` 의 `REQUEST_TIMEOUT` 상수 제거. `OllamaLanguageModel::new` 가 `Duration::from_secs(llm.request_timeout_secs)` 로 reqwest blocking client 빌드. doc comment 도 동일하게 갱신.
+- `README.md` 사전 요구 절 + `docs/SMOKE.md` 의 ollama 안내에 권장 모델 (≤ 4B Q4 — `gemma3:4b` / `qwen2.5:3b` / `phi3:mini`) + timeout 노브 anchor 한 줄. 8B+ 시도 시 timeout 패턴 사전 안내.
+- `crates/kebab-config/src/lib.rs::Config::defaults` 의 LlmCfg literal 에 `request_timeout_secs: default_llm_request_timeout_secs()` + comment 한 줄로 CPU only 권장 안내.
+
+**미진행 (scope 밖)**:
+- `crates/kebab-parse-image/src/ocr.rs::REQUEST_TIMEOUT` 도 동일한 hard-coded 300 s — OCR 이 보통 짧아 LLM 만큼 부담 안 되지만, 일관성 측면에서 다음 round 에 같은 노브 (또는 별 노브) 로 재검토.
+- `kebab ask --stream` (fb-33) 권장 강조: 5분 cold-start 동안 첫 token 빠르게 surface — UX 개선. README/SKILL.md 추가 한 줄 후속.
+
+**확장 도그푸딩 baseline 보존**: `/build/cache/dogfood-v017/` (466 MB workspace + DB + memory.log), `/build/cache/ollama/` (21 GB binary + gemma3:4b/gemma4:e4b 모델). 다음 round 회귀 비교용.
+
+Cross-link: `crates/kebab-config/src/lib.rs::LlmCfg::request_timeout_secs`, `crates/kebab-llm-local/src/ollama.rs::OllamaLanguageModel::new`.
+
 ## 2026-05-24 — v0.17.0: 한국어 trigram FTS5 tokenizer 채택 (closure of 2026-05-22 한국어 lexical)
 
 V007 migration 으로 `chunks_fts` 의 tokenizer 를 `unicode61` → `trigram` 으로 교체. `chunks` 원본 + embedding + vector index 는 그대로, FTS shadow 만 재구축 + 자동 backfill — 사용자는 `kebab ingest` 재실행 불필요 (binary 만 교체하면 다음 open 시 V007 가 즉시 적용). 같은 라운드의 다른 두 follow-up (`code_lang_chunk_breakdown`, C typedef) 은 별 PR (PR-C / PR-B).
