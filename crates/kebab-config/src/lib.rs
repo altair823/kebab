@@ -236,9 +236,12 @@ pub struct OcrCfg {
     /// for the rationale.
     ///
     /// **Edge case — `0` is NOT a disable sentinel.** Same semantics as
-    /// `LlmCfg::request_timeout_secs`: `Duration::from_secs(0)` means
-    /// "every request fails immediately", not "no timeout". Use a
-    /// large finite value for an effectively-uncapped budget.
+    /// [`LlmCfg::request_timeout_secs`]: `Duration::from_secs(0)` means
+    /// "every request fails immediately" (reqwest 0.12.x — the read
+    /// timeout is applied as a 0-second deadline), not "no timeout".
+    /// To approximate "no cap", use a large finite value (e.g.
+    /// `u64::MAX` ≈ 5.8 × 10¹¹ years, or just a generous number like
+    /// `86400`).
     #[serde(default = "default_ocr_request_timeout_secs")]
     pub request_timeout_secs: u64,
 }
@@ -860,6 +863,83 @@ fn parse_bool(s: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// Legacy TOML fixture written before the `request_timeout_secs`
+    /// knobs (LLM in v0.17.1, OCR follow-up) existed. Shared by
+    /// `legacy_config_without_request_timeout_secs_uses_default`
+    /// (LLM-side) and `legacy_config_without_ocr_request_timeout_secs_uses_default`
+    /// (OCR-side) so both invariants pin against the same on-disk
+    /// shape — schema drift in the legacy form only needs one edit.
+    const LEGACY_PRE_TIMEOUT_TOML: &str = r#"
+schema_version = 1
+
+[workspace]
+root = "/tmp/x"
+exclude = []
+
+[storage]
+data_dir = "/tmp/x"
+sqlite = "/tmp/x/kebab.sqlite"
+vector_dir = "/tmp/x/lancedb"
+asset_dir = "/tmp/x/assets"
+artifact_dir = "/tmp/x/artifacts"
+model_dir = "/tmp/x/models"
+runs_dir = "/tmp/x/runs"
+copy_threshold_mb = 100
+
+[indexing]
+max_parallel_extractors = 2
+max_parallel_embeddings = 1
+watch_filesystem = false
+
+[chunking]
+target_tokens = 500
+overlap_tokens = 80
+respect_markdown_headings = true
+chunker_version = "md-heading-v1"
+
+[models.embedding]
+provider = "fastembed"
+model = "multilingual-e5-large"
+version = "v1"
+dimensions = 1024
+batch_size = 64
+
+[models.llm]
+provider = "ollama"
+model = "gemma3:4b"
+context_tokens = 4096
+endpoint = "http://127.0.0.1:11434"
+temperature = 0.0
+seed = 0
+
+[search]
+default_k = 10
+hybrid_fusion = "rrf"
+rrf_k = 60
+snippet_chars = 220
+
+[rag]
+prompt_template_version = "rag-v2"
+score_gate = 0.3
+explain_default = false
+max_context_tokens = 8000
+
+[image.ocr]
+enabled = false
+engine = "ollama-vision"
+model = "gemma3:4b"
+languages = ["eng"]
+max_pixels = 1600
+
+[image.caption]
+enabled = false
+max_pixels = 768
+prompt_template_version = "caption-v1"
+
+[ui]
+theme = "dark"
+"#;
+
     #[test]
     fn defaults_are_serde_roundtrip_stable() {
         let c = Config::defaults();
@@ -950,80 +1030,12 @@ mod tests {
 
     /// v0.17.0 post-dogfood: a config file written before the field
     /// existed (no `request_timeout_secs` key) must still parse and fall
-    /// back to the 300s default — backwards-compat invariant.
+    /// back to the 300s default — backwards-compat invariant. Fixture
+    /// shared with the OCR-side invariant via [`LEGACY_PRE_TIMEOUT_TOML`].
     #[test]
     fn legacy_config_without_request_timeout_secs_uses_default() {
-        let toml_src = r#"
-schema_version = 1
-
-[workspace]
-root = "/tmp/x"
-exclude = []
-
-[storage]
-data_dir = "/tmp/x"
-sqlite = "/tmp/x/kebab.sqlite"
-vector_dir = "/tmp/x/lancedb"
-asset_dir = "/tmp/x/assets"
-artifact_dir = "/tmp/x/artifacts"
-model_dir = "/tmp/x/models"
-runs_dir = "/tmp/x/runs"
-copy_threshold_mb = 100
-
-[indexing]
-max_parallel_extractors = 2
-max_parallel_embeddings = 1
-watch_filesystem = false
-
-[chunking]
-target_tokens = 500
-overlap_tokens = 80
-respect_markdown_headings = true
-chunker_version = "md-heading-v1"
-
-[models.embedding]
-provider = "fastembed"
-model = "multilingual-e5-large"
-version = "v1"
-dimensions = 1024
-batch_size = 64
-
-[models.llm]
-provider = "ollama"
-model = "gemma3:4b"
-context_tokens = 4096
-endpoint = "http://127.0.0.1:11434"
-temperature = 0.0
-seed = 0
-
-[search]
-default_k = 10
-hybrid_fusion = "rrf"
-rrf_k = 60
-snippet_chars = 220
-
-[rag]
-prompt_template_version = "rag-v2"
-score_gate = 0.3
-explain_default = false
-max_context_tokens = 8000
-
-[image.ocr]
-enabled = false
-engine = "ollama-vision"
-model = "gemma3:4b"
-languages = ["eng"]
-max_pixels = 1600
-
-[image.caption]
-enabled = false
-max_pixels = 768
-prompt_template_version = "caption-v1"
-
-[ui]
-theme = "dark"
-"#;
-        let c: Config = toml::from_str(toml_src).expect("parse legacy config");
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
+            .expect("parse legacy config");
         assert_eq!(c.models.llm.request_timeout_secs, 300);
     }
 
@@ -1069,83 +1081,14 @@ theme = "dark"
         assert_eq!(c.image.ocr.request_timeout_secs, 900);
     }
 
-    /// v0.17.2 post-dogfood: a config file written before the OCR
+    /// post-v0.17.1 dogfood: a config file written before the OCR
     /// timeout field existed must still parse and fall back to the
-    /// 300s default — backwards-compat invariant. Reuses the same
-    /// minimal legacy TOML fixture as the LLM-side test.
+    /// 300s default — backwards-compat invariant. Fixture shared
+    /// with the LLM-side invariant via [`LEGACY_PRE_TIMEOUT_TOML`].
     #[test]
     fn legacy_config_without_ocr_request_timeout_secs_uses_default() {
-        let toml_src = r#"
-schema_version = 1
-
-[workspace]
-root = "/tmp/x"
-exclude = []
-
-[storage]
-data_dir = "/tmp/x"
-sqlite = "/tmp/x/kebab.sqlite"
-vector_dir = "/tmp/x/lancedb"
-asset_dir = "/tmp/x/assets"
-artifact_dir = "/tmp/x/artifacts"
-model_dir = "/tmp/x/models"
-runs_dir = "/tmp/x/runs"
-copy_threshold_mb = 100
-
-[indexing]
-max_parallel_extractors = 2
-max_parallel_embeddings = 1
-watch_filesystem = false
-
-[chunking]
-target_tokens = 500
-overlap_tokens = 80
-respect_markdown_headings = true
-chunker_version = "md-heading-v1"
-
-[models.embedding]
-provider = "fastembed"
-model = "multilingual-e5-large"
-version = "v1"
-dimensions = 1024
-batch_size = 64
-
-[models.llm]
-provider = "ollama"
-model = "gemma3:4b"
-context_tokens = 4096
-endpoint = "http://127.0.0.1:11434"
-temperature = 0.0
-seed = 0
-
-[search]
-default_k = 10
-hybrid_fusion = "rrf"
-rrf_k = 60
-snippet_chars = 220
-
-[rag]
-prompt_template_version = "rag-v2"
-score_gate = 0.3
-explain_default = false
-max_context_tokens = 8000
-
-[image.ocr]
-enabled = false
-engine = "ollama-vision"
-model = "gemma3:4b"
-languages = ["eng"]
-max_pixels = 1600
-
-[image.caption]
-enabled = false
-max_pixels = 768
-prompt_template_version = "caption-v1"
-
-[ui]
-theme = "dark"
-"#;
-        let c: Config = toml::from_str(toml_src).expect("parse legacy config");
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
+            .expect("parse legacy config");
         assert_eq!(c.image.ocr.request_timeout_secs, 300);
     }
 
