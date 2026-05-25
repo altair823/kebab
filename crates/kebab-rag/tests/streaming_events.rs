@@ -70,6 +70,7 @@ fn opts_with_sink(tx: mpsc::Sender<StreamEvent>) -> AskOpts {
         history: Vec::new(),
         conversation_id: None,
         turn_index: None,
+        multi_hop: false,
     }
 }
 

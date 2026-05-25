@@ -99,6 +99,7 @@ fn refusal_reason_label(r: &RefusalReason) -> &'static str {
         RefusalReason::NoIndex => "no_index",
         RefusalReason::NoChunks => "no_chunks",
         RefusalReason::LlmStreamAborted => "llm_stream_aborted",
+        RefusalReason::MultiHopDecomposeFailed => "multi_hop_decompose_failed",
     }
 }
 

@@ -66,6 +66,12 @@ pub enum RefusalReason {
     /// 가 채워져 있을 수 있음 (사용자가 본 부분까지). RAG retrieval
     /// 자체는 정상 — 모델 generation 단계에서만 중단.
     LlmStreamAborted,
+    /// p9-fb-41: multi-hop pipeline 의 decompose LLM call 이 JSON
+    /// parse 가능한 sub-question array 를 반환하지 못함 (parse
+    /// error, 빈 응답, 또는 잘못된 형식). retrieval / synthesize
+    /// 단계 진입 못 함. CLI / MCP / TUI 가 받는 wire error code
+    /// = `"multi_hop_decompose_failed"` (PR-4 의 error_wire 매핑).
+    MultiHopDecomposeFailed,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

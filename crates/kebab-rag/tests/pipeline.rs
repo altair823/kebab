@@ -75,6 +75,7 @@ fn default_opts() -> AskOpts {
         history: Vec::new(),
         conversation_id: None,
         turn_index: None,
+        multi_hop: false,
     }
 }
 
@@ -541,4 +542,96 @@ fn answer_json_serializes_with_expected_keys() {
     // retrieval.trace_id starts with `ret_`
     let trace_id = v["retrieval"]["trace_id"].as_str().unwrap();
     assert!(trace_id.starts_with("ret_"), "got trace_id {trace_id:?}");
+}
+
+// ── p9-fb-41: multi-hop dispatch + decompose-failure refusal ─────────────
+
+/// `AskOpts.multi_hop = true` routes into `ask_multi_hop`. When the
+/// (single) mock LLM returns garbage that `parse_decompose_response`
+/// can't deserialize as `Vec<String>`, the pipeline refuses with
+/// `RefusalReason::MultiHopDecomposeFailed`. Pins both the dispatch
+/// (different code path than single-pass) and the early-exit refusal.
+///
+/// Happy-path multi-hop (decompose succeeds → retrieve → synthesize)
+/// pins land in PR-3 once a scripted mock supports per-call response
+/// scripting (current `MockLanguageModel` returns the same canned
+/// string for every call).
+#[test]
+fn ask_multi_hop_dispatches_and_decompose_garbage_refuses() {
+    let env = RagEnv::new();
+    let cid = id32("c1");
+    let did = id32("d1");
+    env.seed_chunk(&cid, &did, "notes/a.md", "Body text.", &["Intro"]);
+    let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
+    let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
+    // Garbage that is NOT a JSON array of strings — the only LLM call
+    // multi-hop makes here (decompose) returns this, so the pipeline
+    // never gets to synthesize and exits via the decompose-failure
+    // refusal path.
+    let lm = Arc::new(CountingLm::new("definitely not a JSON array"));
+    let lm_handle = lm.clone();
+    let pipeline = RagPipeline::new(
+        env.config.clone(),
+        retriever,
+        lm.clone() as Arc<dyn LanguageModel>,
+        env.sqlite.clone(),
+    );
+
+    let opts = AskOpts {
+        multi_hop: true,
+        ..default_opts()
+    };
+    let answer = pipeline.ask("compound question", opts).unwrap();
+
+    assert!(
+        !answer.grounded,
+        "decompose-failure refusal must report grounded=false"
+    );
+    assert_eq!(
+        answer.refusal_reason,
+        Some(RefusalReason::MultiHopDecomposeFailed),
+        "garbage decompose response must surface MultiHopDecomposeFailed"
+    );
+    assert!(
+        answer.citations.is_empty(),
+        "refusal Answer carries no citations"
+    );
+    assert_eq!(
+        answer.prompt_template_version.0, "rag-multi-hop-v1",
+        "multi-hop path must stamp the rag-multi-hop-v1 template version"
+    );
+    assert_eq!(
+        lm_handle.calls(),
+        1,
+        "decompose-failure exits before synthesize — exactly 1 LLM call"
+    );
+}
+
+/// Regression pin: `AskOpts.multi_hop = false` keeps the single-pass
+/// path. Same fixture as the snapshot test above; verifies that the
+/// PR-2 dispatcher doesn't accidentally divert legacy callers.
+#[test]
+fn ask_with_multi_hop_false_keeps_single_pass_path() {
+    let env = RagEnv::new();
+    let cid = id32("c1");
+    let did = id32("d1");
+    env.seed_chunk(&cid, &did, "notes/a.md", "Rust is a systems language.", &["Intro"]);
+    let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
+    let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
+    let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("Rust is. [#1]"));
+    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+
+    let answer = pipeline.ask("what", default_opts()).unwrap();
+
+    assert_eq!(
+        answer.prompt_template_version.0,
+        // Single-pass stamps the config's prompt_template_version
+        // (config default = "rag-v2"), NOT "rag-multi-hop-v1".
+        env.config.rag.prompt_template_version,
+        "multi_hop=false must keep the config's prompt template (single-pass)"
+    );
+    assert_ne!(
+        answer.prompt_template_version.0, "rag-multi-hop-v1",
+        "multi_hop=false must NOT route through ask_multi_hop"
+    );
 }

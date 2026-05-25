@@ -179,6 +179,10 @@ fn execute_query(app: &App, gq: &GoldenQuery, opts: &EvalRunOpts) -> QueryResult
             history: Vec::new(),
             conversation_id: None,
             turn_index: None,
+            // p9-fb-41: golden eval baseline runs are single-pass; the
+            // multi-hop path is opted into per query via a future
+            // fixture flag (PR-4+) once the runner learns to dispatch.
+            multi_hop: false,
         };
         match app.ask(&gq.query, ask_opts) {
             Ok(ans) => Some(ans),

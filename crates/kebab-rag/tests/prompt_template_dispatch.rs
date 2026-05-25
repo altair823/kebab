@@ -61,8 +61,10 @@ impl LanguageModel for CapturingLm {
     }
 }
 
-/// Mirror of `streaming_events::opts_with_sink` minus the sink — every
-/// field is set explicitly because `AskOpts` does not implement `Default`.
+/// Mirror of `streaming_events::opts_with_sink` minus the sink. p9-fb-41
+/// added `impl Default for AskOpts` — these explicit fixtures stay
+/// for now so a future field addition fails compilation here too,
+/// surfacing intent. New callers should prefer `..Default::default()`.
 fn lexical_opts() -> AskOpts {
     AskOpts {
         k: 3,
@@ -74,6 +76,7 @@ fn lexical_opts() -> AskOpts {
         history: Vec::new(),
         conversation_id: None,
         turn_index: None,
+        multi_hop: false,
     }
 }
 

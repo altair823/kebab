@@ -38,6 +38,7 @@ pub fn handle(state: &KebabAppState, input: AskInput) -> CallToolResult {
         history: Vec::new(),
         conversation_id: None,
         turn_index: None,
+        multi_hop: false,
     };
     let cfg_clone = (*state.config).clone();
     let result = match input.session_id {

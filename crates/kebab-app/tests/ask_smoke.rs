@@ -33,6 +33,7 @@ fn ask_lexical_smoke() {
         history: Vec::new(),
         conversation_id: None,
         turn_index: None,
+        multi_hop: false,
     };
     // The fixture workspace contains "ownership" content; the model's
     // citation behavior depends on its training, so we don't assert on
