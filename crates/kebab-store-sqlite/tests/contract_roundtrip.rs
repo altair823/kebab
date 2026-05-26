@@ -13,8 +13,7 @@ use kebab_core::{
     AssetId, AssetStorage, Checksum, ChunkPolicy, ChunkerVersion, Chunker, DocumentStore,
     MediaType, ParserVersion, RawAsset, SourceUri, WorkspacePath,
 };
-use kebab_normalize::build_canonical_document;
-use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
+use kebab_parse_md::{BodyHints, build_canonical_document, parse_blocks, parse_frontmatter};
 use kebab_store_sqlite::SqliteStore;
 use time::OffsetDateTime;
 

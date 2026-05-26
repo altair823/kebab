@@ -53,8 +53,6 @@ flowchart TB
         pimg["kebab-parse-image"]
         paud["kebab-parse-audio<br/>(P8 보류)"]
         pcode["kebab-parse-code<br/>(P10-1A-2 + P10-1B + P10-1C-Go + P10-1C-JK + P10-2 + P10-3 + P10-1D)"]
-        ptypes["kebab-parse-types"]
-        norm["kebab-normalize"]
         chunk["kebab-chunk"]
     end
     subgraph Persist ["persistence"]
@@ -85,7 +83,6 @@ flowchart TB
     app --> pimg
     app --> paud
     app --> pcode
-    app --> norm
     app --> chunk
     app --> sqlite
     app --> vector
@@ -96,12 +93,11 @@ flowchart TB
     app --> eval
     app --> config
 
-    pmd --> ptypes
-    ppdf --> ptypes
-    pimg --> ptypes
-    paud --> ptypes
+    pmd --> core
+    ppdf --> core
+    pimg --> core
+    paud --> core
     pcode --> core
-    norm --> ptypes
     embedlocal --> embed
     llmlocal --> llm
     rag --> search
@@ -121,8 +117,6 @@ flowchart TB
     sqlite --> core
     vector --> core
     chunk --> core
-    norm --> core
-    ptypes --> core
     search --> core
     rag --> core
     srcfs --> core
@@ -131,7 +125,7 @@ flowchart TB
 
 UI → store/llm/parse 직접 의존 금지. 모든 user-facing 진입은 `kebab-app` facade 만 통한다 (frozen 설계 §8). `kebab-cli` 가 `--config <path>` flag 를 honor 하려면 `kebab_app::*_with_config(cfg, …)` companion 을 통해 Config 을 명시적으로 thread 하는 패턴 — 자세한 이유는 [tasks/HOTFIXES.md](../tasks/HOTFIXES.md) 의 `--config` 항목.
 
-`kebab-parse-code` 의 외부 tree-sitter grammar crate 의존: P10-1A-2 에서 `tree-sitter-rust` 추가, P10-1B 에서 `tree-sitter-python` / `tree-sitter-typescript` / `tree-sitter-javascript` 추가, P10-1C-Go 에서 `tree-sitter-go` 추가, P10-1C-JK 에서 `tree-sitter-java` / `tree-sitter-kotlin-ng` 추가, P10-1D 에서 `tree-sitter-c` / `tree-sitter-cpp` 추가. 모두 `kebab-parse-code` 에만 격리 (facade 룰 — UI crate / chunker 가 직접 import 금지). Kotlin 은 `tree-sitter-kotlin-ng` 사용 (bare `tree-sitter-kotlin` 은 tree-sitter 0.21–0.23 에 고착 — 사용 불가). v0.18.0+ 부터 `kebab-source-fs` 는 자체 `code_meta` 모듈 (lang detect + skip helpers + BUILTIN_BLACKLIST) 을 보유, kebab-parse-code 와 분리 (refactor 2026-05-26).
+`kebab-parse-code` 의 외부 tree-sitter grammar crate 의존: P10-1A-2 에서 `tree-sitter-rust` 추가, P10-1B 에서 `tree-sitter-python` / `tree-sitter-typescript` / `tree-sitter-javascript` 추가, P10-1C-Go 에서 `tree-sitter-go` 추가, P10-1C-JK 에서 `tree-sitter-java` / `tree-sitter-kotlin-ng` 추가, P10-1D 에서 `tree-sitter-c` / `tree-sitter-cpp` 추가. 모두 `kebab-parse-code` 에만 격리 (facade 룰 — UI crate / chunker 가 직접 import 금지). Kotlin 은 `tree-sitter-kotlin-ng` 사용 (bare `tree-sitter-kotlin` 은 tree-sitter 0.21–0.23 에 고착 — 사용 불가). v0.18.0+ 부터 `kebab-source-fs` 는 자체 `code_meta` 모듈 (lang detect + skip helpers + BUILTIN_BLACKLIST) 을 보유, kebab-parse-code 와 분리 (refactor 2026-05-26). v0.19.0 부터 `kebab-parse-md` 가 `kebab-parse-types` (parser intermediate types) + `kebab-normalize` (CanonicalDocument lift) 두 crate 를 흡수 — 24 → 22 crates, design §3.7b 재작성 (HOTFIXES 2026-05-26).
 
 ## 디렉토리 구조
 
@@ -165,10 +159,9 @@ kebab/
 │   ├── p8/p8-1, p8-2                               # (2 — 보류)
 │   └── p9/p9-1 … p9-5                              # (5)
 ├── crates/
-│   ├── kebab-core/  kebab-parse-types/  kebab-config/       # 도메인 + 설정 (P0)
+│   ├── kebab-core/  kebab-config/                     # 도메인 + 설정 (P0)
 │   ├── kebab-source-fs/                               # 워크스페이스 walk + checksum (P1-1)
-│   ├── kebab-parse-md/                                # Markdown frontmatter + blocks (P1-2/3)
-│   ├── kebab-normalize/                               # ParsedBlock → CanonicalDocument (P1-4)
+│   ├── kebab-parse-md/                                # Markdown frontmatter + blocks + types + ParsedBlock → CanonicalDocument lift (P1-2/3/4 — v0.19.0 흡수)
 │   ├── kebab-chunk/                                   # heading-aware + pdf-page-v1 + code-*-ast-v1 (Tier 1) + k8s-manifest-resource-v1 + dockerfile-file-v1 + manifest-file-v1 + tier2_shared (P10-2) + code-text-paragraph-v1 (P10-3) chunker (P1-5, P7-2, P10-1A-2, P10-1B, P10-1C-Go, P10-1C-JK, P10-2, P10-3, P10-1D)
 │   │   └── src/
 │   │       ├── code_*_ast_v1.rs              # Tier 1 AST chunkers (rust/python/ts/js/go/java/kotlin/c/cpp)

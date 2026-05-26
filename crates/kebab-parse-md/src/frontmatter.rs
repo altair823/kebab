@@ -19,7 +19,7 @@ use std::ops::Range;
 use std::sync::OnceLock;
 
 use kebab_core::{Metadata, SourceType, TrustLevel};
-use kebab_parse_types::{Warning, WarningKind};
+use crate::types::{Warning, WarningKind};
 use lingua::{IsoCode639_1, Language, LanguageDetector, LanguageDetectorBuilder};
 use serde::Deserialize;
 use serde_json::{Map, Value};

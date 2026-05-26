@@ -16,7 +16,7 @@
 //! `[{"kind":"text","text":"…"},{"kind":"code","code":"…"}]`.
 
 use kebab_parse_md::parse_blocks;
-use kebab_parse_types::{ParsedBlock, Warning};
+use kebab_parse_md::{ParsedBlock, Warning};
 use serde::Serialize;
 use serde_json::Value;
 use std::fs;

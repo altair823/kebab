@@ -29,13 +29,13 @@ thiserror    = { workspace = true }
 [dev-dependencies]
 tempfile        = "3"
 serde_json      = { workspace = true }
-# kb-parse-md / kb-normalize / kb-chunk are dev-only — used to build a
-# CanonicalDocument + Vec<Chunk> from a fixture in the contract round-trip
-# test. Forbidden as regular deps per design §8 (store consumes domain
-# types from kb-core only); `cargo tree -p kb-store-sqlite --depth 1`
-# (default scope, excludes dev-deps) confirms this.
+# kb-parse-md / kb-chunk are dev-only — used to build a CanonicalDocument +
+# Vec<Chunk> from a fixture in the contract round-trip test. kb-parse-md
+# absorbed kb-normalize in v0.19.0 (HOTFIXES.md 2026-05-26). Forbidden as
+# regular deps per design §8 (store consumes domain types from kb-core only);
+# `cargo tree -p kb-store-sqlite --depth 1` (default scope, excludes
+# dev-deps) confirms this.
 kebab-parse-md = { path = "../kebab-parse-md" }
-kebab-normalize = { path = "../kebab-normalize" }
 kebab-chunk = { path = "../kebab-chunk" }
 
 [lints]

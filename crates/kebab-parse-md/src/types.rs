@@ -1,4 +1,7 @@
-//! `kb-parse-types` — parser intermediate representations (§3.7b).
+//! `kb-parse-md::types` — parser intermediate representations (§3.7b).
+//!
+//! v0.19.0 부터 kebab-parse-md 의 in-crate module (이전 별 crate
+//! `kebab-parse-types` — HOTFIXES.md 2026-05-26 참조).
 //!
 //! Depends ONLY on `kb-core`. Must NOT depend on any parser library
 //! (`pulldown-cmark`, `pdf-extract`, `image`, `whisper-rs`, …) and must

@@ -166,11 +166,15 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
   - **PR #178 PR-9c-1 core types + wire scaffolding** — ✅ 머지 (2026-05-26). `RefusalReason::NliVerificationFailed` + `NliModelUnavailable` (serde rename_all snake_case, wire = identical strings). `Answer.verification: Option<VerificationSummary>` additive minor wire. `NliCfg` + `RagCfg.nli_threshold` (default 0.0) + env override. `RagPipeline.verifier` field + `with_verifier` builder. wire schemas + `docs/ARCHITECTURE.md` Mermaid 갱신.
   - **PR #179 PR-9c-2 pipeline integration + mock test + SKILL.md** — ✅ 머지 (2026-05-26). ★ 첫 user-visible behavior. `ask_multi_hop` step 8.5 NLI hook (empty answer 가드 + `truncate_for_nli` + verifier.score + verification field + refusal 분기) + `App::open_with_config` 의 NliVerifier construction + 5 mock multi-hop tests + SKILL.md NLI 안내 한 단락.
   - **PR #180 PR-9d dogfood retest + HOTFIXES closure + corpus 보존** — ✅ 머지 (2026-05-26). 동일 dogfood corpus 의 S7/S1/S3/S10 multi-hop retest — S7 PR-8 baseline `grounded=true + Adam hallucination` → PR-9 `nli_verification_failed, nli_score 0.0035` (HALLUCINATION FIXED 확정). `docs/dogfood/v0.18.0/` 신규 — sanitized SUMMARY + 4 sample wire JSON 보존.
-  - **PR #181 chore: workspace-wide cleanup + post-PR9 refactor** — ✅ 머지 (2026-05-26). v0.18.0 cut 전 마지막 정리. `[workspace.lints.clippy] pedantic = warn` + 의도적 30+ allow (각 rationale inline). 128 files mechanical clippy --fix. OMC team `post-pr9-refactor` 가 추가 H1 (`[models.nli].model` config wiring — `DEFAULT_MODEL_ID` 제거 + provider 분기) + H2 (`truncate_for_nli` stub `_hypothesis` 제거) + H3 (`was_truncated` tracing::debug! surface) + D (MCP test flake fix) + E (HOTFIXES cross-link) + 9 new tests (T1-T4). post-refactor dogfood = PR-9d byte-identical (deterministic 확인). system-architect 의 component-level review 결론 = pre-cut nothing, all v0.18.1+ defer (kebab-normalize 흡수, Extractor dispatch unification, kebab-source-fs dep lightening 등).
+  - **PR #181 chore: workspace-wide cleanup + post-PR9 refactor** — ✅ 머지 (2026-05-26). v0.18.0 cut 전 마지막 정리. `[workspace.lints.clippy] pedantic = warn` + 의도적 30+ allow (각 rationale inline). 128 files mechanical clippy --fix. OMC team `post-pr9-refactor` 가 추가 H1 (`[models.nli].model` config wiring — `DEFAULT_MODEL_ID` 제거 + provider 분기) + H2 (`truncate_for_nli` stub `_hypothesis` 제거) + H3 (`was_truncated` tracing::debug! surface) + D (MCP test flake fix) + E (HOTFIXES cross-link) + 9 new tests (T1-T4). post-refactor dogfood = PR-9d byte-identical (deterministic 확인). system-architect 의 component-level review 결론 = pre-cut nothing, all v0.18.1+ defer (kebab-normalize 흡수 — v0.19.0 closure, see HOTFIXES.md 2026-05-26; Extractor dispatch unification; kebab-source-fs dep lightening 등).
 
 ## Post-merge 핫픽스
 
 머지 후 발견된 버그들과 그 follow-up PR들은 [HOTFIXES.md](HOTFIXES.md)에 dated 로그로 기록한다. 원래 task spec은 frozen 상태로 두고, post-merge 동작 변경은 HOTFIXES.md를 source of truth로 본다.
+
+## Future work / deferred
+
+- v0.20+ image/pdf normalize integration — design §3.7b intent 미구현 (3 dead struct `ParsedImageRegion` / `ParsedPdfPage` / `ParsedAudioSegment` 보존). PR #186 (normalize-absorption) 의 spec §11 (`docs/superpowers/specs/2026-05-26-normalize-absorption-spec.md`) 참조.
 
 ## 모든 task 공통 규약
 

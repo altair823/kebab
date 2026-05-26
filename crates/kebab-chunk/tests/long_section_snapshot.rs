@@ -18,8 +18,7 @@ use kebab_core::{
     AssetId, AssetStorage, Checksum, ChunkPolicy, ChunkerVersion, Chunker, MediaType,
     ParserVersion, RawAsset, SourceUri, WorkspacePath,
 };
-use kebab_normalize::build_canonical_document;
-use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
+use kebab_parse_md::{BodyHints, build_canonical_document, parse_blocks, parse_frontmatter};
 use serde_json::Value;
 use time::OffsetDateTime;
 
