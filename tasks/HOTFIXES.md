@@ -14,6 +14,24 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-26 — S3 NLI unavailable — hypothesis truncate + token-count fallback
+
+**Symptom**: S3 dogfood query (`"Why does kebab combine multilingual-e5, LanceDB, and RRF together?"`) 가 NLI 활성 (`rag.nli_threshold > 0`) 시 `nli_model_unavailable` 일관 fail. `~/.local/state/kebab/logs/kb.log.2026-05-26` 의 5 회 WARN 라인 `tokenizer.encode failed: Truncation error: Sequence to truncate too short to respect the provided max_length`.
+
+**Root cause**: `crates/kebab-nli/src/onnx.rs::load_tokenizer` 가 mDeBERTa-v3 tokenizer 의 truncation strategy 를 `OnlyFirst` 로 설정 — *2-sequence input* 에서 첫 번째 sequence (premise) 만 truncate. LLM 의 949-token (4564-char) 장문 답변 = hypothesis 단독이 512-token cap 초과 → premise 를 0 까지 잘라도 fit 시킬 방법 없음 → tokenizer `SequenceTooShortToTruncate` raise. `pipeline.rs::ask_multi_hop` 의 step 8.5 hook 이 premise-side `truncate_for_nli` 만 적용, hypothesis-side 무방비.
+
+**Action**: 4 production files + 2 test files + 1 doc entry — Option A (KR-safe + graceful fallback + symmetric layering).
+
+- `crates/kebab-nli/src/lib.rs`: `NliVerifier::hypothesis_token_count(&self, &str) -> anyhow::Result<usize>` trait method 추가 (default `Ok(0)` backward-compat).
+- `crates/kebab-nli/src/onnx.rs`: `OnnxNliVerifier::HYPOTHESIS_TOKEN_BUDGET = 256` inherent const + `impl NliVerifier for OnnxNliVerifier {}` block **안** 에서 `hypothesis_token_count` override (real `tokenizer.encode` probe). **CRITICAL**: trait impl block 안 위치 필수 — inherent `impl OnnxNliVerifier {}` 안에 두면 vtable 미등록 → trait dispatch 시 default `Ok(0)` → retry loop 즉시 통과 → production silent NO-OP.
+- `crates/kebab-rag/src/pipeline.rs`: `MAX_NLI_HYPOTHESIS_CHARS_INITIAL = 1200` + `MAX_NLI_HYPOTHESIS_CHARS_MIN = 150` consts + `pub(crate) fn truncate_chars` pure-fn (codepoint-aware) + `pub fn truncate_hypothesis_for_nli_with_budget` retry helper (char budget 1200 → 600 → 300 → 150 절반화 retry + min floor 미달 시 `anyhow::bail!`) + step 8.5 hook 의 callsite explicit `match { Ok => x, Err => return refuse_nli_model_unavailable(...) }` (—`?` propagation 금지: wire `answer.v1 + NliModelUnavailable refusal` 유지). `v.score(&truncated_premise, &acc)` → `v.score(&truncated_premise, &truncated_hypothesis)`.
+- `crates/kebab-rag/tests/common/mod.rs`: `SpyNliVerifier` closure-based helper (2-arg constructor: `score_fn` + `token_count_fn`, `Mutex<Vec<String>>` capture). 기존 `MockNliVerifier` (고정 mode) 와 sibling.
+- `crates/kebab-nli/tests/inference.rs`: 2 신규 `#[ignore]` tests — `score_long_en_hypothesis_returns_err_without_pipeline_truncation` (raw nli crate 의 OnlyFirst dead-end pin) + `hypothesis_token_count_dispatches_correctly_via_dyn_trait` (vtable dispatch pin — `&dyn NliVerifier` 통해 호출, EN/KR bounded range assertion, RC1-residual silent NO-OP regression pin).
+- `crates/kebab-rag/tests/multi_hop_nli_truncate.rs` (신규): 3 mock multi-hop tests — `long_en_synth_answer_truncated_before_nli_call` (EN happy + Right direction pin) + `long_kr_synth_answer_retries_with_smaller_budget` (KR retry path + ≤ 300 chars 최종) + `unrelenting_token_overflow_falls_through_to_unavailable` (graceful unavailable fallback pin, score_fn 은 `unreachable!()`).
+- `crates/kebab-rag/src/pipeline.rs::#[cfg(test)] mod tests`: 4 `truncate_chars` boundary tests (identity / truncate / empty / KR codepoint).
+
+**Amends**: spec `docs/superpowers/specs/2026-05-26-s3-nli-model-unavailable-diagnose-spec.md` (4 round APPROVE) cross-link. task spec `tasks/p9/p9-fb-41-multi-hop-finalize.md` 의 NLI 동작 추가 보강 (hypothesis-side budget 신규 — frozen task spec 자체는 변경 안 함, 본 entry 가 live source of truth). HOTFIX 번호 미부여 — sibling fb-41 PR-9 closure layer 의 production behavior follow-up (HOTFIX #15 의 fixture-issue 와 다른 layer).
+
 ## 2026-05-26 — HOTFIX #15 — MCP ask multi_hop dispatch-divergence assertion stale (fixture 보강)
 
 **Symptom**: PR-7 (multi-hop probe-first dogfood fix) 머지 후 `kebab-mcp::tools_call_ask_multi_hop::ask_tool_routes_multi_hop_true_to_decompose_first` 가 모든 workspace test 에서 deterministic fail (no_chunks short-circuit 으로 `is_error=Some(false)`).

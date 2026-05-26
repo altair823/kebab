@@ -1038,14 +1038,37 @@ impl RagPipeline {
                 "verifier must be Some when nli_threshold > 0.0 \
                  (kebab-app's open_with_config enforces this invariant)",
             );
-            let (truncated_premise, was_truncated) = truncate_for_nli(&packed_text);
-            if was_truncated {
+            let (truncated_premise, premise_was_truncated) = truncate_for_nli(&packed_text);
+            if premise_was_truncated {
                 tracing::debug!(
                     target: "kebab-rag",
                     "NLI premise truncated to MAX_NLI_PREMISE_CHARS for entailment check"
                 );
             }
-            match v.score(&truncated_premise, &acc) {
+            // S3 follow-up (2026-05-26): hypothesis-side budget + token-count
+            // fallback retry. `?` 사용 금지 — wire `answer.v1 + NliModelUnavailable
+            // refusal` 유지 (graceful fallback, regression 0). v.score() Err
+            // 분기와 *대칭* explicit match + return refuse.
+            let (truncated_hypothesis, hypothesis_was_truncated) =
+                match truncate_hypothesis_for_nli_with_budget(v.as_ref(), &acc) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "kebab-rag",
+                            error = %e,
+                            "NLI hypothesis budget retry exhausted; refusing with NliModelUnavailable"
+                        );
+                        return self.refuse_nli_model_unavailable(query, &opts, hops, started);
+                    }
+                };
+            if hypothesis_was_truncated {
+                tracing::debug!(
+                    target: "kebab-rag",
+                    original_chars = acc.chars().count(),
+                    "NLI hypothesis truncated to MAX_NLI_HYPOTHESIS_CHARS"
+                );
+            }
+            match v.score(&truncated_premise, &truncated_hypothesis) {
                 Ok(scores) => {
                     let passed = scores.entailment >= self.config.rag.nli_threshold;
                     Some(VerificationSummary {
@@ -1816,6 +1839,82 @@ pub fn truncate_for_nli(premise: &str) -> (String, bool) {
     }
 }
 
+/// S3 follow-up (2026-05-26): NLI hypothesis (= synthesized answer)
+/// 가 mDeBERTa-v3 의 512-token cap 을 단독 초과하면 `OnlyFirst`
+/// truncation 이 premise 를 0 까지 잘라도 fit 시킬 수 없어 tokenizer
+/// `SequenceTooShortToTruncate` err. char-budget 으로 자른 후 *실
+/// mDeBERTa tokenizer* 로 token count 재검증 → 초과 시 char budget
+/// 절반으로 retry. KR-heavy hypothesis (1-2 chars/token) safe.
+pub const MAX_NLI_HYPOTHESIS_CHARS_INITIAL: usize = 1200;
+
+/// S3 follow-up (2026-05-26): retry budget 의 최소 floor. budget 이
+/// 이 값 미만으로 절반화되면 graceful `nli_model_unavailable` fallback
+/// 으로 빠짐 (regression 0). KR-extreme density (한자/CJK 의 1 char
+/// = 2-3 tokens) 케이스 보호.
+pub const MAX_NLI_HYPOTHESIS_CHARS_MIN: usize = 150;
+
+/// S3 follow-up (2026-05-26): chars-only truncation arithmetic. Pure
+/// fn: input → output, no side effect. Codepoint-aware (chars().count()
+/// + chars().take()) — KR / emoji / multi-byte 안전.
+///
+/// Used internally by `truncate_hypothesis_for_nli_with_budget` 의
+/// retry loop 의 각 step. Pure-fn unit tests (in this file's
+/// `#[cfg(test)] mod tests`) pin the arithmetic 회귀.
+pub(crate) fn truncate_chars(s: &str, budget: usize) -> (String, bool) {
+    if s.chars().count() <= budget {
+        (s.to_string(), false)
+    } else {
+        let truncated: String = s.chars().take(budget).collect();
+        (truncated, true)
+    }
+}
+
+/// S3 follow-up (2026-05-26): hypothesis-side budget + token-count
+/// fallback retry. Char-truncate (`Right` direction = front preserved
+/// — LLM 답변의 도입부에 핵심 claim 이 있음) → real mDeBERTa tokenizer
+/// 로 token count 재검증 → 초과 시 char budget 절반화 retry (1200 →
+/// 600 → 300 → 150). Min floor 미달 시 `anyhow::Err` — caller (step
+/// 8.5 hook) 가 graceful `nli_model_unavailable` refusal 로 fallback
+/// (regression 0).
+///
+/// Returns `(truncated_hypothesis, was_truncated)`. `was_truncated`
+/// 은 logging 용 — wire 영향 0.
+pub fn truncate_hypothesis_for_nli_with_budget(
+    verifier: &(dyn kebab_nli::NliVerifier + 'static),
+    hypothesis: &str,
+) -> anyhow::Result<(String, bool)> {
+    let original_chars = hypothesis.chars().count();
+    let mut budget = MAX_NLI_HYPOTHESIS_CHARS_INITIAL;
+    let mut was_truncated = false;
+
+    loop {
+        let (candidate, this_truncated) = truncate_chars(hypothesis, budget);
+        if this_truncated {
+            was_truncated = true;
+        }
+
+        // verifier 의 internal tokenizer 로 token count 재검증.
+        // trait method (vtable dispatch) — `OnnxNliVerifier` 는
+        // trait impl block 안에서 override (RC1-residual).
+        let token_count = verifier
+            .hypothesis_token_count(&candidate)
+            .with_context(|| "kebab-rag: hypothesis token-count probe failed")?;
+        if token_count <= kebab_nli::OnnxNliVerifier::HYPOTHESIS_TOKEN_BUDGET {
+            return Ok((candidate, was_truncated));
+        }
+
+        // 초과 — char budget 절반화 retry.
+        budget /= 2;
+        if budget < MAX_NLI_HYPOTHESIS_CHARS_MIN {
+            anyhow::bail!(
+                "kebab-rag: hypothesis remains over token budget after retry (original {original_chars} chars, last budget {} chars, tokens {token_count} > {})",
+                budget * 2,
+                kebab_nli::OnnxNliVerifier::HYPOTHESIS_TOKEN_BUDGET,
+            );
+        }
+    }
+}
+
 const MULTI_HOP_DECOMPOSE_SYSTEM_PROMPT: &str = "당신은 사용자의 질문을 다단계 검색에 필요한 sub-question 들로 분해하는 도구다.\n- multi-hop 정보가 필요한 경우 독립적으로 검색 가능한 sub-question 들로 분해한다.\n- 각 sub-question 은 자기 자신만으로 의미가 통해야 한다 (대명사 / \"위 답변\" 같은 reference 금지).\n- 원본이 이미 단순하면 원본 그대로 1 개만 반환한다.\n- 응답은 JSON array of strings 만 출력한다. 다른 prose / markdown fence / 설명 금지.";
 
 const MULTI_HOP_DECIDE_SYSTEM_PROMPT: &str = "당신은 multi-hop 검색의 매 iter 에서 \"추가 retrieval 이 필요한가?\" 를 판단하는 도구다.\n- 지금까지 모은 [근거] 가 [원본 질문] 의 모든 측면을 cover 하는지 평가한다.\n- 추가가 필요하면 새 sub-question 들 (이미 모은 정보로 답할 수 없는 부분만, 독립적으로 검색 가능한 형태로) 을 JSON array of strings 로 반환한다.\n- 충분하면 빈 array `[]` 를 반환한다.\n- 응답은 JSON array of strings 만 출력한다. 다른 prose / markdown fence / 설명 금지.\n- 각 sub-question 은 자기 자신만으로 의미가 통해야 한다 (대명사 / \"위 답변\" 같은 reference 금지).";
@@ -2095,6 +2194,52 @@ mod tests {
     fn parse_decompose_response_drops_partial_empty_keeps_valid() {
         let out = parse_decompose_response(r#"["", "valid q", "  "]"#).unwrap();
         assert_eq!(out, vec!["valid q"]);
+    }
+
+    // ── S3 follow-up (2026-05-26): truncate_chars boundary tests ─────────
+    //
+    // Pure-fn arithmetic 회귀 핀. `truncate_chars` 가 `pub(crate)` 라
+    // integration test 파일에서 접근 불가 — 동일 crate 의 `#[cfg(test)]
+    // mod tests` 안에서 직접 호출.
+
+    #[test]
+    fn truncate_chars_identity_when_under_budget() {
+        let s = "short";
+        let (out, was_truncated) = truncate_chars(s, 100);
+        assert_eq!(out, s);
+        assert!(!was_truncated);
+    }
+
+    #[test]
+    fn truncate_chars_truncates_when_over_budget() {
+        let s = "abcdefghij"; // 10 chars
+        let (out, was_truncated) = truncate_chars(s, 3);
+        assert_eq!(out, "abc");
+        assert_eq!(out.chars().count(), 3);
+        assert!(was_truncated);
+    }
+
+    #[test]
+    fn truncate_chars_empty_input_is_identity() {
+        let (out, was_truncated) = truncate_chars("", 100);
+        assert_eq!(out, "");
+        assert!(!was_truncated);
+        // budget = 0 도 empty 입력에서는 identity.
+        let (out2, was_truncated2) = truncate_chars("", 0);
+        assert_eq!(out2, "");
+        assert!(!was_truncated2);
+    }
+
+    #[test]
+    fn truncate_chars_counts_codepoints_not_bytes() {
+        // "가나다라마" = 5 chars, 각 char 는 3 bytes (UTF-8) → 15 bytes.
+        // budget = 3 chars 일 때 "가나다" 3 chars / 9 bytes 가 정확.
+        let kr = "가나다라마";
+        let (out, was_truncated) = truncate_chars(kr, 3);
+        assert_eq!(out, "가나다");
+        assert_eq!(out.chars().count(), 3);
+        assert_eq!(out.len(), 9, "3 KR codepoints × 3 bytes/char = 9 bytes");
+        assert!(was_truncated);
     }
 
     #[test]

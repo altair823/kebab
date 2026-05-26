@@ -139,3 +139,59 @@ fn empty_hypothesis_returns_err() {
         "expected 'empty hypothesis' in error, got: {msg}"
     );
 }
+
+/// Test 6 (S3 follow-up 2026-05-26): EN-long hypothesis alone exceeds
+/// max_length. Without pipeline-side truncation, `OnlyFirst` strategy
+/// dead-ends. Pin raw nli crate behavior so any future regression in
+/// the pipeline-side budget surfaces as a clear nli-level err.
+#[test]
+#[ignore]
+fn score_long_en_hypothesis_returns_err_without_pipeline_truncation() {
+    let cfg = Config::defaults();
+    let v = OnnxNliVerifier::new(&cfg).expect("verifier construction");
+    let premise = "short premise";
+    let hypothesis = "lorem ipsum ".repeat(500); // ~6 000 chars / >>512 tokens
+    let result = v.score(premise, &hypothesis);
+    assert!(result.is_err(), "long hypothesis should err under OnlyFirst");
+    let msg = result.err().unwrap().to_string();
+    assert!(
+        msg.contains("Truncation error") || msg.contains("too short to respect"),
+        "expected tokenizer truncation err, got: {msg}"
+    );
+}
+
+/// Test 7 (S3 follow-up 2026-05-26): `hypothesis_token_count` helper —
+/// pure tokenizer probe. **vtable dispatch 검증** (RC1-residual pin) —
+/// concrete type 호출은 inherent method 우선이라 RC1-residual 버그
+/// 잡지 못함; `&dyn NliVerifier` 통해 dispatch 해야 vtable 등록 검증.
+/// inherent-only 배치 시 default `Ok(0)` 반환 → `assert!(count > 0)`
+/// 실패. trait impl block 배치 시 real tokenizer → PASS. Pipeline 이
+/// retry budget 결정에 사용하는 API 의 정확성 pin.
+#[test]
+#[ignore]
+fn hypothesis_token_count_dispatches_correctly_via_dyn_trait() {
+    let cfg = Config::defaults();
+    let v = OnnxNliVerifier::new(&cfg).expect("verifier construction");
+    // ★ vtable dispatch — &dyn NliVerifier 통해 호출. inherent-only
+    // 배치 시 default `Ok(0)` 반환 → assert!(count > 0) 실패.
+    // trait impl block 배치 시 real tokenizer → PASS. RC1-residual
+    // 의 코드-수준 regression pin.
+    let v_dyn: &dyn NliVerifier = &v;
+    // 짧은 EN — 4 chars/token 추정 (27 chars / 4 = ~6 tokens)
+    let en_count = v_dyn
+        .hypothesis_token_count("short english test sentence")
+        .expect("EN dyn dispatch must reach real tokenizer (vtable check)");
+    assert!(
+        en_count > 0 && en_count < 20,
+        "EN ~6 tokens expected via vtable dispatch, got {en_count} \
+         (Ok(0) signals inherent-only placement bug — RC1-residual)"
+    );
+    // 짧은 KR — 1-2 chars/token (15 chars / 1.5 = ~10 tokens)
+    let kr_count = v_dyn
+        .hypothesis_token_count("짧은 한국어 테스트 문장입니다")
+        .expect("KR dyn dispatch must reach real tokenizer");
+    assert!(
+        kr_count > 0 && kr_count < 30,
+        "KR ~10 tokens expected, got {kr_count}"
+    );
+}

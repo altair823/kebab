@@ -66,6 +66,13 @@ pub struct OnnxNliVerifier {
 }
 
 impl OnnxNliVerifier {
+    /// Hypothesis-side budget. Pipeline 의
+    /// `truncate_hypothesis_for_nli_with_budget` retry loop 가 char-truncate
+    /// 후 token-count 재검증 시 이 값을 cap 으로 사용. = `MAX_TOKENS`
+    /// (512) - 3 special tokens reserved (CLS, SEP, SEP) - 253 premise
+    /// room (caller decides). 안전 마진 (S3 follow-up 2026-05-26).
+    pub const HYPOTHESIS_TOKEN_BUDGET: usize = 256;
+
     /// Construct a verifier from the user's `Config`. Eagerly resolves
     /// `cache_dir = config.storage.model_dir/nli/<sanitized-model-id>/`
     /// and runs `create_dir_all` so the first `score` call can drop
@@ -277,6 +284,24 @@ impl NliVerifier for OnnxNliVerifier {
         }
         let l = [logits[[0, 0]], logits[[0, 1]], logits[[0, 2]]];
         Ok(NliScores::from_xnli_logits(l))
+    }
+
+    /// **Override** the trait default `Ok(0)` with a real mDeBERTa
+    /// tokenize. Pipeline 의 `truncate_hypothesis_for_nli_with_budget`
+    /// retry loop 가 이 method 를 vtable 통해 호출 — production code
+    /// path 에서 실 token count 측정.
+    ///
+    /// **CRITICAL placement**: 이 method 는 *trait impl block 안* 에
+    /// 위치해야 vtable 에 등록 — inherent `impl OnnxNliVerifier {}` 안에
+    /// 두면 dispatch 시 trait default (`Ok(0)`) 호출 → retry loop
+    /// 즉시 통과 → production silent NO-OP (S3 follow-up 2026-05-26
+    /// RC1-residual closure).
+    fn hypothesis_token_count(&self, hypothesis: &str) -> Result<usize> {
+        let (_session, tokenizer) = self.ensure_loaded()?;
+        let enc = tokenizer
+            .encode(hypothesis, /*add_special_tokens=*/ false)
+            .map_err(|e| anyhow!("kebab-nli: tokenizer.encode (probe) failed: {e}"))?;
+        Ok(enc.get_ids().len())
     }
 }
 
