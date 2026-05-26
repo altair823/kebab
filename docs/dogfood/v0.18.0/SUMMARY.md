@@ -66,3 +66,16 @@ Schema 정합:
 - happy-path (NLI 통과하는 실 grounded 답변) 직접 측정 부재 — 모든 retest 가 refuse path. dogfood corpus 가 *부정 / 부재 사실 위주* 라 happy path 의 sample 부족. v0.18.1 candidate: corpus 보강.
 - gemma3:4b 의 synthesize quality 가 baseline — 더 큰 모델 (gemma4:e4b 8B Q4) 에서는 happy path 확률 ↑ 가능. release notes 의 RAM 권장 가이드 의 의미.
 - S3 의 follow-up.
+
+## Post-cleanup retest (2026-05-26)
+
+workspace-wide cleanup (chore: clippy::pedantic baseline + auto-fix, 128 files / +552-472) 직후 동일 4 case 재실행. **PR-9d 와 byte-identical 결과**:
+
+| case | PR-9d | post-cleanup | 회귀 |
+|---|---|---|---|
+| S7 | `nli_verification_failed`, score=0.0035389824770390987 | `nli_verification_failed`, score=0.0035389824770390987 | ✓ identical |
+| S1 | `nli_verification_failed`, score=0.058334656059741974 | `nli_verification_failed`, score=0.058334656059741974 | ✓ identical |
+| S10 | `nli_verification_failed`, score=0.0027875436935573816 | `nli_verification_failed`, score=0.0027875436935573816 | ✓ identical |
+| S3 | `nli_model_unavailable` | `nli_model_unavailable` | ✓ identical (cleanup 무관 — root cause v0.18.1 follow-up) |
+
+cleanup 가 *mechanical refactor only* — behavior 회귀 0 + NLI score deterministic. cut PR v0.18.0 진행 가능 baseline.
