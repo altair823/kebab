@@ -79,3 +79,18 @@ workspace-wide cleanup (chore: clippy::pedantic baseline + auto-fix, 128 files /
 | S3 | `nli_model_unavailable` | `nli_model_unavailable` | ✓ identical (cleanup 무관 — root cause v0.18.1 follow-up) |
 
 cleanup 가 *mechanical refactor only* — behavior 회귀 0 + NLI score deterministic. cut PR v0.18.0 진행 가능 baseline.
+
+## Post-architectural-refactor retest (2026-05-26)
+
+OMC team `post-pr9-refactor` 의 architect 가 priorities 분석 후 executor + test-engineer 가 추가 cleanup 진행 — H1 (`models.nli.model` config wiring, `DEFAULT_MODEL_ID` 제거), H2 (`truncate_for_nli` 의 `_hypothesis` stub param 제거), H3 (`was_truncated` tracing::debug! 로 surfacing), D (MCP test flake fix), E (carried TODO → HOTFIXES cross-link). test-engineer 가 T1/T2/T3/T4 (총 9 new tests) 추가. system-architect 가 component-level review 후 "pre-cut nothing — all architectural items v0.18.1+ defer" 결론.
+
+본 architectural refactor 후 동일 4 case 재실행. **PR-9d / post-cleanup / post-refactor 3번 모두 byte-identical**:
+
+| case | PR-9d | post-cleanup | **post-refactor** |
+|---|---|---|---|
+| S7 | 0.0035389824770390987 | 0.0035389824770390987 | **0.0035389824770390987** ✓ |
+| S1 | 0.058334656059741974 | 0.058334656059741974 | **0.058334656059741974** ✓ |
+| S10 | 0.0027875436935573816 | 0.0027875436935573816 | **0.0027875436935573816** ✓ |
+| S3 | nli_model_unavailable | nli_model_unavailable | nli_model_unavailable ✓ |
+
+H1 의 config wiring (DEFAULT_MODEL_ID 제거 후 `config.models.nli.model` 사용) 가 *behavior 변경 0* — default config 의 model 값이 hardcoded 와 같음. workspace test 1304 passed + 1 pre-existing flaky (kebab-mcp HOTFIX #15 동일). cargo clippy --workspace --all-targets -j 1 -- -D warnings clean.

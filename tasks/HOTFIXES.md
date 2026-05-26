@@ -119,6 +119,16 @@ PR-9 의 핵심 목표 (S7 silent hallucination root cause 해결) ✅ **달성*
 
 **Amends**: 없음 (PR-9 의 known limitation, v0.18.1 candidate).
 
+### PR-9 NLI refusal: terminal Synthesize hop omitted from hops trace
+
+**Symptom**: multi-hop `ask` 가 step 8.5 NLI gate 에서 refuse 시 (`RefusalReason::NliVerificationFailed` / `NliModelUnavailable`) `Answer.hops` 는 decompose+decide chain 까지만 담겨 있고, synthesize 가 실제로 LLM 호출 + 토큰 누적까지 끝났음에도 terminal `Synthesize` `HopRecord` 가 append 되지 않는다. happy path (refuse 안 함) 의 `hops` trace 는 `Synthesize` 항을 포함하므로 두 surface 사이 trace shape 가 비대칭.
+
+**Action**: 본 entry 가 tracker. `crates/kebab-rag/src/pipeline.rs` 의 `refuse_nli_verification` / `refuse_nli_model_unavailable` 진입 직전 (step 8.5) 에서 `Synthesize` `HopRecord` (with `forced_stop = false`, synth `usage` / `elapsed_ms` 동봉) 를 append 후 refuse 호출하도록 정리.
+
+**Next step**: v0.18.1 candidate — wire 비대칭이 explain / TUI hops 표시에 사용자 노출되는지 도그푸딩에서 확인 후 fix. 시급도 낮음 (`hops` 는 trace/debug 용, grounded/refusal 결정에는 무관).
+
+**Amends**: 없음 (v0.18.1 candidate). Cross-link: `crates/kebab-rag/src/pipeline.rs` (refuse_nli_* call sites 직전).
+
 ### 사용자 영향
 
 PR-7 + PR-8 머지 후 (v0.18.0 cut 직전):
