@@ -165,7 +165,7 @@ fn collect_stats(
     store: &kebab_store_sqlite::SqliteStore,
 ) -> anyhow::Result<Stats> {
     let counts = store
-        .count_summary_with_threshold(cfg.search.stale_threshold_days as u64)?;
+        .count_summary_with_threshold(u64::from(cfg.search.stale_threshold_days))?;
     let data_dir = kebab_config::expand_path(&cfg.storage.data_dir, "");
     let index_bytes = kebab_store_sqlite::stats_ext::index_bytes(&data_dir)
         .map_err(|e| anyhow::anyhow!("index_bytes: {e}"))?;

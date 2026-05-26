@@ -103,7 +103,7 @@ fn ascii_field(exif: &exif::Exif, tag: Tag) -> Option<String> {
 fn u32_field(exif: &exif::Exif, tag: Tag) -> Option<u32> {
     let f = exif.get_field(tag, In::PRIMARY)?;
     match &f.value {
-        Value::Short(v) => v.first().map(|x| *x as u32),
+        Value::Short(v) => v.first().map(|x| u32::from(*x)),
         Value::Long(v) => v.first().copied(),
         _ => None,
     }
@@ -177,7 +177,7 @@ fn rational_to_f64(r: &exif::Rational) -> Option<f64> {
     if r.denom == 0 {
         None
     } else {
-        Some(r.num as f64 / r.denom as f64)
+        Some(f64::from(r.num) / f64::from(r.denom))
     }
 }
 

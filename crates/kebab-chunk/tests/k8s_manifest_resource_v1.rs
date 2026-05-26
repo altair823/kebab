@@ -280,9 +280,7 @@ fn k8s_oversize_splits_into_line_windows_sharing_symbol() {
         assert_eq!(
             prev_end + 1,
             next_start,
-            "line ranges must be contiguous: {} → {} (got gap or overlap)",
-            prev_end,
-            next_start
+            "line ranges must be contiguous: {prev_end} → {next_start} (got gap or overlap)"
         );
     }
 }

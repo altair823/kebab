@@ -224,7 +224,7 @@ impl SqliteStore {
             .context("kb-store-sqlite::filter_chunks: prepare SQL")?;
         let rows = stmt
             .query_map(
-                params_from_iter(bind.iter().map(|b| b.as_ref())),
+                params_from_iter(bind.iter().map(std::convert::AsRef::as_ref)),
                 |row| {
                     let chunk_id: String = row.get(0)?;
                     let workspace_path: String = row.get(1)?;
@@ -594,7 +594,7 @@ mod tests {
             )
             .unwrap();
         let mut got: Vec<&str> = out.iter().map(|c| c.0.as_str()).collect();
-        got.sort();
+        got.sort_unstable();
         assert_eq!(got, vec![chunks[0].0, chunks[2].0, chunks[3].0]);
 
         // + lang=en  → drops c3.
@@ -610,7 +610,7 @@ mod tests {
             )
             .unwrap();
         let mut got: Vec<&str> = out.iter().map(|c| c.0.as_str()).collect();
-        got.sort();
+        got.sort_unstable();
         assert_eq!(got, vec![chunks[0].0, chunks[3].0]);
 
         // + trust_min=Secondary → drops c4 (generated < secondary).
@@ -641,7 +641,7 @@ mod tests {
             )
             .unwrap();
         let mut got: Vec<&str> = out.iter().map(|c| c.0.as_str()).collect();
-        got.sort();
+        got.sort_unstable();
         assert_eq!(got, vec![chunks[0].0, chunks[1].0, chunks[2].0]);
     }
 
@@ -795,7 +795,7 @@ mod tests {
         seed_committed_with_metadata(
             &store, c3, "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
             "README.md", r#""markdown""#,
-            r#"{}"#,
+            r"{}",
         );
 
         let f = SearchFilters {

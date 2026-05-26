@@ -147,7 +147,7 @@ pub fn mk_hit_with_indexed_at(
         chunk_id: ChunkId(chunk_id.to_string()),
         doc_id: DocumentId(doc_id.to_string()),
         doc_path: p.clone(),
-        heading_path: heading.iter().map(|s| s.to_string()).collect(),
+        heading_path: heading.iter().map(std::string::ToString::to_string).collect(),
         section_label: None,
         snippet: "snippet".to_string(),
         citation: Citation::Line {

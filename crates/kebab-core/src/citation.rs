@@ -226,28 +226,25 @@ fn parse_hms_ms(s: &str) -> Result<u64> {
     let m: u64 = parts[1]
         .parse()
         .map_err(|_| anyhow::anyhow!("bad minutes in {:?} (input {s:?})", parts[1]))?;
-    let (sec, ms) = match parts[2].split_once('.') {
-        Some((s_part, ms_part)) => {
-            let sec: u64 = s_part
-                .parse()
-                .map_err(|_| anyhow::anyhow!("bad seconds in {s_part:?} (input {s:?})"))?;
-            // Pad/truncate to exactly 3 digits.
-            let mut ms_str = ms_part.to_owned();
-            while ms_str.len() < 3 {
-                ms_str.push('0');
-            }
-            ms_str.truncate(3);
-            let ms: u64 = ms_str
-                .parse()
-                .map_err(|_| anyhow::anyhow!("bad milliseconds in {ms_part:?} (input {s:?})"))?;
-            (sec, ms)
+    let (sec, ms) = if let Some((s_part, ms_part)) = parts[2].split_once('.') {
+        let sec: u64 = s_part
+            .parse()
+            .map_err(|_| anyhow::anyhow!("bad seconds in {s_part:?} (input {s:?})"))?;
+        // Pad/truncate to exactly 3 digits.
+        let mut ms_str = ms_part.to_owned();
+        while ms_str.len() < 3 {
+            ms_str.push('0');
         }
-        None => {
-            let sec: u64 = parts[2]
-                .parse()
-                .map_err(|_| anyhow::anyhow!("bad seconds in {:?} (input {s:?})", parts[2]))?;
-            (sec, 0)
-        }
+        ms_str.truncate(3);
+        let ms: u64 = ms_str
+            .parse()
+            .map_err(|_| anyhow::anyhow!("bad milliseconds in {ms_part:?} (input {s:?})"))?;
+        (sec, ms)
+    } else {
+        let sec: u64 = parts[2]
+            .parse()
+            .map_err(|_| anyhow::anyhow!("bad seconds in {:?} (input {s:?})", parts[2]))?;
+        (sec, 0)
     };
     Ok(h * 3_600_000 + m * 60_000 + sec * 1000 + ms)
 }

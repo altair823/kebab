@@ -60,18 +60,15 @@ pub fn parse_blocks(
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         parse_blocks_inner(body, body_offset_lines)
     }));
-    match result {
-        Ok(out) => Ok(out),
-        Err(_) => {
-            tracing::warn!("parse_blocks panicked on adversarial input; returning empty");
-            Ok((
-                Vec::new(),
-                vec![Warning {
-                    kind: WarningKind::ExtractFailed,
-                    note: "pulldown-cmark panicked; body discarded".to_string(),
-                }],
-            ))
-        }
+    if let Ok(out) = result { Ok(out) } else {
+        tracing::warn!("parse_blocks panicked on adversarial input; returning empty");
+        Ok((
+            Vec::new(),
+            vec![Warning {
+                kind: WarningKind::ExtractFailed,
+                note: "pulldown-cmark panicked; body discarded".to_string(),
+            }],
+        ))
     }
 }
 
@@ -102,9 +99,7 @@ fn parse_blocks_inner(body: &[u8], body_offset_lines: u32) -> (Vec<ParsedBlock>,
     // possibly-inverted spans would be more harmful than dropping output.
     if state.overflow_detected {
         let at = state
-            .overflow_at_body_line
-            .map(|n| n.to_string())
-            .unwrap_or_else(|| "?".to_string());
+            .overflow_at_body_line.map_or_else(|| "?".to_string(), |n| n.to_string());
         return (
             Vec::new(),
             vec![Warning {
@@ -339,10 +334,10 @@ impl InlineBuf {
             // `Inline::Link.text` field. Code/strong/emph inside a link are
             // collapsed to their plain text — `Inline::Link` doesn't model
             // formatting inside the link.
-            let flat = if !text.is_empty() {
-                text
-            } else {
+            let flat = if text.is_empty() {
                 flatten_inlines_to_text(&kids)
+            } else {
+                text
             };
             self.push_inline(Inline::Link { text: flat, href });
         }
@@ -364,10 +359,10 @@ impl InlineBuf {
                 InlineFrame::Strong(kids) => self.push_inline(Inline::Strong { children: kids }),
                 InlineFrame::Emph(kids) => self.push_inline(Inline::Emph { children: kids }),
                 InlineFrame::Link { href, text, kids } => {
-                    let flat = if !text.is_empty() {
-                        text
-                    } else {
+                    let flat = if text.is_empty() {
                         flatten_inlines_to_text(&kids)
+                    } else {
+                        text
                     };
                     self.push_inline(Inline::Link { text: flat, href });
                 }
@@ -528,20 +523,17 @@ impl<'a> WalkState<'a> {
         // inverted span. Without this guard, debug builds panic with
         // "attempt to add with overflow" (caught by `catch_unwind`, masking
         // the real cause) and release builds wrap to `start > end`.
-        match (
+        if let (Some(start), Some(end)) = (
             start_body.checked_add(self.body_offset_lines),
             end_body.checked_add(self.body_offset_lines),
-        ) {
-            (Some(start), Some(end)) => SourceSpan::Line { start, end },
-            _ => {
-                if !self.overflow_detected {
-                    self.overflow_detected = true;
-                    self.overflow_at_body_line = Some(start_body);
-                }
-                SourceSpan::Line {
-                    start: start_body.saturating_add(self.body_offset_lines),
-                    end: end_body.saturating_add(self.body_offset_lines),
-                }
+        ) { SourceSpan::Line { start, end } } else {
+            if !self.overflow_detected {
+                self.overflow_detected = true;
+                self.overflow_at_body_line = Some(start_body);
+            }
+            SourceSpan::Line {
+                start: start_body.saturating_add(self.body_offset_lines),
+                end: end_body.saturating_add(self.body_offset_lines),
             }
         }
     }
@@ -677,11 +669,11 @@ impl<'a> WalkState<'a> {
             }
             Event::Start(Tag::Strong) => {
                 self.flag_non_image_in_paragraph();
-                self.with_current_inlines(|buf| buf.open_strong());
+                self.with_current_inlines(InlineBuf::open_strong);
             }
             Event::Start(Tag::Emphasis) => {
                 self.flag_non_image_in_paragraph();
-                self.with_current_inlines(|buf| buf.open_emph());
+                self.with_current_inlines(InlineBuf::open_emph);
             }
             Event::Start(Tag::Link { dest_url, .. }) => {
                 self.flag_non_image_in_paragraph();
@@ -991,13 +983,13 @@ impl<'a> WalkState<'a> {
                 }
             }
             Event::End(TagEnd::Strong) => {
-                self.with_current_inlines(|buf| buf.close_strong());
+                self.with_current_inlines(InlineBuf::close_strong);
             }
             Event::End(TagEnd::Emphasis) => {
-                self.with_current_inlines(|buf| buf.close_emph());
+                self.with_current_inlines(InlineBuf::close_emph);
             }
             Event::End(TagEnd::Link) => {
-                self.with_current_inlines(|buf| buf.close_link());
+                self.with_current_inlines(InlineBuf::close_link);
             }
             Event::End(TagEnd::Image) => {
                 if let Some(Frame::Paragraph { image_depth, .. }) = self.frames.last_mut() {
@@ -1480,8 +1472,7 @@ mod tests {
                             inl,
                             Inline::Text { .. } | Inline::Code { .. } | Inline::Link { .. } | Inline::Strong { .. } | Inline::Emph { .. }
                         ),
-                        "unexpected inline kind: {:?}",
-                        inl
+                        "unexpected inline kind: {inl:?}"
                     );
                 }
             }
@@ -1503,7 +1494,7 @@ mod tests {
                 // First item should contain "a" plus a flattened rendering
                 // of the nested sub-list.
                 let flat = flatten_inlines_to_text(&items[0]);
-                assert!(flat.contains("a"), "first item missing 'a': {flat:?}");
+                assert!(flat.contains('a'), "first item missing 'a': {flat:?}");
                 assert!(flat.contains("- x"), "first item missing '- x': {flat:?}");
                 assert!(flat.contains("- y"), "first item missing '- y': {flat:?}");
                 let flat2 = flatten_inlines_to_text(&items[1]);

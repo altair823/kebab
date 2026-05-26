@@ -147,7 +147,7 @@ fn lexical_opts() -> EvalRunOpts {
 /// guard must outlive the call so concurrent tests don't reset the
 /// var mid-run.
 fn run_with_golden<F: FnOnce() -> R, R>(yaml: &Path, f: F) -> R {
-    let _g = GOLDEN_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _g = GOLDEN_ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     // SAFETY: `KEBAB_EVAL_GOLDEN` is a benign env var; the GOLDEN_ENV_LOCK
     // serializes mutations so concurrent tests don't race.
     unsafe {

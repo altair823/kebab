@@ -67,7 +67,7 @@ fn upsert_ten_then_search_returns_five() {
         // for the rest, with small per-row jitter so they stay
         // distinct in the index.
         let mut v = if i < 5 { dir(0) } else { dir(1) };
-        v[3] = (i as f32) * 0.001;
+        v[3] = f32::from(i) * 0.001;
         let rec = make_record(i, i, v, &format!("text-{i}"), &["A"], MODEL);
         env.seed_chunk(
             &rec.chunk_id.0,
@@ -264,7 +264,7 @@ fn determinism_same_query_same_top_k() {
     let recs: Vec<_> = (0..6u8)
         .map(|i| {
             let mut v = dir(i % 4);
-            v[3] = (i as f32) * 0.001;
+            v[3] = f32::from(i) * 0.001;
             let rec = make_record(i, i, v, &format!("t-{i}"), &[], MODEL);
             env.seed_chunk(
                 &rec.chunk_id.0,

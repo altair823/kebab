@@ -260,8 +260,8 @@ pub fn render_report_md(report: &CompareReport) -> String {
             "| {} | {} | {} | {} | {} |",
             c.query_id,
             comparison_kind_label(c.kind),
-            c.a_hit_rank.map(|r| r.to_string()).unwrap_or_else(|| "—".into()),
-            c.b_hit_rank.map(|r| r.to_string()).unwrap_or_else(|| "—".into()),
+            c.a_hit_rank.map_or_else(|| "—".into(), |r| r.to_string()),
+            c.b_hit_rank.map_or_else(|| "—".into(), |r| r.to_string()),
             c.note.as_deref().unwrap_or(""),
         );
     }
@@ -308,7 +308,7 @@ fn extract_chunker_version(snapshot_json: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(snapshot_json).ok()?;
     v.get("chunker_version")
         .and_then(|x| x.as_str())
-        .map(|s| s.to_owned())
+        .map(std::borrow::ToOwned::to_owned)
 }
 
 fn parse_results(
@@ -402,8 +402,7 @@ fn classify(
             // so refusal-flow queries (no expected_*) don't appear as
             // regressions.
             let has_expected = gq
-                .map(|g| !g.expected_chunk_ids.is_empty() || !g.expected_doc_ids.is_empty())
-                .unwrap_or(false);
+                .is_some_and(|g| !g.expected_chunk_ids.is_empty() || !g.expected_doc_ids.is_empty());
             if has_expected {
                 (ComparisonKind::Regression, Some("hit→miss".into()))
             } else {
@@ -426,7 +425,7 @@ fn build_deltas(
         if a.is_nan() || b.is_nan() {
             serde_json::Value::Null
         } else {
-            serde_json::Value::from((b - a) as f64)
+            serde_json::Value::from(f64::from(b - a))
         }
     }
     let mut hit = serde_json::Map::new();

@@ -44,7 +44,7 @@ async fn doctor_tool_returns_doctor_v1_json() {
     // `ok` boolean must be present (value may be false in CI where Ollama
     // is not reachable — that's expected and acceptable).
     assert!(
-        v.get("ok").and_then(|b| b.as_bool()).is_some(),
+        v.get("ok").and_then(serde_json::Value::as_bool).is_some(),
         "`ok` field missing in doctor.v1 response: {v}"
     );
 }

@@ -71,8 +71,7 @@ async fn search_tool_returns_search_response_v1() {
 
     assert!(
         !result.is_error.unwrap_or(false),
-        "expected isError=false, got {:?}",
-        result
+        "expected isError=false, got {result:?}"
     );
 
     let content = result
@@ -108,7 +107,7 @@ async fn search_tool_returns_search_response_v1() {
     );
     // truncated must be present (bool); next_cursor may be null on last page.
     assert!(
-        v.get("truncated").and_then(|t| t.as_bool()).is_some(),
+        v.get("truncated").and_then(serde_json::Value::as_bool).is_some(),
         "envelope should carry truncated:bool"
     );
     assert!(
@@ -172,8 +171,7 @@ async fn search_with_doc_id_filter_returns_only_target() {
     );
     assert!(
         !unfiltered.is_error.unwrap_or(false),
-        "unfiltered search failed: {:?}",
-        unfiltered
+        "unfiltered search failed: {unfiltered:?}"
     );
     let unfiltered_text = match &unfiltered.content.first().unwrap().raw {
         RawContent::Text(t) => t.text.clone(),
@@ -211,8 +209,7 @@ async fn search_with_doc_id_filter_returns_only_target() {
     );
     assert!(
         !filtered.is_error.unwrap_or(false),
-        "filtered search failed: {:?}",
-        filtered
+        "filtered search failed: {filtered:?}"
     );
     let filtered_text = match &filtered.content.first().unwrap().raw {
         RawContent::Text(t) => t.text.clone(),

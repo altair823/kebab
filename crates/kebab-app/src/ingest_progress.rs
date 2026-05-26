@@ -166,8 +166,8 @@ mod tests {
         };
         let v = serde_json::to_value(&ev).unwrap();
         assert_eq!(v.get("kind").and_then(|s| s.as_str()), Some("asset_started"));
-        assert_eq!(v.get("idx").and_then(|n| n.as_u64()), Some(1));
-        assert_eq!(v.get("total").and_then(|n| n.as_u64()), Some(10));
+        assert_eq!(v.get("idx").and_then(serde_json::Value::as_u64), Some(1));
+        assert_eq!(v.get("total").and_then(serde_json::Value::as_u64), Some(10));
         assert_eq!(v.get("path").and_then(|s| s.as_str()), Some("notes/foo.md"));
         assert_eq!(v.get("media").and_then(|s| s.as_str()), Some("markdown"));
     }
@@ -184,8 +184,8 @@ mod tests {
         let v = serde_json::to_value(&ev).unwrap();
         assert_eq!(v.get("kind").and_then(|s| s.as_str()), Some("completed"));
         let counts = v.get("counts").unwrap();
-        assert_eq!(counts.get("scanned").and_then(|n| n.as_u64()), Some(5));
-        assert_eq!(counts.get("new").and_then(|n| n.as_u64()), Some(2));
+        assert_eq!(counts.get("scanned").and_then(serde_json::Value::as_u64), Some(5));
+        assert_eq!(counts.get("new").and_then(serde_json::Value::as_u64), Some(2));
     }
 
     #[test]

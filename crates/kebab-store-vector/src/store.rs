@@ -169,16 +169,13 @@ impl LanceVectorStore {
             arrow_schema::DataType::FixedSizeList(_, table_dim) => {
                 if (*table_dim as usize) != dim {
                     anyhow::bail!(
-                        "dimension mismatch: table has dim {}, records have dim {}",
-                        table_dim,
-                        dim
+                        "dimension mismatch: table has dim {table_dim}, records have dim {dim}"
                     );
                 }
                 Ok(())
             }
             other => anyhow::bail!(
-                "embedding column has unexpected Arrow type {:?}",
-                other
+                "embedding column has unexpected Arrow type {other:?}"
             ),
         }
     }
@@ -390,19 +387,15 @@ impl VectorStore for LanceVectorStore {
         // matching `query_vec.len()`. In v1 there's typically one
         // model in play; if there are several we pick the first match.
         let dim = query_vec.len();
-        let table_name = match self
+        let table_name = if let Some(name) = self
             .runtime
-            .block_on(async { find_matching_table(&self.connection, dim).await })?
-        {
-            Some(name) => name,
-            None => {
-                tracing::debug!(
-                    target: "kebab-store-vector",
-                    dim,
-                    "search: no Lance table matches query dim — returning empty"
-                );
-                return Ok(Vec::new());
-            }
+            .block_on(async { find_matching_table(&self.connection, dim).await })? { name } else {
+            tracing::debug!(
+                target: "kebab-store-vector",
+                dim,
+                "search: no Lance table matches query dim — returning empty"
+            );
+            return Ok(Vec::new());
         };
 
         // Pre-fetch 2*k Lance rows; we'll filter against SQLite
@@ -574,7 +567,7 @@ fn score_from_distance(distance: f32) -> f32 {
         return 0.0;
     }
     let sim = 1.0 - distance;
-    (sim + 1.0) / 2.0
+    f32::midpoint(sim, 1.0)
 }
 
 /// Find a Lance table whose embedding column is FixedSizeList<Float32, dim>.

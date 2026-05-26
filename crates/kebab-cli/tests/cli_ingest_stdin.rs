@@ -96,5 +96,5 @@ max_context_tokens = 8000
     let stdout = String::from_utf8_lossy(&out.stdout);
     let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert_eq!(v.get("schema_version").and_then(|s| s.as_str()), Some("ingest_report.v1"));
-    assert_eq!(v.get("new").and_then(|n| n.as_u64()), Some(1));
+    assert_eq!(v.get("new").and_then(serde_json::Value::as_u64), Some(1));
 }

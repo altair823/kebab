@@ -26,3 +26,6 @@ kebab-parse-code = { path = "../kebab-parse-code" }
 kebab-normalize  = { path = "../kebab-normalize" }
 serde_json       = { workspace = true }
 time             = { workspace = true }
+
+[lints]
+workspace = true

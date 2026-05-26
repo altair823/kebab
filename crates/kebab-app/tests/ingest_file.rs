@@ -33,7 +33,7 @@ fn ingest_file_copies_external_md_and_reports_new() {
     assert!(ext_dir.is_dir());
     let entries: Vec<_> = fs::read_dir(&ext_dir)
         .unwrap()
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .collect();
     assert_eq!(entries.len(), 1, "exactly one file in _external/");
     let name = entries[0].file_name().to_string_lossy().into_owned();

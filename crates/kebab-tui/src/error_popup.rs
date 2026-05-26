@@ -23,7 +23,7 @@ pub struct ErrorOverlay {
 
 impl ErrorOverlay {
     pub fn from_anyhow(err: &anyhow::Error) -> Self {
-        let chain: Vec<String> = err.chain().map(|c| c.to_string()).collect();
+        let chain: Vec<String> = err.chain().map(std::string::ToString::to_string).collect();
         Self {
             title: "error".to_string(),
             chain,

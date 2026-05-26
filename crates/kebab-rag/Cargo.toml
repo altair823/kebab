@@ -28,3 +28,6 @@ kebab-llm = { path = "../kebab-llm", features = ["mock"] }
 tempfile        = { workspace = true }
 rusqlite        = { workspace = true }
 serde_json      = { workspace = true }
+
+[lints]
+workspace = true

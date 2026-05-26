@@ -282,8 +282,7 @@ fn streaming_forwards_tokens_to_sink() {
             StreamEvent::Token { delta, .. } => Some(delta),
             _ => None,
         })
-        .collect::<Vec<_>>()
-        .join("");
+        .collect::<String>();
     assert_eq!(collected, canned);
 }
 
@@ -522,7 +521,7 @@ fn answer_json_serializes_with_expected_keys() {
     let answer = pipeline.ask("what", default_opts()).unwrap();
     let v: serde_json::Value = serde_json::to_value(&answer).unwrap();
     // Stable top-level key set per `answer.v1` (§2.3).
-    let keys: Vec<&str> = v.as_object().unwrap().keys().map(|s| s.as_str()).collect();
+    let keys: Vec<&str> = v.as_object().unwrap().keys().map(std::string::String::as_str).collect();
     for needed in [
         "answer",
         "citations",

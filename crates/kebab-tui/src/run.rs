@@ -36,8 +36,7 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
         let clear_now = app
             .ingest_state
             .as_ref()
-            .map(crate::ingest_progress::ready_to_clear)
-            .unwrap_or(false);
+            .is_some_and(crate::ingest_progress::ready_to_clear);
         if clear_now {
             if let Some(mut state) = app.ingest_state.take() {
                 // Reap the worker thread now that the user has seen
@@ -73,8 +72,7 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                     let due = app
                         .search
                         .as_ref()
-                        .map(debounce_due)
-                        .unwrap_or(false);
+                        .is_some_and(debounce_due);
                     if due {
                         if let Err(e) = fire_search(app) {
                             app.error_overlay = Some(ErrorOverlay::from_anyhow(&e));
@@ -84,8 +82,7 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                     let needs_preview = app
                         .search
                         .as_ref()
-                        .map(|s| s.preview.is_none() && !s.hits.is_empty())
-                        .unwrap_or(false);
+                        .is_some_and(|s| s.preview.is_none() && !s.hits.is_empty());
                     if needs_preview {
                         if let Err(e) = refresh_preview(app) {
                             app.error_overlay = Some(ErrorOverlay::from_anyhow(&e));
@@ -103,8 +100,7 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                     let due = app
                         .inspect
                         .as_ref()
-                        .map(|s| s.needs_fetch)
-                        .unwrap_or(false);
+                        .is_some_and(|s| s.needs_fetch);
                     if due {
                         if let Err(e) = refresh_inspect(app) {
                             app.error_overlay = Some(ErrorOverlay::from_anyhow(&e));
@@ -387,10 +383,10 @@ pub fn render_status_bar(f: &mut Frame, area: Rect, app: &App) {
 /// Priority-cascade dynamic state for the status bar. See
 /// `render_status_bar` for the priority order.
 fn dynamic_status(app: &App) -> String {
-    if app.ask.as_ref().map(|s| s.streaming).unwrap_or(false) {
+    if app.ask.as_ref().is_some_and(|s| s.streaming) {
         return "streaming…".to_string();
     }
-    if app.search.as_ref().map(|s| s.searching).unwrap_or(false) {
+    if app.search.as_ref().is_some_and(|s| s.searching) {
         return "searching…".to_string();
     }
     // v0.17.0 A5 Step 5: short-query advisory has higher priority than
@@ -460,7 +456,7 @@ fn render_key_hints(f: &mut Frame, area: Rect, app: &App) {
 /// - **Order**: most-frequent verb first; last fragment is always
 ///   the way back out (`Esc`/`q`).
 pub fn footer_hints(focus: Pane, mode: crate::app::Mode, filter_open: bool) -> &'static str {
-    use crate::app::Mode::*;
+    use crate::app::Mode::{Normal, Insert};
     // p9-fb-21: every hint starts with `F1 도움말` so the cheatsheet
     // is always one keystroke away — dogfooding feedback was that
     // the F1 binding itself was undiscoverable.

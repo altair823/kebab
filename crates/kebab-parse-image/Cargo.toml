@@ -55,3 +55,6 @@ base64       = { workspace = true }
 # at runtime) is preserved.
 kebab-llm        = { path = "../kebab-llm", features = ["mock"] }
 kebab-llm-local  = { path = "../kebab-llm-local" }
+
+[lints]
+workspace = true

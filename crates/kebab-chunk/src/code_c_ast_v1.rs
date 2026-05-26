@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn oversize_unit_splits_into_parts_with_unique_ids() {
-        let body = (0..500).map(|i| format!("\tx{i} = {i};\n")).collect::<Vec<_>>().join("");
+        let body = (0..500).map(|i| format!("\tx{i} = {i};\n")).collect::<String>();
         let code = format!("int big() {{\n{body}\n}}");
         let doc = code_doc(&[("big", 1, 502, &code)]);
         let chunks = CodeCAstV1Chunker.chunk(&doc, &policy()).unwrap();
@@ -281,7 +281,7 @@ mod tests {
             }
         }
         let mut ids: Vec<&str> = chunks.iter().map(|c| c.chunk_id.0.as_str()).collect();
-        let n = ids.len(); ids.sort(); ids.dedup();
+        let n = ids.len(); ids.sort_unstable(); ids.dedup();
         assert_eq!(ids.len(), n, "chunk_ids unique across split parts");
     }
 

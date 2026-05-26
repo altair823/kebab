@@ -76,8 +76,7 @@ fn cli_schema_json_emits_schema_v1() {
     assert!(
         v.get("kebab_version")
             .and_then(|s| s.as_str())
-            .map(|s| !s.is_empty())
-            .unwrap_or(false),
+            .is_some_and(|s| !s.is_empty()),
         "kebab_version must be a non-empty string"
     );
 
@@ -86,12 +85,12 @@ fn cli_schema_json_emits_schema_v1() {
         .and_then(|c| c.as_object())
         .expect("capabilities must be a JSON object");
     assert_eq!(
-        caps.get("json_mode").and_then(|b| b.as_bool()),
+        caps.get("json_mode").and_then(serde_json::Value::as_bool),
         Some(true),
         "capabilities.json_mode must be true"
     );
     assert_eq!(
-        caps.get("mcp_server").and_then(|b| b.as_bool()),
+        caps.get("mcp_server").and_then(serde_json::Value::as_bool),
         Some(true),
         "capabilities.mcp_server must be true (fb-30)"
     );

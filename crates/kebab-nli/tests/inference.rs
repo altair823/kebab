@@ -111,8 +111,7 @@ fn long_premise_truncates_without_panic() {
     ] {
         assert!(
             x.is_finite(),
-            "channel {name} non-finite: {x} (full scores: {:?})",
-            s
+            "channel {name} non-finite: {x} (full scores: {s:?})"
         );
     }
     // Softmax invariant — the three channels sum to ~1.

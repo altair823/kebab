@@ -110,7 +110,7 @@ pub fn parse_frontmatter(
         }
     };
 
-    let body_start = span_opt.map(|s| s.end).unwrap_or(0);
+    let body_start = span_opt.map_or(0, |s| s.end);
     let body = &bytes[body_start..];
 
     let metadata = derive_metadata(raw_opt, hints, body, &mut warnings);
@@ -430,30 +430,24 @@ fn derive_metadata(
     // ---- source_type ----
     let source_type = match raw.source_type.as_deref() {
         None => SourceType::Markdown,
-        Some(s) => match parse_source_type(s) {
-            Some(st) => st,
-            None => {
-                warnings.push(Warning {
-                    kind: WarningKind::MalformedFrontmatter,
-                    note: format!("unknown source_type={s}, defaulted to markdown"),
-                });
-                SourceType::Markdown
-            }
+        Some(s) => if let Some(st) = parse_source_type(s) { st } else {
+            warnings.push(Warning {
+                kind: WarningKind::MalformedFrontmatter,
+                note: format!("unknown source_type={s}, defaulted to markdown"),
+            });
+            SourceType::Markdown
         },
     };
 
     // ---- trust_level ----
     let trust_level = match raw.trust_level.as_deref() {
         None => TrustLevel::Primary,
-        Some(s) => match parse_trust_level(s) {
-            Some(tl) => tl,
-            None => {
-                warnings.push(Warning {
-                    kind: WarningKind::MalformedFrontmatter,
-                    note: format!("unknown trust_level={s}, defaulted to primary"),
-                });
-                TrustLevel::Primary
-            }
+        Some(s) => if let Some(tl) = parse_trust_level(s) { tl } else {
+            warnings.push(Warning {
+                kind: WarningKind::MalformedFrontmatter,
+                note: format!("unknown trust_level={s}, defaulted to primary"),
+            });
+            TrustLevel::Primary
         },
     };
 

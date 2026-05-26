@@ -51,7 +51,7 @@ fn manifest_doc(lang: &str, manifest_text: &str) -> CanonicalDocument {
         doc_id,
         source_asset_id: aid,
         workspace_path: wp,
-        title: format!("Manifest ({})", lang),
+        title: format!("Manifest ({lang})"),
         lang: Lang("und".into()),
         blocks: vec![block],
         metadata: Metadata {

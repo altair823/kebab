@@ -65,8 +65,7 @@ async fn ask_tool_returns_answer_v1_with_refusal_on_empty_kb() {
     // Empty KB → refusal (grounded:false) is normal — NOT isError.
     assert!(
         !result.is_error.unwrap_or(false),
-        "expected isError=false on refusal, got {:?}",
-        result
+        "expected isError=false on refusal, got {result:?}"
     );
 
     let content = result
@@ -86,7 +85,7 @@ async fn ask_tool_returns_answer_v1_with_refusal_on_empty_kb() {
         "response should carry schema_version=answer.v1"
     );
     assert_eq!(
-        v.get("grounded").and_then(|b| b.as_bool()),
+        v.get("grounded").and_then(serde_json::Value::as_bool),
         Some(false),
         "empty KB should produce grounded=false"
     );

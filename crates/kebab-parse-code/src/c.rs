@@ -310,7 +310,7 @@ fn build_blocks(
     // If there is only glue (no real unit) the single pushed "<top-level>"
     // label should be "<module>" — rename it now.
     if !has_real_unit {
-        for (sym, _, _, _) in units.iter_mut() {
+        for (sym, _, _, _) in &mut units {
             if sym == "<top-level>" {
                 *sym = "<module>".to_string();
             }
@@ -329,7 +329,7 @@ fn build_blocks(
             lang: Some("c".to_string()),
         };
         let block_id = id_for_block(doc_id, "code", &[], ordinal as u32, &span);
-        let code = lines[(line_start as usize - 1)..=(line_end as usize - 1)].join("\n");
+        let code = lines[(line_start as usize - 1)..(line_end as usize)].join("\n");
         blocks.push(Block::Code(CodeBlock {
             common: CommonBlock {
                 block_id,
@@ -704,11 +704,11 @@ void print_result(int v) {
 
     #[test]
     fn c_extractor_deterministic_across_runs() {
-        let src = r#"
+        let src = r"
 struct Node { int val; };
 int sum(int a, int b) { return a + b; }
 void noop(void) {}
-"#;
+";
         let a = tests_support::extract_c(src, "x/det.c");
         for _ in 0..20 {
             assert_eq!(

@@ -28,3 +28,6 @@ mock    = []
 
 [dev-dependencies]
 proptest = { workspace = true }
+
+[lints]
+workspace = true

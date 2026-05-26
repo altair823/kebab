@@ -198,7 +198,7 @@ pub fn apply_caption(
 /// language; everything else falls through to English.
 fn build_prompt(lang_hint: Option<&str>) -> (String, String) {
     match lang_hint {
-        Some("ko") | Some("kor") => (
+        Some("ko" | "kor") => (
             "이미지를 한 문장으로 객관적으로 설명한다. 추측은 피하고, \
              보이는 것만 적는다. 마크다운 / 따옴표 / 부가 설명 없이 \
              한 문장만 출력."

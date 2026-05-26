@@ -34,6 +34,94 @@ license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/altair823/kebab"
 version       = "0.17.2"
 
+# pre-v0.18 workspace-wide cleanup: enable clippy::pedantic group with
+# intentional allow-list. The allowed lints are either cosmetic (doc style),
+# informational (function size), or carry intentional truncation we accept
+# (numeric casts in tokenizer/ONNX inputs, hash modular reduction, etc).
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Intentional u32 ↔ i64 casts in kebab-nli (ONNX i64 inputs from tokenizer u32 ids).
+# u64 ↔ usize across kebab-store-sqlite row counts. Wide truncation is auditable
+# at use site, not lint-wide.
+cast_possible_truncation = "allow"
+cast_possible_wrap       = "allow"
+cast_sign_loss           = "allow"
+cast_precision_loss      = "allow"
+# Doc markdown style is cosmetic; we run rustdoc on demand.
+doc_markdown            = "allow"
+missing_errors_doc      = "allow"
+missing_panics_doc      = "allow"
+# Informational only — splitting a long pipeline function isn't always cleaner.
+too_many_lines          = "allow"
+# `Foo::default()` is concise and idiomatic here; `<Foo as Default>::default()`
+# adds noise without surfacing intent.
+default_trait_access    = "allow"
+# Module name prefix on public items keeps the wire/log surface readable
+# (`refusal_reason::no_chunks` etc).
+module_name_repetitions = "allow"
+# We use `#[must_use]` deliberately on public results, not blanket.
+must_use_candidate      = "allow"
+# `String` arg sometimes signals "I'll consume this" — let signature decide.
+needless_pass_by_value  = "allow"
+# Idiomatic single-line bindings stay; let-else expansion isn't always clearer.
+manual_let_else         = "allow"
+# `use` after `let` is a common kebab pattern (scoped imports next to use site).
+items_after_statements  = "allow"
+# Naming pairs like `chunk_id` / `chunks_id` are intentional domain terms.
+similar_names           = "allow"
+# `iter.map(format!).collect::<String>()` is idiomatic when the per-element
+# string is genuinely independent — `fold` only wins on accumulation patterns.
+format_collect          = "allow"
+# Exhaustive `match` with explicit variant arms (vs `_`) catches future
+# variant additions at compile time (kebab core's `RefusalReason` pattern).
+match_wildcard_for_single_variants = "allow"
+# Copy types under `&self` keep call-site discipline; auto-deref noise > tiny perf gain.
+trivially_copy_pass_by_ref = "allow"
+# `unnecessary_wraps` flags helpers that could drop `Result`, but keeping the
+# Result allows future error variants without churning callers.
+unnecessary_wraps        = "allow"
+# NLI score / RRF fusion / similarity threshold comparisons are intentional —
+# floats live in the `[0, 1]` band and are compared with explicit thresholds.
+float_cmp                = "allow"
+# File-extension dispatch is keyed on ASCII conventions; case sensitivity
+# is part of the spec for `.md`, `.pdf`, etc.
+case_sensitive_file_extension_comparisons = "allow"
+# Config / opts structs intentionally bundle boolean flags (ingest options,
+# search modes, etc) — splitting them into enums would obscure the wire shape.
+struct_excessive_bools   = "allow"
+# `bytecount` crate would be a new dep just for one-off ASCII counts.
+naive_bytecount          = "allow"
+# `#[ignore]` annotations on tests document via the test name + nearby comment.
+ignore_without_reason    = "allow"
+# `format!` push patterns are a hot path for kebab-tui's progressive rendering;
+# `write!` rewrite needs a verified-equal benchmark before swapping.
+format_push_string       = "allow"
+# Builder-style `with_*` methods return `Self`; the existing `#[must_use]`
+# discipline lives on aggregate constructors, not every chainable setter.
+return_self_not_must_use = "allow"
+# Match arms grouped by side-effect over body equality (e.g. snake_case wire
+# label tables) — fanning them out keeps adding a new variant trivial.
+match_same_arms          = "allow"
+# Remaining style-only warnings: trailing `continue` is sometimes clearer than
+# rewriting, `_x` underscored bindings document intent at the use site, and
+# `!(a == b)` reads better than `a != b` when paired with a complementary check.
+needless_continue        = "allow"
+used_underscore_binding  = "allow"
+nonminimal_bool          = "allow"
+# Other one-off cosmetic items: large literal formatting, doc link quoting,
+# `Clone::clone_from` swap, `str::replace` chaining, `Iterator::any` ergonomics.
+unreadable_literal           = "allow"
+many_single_char_names       = "allow"
+doc_link_with_quotes         = "allow"
+assigning_clones             = "allow"
+collapsible_str_replace      = "allow"
+trivial_regex                = "allow"
+elidable_lifetime_names      = "allow"
+range_plus_one               = "allow"
+explicit_iter_loop           = "allow"
+implicit_hasher              = "allow"
+ref_option                   = "allow"
+
 [workspace.dependencies]
 anyhow       = "1"
 thiserror    = "2"

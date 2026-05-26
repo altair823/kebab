@@ -163,7 +163,7 @@ impl SqliteStore {
     /// safe to reuse — we simply unwrap the inner guard rather than
     /// propagate the panic to every subsequent call.
     pub(crate) fn lock_conn(&self) -> MutexGuard<'_, Connection> {
-        self.conn.lock().unwrap_or_else(|p| p.into_inner())
+        self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Read-only borrow of the connection.
@@ -179,7 +179,7 @@ impl SqliteStore {
     ///
     /// Poisoning is recovered the same way as [`Self::lock_conn`].
     pub fn read_conn(&self) -> MutexGuard<'_, Connection> {
-        self.conn.lock().unwrap_or_else(|p| p.into_inner())
+        self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Persist a `RawAsset` *with its raw bytes*: row goes into `assets`,
@@ -359,9 +359,7 @@ fn temp_path_for(dest: &Path) -> PathBuf {
     let n = TEMP_SUFFIX_COUNTER.fetch_add(1, Ordering::Relaxed);
     let parent = dest.parent().unwrap_or_else(|| Path::new("."));
     let file_name = dest
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "asset".to_string());
+        .file_name().map_or_else(|| "asset".to_string(), |s| s.to_string_lossy().into_owned());
     parent.join(format!("{file_name}.tmp.{pid}.{n}"))
 }
 

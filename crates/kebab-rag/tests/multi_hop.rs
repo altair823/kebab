@@ -68,7 +68,7 @@ fn multi_hop_decide_stop_triggers_synthesize() {
     // Three LLM calls in order: decompose → decide → synthesize.
     let lm = Arc::new(ScriptedLm::new(vec![
         r#"["q1"]"#,
-        r#"[]"#,
+        r"[]",
         "answer body [#1]",
     ]));
     let lm_handle = lm.clone();
@@ -131,7 +131,7 @@ fn multi_hop_decide_continue_adds_more_chunks() {
     let lm = Arc::new(ScriptedLm::new(vec![
         r#"["q1"]"#,
         r#"["q2"]"#,
-        r#"[]"#,
+        r"[]",
         "synthesized [#1] [#2]",
     ]));
     let lm_handle = lm.clone();
@@ -255,7 +255,7 @@ fn multi_hop_pool_chunks_dedup_by_chunk_id() {
 
     let lm = Arc::new(ScriptedLm::new(vec![
         r#"["q1", "q2"]"#,
-        r#"[]"#,
+        r"[]",
         "merged answer [#1]",
     ]));
     let lm_handle = lm.clone();
@@ -444,7 +444,7 @@ fn multi_hop_refuse_score_gate_preserves_hops_trace() {
     // never runs because we refuse before pack_context.
     let lm = Arc::new(ScriptedLm::new(vec![
         r#"["q1"]"#,
-        r#"[]"#,
+        r"[]",
     ]));
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
@@ -594,7 +594,7 @@ fn multi_hop_above_probe_gate_proceeds_to_decompose() {
 
     let lm = Arc::new(ScriptedLm::new(vec![
         r#"["q1"]"#,
-        r#"[]"#,
+        r"[]",
         "answer [#1]",
     ]));
     let lm_handle = lm.clone();
@@ -649,7 +649,7 @@ fn happy_multi_hop_env() -> (RagEnv, Arc<ScriptedRetriever>, Arc<ScriptedLm>) {
     let retriever = Arc::new(ScriptedRetriever::new(vec![hits.clone(), hits]));
     let lm = Arc::new(ScriptedLm::new(vec![
         r#"["q1"]"#,
-        r#"[]"#,
+        r"[]",
         "answer body [#1]",
     ]));
     (env, retriever, lm)

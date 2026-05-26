@@ -35,7 +35,7 @@ fn ingest_stdin_writes_frontmatter_and_reports_new() {
     // _external/ contains exactly one .md file with frontmatter.
     let ext_dir = std::path::PathBuf::from(&cfg.workspace.root).join("_external");
     let entries: Vec<_> = fs::read_dir(&ext_dir).unwrap()
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .collect();
     assert_eq!(entries.len(), 1);
     let content = fs::read_to_string(entries[0].path()).unwrap();
@@ -60,7 +60,7 @@ fn ingest_stdin_without_source_uri() {
 
     let ext_dir = std::path::PathBuf::from(&cfg.workspace.root).join("_external");
     let entries: Vec<_> = fs::read_dir(&ext_dir).unwrap()
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .collect();
     let content = fs::read_to_string(entries[0].path()).unwrap();
     assert!(content.contains("title: \"Title\""));

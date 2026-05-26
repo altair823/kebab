@@ -601,7 +601,7 @@ mod tests {
         let h = HybridRetriever::with_policy(lex, vec, rrf_policy(60), 5);
         let out = h.search(&make_query(SearchMode::Hybrid, 5)).unwrap();
         let a = out.iter().find(|h| h.chunk_id.0 == "aaaa").unwrap();
-        let actual = a.retrieval.fusion_score as f64;
+        let actual = f64::from(a.retrieval.fusion_score);
         // Tolerance: the score is computed in f64 and cast to f32 at
         // the API boundary, so any discrepancy must fit within f32
         // precision. `1e-7` is below `f32::EPSILON` (~1.19e-7), which
@@ -694,7 +694,7 @@ mod tests {
         let h = HybridRetriever::with_policy(lex, vec, rrf_policy(60), 4);
         let out = h.search(&make_query(SearchMode::Hybrid, 4)).unwrap();
         let mut ids: Vec<&str> = out.iter().map(|h| h.chunk_id.0.as_str()).collect();
-        ids.sort();
+        ids.sort_unstable();
         assert_eq!(ids, vec!["aaaa", "bbbb", "cccc", "dddd"]);
     }
 

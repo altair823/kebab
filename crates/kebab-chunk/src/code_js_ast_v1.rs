@@ -281,7 +281,7 @@ mod tests {
             }
         }
         let mut ids: Vec<&str> = chunks.iter().map(|c| c.chunk_id.0.as_str()).collect();
-        let n = ids.len(); ids.sort(); ids.dedup();
+        let n = ids.len(); ids.sort_unstable(); ids.dedup();
         assert_eq!(ids.len(), n, "chunk_ids unique across split parts");
     }
 

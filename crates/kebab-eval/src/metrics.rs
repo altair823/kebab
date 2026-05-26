@@ -270,7 +270,21 @@ pub(crate) fn aggregate_from_rows(
         // recall@k_doc (doc-level, requires non-empty expected_doc_ids
         // and `>0` is the "should retrieve" condition; refusal queries
         // (`expected_doc_ids = []`) are excluded by spec).
-        if !gq.expected_doc_ids.is_empty() {
+        if gq.expected_doc_ids.is_empty() {
+            // refusal_correctness: golden marks "should refuse" via empty
+            // expected_doc_ids. We can only judge this on RAG runs — a
+            // lexical-only run produces no Answer, so "refusal" is
+            // undefined. Excluding such queries from the denominator
+            // (rather than counting them as failures) keeps the metric
+            // honest: a search-only run reports refusal_correctness as
+            // NaN/null, not 0.0.
+            if let Some(ans) = &qr.answer {
+                refusal_denom += 1;
+                if !ans.grounded {
+                    refusal_num += 1;
+                }
+            }
+        } else {
             let expected_docs: HashSet<&DocumentId> = gq.expected_doc_ids.iter().collect();
             for k in TOP_K_VARIANTS {
                 let entry = recall_at_k_doc.get_mut(k).expect("init");
@@ -284,20 +298,6 @@ pub(crate) fn aggregate_from_rows(
                 let covered = expected_docs.iter().filter(|d| topk_docs.contains(*d)).count();
                 let frac = covered as f64 / expected_docs.len() as f64;
                 entry.0 += frac;
-            }
-        } else {
-            // refusal_correctness: golden marks "should refuse" via empty
-            // expected_doc_ids. We can only judge this on RAG runs — a
-            // lexical-only run produces no Answer, so "refusal" is
-            // undefined. Excluding such queries from the denominator
-            // (rather than counting them as failures) keeps the metric
-            // honest: a search-only run reports refusal_correctness as
-            // NaN/null, not 0.0.
-            if let Some(ans) = &qr.answer {
-                refusal_denom += 1;
-                if !ans.grounded {
-                    refusal_num += 1;
-                }
             }
         }
 

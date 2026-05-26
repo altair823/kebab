@@ -797,7 +797,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                             serde_json::to_string(&item.query)?,
                         )?;
                         if let Some(err) = &item.error {
-                            writeln!(stdout, "error: {}", err)?;
+                            writeln!(stdout, "error: {err}")?;
                         } else if let Some(resp) = &item.response {
                             writeln!(
                                 stdout,
@@ -1171,15 +1171,13 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 let report = kebab_app::reset::execute(scope, &cfg)?;
                 if cli.json {
                     println!("{}", serde_json::to_string(&wire::wire_reset(&report))?);
-                } else {
-                    if report.orphans_purged > 0 {
-                        println!("orphans purged: {}", report.orphans_purged);
-                        for p in &report.purged_paths {
-                            println!("  - {}", p.0);
-                        }
-                    } else {
-                        println!("no orphaned docs found — store is already in sync with walker scope");
+                } else if report.orphans_purged > 0 {
+                    println!("orphans purged: {}", report.orphans_purged);
+                    for p in &report.purged_paths {
+                        println!("  - {}", p.0);
                     }
+                } else {
+                    println!("no orphaned docs found — store is already in sync with walker scope");
                 }
                 return Ok(());
             }
@@ -1508,11 +1506,11 @@ fn confirm_destructive(
 ) -> anyhow::Result<bool> {
     use std::io::Write;
     let mut out = std::io::stderr().lock();
-    writeln!(out, "kebab reset ({:?}): about to remove", scope)?;
+    writeln!(out, "kebab reset ({scope:?}): about to remove")?;
     for p in paths {
         writeln!(out, "  - {}", p.display())?;
     }
-    writeln!(out, "estimated total: {} bytes", bytes)?;
+    writeln!(out, "estimated total: {bytes} bytes")?;
     write!(out, "Proceed? [y/N] ")?;
     out.flush()?;
 
@@ -1573,19 +1571,19 @@ fn render_fetch_plain(r: &kebab_core::FetchResult) {
             if !r.context_before.is_empty() {
                 println!("\n=== before ===");
                 for c in &r.context_before {
-                    let heading = c.heading_path.last().map(|s| s.as_str()).unwrap_or("");
+                    let heading = c.heading_path.last().map_or("", std::string::String::as_str);
                     println!("[{} § {}]\n{}\n", c.chunk_id.0, heading, c.text);
                 }
             }
             if let Some(c) = &r.chunk {
                 println!("\n=== target ===");
-                let heading = c.heading_path.last().map(|s| s.as_str()).unwrap_or("");
+                let heading = c.heading_path.last().map_or("", std::string::String::as_str);
                 println!("[{} § {}]\n{}\n", c.chunk_id.0, heading, c.text);
             }
             if !r.context_after.is_empty() {
                 println!("\n=== after ===");
                 for c in &r.context_after {
-                    let heading = c.heading_path.last().map(|s| s.as_str()).unwrap_or("");
+                    let heading = c.heading_path.last().map_or("", std::string::String::as_str);
                     println!("[{} § {}]\n{}\n", c.chunk_id.0, heading, c.text);
                 }
             }

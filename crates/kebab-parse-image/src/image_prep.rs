@@ -162,9 +162,7 @@ mod tests {
         let ratio = w as f32 / h as f32;
         assert!(
             (ratio - 4.0 / 3.0).abs() < 0.02,
-            "aspect drift: in=4/3 out={}/{}={ratio}",
-            w,
-            h
+            "aspect drift: in=4/3 out={w}/{h}={ratio}"
         );
     }
 

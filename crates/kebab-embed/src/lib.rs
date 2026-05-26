@@ -59,7 +59,7 @@ pub fn assert_vector_shape(vecs: &[Vec<f32>], expected_dims: usize) {
 /// Panics on mismatch (test-only helper — callers are tests).
 pub fn assert_unit_norm(vecs: &[Vec<f32>], tolerance: f32) {
     for (i, v) in vecs.iter().enumerate() {
-        let norm_sq: f64 = v.iter().map(|&x| (x as f64) * (x as f64)).sum();
+        let norm_sq: f64 = v.iter().map(|&x| f64::from(x) * f64::from(x)).sum();
         let norm = norm_sq.sqrt() as f32;
         assert!(
             (norm - 1.0).abs() <= tolerance,

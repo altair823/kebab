@@ -36,3 +36,6 @@ tempfile        = { workspace = true }
 # The mock-retriever unit tests (the bulk of the hybrid suite) do not
 # need either, but the integration / snapshot lane does.
 kebab-embed = { path = "../kebab-embed", features = ["mock"] }
+
+[lints]
+workspace = true

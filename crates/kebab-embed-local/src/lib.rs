@@ -158,7 +158,7 @@ impl Embedder for FastembedEmbedder {
             let guard = self
                 .inner
                 .lock()
-                .unwrap_or_else(|p| p.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let batch: Vec<Vec<f32>> = guard
                 .embed(chunk_vec, Some(self.batch_size))
                 .context("fastembed: embed")?;

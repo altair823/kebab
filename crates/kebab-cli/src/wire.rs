@@ -313,7 +313,7 @@ mod tests {
             v.get("next_cursor").and_then(|c| c.as_str()),
             Some("opaque-cursor-abc")
         );
-        assert_eq!(v.get("truncated").and_then(|t| t.as_bool()), Some(true));
+        assert_eq!(v.get("truncated").and_then(serde_json::Value::as_bool), Some(true));
     }
 
     #[test]

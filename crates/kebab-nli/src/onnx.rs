@@ -235,11 +235,11 @@ impl NliVerifier for OnnxNliVerifier {
             .encode((premise, hypothesis), true)
             .map_err(|e| anyhow!("kebab-nli: tokenizer.encode failed: {e}"))?;
 
-        let ids: Vec<i64> = enc.get_ids().iter().map(|&u| u as i64).collect();
+        let ids: Vec<i64> = enc.get_ids().iter().map(|&u| i64::from(u)).collect();
         let mask: Vec<i64> = enc
             .get_attention_mask()
             .iter()
-            .map(|&u| u as i64)
+            .map(|&u| i64::from(u))
             .collect();
         let seq_len = ids.len();
 
@@ -266,8 +266,7 @@ impl NliVerifier for OnnxNliVerifier {
         let shape = logits.shape();
         if shape != [1, LOGITS_LEN] {
             anyhow::bail!(
-                "kebab-nli: unexpected logits shape {:?}, expected [1, {LOGITS_LEN}]",
-                shape
+                "kebab-nli: unexpected logits shape {shape:?}, expected [1, {LOGITS_LEN}]"
             );
         }
         let l = [logits[[0, 0]], logits[[0, 1]], logits[[0, 2]]];

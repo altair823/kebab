@@ -318,7 +318,7 @@ impl RagPipeline {
             });
         }
         let chunks_returned = u32::try_from(hits.len()).unwrap_or(u32::MAX);
-        let top_score = hits.first().map(|h| h.retrieval.fusion_score).unwrap_or(0.0);
+        let top_score = hits.first().map_or(0.0, |h| h.retrieval.fusion_score);
 
         tracing::debug!(
             target: "kebab-rag",
@@ -856,7 +856,7 @@ impl RagPipeline {
             });
         }
         let chunks_returned = u32::try_from(pool.len()).unwrap_or(u32::MAX);
-        let top_score = pool.first().map(|h| h.retrieval.fusion_score).unwrap_or(0.0);
+        let top_score = pool.first().map_or(0.0, |h| h.retrieval.fusion_score);
 
         // ── 3. Score gate / no chunks ──────────────────────────────────────
         // PR-3b-ii: forward the partial hop trace into the refusal so
@@ -1149,7 +1149,7 @@ impl RagPipeline {
             refusal_phrase_detected = matched_refusal_phrase,
             finish_reason = ?finish_reason,
             chunks_used,
-            hops = answer.hops.as_ref().map(|v| v.len()).unwrap_or(0),
+            hops = answer.hops.as_ref().map_or(0, std::vec::Vec::len),
             "kb-rag: multi-hop ask done"
         );
 
@@ -1388,16 +1388,13 @@ impl RagPipeline {
             let chunk_full =
                 <SqliteStore as kebab_core::DocumentStore>::get_chunk(&self.docs, &hit.chunk_id)
                     .context("kb-rag: docs.get_chunk")?;
-            let chunk_text = match chunk_full {
-                Some(c) => c.text,
-                None => {
-                    tracing::warn!(
-                        target: "kebab-rag",
-                        chunk_id = %hit.chunk_id.0,
-                        "kb-rag: chunk not found in store; skipping"
-                    );
-                    continue;
-                }
+            let chunk_text = if let Some(c) = chunk_full { c.text } else {
+                tracing::warn!(
+                    target: "kebab-rag",
+                    chunk_id = %hit.chunk_id.0,
+                    "kb-rag: chunk not found in store; skipping"
+                );
+                continue;
             };
             let header = format!(
                 "[#{n}] doc={} heading={} span={}\n",
@@ -1999,13 +1996,11 @@ fn strip_markdown_json_fence(s: &str) -> &str {
     let after_open = trimmed
         .strip_prefix("```json")
         .or_else(|| trimmed.strip_prefix("```"))
-        .map(|rest| rest.trim_start_matches('\n'))
-        .unwrap_or(trimmed);
+        .map_or(trimmed, |rest| rest.trim_start_matches('\n'));
     let inner = after_open
         .trim_end()
         .strip_suffix("```")
-        .map(|rest| rest.trim_end())
-        .unwrap_or(after_open);
+        .map_or(after_open, str::trim_end);
     inner.trim()
 }
 

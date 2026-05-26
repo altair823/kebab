@@ -290,7 +290,7 @@ fn build_blocks(
     // post-pass as 1B / 1C-Go / Java).
     let has_real_unit = units.iter().any(|(_, _, _, is_real)| *is_real);
     if has_real_unit {
-        for (sym, _, _, is_real) in units.iter_mut() {
+        for (sym, _, _, is_real) in &mut units {
             if !*is_real && sym.ends_with("<module>") {
                 let pre = &sym[..sym.len() - "<module>".len()];
                 *sym = format!("{pre}<top-level>");
@@ -310,7 +310,7 @@ fn build_blocks(
             lang: Some("kotlin".to_string()),
         };
         let block_id = id_for_block(doc_id, "code", &[], ordinal as u32, &span);
-        let code = lines[(line_start as usize - 1)..=(line_end as usize - 1)].join("\n");
+        let code = lines[(line_start as usize - 1)..(line_end as usize)].join("\n");
         blocks.push(Block::Code(CodeBlock {
             common: CommonBlock {
                 block_id,

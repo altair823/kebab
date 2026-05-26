@@ -183,7 +183,7 @@ pub(crate) fn build_overrides(
 
     // Per-source matchers (for attribution only).
     let gitignore =
-        build_single_matcher(root, &gitignore_patterns.iter().map(|s| s.as_str()).collect::<Vec<_>>())?;
+        build_single_matcher(root, &gitignore_patterns.iter().map(std::string::String::as_str).collect::<Vec<_>>())?;
     let kebabignore = build_single_matcher_owned(root, kbignore_patterns)?;
     // Use the directory-aware builtin matcher so that `is_dir=true` checks on
     // directory entries (e.g., `node_modules/`) are attributed to builtin rather
@@ -328,9 +328,9 @@ pub(crate) fn read_kbignore(root: &Path) -> Result<Vec<String>> {
         .with_context(|| format!("failed to read {}", path.display()))?;
     Ok(text
         .lines()
-        .map(|l| l.trim())
+        .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .map(|l| l.to_string())
+        .map(std::string::ToString::to_string)
         .collect())
 }
 
@@ -708,8 +708,7 @@ mod tests {
             .collect();
         assert!(
             gitignore_skipped.iter().any(|e| e.path.file_name()
-                .map(|n| n == "skipme.log")
-                .unwrap_or(false)),
+                .is_some_and(|n| n == "skipme.log")),
             "skipme.log should appear in gitignore_skipped; skipped: {:?}",
             skipped_entries.iter().map(|e| &e.path).collect::<Vec<_>>()
         );

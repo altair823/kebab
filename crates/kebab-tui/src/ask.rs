@@ -100,7 +100,7 @@ fn render_answer(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::
     let title = if s.turns.is_empty() && !s.streaming {
         "transcript".to_string()
     } else {
-        let count = s.turns.len() + if s.streaming { 1 } else { 0 };
+        let count = s.turns.len() + usize::from(s.streaming);
         format!("transcript ({} turn{})", count, if count == 1 { "" } else { "s" })
     };
     let block = Block::default().title(title).borders(Borders::ALL);
@@ -409,8 +409,7 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
             if state
                 .ask
                 .as_ref()
-                .map(|s| s.streaming || s.thread.is_some() || s.input.as_str().trim().is_empty())
-                .unwrap_or(true)
+                .is_none_or(|s| s.streaming || s.thread.is_some() || s.input.as_str().trim().is_empty())
             {
                 return KeyOutcome::Continue;
             }
@@ -588,7 +587,7 @@ fn make_conversation_id() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("conv_{:032x}", nanos)
+    format!("conv_{nanos:032x}")
 }
 
 /// Run-loop hook: drain the streaming channel into `partial`. Called
@@ -619,8 +618,7 @@ pub(crate) fn poll_worker(state: &mut App) {
     let finished = s
         .thread
         .as_ref()
-        .map(|h| h.is_finished())
-        .unwrap_or(false);
+        .is_some_and(std::thread::JoinHandle::is_finished);
     if !finished {
         return;
     }

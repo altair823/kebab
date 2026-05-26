@@ -139,9 +139,8 @@ fn parse_one(raw: &Value) -> Result<(SearchQuery, SearchOpts), String> {
 
     let k = obj
         .get("k")
-        .and_then(|v| v.as_u64())
-        .map(|n| n as usize)
-        .unwrap_or(0); // 0 → use config default in app
+        .and_then(serde_json::Value::as_u64)
+        .map_or(0, |n| n as usize); // 0 → use config default in app
 
     let trust_min = match obj.get("trust_min").and_then(|v| v.as_str()) {
         None => None,
@@ -209,14 +208,14 @@ fn parse_one(raw: &Value) -> Result<(SearchQuery, SearchOpts), String> {
     let opts = SearchOpts {
         max_tokens: obj
             .get("max_tokens")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .map(|n| n as usize),
         snippet_chars: obj
             .get("snippet_chars")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .map(|n| n as usize),
         cursor: obj.get("cursor").and_then(|v| v.as_str()).map(String::from),
-        trace: obj.get("trace").and_then(|v| v.as_bool()).unwrap_or(false),
+        trace: obj.get("trace").and_then(serde_json::Value::as_bool).unwrap_or(false),
     };
 
     Ok((

@@ -21,7 +21,7 @@ pub(crate) fn media_type_for(path: &Path) -> MediaType {
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
-        .map(|s| s.to_ascii_lowercase())
+        .map(str::to_ascii_lowercase)
         .unwrap_or_default();
 
     match ext.as_str() {

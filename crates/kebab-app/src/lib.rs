@@ -289,8 +289,7 @@ pub fn ingest_with_config_opts(
     let cancelled = || {
         opts.cancel
             .as_ref()
-            .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
-            .unwrap_or(false)
+            .is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed))
     };
     let force_reingest = opts.force_reingest;
     let started_instant = std::time::Instant::now();
@@ -394,7 +393,7 @@ pub fn ingest_with_config_opts(
     let purged_deleted_files = sweep_deleted_files(
         &app,
         &scanned_paths,
-        vector_store.as_ref().map(|v| v.as_ref()),
+        vector_store.as_ref().map(std::convert::AsRef::as_ref),
     )?;
 
     let started_at = time::OffsetDateTime::now_utc();
@@ -509,10 +508,10 @@ pub fn ingest_with_config_opts(
                 *skipped_by_extension.entry(ext).or_insert(0) += 1;
             }
             kebab_core::IngestItemKind::Unchanged => {
-                unchanged_count = unchanged_count.saturating_add(1)
+                unchanged_count = unchanged_count.saturating_add(1);
             }
             kebab_core::IngestItemKind::Error => {
-                error_count = error_count.saturating_add(1)
+                error_count = error_count.saturating_add(1);
             }
         }
         crate::ingest_progress::emit(
@@ -940,9 +939,7 @@ fn try_skip_unchanged(
 fn ext_for_skip_warning(path: &str) -> String {
     std::path::Path::new(path)
         .extension()
-        .and_then(|s| s.to_str())
-        .map(|s| s.to_ascii_lowercase())
-        .unwrap_or_else(|| NO_EXT_SENTINEL.to_string())
+        .and_then(|s| s.to_str()).map_or_else(|| NO_EXT_SENTINEL.to_string(), str::to_ascii_lowercase)
 }
 
 /// p9-fb-25: render the `IngestItem.warnings` line for a Skipped
@@ -2407,7 +2404,7 @@ fn lang_hint_from_doc(doc: &CanonicalDocument) -> Option<Lang> {
 
 /// Convenience: end byte of the frontmatter region (or 0 when absent).
 fn fm_span_end(span: Option<kebab_parse_md::FrontmatterSpan>) -> usize {
-    span.map(|s| s.end).unwrap_or(0)
+    span.map_or(0, |s| s.end)
 }
 
 /// Count `\n` in a byte prefix to convert frontmatter byte span to
@@ -2710,8 +2707,7 @@ pub fn ingest_file_with_config(
     const SUPPORTED_EXTS: &[&str] = &["md", "pdf", "png", "jpg", "jpeg"];
     if !SUPPORTED_EXTS.contains(&ext.as_str()) {
         anyhow::bail!(
-            "ingest-file: unsupported extension `.{}` (supported: {:?})",
-            ext, SUPPORTED_EXTS
+            "ingest-file: unsupported extension `.{ext}` (supported: {SUPPORTED_EXTS:?})"
         );
     }
 

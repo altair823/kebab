@@ -49,13 +49,11 @@ use std::sync::Arc;
 pub fn require_avx_or_panic() {
     #[cfg(target_arch = "x86_64")]
     {
-        if !std::is_x86_feature_detected!("avx") {
-            panic!(
-                "kb-store-vector integration test requires AVX-capable hardware; \
-                 host CPU lacks AVX. Run on an AVX-capable machine. \
-                 See crates/kb-store-vector/tests/common/mod.rs."
-            );
-        }
+        assert!(std::is_x86_feature_detected!("avx"), 
+            "kb-store-vector integration test requires AVX-capable hardware; \
+             host CPU lacks AVX. Run on an AVX-capable machine. \
+             See crates/kb-store-vector/tests/common/mod.rs."
+        );
     }
 }
 
@@ -167,17 +165,17 @@ pub fn make_record(
     model: &str,
 ) -> VectorRecord {
     let dim = vector.len();
-    let chunk_id = ChunkId(format!("{:032x}", 0x1100u32 + chunk_idx as u32));
-    let doc_id = DocumentId(format!("{:032x}", 0xd0c0u32 + doc_idx as u32));
+    let chunk_id = ChunkId(format!("{:032x}", 0x1100u32 + u32::from(chunk_idx)));
+    let doc_id = DocumentId(format!("{:032x}", 0xd0c0u32 + u32::from(doc_idx)));
     let embedding_id =
-        EmbeddingId(format!("{:032x}", 0xeeee0000u32 + chunk_idx as u32));
+        EmbeddingId(format!("{:032x}", 0xeeee0000u32 + u32::from(chunk_idx)));
     VectorRecord {
         chunk_id,
         embedding_id,
         vector,
         doc_id,
         text: text.to_string(),
-        heading_path: heading.iter().map(|s| s.to_string()).collect(),
+        heading_path: heading.iter().map(std::string::ToString::to_string).collect(),
         model_id: EmbeddingModelId(model.to_string()),
         model_version: EmbeddingVersion("v1".to_string()),
         dimensions: dim,

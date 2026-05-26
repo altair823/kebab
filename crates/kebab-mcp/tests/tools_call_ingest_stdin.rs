@@ -52,7 +52,7 @@ async fn ingest_stdin_tool_returns_ingest_report_v1() {
         v.get("schema_version").and_then(|s| s.as_str()),
         Some("ingest_report.v1")
     );
-    assert_eq!(v.get("new").and_then(|n| n.as_u64()), Some(1));
+    assert_eq!(v.get("new").and_then(serde_json::Value::as_u64), Some(1));
 }
 
 #[tokio::test]
