@@ -803,6 +803,19 @@ pub enum RefusalReason {
     /// answer 가 채워져 있을 수 있음 (사용자가 본 부분까지). RAG
     /// retrieval 자체는 정상 — 모델 generation 단계에서만 중단.
     LlmStreamAborted,
+    /// p9-fb-22: multi-hop ask 의 decompose 단계 실패 (LLM 가 sub-query
+    /// 추출 불가 — JSON parse fail / 0 sub-query / 시간 초과 등). retrieval
+    /// 단계 도달 전에 graceful refuse.
+    MultiHopDecomposeFailed,
+    /// p9-fb-41 PR-9c-1: NLI groundedness gate 가 reject. `cfg.rag.nli_threshold > 0`
+    /// 일 때 multi-hop synthesize 직후 mDeBERTa-v3 XNLI 가 (packed_chunks, answer)
+    /// entailment 검사 → entailment < threshold 면 본 variant 로 refuse + Answer
+    /// 의 `verification` field 가 measured score 보존. single-pass `ask` 는 적용
+    /// 안 함 (LLM self-judge 가 single-pass 의 verification path).
+    NliVerificationFailed,
+    /// p9-fb-41 PR-9c-1: NLI model 자체가 unavailable (download / inference 실패).
+    /// fail-closed — 사용자 우회는 `[rag] nli_threshold = 0` 임시 disable.
+    NliModelUnavailable,
 }
 
 pub struct ModelRef {
@@ -864,6 +877,31 @@ prompt 빌드 priority (token budget = `cfg.rag.max_context_tokens`):
 ```
 
 V1 은 legacy backwards-compat 으로 보존 — user TOML 에 `prompt_template_version = "rag-v1"` 명시 시 그대로.
+
+**Multi-hop RAG + NLI verification** (도그푸딩 후 추가 — 2026-05-26, fb-41 v0.18.0 ship):
+
+`kebab-rag` facade 의 세 번째 entry — `ask_multi_hop(cfg, question, ...)`:
+
+- compound 질문 (cross-doc reasoning, prereq chain) 의 N-hop loop. **decompose → decide → synthesize** 의 3 단계:
+  1. **decompose**: 원 질문을 5 sub-query 까지 분해 (LLM JSON 응답). 실패 시 `RefusalReason::MultiHopDecomposeFailed`.
+  2. **decide**: pool 의 chunks (probe gate 통과한 candidates) 가 답변에 충분한지 결정. forced_stop 또는 `kind: "stop"` 이면 synthesize 진입. 그 외엔 추가 sub-query 로 N-hop 확장 (max_depth 제한, default 3).
+  3. **synthesize**: 누적 chunks 로 최종 답변 생성. `rag-multi-hop-v1` prompt template — self-check rule 포함.
+- **step 8.5 NLI verification** (★ v0.18.0 신규): `cfg.rag.nli_threshold > 0` (default 0.0 = disabled, production 권장 0.5) 일 때 synthesize 답변에 대해 mDeBERTa-v3 XNLI ONNX 가 `(packed_chunks, answer)` entailment 검사. entailment < threshold → `RefusalReason::NliVerificationFailed` (Answer 의 `verification` field 가 `nli_score / nli_threshold / nli_passed` 보존). model unavailable 시 `NliModelUnavailable`.
+- LLM-self-judge 의 *probabilistic ceiling* 을 NLI 의 *deterministic external verifier* 가 극복 — dogfood S7 caffeine hallucination 같은 silent fail 케이스 catch. spec: `docs/superpowers/specs/2026-05-25-p9-fb-41-finalize-spec.md`.
+
+`HopRecord` (`Answer.hops: Option<Vec<HopRecord>>` field — multi-hop only) 가 매 hop 의 `kind / iter / sub_queries / context_chunks_added / llm_call_ms / forced_stop` 를 보존 — agent 가 trace 분석 가능.
+
+`VerificationSummary` (`Answer.verification: Option<VerificationSummary>` field — multi-hop NLI gate 통과 또는 NliVerificationFailed refusal 시 stamped):
+
+```rust
+pub struct VerificationSummary {
+    pub nli_score: f32,      // measured entailment channel
+    pub nli_threshold: f32,  // gate threshold (cfg.rag.nli_threshold)
+    pub nli_passed: bool,    // nli_score >= nli_threshold
+}
+```
+
+wire `answer.v1` 의 `hops` / `verification` 둘 다 additive minor (skip_serializing_if = None) — pre-v0.18 reader 무영향.
 
 ---
 
@@ -1467,6 +1505,7 @@ kebab-cli, kebab-tui, kebab-desktop
 | `index_version` | retrieval 형상 변화 | bump |
 | `corpus_revision` | ingest commit 발생 (ANY new/updated) | 모노토닉 u64, SQLite `kv['corpus_revision']` 에 영속. p9-fb-19 의 in-process LRU search cache 가 cache-key 에 snapshot 으로 포함 → 다음 lookup 에서 자동 무효화. |
 | `prompt_template_version` | template 변경 | 코드 상수 (`rag-v2`) |
+| `nli_model_version` | NLI 모델 교체 (fb-41 v0.18.0+) | `[models.nli].model` 의 HuggingFace repo id (예: `Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7`). 모델 교체 = cache_dir 다른 sanitized path. wire 미surface — v0.19+ 의 second adapter 도입 시 `answer.v1.verification` 에 `nli_model_version` field 추가 candidate. |
 | DB `schema_version` | DDL 변경 | 마이그레이션 정수 증가 |
 | wire schema (`*.v1`) | 깨는 변경 시 | `*.v2` 신설, v1 additive only |
 | internal Rust struct | 자유 진화 | wire 분리되어 외부 영향 0 |

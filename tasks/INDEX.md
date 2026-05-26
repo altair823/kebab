@@ -135,7 +135,7 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
     - [p9-fb-40 fact-grounded answer](p9/p9-fb-40-fact-grounded-answer.md) — ✅ 머지 (2026-05-10)
 
     ### 🎯 0.6.0 또는 P+ — reasoning
-    - [p9-fb-41 multi-hop reasoning](p9/p9-fb-41-multi-hop-reasoning.md) — ⏳ 미구현, brainstorm 필요 (XL, eval 인프라 선행)
+    - [p9-fb-41 multi-hop reasoning](p9/p9-fb-41-multi-hop-reasoning.md) — ✅ 머지 (v0.18.0, 2026-05-26). 5 sub-PR (PR #176-180) + NLI verification (mDeBERTa-v3 XNLI ONNX). spec: `docs/superpowers/specs/2026-05-25-p9-fb-41-finalize-spec.md`. plan: `docs/superpowers/plans/2026-05-25-p9-fb-41-finalize-plan.md`.
     - [p9-fb-42 bulk multi-query + re-rank hint](p9/p9-fb-42-bulk-multi-query-rerank.md) — ✅ 머지 (2026-05-10) — bulk only, rerank hint deferred
 
 - P10 — [p10/](p10/) — code ingest (multi-task, sub-indexed in [p10/INDEX.md](p10/INDEX.md))
@@ -159,6 +159,14 @@ P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
   **v0.17.1 post-dogfood polish** (release: [v0.17.1](https://gitea.altair823.xyz/altair823-org/kebab/releases/tag/v0.17.1)):
   - **PR #162 `[models.llm] request_timeout_secs` config + 권장 모델 가이드** — ✅ 머지 (2026-05-25). 8B+ 모델 CPU 추론 시 5분 hard timeout 회피용 노브. additive serde default + env override + 0-edge doc. README + SMOKE 에 CPU only / ≤16GB RAM ⇒ ≤4B Q4 모델 권장 한 단락.
   - **PR #163 sudo 없이 ollama 설치 + ask --stream 권장 (docs only)** — ✅ 머지 (2026-05-25). README + SMOKE 에 tarball + OLLAMA_MODELS env 설치 패턴 + cold start 긴 모델은 progressive 토큰 권고 (p9-fb-33 surface).
+
+  **v0.18.0 fb-41 multi-hop RAG + NLI verification ship** (release: [v0.18.0](https://gitea.altair823.xyz/altair823-org/kebab/releases/tag/v0.18.0)):
+  - **PR #176 PR-9a kebab-nli crate skeleton** — ✅ 머지 (2026-05-25). `NliVerifier` trait + `NliScores` struct (XNLI 3-channel: entailment / neutral / contradiction) + `OnnxNliVerifier` placeholder. workspace.dependencies 에 ort 2.0-rc.9, tokenizers 0.21 (default-features=false, onig), hf-hub 0.4, ndarray 0.16.
+  - **PR #177 PR-9b OnnxNliVerifier ONNX inference + model download** — ✅ 머지 (2026-05-25). hf-hub lazy download (XDG `model_dir/nli/<sanitized>`) + ort `Session::commit_from_file` + tokenizers `OnlyFirst` truncation (max_length=512, premise 끝부터 잘림 — hypothesis 보전). `--ignored` integration test 5 cases manual smoke (EN self-entailment / EN unrelated / KR entailment / long premise truncation / empty hypothesis err).
+  - **PR #178 PR-9c-1 core types + wire scaffolding** — ✅ 머지 (2026-05-26). `RefusalReason::NliVerificationFailed` + `NliModelUnavailable` (serde rename_all snake_case, wire = identical strings). `Answer.verification: Option<VerificationSummary>` additive minor wire. `NliCfg` + `RagCfg.nli_threshold` (default 0.0) + env override. `RagPipeline.verifier` field + `with_verifier` builder. wire schemas + `docs/ARCHITECTURE.md` Mermaid 갱신.
+  - **PR #179 PR-9c-2 pipeline integration + mock test + SKILL.md** — ✅ 머지 (2026-05-26). ★ 첫 user-visible behavior. `ask_multi_hop` step 8.5 NLI hook (empty answer 가드 + `truncate_for_nli` + verifier.score + verification field + refusal 분기) + `App::open_with_config` 의 NliVerifier construction + 5 mock multi-hop tests + SKILL.md NLI 안내 한 단락.
+  - **PR #180 PR-9d dogfood retest + HOTFIXES closure + corpus 보존** — ✅ 머지 (2026-05-26). 동일 dogfood corpus 의 S7/S1/S3/S10 multi-hop retest — S7 PR-8 baseline `grounded=true + Adam hallucination` → PR-9 `nli_verification_failed, nli_score 0.0035` (HALLUCINATION FIXED 확정). `docs/dogfood/v0.18.0/` 신규 — sanitized SUMMARY + 4 sample wire JSON 보존.
+  - **PR #181 chore: workspace-wide cleanup + post-PR9 refactor** — ✅ 머지 (2026-05-26). v0.18.0 cut 전 마지막 정리. `[workspace.lints.clippy] pedantic = warn` + 의도적 30+ allow (각 rationale inline). 128 files mechanical clippy --fix. OMC team `post-pr9-refactor` 가 추가 H1 (`[models.nli].model` config wiring — `DEFAULT_MODEL_ID` 제거 + provider 분기) + H2 (`truncate_for_nli` stub `_hypothesis` 제거) + H3 (`was_truncated` tracing::debug! surface) + D (MCP test flake fix) + E (HOTFIXES cross-link) + 9 new tests (T1-T4). post-refactor dogfood = PR-9d byte-identical (deterministic 확인). system-architect 의 component-level review 결론 = pre-cut nothing, all v0.18.1+ defer (kebab-normalize 흡수, Extractor dispatch unification, kebab-source-fs dep lightening 등).
 
 ## Post-merge 핫픽스
 

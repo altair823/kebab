@@ -134,6 +134,12 @@ prompt_template_version = "rag-v1"
 score_gate = 0.05                    # RRF 정규화 후 [0, 1] 범위라 default 그대로 OK
 explain_default = false
 max_context_tokens = 6000
+# v0.18.0 fb-41 multi-hop NLI gate (default 0.0 = disabled).
+# `kebab ask --multi-hop` 사용 시 0.5 권장 — entailment < 0.5 면 refuse.
+# 첫 호출 시 mDeBERTa-v3 XNLI ONNX 모델 자동 다운로드 (~280 MB, ~30-60s),
+# RAM peak ~7-8 GB (gemma3:4b 기준, 16 GB 환경 안전). model 실패 시
+# `refusal_reason = "nli_model_unavailable"` — `nli_threshold = 0` 으로 disable.
+nli_threshold = 0.0
 
 [ui]
 theme = "dark"                       # p9-fb-14 — TUI palette ("dark" / "light", default "dark")
