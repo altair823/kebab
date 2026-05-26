@@ -23,6 +23,11 @@ kebab-embed-local = { path = "../kebab-embed-local" }
 kebab-llm = { path = "../kebab-llm" }
 kebab-llm-local = { path = "../kebab-llm-local" }
 kebab-rag = { path = "../kebab-rag" }
+# p9-fb-41 PR-9c-2: facade construction of OnnxNliVerifier when
+# `[rag] nli_threshold > 0`. Trait-only consumption via kebab-rag's
+# `with_verifier`; no kebab-nli internals leak into kebab-app code
+# beyond the construction site in `open_with_config`.
+kebab-nli = { path = "../kebab-nli" }
 # P6-4: image extractor + OCR + caption adapters live here. App
 # threads them into the per-asset dispatch (see `ingest_one_asset`
 # image branch). Trait-only consumption — no `kebab-parse-image`

@@ -42,7 +42,7 @@ use kebab_core::{
     Answer, AnswerCitation, AnswerRetrievalSummary, Citation, FinishReason,
     GenerateRequest, HopKind, HopRecord, LanguageModel, ModelRef, RefusalReason,
     Retriever, SearchFilters, SearchHit, SearchMode, SearchQuery, TokenChunk,
-    TokenUsage, TraceId, Turn,
+    TokenUsage, TraceId, Turn, VerificationSummary,
 };
 use kebab_core::versions::PromptTemplateVersion;
 use kebab_store_sqlite::SqliteStore;
@@ -197,13 +197,11 @@ pub struct RagPipeline {
     retriever: Arc<dyn Retriever>,
     llm: Arc<dyn LanguageModel>,
     docs: Arc<SqliteStore>,
-    /// p9-fb-41 PR-9c-1: optional NLI verifier injected via
-    /// [`Self::with_verifier`]. Not yet read — PR-9c-2 wires the
-    /// `ask_multi_hop` step 8.5 (post-synthesize gate) that consumes
-    /// it. Until then the field is `#[allow(dead_code)]`; the
-    /// attribute is removed in the PR-9c-2 commit that adds the
-    /// read site so leftover dead code can never sneak in.
-    #[allow(dead_code)]
+    /// p9-fb-41 PR-9c-1/PR-9c-2: optional NLI verifier injected via
+    /// [`Self::with_verifier`]. Consumed by `ask_multi_hop` step 8.5
+    /// (post-synthesize gate) when `cfg.rag.nli_threshold > 0`.
+    /// `None` when the gate is disabled — single-pass `ask` never
+    /// touches this field.
     verifier: Option<Arc<dyn kebab_nli::NliVerifier>>,
 }
 
@@ -231,17 +229,12 @@ impl RagPipeline {
         }
     }
 
-    /// p9-fb-41 PR-9c-1: inject the post-synthesize NLI verifier.
-    /// Caller (kebab-app facade, PR-9c-2) builds an
+    /// p9-fb-41 PR-9c-1/PR-9c-2: inject the post-synthesize NLI
+    /// verifier. Caller (kebab-app facade) builds an
     /// `Arc<OnnxNliVerifier>` from `cfg.models.nli` when
     /// `cfg.rag.nli_threshold > 0`, then chains
-    /// `RagPipeline::new(...).with_verifier(v)`.
-    ///
-    /// Currently unused — PR-9c-2 wires the read site (step 8.5 of
-    /// `ask_multi_hop`). `#[allow(dead_code)]` survives only until
-    /// that PR's commit, which removes it together with adding the
-    /// hook that reads `self.verifier`.
-    #[allow(dead_code)]
+    /// `RagPipeline::new(...).with_verifier(v)`. Consumed by
+    /// `ask_multi_hop` step 8.5 (post-synthesize gate).
     pub fn with_verifier(mut self, v: Arc<dyn kebab_nli::NliVerifier>) -> Self {
         self.verifier = Some(v);
         self
@@ -1031,6 +1024,48 @@ impl RagPipeline {
             (false, Some(RefusalReason::LlmSelfJudge))
         };
 
+        // ── 8.5 NLI groundedness verification (multi-hop only, v0.18) ─────
+        // spec §2.7: single-pass `ask` keeps the LlmSelfJudge gate as-is;
+        // NLI verification is multi-hop only this round.
+        //
+        // Empty answer guard: if synthesize bailed (stream abort / LM
+        // crash), `acc` is empty. That path has its own refusal
+        // (LlmStreamAborted) above; skipping the NLI gate here avoids
+        // tokenizing an empty hypothesis (degenerate CLS-SEP-SEP that
+        // would yield a near-uniform softmax and a misleading nli_passed).
+        let verification = if self.config.rag.nli_threshold > 0.0 && !acc.trim().is_empty() {
+            let v = self.verifier.as_ref().expect(
+                "verifier must be Some when nli_threshold > 0.0 \
+                 (kebab-app's open_with_config enforces this invariant)",
+            );
+            let (truncated_premise, _was_truncated) = truncate_for_nli(&packed_text, &acc);
+            match v.score(&truncated_premise, &acc) {
+                Ok(scores) => {
+                    let passed = scores.entailment >= self.config.rag.nli_threshold;
+                    Some(VerificationSummary {
+                        nli_score: scores.entailment,
+                        nli_threshold: self.config.rag.nli_threshold,
+                        nli_passed: passed,
+                    })
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "kebab-rag",
+                        error = %e,
+                        "NLI verifier failed (model unavailable / inference err); refusing"
+                    );
+                    return self.refuse_nli_model_unavailable(query, &opts, hops, started);
+                }
+            }
+        } else {
+            None
+        };
+        if let Some(v) = &verification
+            && !v.nli_passed
+        {
+            return self.refuse_nli_verification(query, &opts, hops, *v, started);
+        }
+
         // ── 8. Build Answer ────────────────────────────────────────────────
         let cited_set: std::collections::BTreeSet<u32> = extracted.iter().copied().collect();
         let citations: Vec<AnswerCitation> = packed_entries
@@ -1101,11 +1136,10 @@ impl RagPipeline {
             // currently lose the trace (cleanup deferred — would
             // require widening helper signatures, PR-3b-ii / follow-up).
             hops: Some(hops),
-            // p9-fb-41 PR-9c-1: surface-only field — PR-9c-2 wires
-            // step 8.5 between citation-validate and Answer-build to
-            // stamp this with the actual NLI score when
-            // `cfg.rag.nli_threshold > 0`. Until then, stays None.
-            verification: None,
+            // p9-fb-41 PR-9c-2: step 8.5 stamped this when
+            // `cfg.rag.nli_threshold > 0`. None when the gate is
+            // disabled (default).
+            verification,
         };
 
         tracing::debug!(
@@ -1554,6 +1588,137 @@ impl RagPipeline {
         }
         Ok(answer)
     }
+
+    /// p9-fb-41 PR-9c-2: refusal path for step 8.5 NLI gate failure —
+    /// `RefusalReason::NliVerificationFailed`. The synthesized answer
+    /// existed (acc was non-empty) but the entailment score fell below
+    /// `cfg.rag.nli_threshold`. We stamp the `VerificationSummary` on
+    /// the wire so the user can see what score was rejected.
+    fn refuse_nli_verification(
+        &self,
+        query: &str,
+        opts: &AskOpts,
+        hops: Vec<HopRecord>,
+        v: VerificationSummary,
+        started: std::time::Instant,
+    ) -> Result<Answer> {
+        let elapsed_ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
+        let trace_id = mint_trace_id(query, 0.0, &self.llm.model_ref().id);
+        let k_effective = opts.k.max(self.config.search.default_k);
+        let answer = Answer {
+            answer: "근거 부족. 생성된 답변이 검색된 문서 내용에 충분히 entail 되지 않음."
+                .to_string(),
+            citations: Vec::new(),
+            grounded: false,
+            refusal_reason: Some(RefusalReason::NliVerificationFailed),
+            model: self.llm.model_ref(),
+            embedding: embedding_ref_for(opts.mode, &self.config),
+            prompt_template_version: PromptTemplateVersion(
+                PROMPT_TEMPLATE_VERSION_MULTI_HOP.to_string(),
+            ),
+            retrieval: AnswerRetrievalSummary {
+                trace_id,
+                mode: opts.mode,
+                k: k_effective,
+                score_gate: self.config.rag.score_gate,
+                top_score: 0.0,
+                chunks_returned: 0,
+                chunks_used: 0,
+            },
+            usage: TokenUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                latency_ms: elapsed_ms,
+            },
+            created_at: OffsetDateTime::now_utc(),
+            conversation_id: opts.conversation_id.clone(),
+            turn_index: opts.turn_index,
+            // PR-9c-2: NLI refusal still carries the hop trace built
+            // up to step 8.5 — synthesize ran, so the trace is the
+            // full decompose+decide chain (terminal Synthesize hop is
+            // NOT appended for the refusal path; cleanup deferred to
+            // a follow-up if the user-visible trace shape needs the
+            // synthesize entry).
+            hops: Some(hops),
+            verification: Some(v),
+        };
+        if let Some(sink) = &opts.stream_sink {
+            let _ = sink.send(StreamEvent::Final {
+                answer: answer.clone(),
+            });
+        }
+        if let Err(e) = self.docs.put_answer(&answer, query, None) {
+            tracing::warn!(
+                target: "kebab-rag",
+                error = %e,
+                "kb-rag: put_answer (NliVerificationFailed) failed"
+            );
+        }
+        Ok(answer)
+    }
+
+    /// p9-fb-41 PR-9c-2: refusal path for step 8.5 NLI model
+    /// unavailable — `RefusalReason::NliModelUnavailable`. The verifier
+    /// raised an inference/download error so we cannot summarize the
+    /// verification result; `verification` is `None`. Treat as a soft
+    /// refusal — the user can opt out by setting `[rag] nli_threshold
+    /// = 0` and retrying.
+    fn refuse_nli_model_unavailable(
+        &self,
+        query: &str,
+        opts: &AskOpts,
+        hops: Vec<HopRecord>,
+        started: std::time::Instant,
+    ) -> Result<Answer> {
+        let elapsed_ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
+        let trace_id = mint_trace_id(query, 0.0, &self.llm.model_ref().id);
+        let k_effective = opts.k.max(self.config.search.default_k);
+        let answer = Answer {
+            answer: "근거 부족. NLI 검증 모델을 사용할 수 없음 — `[rag] nli_threshold = 0` 으로 비활성화 후 재시도 가능."
+                .to_string(),
+            citations: Vec::new(),
+            grounded: false,
+            refusal_reason: Some(RefusalReason::NliModelUnavailable),
+            model: self.llm.model_ref(),
+            embedding: embedding_ref_for(opts.mode, &self.config),
+            prompt_template_version: PromptTemplateVersion(
+                PROMPT_TEMPLATE_VERSION_MULTI_HOP.to_string(),
+            ),
+            retrieval: AnswerRetrievalSummary {
+                trace_id,
+                mode: opts.mode,
+                k: k_effective,
+                score_gate: self.config.rag.score_gate,
+                top_score: 0.0,
+                chunks_returned: 0,
+                chunks_used: 0,
+            },
+            usage: TokenUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                latency_ms: elapsed_ms,
+            },
+            created_at: OffsetDateTime::now_utc(),
+            conversation_id: opts.conversation_id.clone(),
+            turn_index: opts.turn_index,
+            hops: Some(hops),
+            // No VerificationSummary — verification didn't happen.
+            verification: None,
+        };
+        if let Some(sink) = &opts.stream_sink {
+            let _ = sink.send(StreamEvent::Final {
+                answer: answer.clone(),
+            });
+        }
+        if let Err(e) = self.docs.put_answer(&answer, query, None) {
+            tracing::warn!(
+                target: "kebab-rag",
+                error = %e,
+                "kb-rag: put_answer (NliModelUnavailable) failed"
+            );
+        }
+        Ok(answer)
+    }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1622,6 +1787,35 @@ pub(crate) const PROMPT_TEMPLATE_VERSION_MULTI_HOP: &str = "rag-multi-hop-v1";
 /// If a future config knob exceeds this number, raise the const in
 /// the same PR.
 pub(crate) const MULTI_HOP_MAX_SUB_QUERIES_HARD_CAP: usize = 10;
+
+/// p9-fb-41 PR-9c-2: premise budget for NLI input. mDeBERTa-v3's
+/// positional embedding caps at 512 tokens; with the hypothesis +
+/// special-token budget reserved (~32 chars conservative), the
+/// premise gets ≈1600 chars at 4 chars/token (English BPE baseline).
+/// Korean SentencePiece is denser (1-2 char/token) — the tokenizer's
+/// `OnlyFirst` strategy (configured in kebab-nli) is the backup
+/// truncation when the char-based budget still overflows the token
+/// limit. v0.18.1 candidate: token-count-based budget once we have
+/// measured KR truncation rates from dogfood retest.
+pub const MAX_NLI_PREMISE_CHARS: usize = 4 * 400;
+
+/// p9-fb-41 PR-9c-2: truncate `premise` to fit the NLI input budget
+/// while preserving `hypothesis` in full. Returns `(truncated_premise,
+/// was_truncated)`. `was_truncated` is informational for tracing —
+/// the v0.18 wire doesn't surface it; a v0.19+ extension might.
+///
+/// `_hypothesis` is currently unused — placeholder for the v0.18.1
+/// token-budget version that would carve the budget *around* the
+/// hypothesis. Kept on the signature to preserve the contract from
+/// spec §2.2.3 / spec §3 PR-9c-2.
+pub fn truncate_for_nli(premise: &str, _hypothesis: &str) -> (String, bool) {
+    if premise.chars().count() <= MAX_NLI_PREMISE_CHARS {
+        (premise.to_string(), false)
+    } else {
+        let truncated: String = premise.chars().take(MAX_NLI_PREMISE_CHARS).collect();
+        (truncated, true)
+    }
+}
 
 const MULTI_HOP_DECOMPOSE_SYSTEM_PROMPT: &str = "당신은 사용자의 질문을 다단계 검색에 필요한 sub-question 들로 분해하는 도구다.\n- multi-hop 정보가 필요한 경우 독립적으로 검색 가능한 sub-question 들로 분해한다.\n- 각 sub-question 은 자기 자신만으로 의미가 통해야 한다 (대명사 / \"위 답변\" 같은 reference 금지).\n- 원본이 이미 단순하면 원본 그대로 1 개만 반환한다.\n- 응답은 JSON array of strings 만 출력한다. 다른 prose / markdown fence / 설명 금지.";
 

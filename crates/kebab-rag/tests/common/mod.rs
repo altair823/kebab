@@ -12,13 +12,14 @@
 
 #![allow(dead_code)]
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use kebab_config::Config;
 use kebab_core::{
     ChunkerVersion, ChunkId, Citation, DocumentId, IndexVersion, RetrievalDetail,
     Retriever, SearchHit, SearchMode, SearchQuery, WorkspacePath,
 };
+use kebab_nli::{NliScores, NliVerifier};
 use kebab_store_sqlite::SqliteStore;
 use rusqlite::params;
 use tempfile::TempDir;
@@ -382,5 +383,75 @@ impl kebab_core::LanguageModel for ScriptedLm {
             usage: self.canned_usage.clone(),
         });
         Ok(Box::new(chunks.into_iter().map(Ok)))
+    }
+}
+
+/// p9-fb-41 PR-9c-2: mock NLI verifier for multi-hop step 8.5 tests.
+/// Three constructors mirror the test scenarios:
+/// - [`MockNliVerifier::pass`] — high entailment score (0.9), `nli_passed`
+///   is true at the production default threshold (0.5).
+/// - [`MockNliVerifier::fail`] — low entailment (0.1), refuses at any
+///   threshold > 0.1.
+/// - [`MockNliVerifier::err`] — returns an `anyhow::Error` so the pipeline
+///   surfaces `RefusalReason::NliModelUnavailable`.
+///
+/// `call_count` instrumented (Mutex-wrapped usize) so a test can assert
+/// the verifier ran the expected number of times — useful for pinning
+/// the "threshold = 0 skips verify" invariant when the verifier is
+/// nonetheless attached to the pipeline.
+pub struct MockNliVerifier {
+    pub mode: MockMode,
+    pub call_count: Mutex<usize>,
+}
+
+pub enum MockMode {
+    /// Return these scores. Used by pass / fail variants.
+    Scores(NliScores),
+    /// Return an `anyhow::Error`. Used by the err variant.
+    Err(String),
+}
+
+impl MockNliVerifier {
+    pub fn pass() -> Arc<Self> {
+        Arc::new(Self {
+            mode: MockMode::Scores(NliScores {
+                entailment: 0.9,
+                neutral: 0.07,
+                contradiction: 0.03,
+            }),
+            call_count: Mutex::new(0),
+        })
+    }
+
+    pub fn fail() -> Arc<Self> {
+        Arc::new(Self {
+            mode: MockMode::Scores(NliScores {
+                entailment: 0.1,
+                neutral: 0.4,
+                contradiction: 0.5,
+            }),
+            call_count: Mutex::new(0),
+        })
+    }
+
+    pub fn err() -> Arc<Self> {
+        Arc::new(Self {
+            mode: MockMode::Err("mock NLI unavailable".into()),
+            call_count: Mutex::new(0),
+        })
+    }
+
+    pub fn calls(&self) -> usize {
+        *self.call_count.lock().unwrap()
+    }
+}
+
+impl NliVerifier for MockNliVerifier {
+    fn score(&self, _premise: &str, _hypothesis: &str) -> anyhow::Result<NliScores> {
+        *self.call_count.lock().unwrap() += 1;
+        match &self.mode {
+            MockMode::Scores(s) => Ok(*s),
+            MockMode::Err(e) => anyhow::bail!("{e}"),
+        }
     }
 }
