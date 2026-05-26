@@ -22,4 +22,8 @@ pub use kebab_core::{Answer, AnswerCitation, AnswerRetrievalSummary, RefusalReas
 
 mod pipeline;
 
-pub use pipeline::{AskOpts, MAX_NLI_PREMISE_CHARS, RagPipeline, StreamEvent, truncate_for_nli};
+pub use pipeline::{
+    AskOpts, MAX_NLI_HYPOTHESIS_CHARS_INITIAL, MAX_NLI_HYPOTHESIS_CHARS_MIN,
+    MAX_NLI_PREMISE_CHARS, RagPipeline, StreamEvent, truncate_for_nli,
+    truncate_hypothesis_for_nli_with_budget,
+};

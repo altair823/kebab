@@ -455,3 +455,52 @@ impl NliVerifier for MockNliVerifier {
         }
     }
 }
+
+/// S3 follow-up (2026-05-26): closure type aliases for `SpyNliVerifier`
+/// fields — clippy `type_complexity` 회피.
+#[allow(clippy::type_complexity)]
+pub type ScoreFn = Arc<dyn Fn(&str, &str) -> anyhow::Result<NliScores> + Send + Sync>;
+#[allow(clippy::type_complexity)]
+pub type HypothesisTokenCountFn = Arc<dyn Fn(&str) -> anyhow::Result<usize> + Send + Sync>;
+
+/// S3 follow-up (2026-05-26): closure-based NLI verifier — caller 가
+/// `(premise, hypothesis) -> Result<NliScores>` + `(hypothesis) ->
+/// Result<usize>` 두 closures 정의 가능 + spy 로 입력 capture. 기존
+/// `MockNliVerifier` (고정 mode) 와 sibling. truncate_hypothesis_for_nli_with_budget
+/// retry loop 의 token-count 시뮬레이션 + final score 동작을 한 verifier
+/// 안에서 inject 하기 위함.
+pub struct SpyNliVerifier {
+    pub score_fn: ScoreFn,
+    pub hypothesis_token_count_fn: HypothesisTokenCountFn,
+    pub received_premises: Mutex<Vec<String>>,
+    pub received_hypotheses: Mutex<Vec<String>>,
+}
+
+impl SpyNliVerifier {
+    /// 2-arg constructor — score + hypothesis_token_count 둘 다 closure
+    /// 로 주입. `Arc<T>` field mutation 불가 회피를 위해 한 번에 전달.
+    pub fn new<F, G>(score_fn: F, token_count_fn: G) -> Arc<Self>
+    where
+        F: Fn(&str, &str) -> anyhow::Result<NliScores> + Send + Sync + 'static,
+        G: Fn(&str) -> anyhow::Result<usize> + Send + Sync + 'static,
+    {
+        Arc::new(Self {
+            score_fn: Arc::new(score_fn),
+            hypothesis_token_count_fn: Arc::new(token_count_fn),
+            received_premises: Mutex::new(Vec::new()),
+            received_hypotheses: Mutex::new(Vec::new()),
+        })
+    }
+}
+
+impl NliVerifier for SpyNliVerifier {
+    fn score(&self, premise: &str, hypothesis: &str) -> anyhow::Result<NliScores> {
+        self.received_premises.lock().unwrap().push(premise.to_string());
+        self.received_hypotheses.lock().unwrap().push(hypothesis.to_string());
+        (self.score_fn)(premise, hypothesis)
+    }
+
+    fn hypothesis_token_count(&self, hypothesis: &str) -> anyhow::Result<usize> {
+        (self.hypothesis_token_count_fn)(hypothesis)
+    }
+}

@@ -47,6 +47,21 @@ impl NliScores {
 /// entails hypothesis ⇒ answer is grounded in retrieved evidence).
 pub trait NliVerifier: Send + Sync {
     fn score(&self, premise: &str, hypothesis: &str) -> anyhow::Result<NliScores>;
+
+    /// Probe-only tokenize for caller-side budget verification. S3
+    /// follow-up (2026-05-26) — pipeline 의 char-budget retry loop 가
+    /// 이 API 로 mDeBERTa-v3 의 `OnlyFirst` dead-end (hypothesis 단독이
+    /// 512-token cap 초과 시 truncate 불가) 를 회피.
+    ///
+    /// **Default impl 반환 `Ok(0)`** — 기존 mock implementations
+    /// (`MockNliVerifier` 등) 가 trait 확장 후에도 backward-compat
+    /// (compile fail 회피, retry loop immediate 통과). `OnnxNliVerifier`
+    /// 는 real tokenizer 로 *trait impl 블록 안에서* override 해야 함
+    /// — inherent method 는 vtable 미등록 → trait dispatch 시 default
+    /// 호출 → production silent NO-OP.
+    fn hypothesis_token_count(&self, _hypothesis: &str) -> anyhow::Result<usize> {
+        Ok(0)
+    }
 }
 
 /// Numerically stable 3-way softmax (subtract max for log-sum-exp safety).
