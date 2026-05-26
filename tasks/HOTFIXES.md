@@ -14,6 +14,16 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-26 — HOTFIX #15 — MCP ask multi_hop dispatch-divergence assertion stale (fixture 보강)
+
+**Symptom**: PR-7 (multi-hop probe-first dogfood fix) 머지 후 `kebab-mcp::tools_call_ask_multi_hop::ask_tool_routes_multi_hop_true_to_decompose_first` 가 모든 workspace test 에서 deterministic fail (no_chunks short-circuit 으로 `is_error=Some(false)`).
+
+**Root cause**: PR-5 의 test 가 *empty KB → multi-hop 은 decompose first → LLM 도달* 의 stale contract 에 assert. PR-7 의 pre-decompose probe 가 빈 KB → refuse_no_chunks short-circuit.
+
+**Action**: test fixture 보강 — `minimal_config.score_gate = 0.0` + workspace_root 에 `note.md` ("This note is about a compound containing X and Y in detail.") ingest → probe 통과 → decompose → unreachable LLM → `error.v1` 의 원래 dispatch divergence 회복. + 신규 `_multi_hop_short_circuits_when_probe_empty` test 1개 (probe-empty short-circuit 의 MCP-layer wire pin 안전망). + module doc rewrite.
+
+**Amends**: spec `docs/superpowers/specs/2026-05-26-hotfix-15-mcp-ask-multi-hop-flaky-spec.md` cross-link. production code 0 touch (PR-7 의 probe-first 는 의도된 동작 유지).
+
 ## 2026-05-25 — fb-41 pre-v0.18 dogfood: multi-hop score-gate 우회 (S7 hallucination 회귀 핀)
 
 v0.18.0 cut 전 fb-41 multi-hop RAG 도그푸딩 (`/build/cache/dogfood-v018/`, 33 assets / 205 chunks corpus — 16 신규 markdown 5 클러스터 + v017 carryover, gemma3:4b CPU only / 16 GB RAM) 에서 발견된 **score_gate 우회 + hallucination 케이스**.
