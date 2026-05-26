@@ -3,11 +3,11 @@ title: "p9-fb-41 finalize implementation plan v4 — NLI verification + v0.18.0 
 date: 2026-05-25
 task_id: p9-fb-41-finalize
 phase: P9
-status: approved-by-team
+status: completed
 target_version: 0.18.0
 design: ../specs/2026-05-25-p9-fb-41-finalize-spec.md
 spec_review_round: 5
-spec_status: approved-by-team
+spec_status: completed
 plan_review_round: 3
 plan_review_outcome: |
   All 4 OMC team reviewers APPROVE (plan v4 round 3, FINAL convergence).

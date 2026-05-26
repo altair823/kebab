@@ -3,7 +3,7 @@ title: "p9-fb-41 finalize — multi-hop RAG post-dogfood safety hardening + v0.1
 date: 2026-05-25
 task_id: p9-fb-41-finalize
 phase: P9
-status: approved-by-team
+status: completed
 target_version: 0.18.0
 contract_source: ./2026-04-27-kebab-final-form-design.md
 contract_sections: [§3.8 RAG, §7 RAG pipeline]
