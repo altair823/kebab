@@ -43,14 +43,12 @@ use kebab_chunk::{CodeCAstV1Chunker, CodeCppAstV1Chunker, CodeGoAstV1Chunker, Co
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
-    EmbeddingKind, ExtractContext, Extractor, IngestReport, Lang, LanguageModel, MediaType,
+    EmbeddingKind, ExtractContext, IngestReport, Lang, LanguageModel, MediaType,
     ParserVersion, RawAsset, SearchHit, SearchQuery, SourceScope,
     SourceUri, VectorRecord, VectorStore,
 };
 use kebab_llm_local::OllamaLanguageModel;
-use kebab_parse_image::{ImageExtractor, OllamaVisionOcr, apply_caption, apply_ocr};
-use kebab_parse_code::{CAstExtractor, CppAstExtractor, GoAstExtractor, JavaAstExtractor, JavascriptAstExtractor, KotlinAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor};
-use kebab_parse_pdf::PdfTextExtractor;
+use kebab_parse_image::{OllamaVisionOcr, apply_caption, apply_ocr};
 use kebab_parse_md::{BodyHints, build_canonical_document, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
 
@@ -353,9 +351,7 @@ pub fn ingest_with_config_opts(
     } else {
         None
     };
-    let image_extractor = ImageExtractor::new();
     let image_pipeline = ImagePipeline {
-        extractor: &image_extractor,
         ocr_engine: ocr_engine.as_ref(),
         caption_llm: caption_llm.as_deref(),
     };
@@ -758,7 +754,6 @@ type SqliteStoreAlias = kebab_store_sqlite::SqliteStore;
 /// once per ingest invocation. Threaded through `ingest_one_asset` so
 /// the dispatch does not need ten separate parameters.
 struct ImagePipeline<'a> {
-    extractor: &'a ImageExtractor,
     ocr_engine: Option<&'a OllamaVisionOcr>,
     caption_llm: Option<&'a dyn LanguageModel>,
 }
@@ -1232,7 +1227,6 @@ fn ingest_one_image_asset(
     image_pipeline: &ImagePipeline<'_>,
     force_reingest: bool,
 ) -> anyhow::Result<kebab_core::IngestItem> {
-    let image_extractor = image_pipeline.extractor;
     let ocr_engine = image_pipeline.ocr_engine;
     let caption_llm = image_pipeline.caption_llm;
     let path = match &asset.source_uri {
@@ -1291,9 +1285,9 @@ fn ingest_one_image_asset(
         workspace_root: &workspace_root,
         config: &extract_config,
     };
-    let mut canonical = image_extractor
-        .extract(&ctx, &bytes)
-        .context("kb-parse-image::ImageExtractor::extract")?;
+    let mut canonical = app
+        .extract_for(&asset.media_type, &ctx, &bytes)
+        .context("kb-app::extract_for (image)")?;
 
     // 2 + 3. Apply OCR / caption when their adapters exist. Both are
     //        Lenient — failure is captured into Provenance Warning,
@@ -1780,9 +1774,9 @@ fn ingest_one_pdf_asset(
         workspace_root: &workspace_root,
         config: &extract_config,
     };
-    let mut canonical = PdfTextExtractor::new()
-        .extract(&ctx, &bytes)
-        .context("kb-parse-pdf::PdfTextExtractor::extract")?;
+    let mut canonical = app
+        .extract_for(&asset.media_type, &ctx, &bytes)
+        .context("kb-app::extract_for (pdf)")?;
 
     // Per-medium chunker selection: PDF docs always use pdf-page-v1
     // regardless of `config.chunking.chunker_version`. The chunker
@@ -2007,43 +2001,24 @@ fn ingest_one_code_asset(
         config: &extract_config,
     };
 
-    // p10-1b Task D/G/J/L: extractor per-lang.
+    // post-v0.18.0 extractor-dispatch-unification:
+    // 9 AST lang 의 dispatch 가 polymorphic — App.extractors registry 의
+    // `*AstExtractor` entry 가 lang string 으로 disjoint `supports()` 비교
+    // 후 단일 hit. Tier 2 (manifest) + Tier 3 (shell) 은 free-function
+    // `synthesize_tier2_document` 유지 (Extractor impl 아님 — 별 PR).
     // p10-3: capture Result so Tier 1 extractor errors can fall back to Tier 3.
     let canonical_result: anyhow::Result<kebab_core::CanonicalDocument> = match code_lang {
-        "rust" => RustAstExtractor::new()
-            .extract(&ctx, &bytes)
-            .context("kb-parse-code::RustAstExtractor::extract (code:rust)"),
-        "python" => PythonAstExtractor::new()
-            .extract(&ctx, &bytes)
-            .context("kb-parse-code::PythonAstExtractor::extract (code:python)"),
-        "typescript" => TypescriptAstExtractor::new()
-            .extract(&ctx, &bytes)
-            .context("kb-parse-code::TypescriptAstExtractor::extract (code:typescript)"),
-        "javascript" => JavascriptAstExtractor::new()
-            .extract(&ctx, &bytes)
-            .context("kb-parse-code::JavascriptAstExtractor::extract (code:javascript)"),
-        "go" => GoAstExtractor::new()
-            .extract(&ctx, &bytes)
-            .context("kb-parse-code::GoAstExtractor::extract (code:go)"),
-        "java" => JavaAstExtractor::new()
-            .extract(&ctx, &bytes)
-            .context("kb-parse-code::JavaAstExtractor::extract (code:java)"),
-        "kotlin" => KotlinAstExtractor::new()
-            .extract(&ctx, &bytes)
-            .context("kb-parse-code::KotlinAstExtractor::extract (code:kotlin)"),
+        // 9 AST lang: rust / python / typescript / javascript / go / java / kotlin / c / cpp
+        "rust" | "python" | "typescript" | "javascript" | "go" | "java" | "kotlin" | "c"
+        | "cpp" => app
+            .extract_for(&asset.media_type, &ctx, &bytes)
+            .with_context(|| format!("kb-app::extract_for (code:{code_lang})")),
         // p10-2 Tier 2: no extractor — synthesize Document directly from raw bytes.
         "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod" => {
             synthesize_tier2_document(asset, &bytes, code_lang, &parser_version)
         }
         // p10-3: shell reuses the same synthesizer.
         "shell" => synthesize_tier2_document(asset, &bytes, "shell", &parser_version),
-        // p10-1D: C + C++ AST extractors.
-        "c" => CAstExtractor::new()
-            .extract(&ctx, &bytes)
-            .context("kebab-parse-code::CAstExtractor::extract (code:c)"),
-        "cpp" => CppAstExtractor::new()
-            .extract(&ctx, &bytes)
-            .context("kebab-parse-code::CppAstExtractor::extract (code:cpp)"),
         other => anyhow::bail!("unreachable (extract): {other}"),
     };
 
