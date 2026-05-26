@@ -1,4 +1,4 @@
-//! Markdown body → flat `Vec<kebab_parse_types::ParsedBlock>` (§3.4 / §3.7b).
+//! Markdown body → flat `Vec<crate::types::ParsedBlock>` (§3.4 / §3.7b).
 //!
 //! Uses `pulldown-cmark` (with GFM tables enabled at runtime via
 //! `Options::ENABLE_TABLES`) to walk the body once and emit a flat list of
@@ -22,7 +22,7 @@
 //! [`kebab_core::Inline`] only models `Text | Code | Link | Strong | Emph`.
 //! Inline images, footnotes, hard breaks, etc. are dropped silently per
 //! design §3.4. Block-level `![alt](src)` (an image as the sole content of a
-//! paragraph) is lifted to [`kebab_parse_types::ParsedPayload::ImageRef`].
+//! paragraph) is lifted to [`crate::types::ParsedPayload::ImageRef`].
 //!
 //! ## CRLF
 //!
@@ -34,7 +34,7 @@
 use std::ops::Range;
 
 use kebab_core::{Inline, SourceSpan};
-use kebab_parse_types::{ParsedBlock, ParsedBlockKind, ParsedPayload, Warning, WarningKind};
+use crate::types::{ParsedBlock, ParsedBlockKind, ParsedPayload, Warning, WarningKind};
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 /// Parse a Markdown body into a flat `Vec<ParsedBlock>` plus any warnings.
@@ -1586,7 +1586,7 @@ mod tests {
         let (blocks, _) = parse(body, 1);
         assert_eq!(blocks.len(), 1, "expected single list block");
         match &blocks[0].kind {
-            kebab_parse_types::ParsedBlockKind::List => {}
+            crate::types::ParsedBlockKind::List => {}
             other => panic!("expected list, got {other:?}"),
         }
     }

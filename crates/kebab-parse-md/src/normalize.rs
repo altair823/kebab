@@ -1,5 +1,8 @@
-//! `kb-normalize` — lift parser output (`kb-parse-types`) into a
-//! [`kebab_core::CanonicalDocument`] with deterministic IDs.
+//! `kb-parse-md::normalize` — lift parser output (`kb-parse-md::types`)
+//! into a [`kebab_core::CanonicalDocument`] with deterministic IDs.
+//!
+//! v0.19.0 부터 kebab-parse-md 의 in-crate module (이전 별 crate
+//! `kebab-normalize` — HOTFIXES.md 2026-05-26 참조).
 //!
 //! Per design §3.4 (CanonicalDocument / Block), §4.2 (ID recipe), §4.3
 //! (ordinal rule), §3.6 (Provenance), §8 (module boundaries).
@@ -8,14 +11,13 @@
 //!
 //! * [`build_canonical_document`] — assemble a `CanonicalDocument` from
 //!   `(RawAsset, Metadata, Vec<ParsedBlock>, ParserVersion, Vec<Warning>)`.
-//! * [`id_for_doc`], [`id_for_block`] — re-exports of the canonical
-//!   ID-recipe functions in `kb-core::ids` (§4.2). `kb-core` is the only
-//!   implementation; `kb-normalize` is the canonical *entry point* per
-//!   design §8.
+//! * `id_for_doc` / `id_for_block` — canonical ID-recipe functions in
+//!   `kb-core::ids` (§4.2). Callers should import them from `kebab_core`
+//!   directly (v0.19.0 흡수 후 re-export 제거 — production caller 0
+//!   verified, spec §3.3 R10).
 //!
-//! This crate must NOT depend on any parser implementation crate
-//! (`kb-parse-md`, `kb-parse-pdf`, …). All parser output flows in via
-//! the shared `kb-parse-types` crate.
+//! Other parser crates (pdf / image / code) self-emit `CanonicalDocument`
+//! and must NOT cross-import this module per design §8.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -24,13 +26,11 @@ use anyhow::Result;
 use kebab_core::{
     Block, BlockId, CanonicalDocument, CodeBlock, CommonBlock, DocumentId, HeadingBlock,
     ImageRefBlock, Inline, Lang, ListBlock, Metadata, ParserVersion, Provenance, ProvenanceEvent,
-    ProvenanceKind, RawAsset, TableBlock, TextBlock,
+    ProvenanceKind, RawAsset, TableBlock, TextBlock, id_for_block, id_for_doc,
 };
-use kebab_parse_types::{ParsedBlock, ParsedPayload, Warning, WarningKind};
+use crate::types::{ParsedBlock, ParsedPayload, Warning, WarningKind};
 use time::OffsetDateTime;
 use unicode_normalization::UnicodeNormalization;
-
-pub use kebab_core::{id_for_block, id_for_doc};
 
 /// Build a [`CanonicalDocument`] from the raw asset, frontmatter
 /// metadata, parser blocks, parser version, and any warnings.
@@ -486,7 +486,7 @@ mod tests {
         let h1_b = vec!["B".to_string()];
         vec![
             ParsedBlock {
-                kind: kebab_parse_types::ParsedBlockKind::Paragraph,
+                kind: crate::types::ParsedBlockKind::Paragraph,
                 heading_path: h1_a.clone(),
                 source_span: SourceSpan::Line { start: 1, end: 1 },
                 payload: ParsedPayload::Paragraph {
@@ -495,7 +495,7 @@ mod tests {
                 },
             },
             ParsedBlock {
-                kind: kebab_parse_types::ParsedBlockKind::Paragraph,
+                kind: crate::types::ParsedBlockKind::Paragraph,
                 heading_path: h1_a.clone(),
                 source_span: SourceSpan::Line { start: 2, end: 2 },
                 payload: ParsedPayload::Paragraph {
@@ -504,7 +504,7 @@ mod tests {
                 },
             },
             ParsedBlock {
-                kind: kebab_parse_types::ParsedBlockKind::Paragraph,
+                kind: crate::types::ParsedBlockKind::Paragraph,
                 heading_path: h1_a.clone(),
                 source_span: SourceSpan::Line { start: 3, end: 3 },
                 payload: ParsedPayload::Paragraph {
@@ -513,7 +513,7 @@ mod tests {
                 },
             },
             ParsedBlock {
-                kind: kebab_parse_types::ParsedBlockKind::Code,
+                kind: crate::types::ParsedBlockKind::Code,
                 heading_path: h1_a,
                 source_span: SourceSpan::Line { start: 4, end: 5 },
                 payload: ParsedPayload::Code {
@@ -522,7 +522,7 @@ mod tests {
                 },
             },
             ParsedBlock {
-                kind: kebab_parse_types::ParsedBlockKind::Paragraph,
+                kind: crate::types::ParsedBlockKind::Paragraph,
                 heading_path: h1_b,
                 source_span: SourceSpan::Line { start: 6, end: 6 },
                 payload: ParsedPayload::Paragraph {
@@ -815,7 +815,7 @@ mod tests {
     fn audio_ref_block_skipped_with_warning() {
         let span = SourceSpan::Line { start: 1, end: 1 };
         let blocks = vec![ParsedBlock {
-            kind: kebab_parse_types::ParsedBlockKind::AudioRef,
+            kind: crate::types::ParsedBlockKind::AudioRef,
             heading_path: vec![],
             source_span: span,
             payload: ParsedPayload::AudioRef {
@@ -859,7 +859,7 @@ mod tests {
         let nfd_heading = "\u{1100}\u{1161}".to_string(); // 가 (NFD)
         let nfc_heading = "\u{AC00}".to_string(); // 가 (NFC)
         let mk_block = |heading: String| ParsedBlock {
-            kind: kebab_parse_types::ParsedBlockKind::Paragraph,
+            kind: crate::types::ParsedBlockKind::Paragraph,
             heading_path: vec![heading],
             source_span: span.clone(),
             payload: ParsedPayload::Paragraph {
@@ -1067,7 +1067,7 @@ mod tests {
         let mut metadata = fixture_metadata();
         metadata.user.remove("title");
         let blocks = vec![ParsedBlock {
-            kind: kebab_parse_types::ParsedBlockKind::Heading,
+            kind: crate::types::ParsedBlockKind::Heading,
             heading_path: vec![],
             source_span: span(),
             payload: ParsedPayload::Heading {

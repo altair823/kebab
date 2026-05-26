@@ -48,11 +48,10 @@ use kebab_core::{
     SourceUri, VectorRecord, VectorStore,
 };
 use kebab_llm_local::OllamaLanguageModel;
-use kebab_normalize::build_canonical_document;
 use kebab_parse_image::{ImageExtractor, OllamaVisionOcr, apply_caption, apply_ocr};
 use kebab_parse_code::{CAstExtractor, CppAstExtractor, GoAstExtractor, JavaAstExtractor, JavascriptAstExtractor, KotlinAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor};
 use kebab_parse_pdf::PdfTextExtractor;
-use kebab_parse_md::{BodyHints, parse_blocks, parse_frontmatter};
+use kebab_parse_md::{BodyHints, build_canonical_document, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
 
 mod app;
@@ -1116,7 +1115,7 @@ fn ingest_one_asset(
         parser_version,
         all_warnings,
     )
-    .context("kb-normalize::build_canonical_document")?;
+    .context("kb-parse-md::build_canonical_document")?;
 
     let chunks = MdHeadingV1Chunker
         .chunk(&canonical, chunk_policy)

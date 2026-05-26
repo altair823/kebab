@@ -700,11 +700,9 @@ pub enum   AudioType { M4a, Mp3, Wav, Flac, Ogg, Other(String) }
 
 `OffsetDateTime` 는 `time::OffsetDateTime`, `Result` 는 crate-local alias.
 
-### 3.7b Parser intermediate types — `kebab-parse-types`
+### 3.7b Parser intermediate types — `kebab-parse-md` 흡수 후 (post-v0.19.0)
 
-Parser 의 *중간* 표현 (`ParsedBlock` 류) 은 `kebab-core` 가 아니라 별도의 thin crate **`kebab-parse-types`** 에 둔다. 이유: `kebab-normalize` 는 medium-agnostic 한 ID/Provenance lift 를 책임지고 어떤 parser 도 직접 import 하면 안 된다. 그러나 normalize 에 들어오는 입력 타입이 어딘가에 정의되어야 하는데, 그것을 `kebab-core` 에 박으면 (a) parser-별 ParsedBlock 변종 (`ParsedImageRegion`, `ParsedPdfPage`, `ParsedAudioSegment`) 이 향후 합류할 때 core 의 namespace 가 폭발하고, (b) parser 의 의미 변경이 core 변경이 되어 모든 의존자가 영향을 받는다.
-
-`kebab-parse-types` 는 이 둘 사이의 **유일한 layer** 다. 의존 그래프:
+**원래 의도**: parser 의 *중간* 표현 (`ParsedBlock` 류) 을 `kebab-core` 가 아닌 별도 thin crate `kebab-parse-types` 에 두고, `kebab-normalize` 가 medium-agnostic 한 ID/Provenance lift 책임을 가지는 layered 구조 (v0.1~v0.18 머지 시점의 초기 design). 의도된 의존 그래프:
 
 ```text
 kebab-core (도메인 모델 — Block, Chunk, SourceSpan, IDs, …)
@@ -717,16 +715,18 @@ kebab-parse-md, kebab-parse-pdf,      kebab-normalize
 kebab-parse-image, kebab-parse-audio
 ```
 
-`kebab-parse-types` 는:
-- `kebab-core` 에만 의존 (`Block`, `SourceSpan`, `Lang` 등 도메인 타입 사용).
-- 다른 어떤 `kebab-*` 에도 의존하지 않는다.
-- 어떤 parser 의 구체 라이브러리 (`pulldown-cmark`, `pdf-extract`, `image`, `whisper-rs`) 에도 의존하지 않는다.
-- serde + thiserror 정도의 외부 의존만 가진다.
+이 thin layer 의 raison d'être 는 (a) parser-별 ParsedBlock 변종이 `kebab-core` 의 namespace 를 폭발시키지 않게 분리하고, (b) `kebab-normalize` 가 어떤 parser 도 직접 import 하지 않는 medium-agnostic lift 단계를 유지하는 것이었다.
 
-P1 에서 정의되는 타입:
+**현재 상태 (v0.19.0~)**: `kebab-parse-types` 와 `kebab-normalize` 두 crate 가 `kebab-parse-md` 에 흡수됨. 근거:
+
+- 4 parser (`kebab-parse-md` / `kebab-parse-pdf` / `kebab-parse-image` / `kebab-parse-code`) 중 `kebab-parse-md` 한 갈래만 `kebab-normalize` 를 경유. 나머지 3 parser 는 `CanonicalDocument` 를 직접 emit — thin layer 의 fan-in/fan-out 모두 1.
+- `kebab-normalize` 의 production caller 가 1개 (`kebab-app`) 로 collapse 되어 layer 의미 잃음.
+- 본 흡수 의 audit log = `tasks/HOTFIXES.md` 의 dated entry (2026-05-26 — "design deviation").
+
+**보존된 surface**: `ParsedBlock`, `ParsedBlockKind`, `ParsedPayload`, `Warning`, `WarningKind`, 그리고 3 forward-declared struct (`ParsedImageRegion`, `ParsedPdfPage`, `ParsedAudioSegment`) 는 `kebab-parse-md` 의 `pub` re-export 로 보존. 의미와 serde 표현 모두 byte-identical. 5 사용 type 의 정의 (`ParsedBlock` 의 4 field + `ParsedBlockKind` 의 8 variant + `ParsedPayload` 의 8 variant + `Warning` + `WarningKind` 의 4 variant) 와 3 forward-declared struct 의 본문은 P1 spec 의 원본 보존 — wire 표현 (serde rename_all / tag) 변경 0.
 
 ```rust
-// kebab-parse-types — depends on kebab-core only.
+// kebab-parse-md::types — in-crate module (v0.19.0 흡수 후). depends on kebab-core only.
 pub struct ParsedBlock {
     pub kind: ParsedBlockKind,
     pub heading_path: Vec<String>,
@@ -749,19 +749,39 @@ pub enum ParsedPayload {
 
 pub struct Warning { pub kind: WarningKind, pub note: String }
 pub enum WarningKind { MalformedFrontmatter, MalformedTable, EncodingFallback, ExtractFailed }
-```
 
-`Inline` 은 `kebab-core` (§3.4) 에 있는 도메인 타입. `kebab-parse-types` 는 그것을 *참조* 만 한다 — 같은 의미를 두 crate 에 중복 정의하지 않는다 (그러면 normalize 가 identity-conversion 을 해야 해서 무의미).
-
-P6/P7/P8 에서 추가될 타입 (forward-ref):
-
-```rust
-pub struct ParsedImageRegion { /* OCR/EXIF 추출 전 단계 */ }
+// Forward-declared (P6/P7/P8) — production caller 0, future re-extraction trigger surface 로 보존.
+pub struct ParsedImageRegion;
 pub struct ParsedPdfPage     { pub page: u32, pub text: String }
 pub struct ParsedAudioSegment { pub start_ms: u64, pub end_ms: u64, pub text: String }
 ```
 
-→ 새 medium 추가 시 `kebab-core::Block` 변종은 변하지 않고, `kebab-parse-types` 만 확장된다.
+**future re-extraction trigger** (측정 시점 명시 — `build_canonical_document` 의 input variant 변경 지점):
+
+1. `kebab-parse-pdf` / `kebab-parse-image` / `kebab-parse-audio` (audio 는 **P8 도입 시** — 현재 deferred, `tasks/INDEX.md` 의 Phase 8 row 참조) 가 `ParsedBlock` 또는 그 변종 (`ParsedPdfPage`, `ParsedImageRegion`, `ParsedAudioSegment`) 를 emit 시작 + `kebab-normalize` 의 lift 를 경유하도록 변경. **측정**: `kebab_parse_md::build_canonical_document` 의 input variant 가 `Vec<ParsedBlock>` 외 medium 의 변종이 추가되는 시점.
+2. 즉, fan-in ≥ 2 (parser caller 2개 이상) 가 회복.
+3. 또는 lift 로직이 markdown-only specific 함수에서 medium-agnostic 함수로 일반화 필요.
+
+위 trigger 발생 전까지는 `kebab-parse-md` 내부의 `types.rs` + `normalize.rs` module 로 유지.
+
+**의존 그래프 (post-absorb)**:
+
+```text
+kebab-core (도메인 모델 — Block, Chunk, SourceSpan, IDs, …)
+   ▲
+   │
+kebab-parse-md (markdown 의 frontmatter + block + types + normalize, 모두 in-crate)
+   ▲
+   │
+kebab-parse-pdf, kebab-parse-image, kebab-parse-code (자체 CanonicalDocument emit)
+```
+
+`kebab-parse-md` 는:
+- `kebab-core` 에만 의존 (`Block`, `SourceSpan`, `Lang` 등 도메인 타입 사용).
+- 다른 어떤 `kebab-*` 에도 의존하지 않는다.
+- parser 구체 라이브러리 (`pulldown-cmark`) 와 normalize helper (`unicode-normalization`) 에 의존.
+
+**Tracing instrumentation policy**: actual `kebab-parse-md/src/normalize.rs` 의 `tracing::debug!` 가 **explicit literal** `target: "kebab-normalize"` 로 hard-coded (자동 module-path derive 아님). 흡수 후에도 보존 — stage label 보존 정책 (warning_agent 보존 + `provenance.events[].agent` 보존과 일관) 시 stage label = "kebab-normalize" — 흡수 후에도 lift stage 의 의미 보존 + log scraper grep 일관성. 명시적 갱신 원할 시 `target: "kebab-parse-md::normalize"` — 본 design 의 권장 = **보존**. wire / surface impact 0.
 
 ### 3.8 Answer / RAG types
 
@@ -1459,12 +1479,11 @@ kebab-cli, kebab-tui, kebab-desktop
    └─> kebab-app
          ├─> kebab-source-fs
          │     (p10-2 이후: lang detect + skip policy 내장; kebab-parse-code 와 분리)
-         ├─> kebab-parse-md / kebab-parse-pdf / kebab-parse-image / kebab-parse-audio
-         │     └─> kebab-parse-types (parser intermediate)
+         ├─> kebab-parse-md
+         │     (post-v0.19.0: absorbed kebab-parse-types + kebab-normalize — §3.7b)
+         ├─> kebab-parse-pdf / kebab-parse-image (self-emit CanonicalDocument)
          ├─> kebab-parse-code
          │     └─> kebab-core (domain types only — NO store/embed/llm/rag/UI)
-         ├─> kebab-normalize
-         │     └─> kebab-parse-types
          ├─> kebab-chunk
          ├─> kebab-store-sqlite (DocumentStore, JobRepo, Retriever[lexical])
          ├─> kebab-store-vector (VectorStore)
@@ -1477,15 +1496,13 @@ kebab-cli, kebab-tui, kebab-desktop
               └─> kebab-core (모두 의존)
 ```
 
-`kebab-parse-types` 는 `kebab-core` 와 parsers/normalize 사이의 thin layer (§3.7b 참조). parser-별 중간 표현 (`ParsedBlock`, `ParsedImageRegion`, `ParsedPdfPage`, `ParsedAudioSegment`, `Inline`) 을 한 곳에 모아 (a) `kebab-core` 의 namespace 폭발을 막고 (b) `kebab-normalize` 가 parser 를 직접 import 하지 않게 한다.
+`kebab-parse-md` 는 v0.19.0 부터 `kebab-parse-types` (parser intermediate types) 와 `kebab-normalize` (CanonicalDocument lift) 를 흡수한다 (§3.7b 참조). 4 parser 중 markdown 한 갈래만 lift 를 경유하므로 thin layer 의 가치가 의미를 잃었다. 보존된 5 사용 type + 3 forward-declared struct 의 surface 는 `kebab-parse-md` 의 `pub` re-export 로 backward-compat. 기존 `parse-* → store/llm/embed ✗` 룰이 흡수된 lift 까지 자동 포함 — parse-md 도 parse-* 의 한 갈래.
 
 핵심 금지:
 - UI → store/llm/parse 직접 의존 ✗
 - parse-* → store/llm/embed ✗
-- parse-* → kebab-normalize ✗ (단방향: parsers → kebab-parse-types ← normalize)
+- parse-* (pdf/image/code) → kebab-parse-md ✗ (parser 끼리 cross-import 금지 — markdown 의 lift 가 다른 parser 에 노출되면 안 됨)
 - chunk → llm/embed ✗
-- normalize → store / parse-* ✗
-- kebab-parse-types → 어떤 parser/normalize/store/llm/embed/search/rag/ui ✗ (`kebab-core` 만 의존)
 - 다른 store 와 cross-write ✗
 
 `cargo deny` + workspace deny.toml + CI 체크로 강제.

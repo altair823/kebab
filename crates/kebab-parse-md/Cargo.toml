@@ -5,16 +5,19 @@ edition       = { workspace = true }
 rust-version  = { workspace = true }
 license       = { workspace = true }
 repository    = { workspace = true }
-description   = "Markdown frontmatter and block parsing into kb-core::Metadata / kb-parse-types intermediates"
+description   = "Markdown frontmatter + block parsing + canonical-document lift (absorbed kb-parse-types + kb-normalize, see HOTFIXES.md 2026-05-26)"
 
 [dependencies]
 kebab-core = { path = "../kebab-core" }
-kebab-parse-types = { path = "../kebab-parse-types" }
 anyhow          = { workspace = true }
 serde           = { workspace = true }
 serde_json      = { workspace = true }
 time            = { workspace = true }
 tracing         = { workspace = true }
+# 흡수된 kb-normalize 의 NFKC 의존 — actual kebab-normalize/src/lib.rs:31 의
+# `use unicode_normalization::UnicodeNormalization;` 가 normalize.rs 이식 시 동반.
+# 이미 kebab-app 도 사용 중인 0.1 major (version drift 0).
+unicode-normalization = "0.1"
 # pulldown-cmark is the CommonMark parser used by the `blocks` submodule.
 # GFM tables are gated by the runtime `Options::ENABLE_TABLES` flag, not a
 # cargo feature; we strip the default `getopts` + `html` features since we

@@ -20,7 +20,7 @@ use time::macros::datetime;
 struct Snapshot {
     metadata: kebab_core::Metadata,
     span_present: bool,
-    warnings: Vec<kebab_parse_types::Warning>,
+    warnings: Vec<kebab_parse_md::Warning>,
 }
 
 fn fixtures_dir() -> PathBuf {

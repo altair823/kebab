@@ -14,6 +14,31 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-26 — design deviation — kebab-normalize + kebab-parse-types 흡수 (24 → 22 crates)
+
+**Symptom**: design deviation — post-PR9 audit (system-architect, `tasks/INDEX.md` L169) identified 두 crate (`kebab-normalize` + `kebab-parse-types`) 가 dead abstraction. design §3.7b 의 "thin layer" raison d'être ((a) `kebab-core` namespace 폭발 방지, (b) normalize 의 parser non-dependence) 가 4 parser 중 1개 (markdown) 만 lift 를 경유하는 현실에서 fan-in/fan-out 모두 1 → layer 의미 잃음. `kebab-parse-types` 의 production caller 가 2개 (`kebab-parse-md` + `kebab-normalize`) 이고 `kebab-normalize` 자체 caller 가 1개 (`kebab-app`) — 모두 markdown 의 lift 경로 안에서 단일 fan-in 경계 가능.
+
+**Root cause**: P1~P10 머지를 거치며 `kebab-parse-pdf` (P7) / `kebab-parse-image` (P6) / `kebab-parse-code` (P10) 가 `CanonicalDocument` 직접 emit 패턴으로 정착. `kebab-normalize::build_canonical_document` 는 markdown-specific `Vec<ParsedBlock>` → `CanonicalDocument` lift 만 책임. design §3.7b 가 가정한 "ParsedBlock 류는 모든 parser 가 emit → normalize 가 일괄 lift" 의 fan-in ≥ 2 시나리오가 미도래 — 그러나 layer 비용 (24 crate workspace, 두 crate 의 lib.rs only structure) 은 계속 지불.
+
+**Action**: `kebab-normalize` (1097 LOC) + `kebab-parse-types` (98 LOC) 를 `kebab-parse-md` 에 흡수 — 22 crate workspace.
+
+- `crates/kebab-parse-md/src/types.rs` (신규): `kebab-parse-types/src/lib.rs` 의 98 LOC 1:1 이식 (5 사용 type + 3 forward-declared struct 보존).
+- `crates/kebab-parse-md/src/normalize.rs` (신규): `kebab-normalize/src/lib.rs` 의 production fn body (`build_canonical_document`, `derive_title`, `warning_agent`) 이식. `warning_agent` 의 return string ("kb-normalize") 보존 — SQLite `documents.provenance_json` 의 audit log 일관성 (wire-invisible, see spec §1.9).
+- 3 dead struct (`ParsedImageRegion` / `ParsedPdfPage` / `ParsedAudioSegment`) 는 보존 — v0.20+ image/pdf normalize integration 의 future surface (spec §11 참조).
+- `crates/kebab-parse-md/src/lib.rs`: `pub use crate::types::{...}; pub use crate::normalize::{build_canonical_document, derive_title};` re-export 추가.
+- `crates/kebab-parse-md/src/{blocks,frontmatter}.rs`: `use kebab_parse_types::*` → `use crate::types::*`.
+- `crates/kebab-app/src/lib.rs:51`: `use kebab_normalize::build_canonical_document` → `use kebab_parse_md::build_canonical_document` (line 55 의 기존 use list 와 통합). line 1119 context string `kb-normalize::build_canonical_document` → `kb-parse-md::build_canonical_document`.
+- `crates/kebab-app/Cargo.toml`: `kebab-normalize` regular dep 제거 + `kebab-parse-types` regular dep 제거 (후자는 dead dep — `cargo tree -p kebab-app | grep kebab_parse_types` 0줄 검증으로 incidental cleanup).
+- `crates/kebab-chunk/Cargo.toml` + `crates/kebab-store-sqlite/Cargo.toml`: `[dev-dependencies] kebab-normalize` 제거. 통합 test source (`tests/long_section_snapshot.rs:21` + `tests/contract_roundtrip.rs:16`) 의 `use kebab_normalize::build_canonical_document` → `kebab-parse-md` use list 통합.
+- `crates/kebab-normalize/tests/normalize_snapshot.rs` → `crates/kebab-parse-md/tests/normalize_snapshot.rs` (mechanical move + use shift).
+- `Cargo.toml` workspace.members: `kebab-normalize` + `kebab-parse-types` entries 제거. `workspace.package.version` 0.18.0 → **0.19.0** (frozen design contract 변경 trigger — CLAUDE.md "Release / binary version bump").
+- `crates/kebab-normalize/` + `crates/kebab-parse-types/` 디렉토리 전체 삭제 (`git rm -r`).
+- `docs/superpowers/specs/2026-04-27-kebab-final-form-design.md` §3.7b 재작성 (보존 + future re-extraction trigger 명시) + §8 graph 갱신 (3 edge 제거 + 2 forbidden bullet 의미 갱신).
+- `docs/ARCHITECTURE.md` crate graph + 디렉토리 tree mechanical 갱신.
+- `tasks/INDEX.md` L169 의 "kebab-normalize 흡수" defer mention 해소 + "Future work / deferred" 섹션 신설 (image/pdf normalize integration entry).
+
+**Amends**: spec `docs/superpowers/specs/2026-05-26-normalize-absorption-spec.md` cross-link. design `docs/superpowers/specs/2026-04-27-kebab-final-form-design.md` §3.7b + §8 동시 갱신 (CLAUDE.md "Changing the design doc requires updating every referencing task spec in the same PR" — 본 PR 의 design 갱신은 ~25 referencing task spec 의 raison d'être 인용을 stale 화하지만, frozen 원칙에 따라 mechanical update 없음. live source of truth = 본 HOTFIXES entry). 영향받는 task spec 의 `Forbidden dependencies` 또는 `contract_sections: ["§3.7b"]` 인용은 historical contract 로 보존됨 — `tasks/p1/p1-2-parser-types.md`, `tasks/p1/p1-3-markdown-parser.md`, `tasks/p1/p1-4-normalize.md`, `tasks/p9/p9-fb-07-md-title-fallback.md` 등. (Wire / surface impact: 0건 — CLI / TUI / MCP / `--json` 출력 / config / XDG path / parser_version 모두 unchanged. wire-invisible `provenance.events[].agent` 의 stage label "kb-normalize" 도 보존 — old DB row 와 new DB row 의 audit log 일관성.)
+
 ## 2026-05-26 — S3 NLI unavailable — hypothesis truncate + token-count fallback
 
 **Symptom**: S3 dogfood query (`"Why does kebab combine multilingual-e5, LanceDB, and RRF together?"`) 가 NLI 활성 (`rag.nli_threshold > 0`) 시 `nli_model_unavailable` 일관 fail. `~/.local/state/kebab/logs/kb.log.2026-05-26` 의 5 회 WARN 라인 `tokenizer.encode failed: Truncation error: Sequence to truncate too short to respect the provided max_length`.
