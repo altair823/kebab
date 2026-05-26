@@ -1458,7 +1458,7 @@ pub trait JobRepo {
 kebab-cli, kebab-tui, kebab-desktop
    └─> kebab-app
          ├─> kebab-source-fs
-         │     └─> kebab-parse-code (p10-1A-1: lang detect / repo detect / skip policy)
+         │     (p10-2 이후: lang detect + skip policy 내장; kebab-parse-code 와 분리)
          ├─> kebab-parse-md / kebab-parse-pdf / kebab-parse-image / kebab-parse-audio
          │     └─> kebab-parse-types (parser intermediate)
          ├─> kebab-parse-code

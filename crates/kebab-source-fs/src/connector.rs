@@ -149,7 +149,7 @@ impl FsSourceConnector {
 
             // Generated-header sniff (config-gated).
             if self.skip_generated_header
-                && kebab_parse_code::is_generated_file(&abs_path).unwrap_or(false)
+                && crate::code_meta::is_generated_file(&abs_path).unwrap_or(false)
             {
                 fs_skips.skipped_generated =
                     fs_skips.skipped_generated.saturating_add(1);
@@ -166,7 +166,7 @@ impl FsSourceConnector {
             }
 
             // Size-cap check (byte or line limit).
-            if kebab_parse_code::is_oversized(
+            if crate::code_meta::is_oversized(
                 &abs_path,
                 self.max_file_bytes,
                 self.max_file_lines,

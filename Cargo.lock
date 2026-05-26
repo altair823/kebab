@@ -4494,7 +4494,6 @@ dependencies = [
  "ignore",
  "kebab-config",
  "kebab-core",
- "kebab-parse-code",
  "serde",
  "serde_json",
  "tempfile",
