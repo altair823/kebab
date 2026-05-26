@@ -77,9 +77,47 @@ PR-7 머지 후 같은 dogfood S7 (`What is the chemical formula of caffeine?`) 
 
 **PR-8 의 한계**: gemma3:4b 가 prompt rule 무시. strong rule + small pool 도 hallucination 차단 못함. **LLM-self-judge 기반 safety 의 ceiling** 명확.
 
-### PR-9 — NLI-based post-synthesis verification (예정)
+### PR-9 — NLI-based post-synthesis verification (완료, 2026-05-26)
 
-학계 / industry 표준 (Self-RAG, CRAG, Auto-GDA, MedTrust-RAG) 결론: deterministic post-synthesis verification 이 정답. **mDeBERTa-v3-base-xnli-multilingual ONNX model (280 MB)** 가 `(premise = packed_chunks, hypothesis = answer)` entailment 검사 → score < 0.5 면 refuse. PR-8 위에 layered defense. design note: `/build/cache/dogfood-v018/results/PR-9-DESIGN.md`. 단계적 PR (9a / 9b / 9c) — 추정 ~10시간. v0.18.0 cut blocker.
+학계 / industry 표준 (Self-RAG, CRAG, Auto-GDA, MedTrust-RAG) 결론: deterministic post-synthesis verification 이 정답. **mDeBERTa-v3-base-xnli-multilingual ONNX model (280 MB)** 가 `(premise = packed_chunks, hypothesis = answer)` entailment 검사 → score < threshold 면 refuse. PR-8 위에 layered defense. design note: `/build/cache/dogfood-v018/results/PR-9-DESIGN.md`. 단계적 PR (9a / 9b / 9c-1 / 9c-2 / 9d) 모두 머지.
+
+**Sub-PR 시퀀스 (모두 머지)**:
+- PR #176 (PR-9a): `kebab-nli` crate skeleton — trait surface + workspace deps.
+- PR #177 (PR-9b): `OnnxNliVerifier` ONNX inference + model download (lazy `OnceLock`, OnlyFirst truncation).
+- PR #178 (PR-9c-1): wire surface — `RefusalReason::Nli{Verification,Model}Failed/Unavailable`, `Answer.verification`, `RagPipeline.verifier` field + builder, `[rag] nli_threshold` + `[models.nli]` config.
+- PR #179 (PR-9c-2): `ask_multi_hop` step 8.5 NLI hook 활성화 + `App::open_with_config` 의 NliVerifier construction + 5 mock multi-hop tests.
+- PR-9d: dogfood retest + 본 closure (별 PR — fb-41 multi-hop NLI 검증).
+
+**Dogfood retest 결과** (2026-05-26, `/build/cache/dogfood-v018/results/post-pr9/`, repo 보존 = `docs/dogfood/v0.18.0/`):
+
+| case | PR-8 baseline | PR-9 retest | 판정 |
+|---|---|---|---|
+| **S7** (caffeine) | `grounded=true, refusal_reason=null`, **답변=Adam gradient 공식 (hallucination)** | `refusal_reason=nli_verification_failed`, `nli_score=0.0035` | ✅ **HALLUCINATION FIXED** |
+| S1 (compiler) | `refusal_reason=llm_self_judge` | `refusal_reason=nli_verification_failed`, `nli_score=0.058` | ✅ 둘 다 reject, NLI 더 deterministic |
+| S3 (kebab EN) | `refusal_reason=llm_self_judge` | `refusal_reason=nli_model_unavailable` (consistent) | ⚠ follow-up entry (다음 sub-section) |
+| S10 (dinosaur) | `refusal_reason=llm_self_judge` | `refusal_reason=nli_verification_failed`, `nli_score=0.0028` | ✅ 둘 다 reject, NLI 더 deterministic |
+
+PR-9 의 핵심 목표 (S7 silent hallucination root cause 해결) ✅ **달성**. LLM-self-judge 의 *probabilistic ceiling* 을 NLI 의 *deterministic external verifier* 가 극복.
+
+**RAM peak**: PR-8 ~5-6 GB → PR-9 ~7-8 GB (gemma3:4b + ONNX session ~600 MB). 16 GB 환경 안전.
+
+**Disk**: NLI model cache 1.1 GB (model 280 MB + tokenizer 16 MB + hf-hub blobs/locks/snapshots overhead). user XDG (`~/.local/share/kebab/models/nli/`) 또는 config 의 `storage.model_dir`.
+
+### PR-9d 의 S3 follow-up (kebab-nli `nli_model_unavailable` consistent fail)
+
+**Symptom**: S3 query ("Why does kebab combine multilingual-e5, LanceDB, and RRF together?") 가 *consistent* (재시도 2회 모두) `nli_model_unavailable` 로 fail. 다른 case (S1/S7/S10) 의 entailment 측정은 정상 — NLI infrastructure 자체는 작동. S3 만 특정 input 의존 fail.
+
+**Diagnosis 시도**: `KEBAB_LOG=info,kebab_rag=debug,kebab_nli=debug` 로 retry — *debug log emit 안 됨* (env 이름 ignored 또는 tracing subscriber init 안 됨). stderr 비어 있어 graceful refuse path 만 확인.
+
+**Hypothesis** (확정 안 됨):
+- mDeBERTa session inference 가 *S3 의 특정 packed_text shape* 에 대해 err (encode 단계 또는 ort Session::run shape 검증).
+- 또는 *eager session reload* 가 process invocation 단위 의 race.
+
+**임시 대응**: 사용자가 `[rag] nli_threshold = 0` 로 disable 가능. release notes 의 known limitations 명시.
+
+**Next step**: v0.18.1 candidate — tracing 의 env 이름 검증 (`RUST_LOG` 또는 `KEBAB_TRACING_LEVEL` 등) + S3 packed_text shape 분석 (chunks 개수, char count, language mix). HOTFIX 진단 후 별 PR.
+
+**Amends**: 없음 (PR-9 의 known limitation, v0.18.1 candidate).
 
 ### 사용자 영향
 
