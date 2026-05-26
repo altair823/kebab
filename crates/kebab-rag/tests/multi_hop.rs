@@ -26,9 +26,10 @@ mod common;
 
 use std::sync::Arc;
 
-use common::{RagEnv, ScriptedLm, ScriptedRetriever, id32, mk_hit};
+use common::{MockNliVerifier, RagEnv, ScriptedLm, ScriptedRetriever, id32, mk_hit};
 use kebab_core::{HopKind, LanguageModel, RefusalReason, Retriever, SearchMode};
-use kebab_rag::{AskOpts, RagPipeline};
+use kebab_nli::NliVerifier;
+use kebab_rag::{AskOpts, RagPipeline, truncate_for_nli};
 
 /// Default `AskOpts` for multi-hop tests: deterministic seed,
 /// lexical mode (so the test crate doesn't need to wire up an
@@ -617,4 +618,196 @@ fn multi_hop_above_probe_gate_proceeds_to_decompose() {
     );
     let hops = answer.hops.expect("happy path stamps hops");
     assert_eq!(hops.len(), 3);
+}
+
+// ── p9-fb-41 PR-9c-2: step 8.5 NLI verification tests ──────────────────────
+//
+// Five tests pin the NLI hook on the multi-hop path:
+// 1. `multi_hop_nli_pass_keeps_grounded` — entailment 0.9 ≥ threshold 0.5 →
+//    happy path, `verification.nli_passed = true`.
+// 2. `multi_hop_nli_fail_refuses` — entailment 0.1 < threshold 0.5 →
+//    refusal with `RefusalReason::NliVerificationFailed` + verification stamp.
+// 3. `multi_hop_nli_disabled_skip_verify` — threshold 0.0 → verify skipped,
+//    `Answer.verification` stays `None` (no verifier attached).
+// 4. `multi_hop_nli_model_unavailable_refuses` — verifier returns `Err` →
+//    refusal with `RefusalReason::NliModelUnavailable` + `verification = None`.
+// 5. `multi_hop_truncate_for_nli_preserves_hypothesis` — pure unit test on
+//    `truncate_for_nli`'s char-budget contract.
+
+/// Helper to build a "valid multi-hop happy-path" scenario where probe +
+/// decompose retrieves the same single chunk, decompose emits one
+/// sub-query, decide signals stop, and synthesize produces a cited
+/// answer. Returns the seeded `RagEnv`, scripted retriever (so the
+/// test can assert call count), and scripted LM with the 3-call
+/// script ready.
+fn happy_multi_hop_env() -> (RagEnv, Arc<ScriptedRetriever>, Arc<ScriptedLm>) {
+    let env = RagEnv::new();
+    let cid = id32("c1");
+    let did = id32("d1");
+    env.seed_chunk(&cid, &did, "notes/a.md", "Body text.", &["Intro"]);
+    let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
+    let retriever = Arc::new(ScriptedRetriever::new(vec![hits.clone(), hits]));
+    let lm = Arc::new(ScriptedLm::new(vec![
+        r#"["q1"]"#,
+        r#"[]"#,
+        "answer body [#1]",
+    ]));
+    (env, retriever, lm)
+}
+
+#[test]
+fn multi_hop_nli_pass_keeps_grounded() {
+    let (env, retriever, lm) = happy_multi_hop_env();
+    let mut cfg = env.config.clone();
+    cfg.rag.nli_threshold = 0.5;
+
+    let retriever_dyn: Arc<dyn Retriever> = retriever;
+    let lm_dyn: Arc<dyn LanguageModel> = lm;
+    let verifier = MockNliVerifier::pass();
+    let verifier_handle = verifier.clone();
+    let verifier_dyn: Arc<dyn NliVerifier> = verifier;
+    let pipeline =
+        RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+            .with_verifier(verifier_dyn);
+
+    let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
+
+    assert!(answer.grounded, "NLI-pass synthesize must stay grounded");
+    assert_eq!(answer.refusal_reason, None);
+    assert_eq!(
+        verifier_handle.calls(),
+        1,
+        "verifier called exactly once on the synthesized answer"
+    );
+    let v = answer
+        .verification
+        .expect("nli_threshold > 0 stamps Some(verification)");
+    assert!(v.nli_passed, "entailment 0.9 ≥ threshold 0.5");
+    assert!((v.nli_score - 0.9).abs() < 1e-5, "got: {}", v.nli_score);
+    assert!((v.nli_threshold - 0.5).abs() < 1e-5);
+}
+
+#[test]
+fn multi_hop_nli_fail_refuses() {
+    let (env, retriever, lm) = happy_multi_hop_env();
+    let mut cfg = env.config.clone();
+    cfg.rag.nli_threshold = 0.5;
+
+    let retriever_dyn: Arc<dyn Retriever> = retriever;
+    let lm_dyn: Arc<dyn LanguageModel> = lm;
+    let verifier = MockNliVerifier::fail();
+    let verifier_handle = verifier.clone();
+    let verifier_dyn: Arc<dyn NliVerifier> = verifier;
+    let pipeline =
+        RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+            .with_verifier(verifier_dyn);
+
+    let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
+
+    assert!(!answer.grounded);
+    assert_eq!(
+        answer.refusal_reason,
+        Some(RefusalReason::NliVerificationFailed)
+    );
+    assert_eq!(verifier_handle.calls(), 1);
+    let v = answer
+        .verification
+        .expect("refusal still stamps verification summary");
+    assert!(!v.nli_passed, "entailment 0.1 < threshold 0.5");
+    assert!((v.nli_score - 0.1).abs() < 1e-5, "got: {}", v.nli_score);
+}
+
+#[test]
+fn multi_hop_nli_disabled_skip_verify() {
+    let (env, retriever, lm) = happy_multi_hop_env();
+    // Default config keeps `nli_threshold = 0.0` — gate disabled. No
+    // verifier is attached to the pipeline; the hook short-circuits
+    // entirely (`Answer.verification` stays `None`).
+    let cfg = env.config.clone();
+    assert!(
+        (cfg.rag.nli_threshold - 0.0).abs() < f32::EPSILON,
+        "default nli_threshold must be 0.0 (gate disabled)"
+    );
+
+    let retriever_dyn: Arc<dyn Retriever> = retriever;
+    let lm_dyn: Arc<dyn LanguageModel> = lm;
+    // No `with_verifier` call — pipeline.verifier stays None.
+    let pipeline =
+        RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone());
+
+    let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
+
+    assert!(answer.grounded);
+    assert_eq!(answer.refusal_reason, None);
+    assert!(
+        answer.verification.is_none(),
+        "threshold = 0.0 must skip step 8.5 and leave verification = None"
+    );
+}
+
+#[test]
+fn multi_hop_nli_model_unavailable_refuses() {
+    let (env, retriever, lm) = happy_multi_hop_env();
+    let mut cfg = env.config.clone();
+    cfg.rag.nli_threshold = 0.5;
+
+    let retriever_dyn: Arc<dyn Retriever> = retriever;
+    let lm_dyn: Arc<dyn LanguageModel> = lm;
+    let verifier = MockNliVerifier::err();
+    let verifier_handle = verifier.clone();
+    let verifier_dyn: Arc<dyn NliVerifier> = verifier;
+    let pipeline =
+        RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+            .with_verifier(verifier_dyn);
+
+    let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
+
+    assert!(!answer.grounded);
+    assert_eq!(
+        answer.refusal_reason,
+        Some(RefusalReason::NliModelUnavailable)
+    );
+    assert_eq!(verifier_handle.calls(), 1, "verifier was invoked once before failing");
+    assert!(
+        answer.verification.is_none(),
+        "NliModelUnavailable: can't summarize a verification that didn't happen"
+    );
+}
+
+#[test]
+fn multi_hop_truncate_for_nli_preserves_hypothesis() {
+    // Long premise (>1600 chars) gets truncated, short hypothesis is
+    // passed unchanged (signature placeholder for v0.18.1 token-budget
+    // version). MAX_NLI_PREMISE_CHARS = 4 * 400 = 1600.
+    let long_premise: String = "a".repeat(2000);
+    let (truncated, was_truncated) = truncate_for_nli(&long_premise, "short hypothesis");
+    assert!(was_truncated);
+    assert_eq!(
+        truncated.chars().count(),
+        1600,
+        "premise truncated to MAX_NLI_PREMISE_CHARS"
+    );
+
+    // Short premise (under budget): no truncation, `was_truncated = false`.
+    let short_premise = "short premise text";
+    let (passthrough, was_truncated) = truncate_for_nli(short_premise, "anything");
+    assert!(!was_truncated);
+    assert_eq!(passthrough, short_premise);
+
+    // Multi-byte safety: 1600 Korean chars (3 bytes each in UTF-8) fits
+    // within the char budget even though byte length exceeds 4800.
+    let kr_short: String = "가".repeat(1600);
+    let (passthrough_kr, was_truncated_kr) = truncate_for_nli(&kr_short, "h");
+    assert!(!was_truncated_kr, "1600 KR chars == budget, no truncation");
+    assert_eq!(passthrough_kr.chars().count(), 1600);
+
+    // Multi-byte over-budget: truncation must count chars, not bytes.
+    let kr_long: String = "가".repeat(2000);
+    let (truncated_kr, was_truncated_kr) = truncate_for_nli(&kr_long, "h");
+    assert!(was_truncated_kr);
+    assert_eq!(
+        truncated_kr.chars().count(),
+        1600,
+        "char-based truncation must not over-cut on multi-byte input"
+    );
 }

@@ -133,6 +133,17 @@ pub struct App {
     /// `corpus_revision` snapshot embedded in `SearchCacheKey`
     /// invalidates every entry the moment a new ingest commit lands.
     search_cache: Option<Mutex<LruCache<SearchCacheKey, Vec<SearchHit>>>>,
+    /// p9-fb-41 PR-9c-2: NLI verifier built eagerly at
+    /// `open_with_config` time when `config.rag.nli_threshold > 0`,
+    /// consumed by `RagPipeline::with_verifier` on every `ask` /
+    /// `ask_with_session` call. `None` when the gate is disabled
+    /// (default, threshold = 0) — multi-hop skips step 8.5 entirely
+    /// and single-pass never touches the verifier.
+    ///
+    /// Built eagerly (not lazy) so the `open_with_config` `?`
+    /// propagation surfaces NLI model construction errors at App
+    /// boot time, before any user query runs.
+    pipeline_verifier: Option<Arc<dyn kebab_nli::NliVerifier>>,
 }
 
 /// p9-fb-19: cache key for `App::search`. Includes every field that
@@ -193,6 +204,21 @@ impl App {
         // `None` (cache disabled — every search hits the retrievers).
         let search_cache = NonZeroUsize::new(config.search.cache_capacity)
             .map(|cap| Mutex::new(LruCache::new(cap)));
+        // p9-fb-41 PR-9c-2: build the NLI verifier when the gate is
+        // enabled. App carries it on `RagPipeline` via
+        // `with_verifier` so the rag crate doesn't have to know about
+        // kebab-nli construction. Failure (`?`) surfaces as a user-
+        // facing error at App boot — never a panic in the pipeline's
+        // `expect("verifier must be Some when nli_threshold > 0.0")`.
+        let pipeline_verifier: Option<Arc<dyn kebab_nli::NliVerifier>> =
+            if config.rag.nli_threshold > 0.0 {
+                let v = kebab_nli::OnnxNliVerifier::new(&config).context(
+                    "kebab-app: construct OnnxNliVerifier (config.rag.nli_threshold > 0)",
+                )?;
+                Some(Arc::new(v))
+            } else {
+                None
+            };
         Ok(Self {
             config,
             sqlite: Arc::new(sqlite),
@@ -200,6 +226,7 @@ impl App {
             vector: OnceLock::new(),
             llm: OnceLock::new(),
             search_cache,
+            pipeline_verifier,
         })
     }
 
@@ -553,9 +580,26 @@ impl App {
     pub fn ask(&self, query: &str, opts: AskOpts) -> Result<Answer> {
         let retriever = self.build_retriever(opts.mode)?;
         let llm = self.llm()?;
+        let pipeline = self.build_pipeline(retriever, llm);
+        pipeline.ask(query, opts)
+    }
+
+    /// p9-fb-41 PR-9c-2: shared pipeline builder used by [`Self::ask`]
+    /// and [`Self::ask_with_session`]. Attaches the App-built NLI
+    /// verifier (when `cfg.rag.nli_threshold > 0`) via
+    /// `RagPipeline::with_verifier`, keeping the construction site in
+    /// a single place so the two call paths can't drift.
+    fn build_pipeline(
+        &self,
+        retriever: Arc<dyn Retriever>,
+        llm: Arc<dyn LanguageModel>,
+    ) -> RagPipeline {
         let pipeline =
             RagPipeline::new(self.config.clone(), retriever, llm, self.sqlite.clone());
-        pipeline.ask(query, opts)
+        match &self.pipeline_verifier {
+            Some(v) => pipeline.with_verifier(v.clone()),
+            None => pipeline,
+        }
     }
 
     /// p9-fb-18: shared retriever-stack builder used by [`Self::ask`]
@@ -660,10 +704,11 @@ impl App {
 
         // p9-fb-18 R1: shared retriever builder removes the prior
         // copy of `ask`'s 35-line stack — see [`Self::build_retriever`].
+        // p9-fb-41 PR-9c-2: shared `build_pipeline` attaches the NLI
+        // verifier when the gate is enabled.
         let retriever = self.build_retriever(opts.mode)?;
         let llm = self.llm()?;
-        let pipeline =
-            RagPipeline::new(self.config.clone(), retriever, llm, self.sqlite.clone());
+        let pipeline = self.build_pipeline(retriever, llm);
         let answer = pipeline.ask_with_history(
             query,
             history,
