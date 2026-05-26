@@ -6,7 +6,7 @@
 //!   - `config.workspace.exclude` (user-supplied per workspace)
 //!   - `<root>/.kebabignore` (user-supplied kebab-specific exclude)
 //!   - Built-in safety-net blacklist (`node_modules/`, `target/`, etc. —
-//!     spec §5.2, applied via `kebab_parse_code::BUILTIN_BLACKLIST`)
+//!     spec §5.2, applied via `crate::code_meta::BUILTIN_BLACKLIST`)
 //!   - `<root>/.gitignore` (repo-root only, no nested cascade — spec §5.2)
 //!
 //! All five are merged via `ignore::overrides::OverrideBuilder`, which
@@ -82,7 +82,7 @@ pub(crate) struct WalkOverrides {
     pub gitignore: Override,
     /// Matcher built from `<root>/.kebabignore` patterns only.
     pub kebabignore: Override,
-    /// Matcher built from `kebab_parse_code::BUILTIN_BLACKLIST` only.
+    /// Matcher built from `crate::code_meta::BUILTIN_BLACKLIST` only.
     pub builtin: Override,
     /// Compiled allow-list from `scope.include`. Empty set = pass all.
     pub include: GlobSet,
@@ -128,7 +128,7 @@ fn build_single_matcher(root: &Path, patterns: &[&str]) -> Result<Override> {
 /// for attribution purposes.
 fn build_builtin_matcher(root: &Path) -> Result<Override> {
     let mut builder = OverrideBuilder::new(root);
-    for pat in kebab_parse_code::BUILTIN_BLACKLIST {
+    for pat in crate::code_meta::BUILTIN_BLACKLIST {
         // Register the original pattern (matches files inside the dir).
         builder
             .add(&format!("!{pat}"))
@@ -158,7 +158,7 @@ fn build_single_matcher_owned(root: &Path, patterns: &[String]) -> Result<Overri
 
 /// Build the merged `WalkOverrides` from all five filter sources, in order:
 /// DEFAULT_EXCLUDES, `config.workspace.exclude`, `.kebabignore`,
-/// built-in safety-net blacklist (`kebab_parse_code::BUILTIN_BLACKLIST`),
+/// built-in safety-net blacklist (`crate::code_meta::BUILTIN_BLACKLIST`),
 /// and `<root>/.gitignore` (root-only, no nested cascade).
 ///
 /// Each input pattern is registered as an *exclude* (gitignore-style: a
@@ -208,7 +208,7 @@ pub(crate) fn build_overrides(
             .add(&format!("!{pat}"))
             .with_context(|| format!("invalid .kebabignore pattern: {pat}"))?;
     }
-    for pat in kebab_parse_code::BUILTIN_BLACKLIST {
+    for pat in crate::code_meta::BUILTIN_BLACKLIST {
         combined_builder
             .add(&format!("!{pat}"))
             .with_context(|| format!("built-in blacklist pattern: {pat}"))?;

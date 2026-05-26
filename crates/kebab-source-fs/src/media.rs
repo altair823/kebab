@@ -14,7 +14,7 @@ use kebab_core::{AudioType, ImageType, MediaType};
 pub(crate) fn media_type_for(path: &Path) -> MediaType {
     // p10-2: code_lang_for_path is the single source of truth for code lang
     // (design §3.5). Delegate before falling back to extension branches.
-    if let Some(lang) = kebab_parse_code::code_lang_for_path(path) {
+    if let Some(lang) = crate::code_meta::code_lang_for_path(path) {
         return MediaType::Code(lang.to_string());
     }
 

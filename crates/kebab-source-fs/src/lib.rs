@@ -8,9 +8,11 @@
 //! normalization), §7.1 (SourceScope), §7.2 (SourceConnector), §8 (module
 //! boundaries).
 
+mod code_meta;
 mod connector;
 mod hash;
 mod media;
 mod walker;
 
+pub use code_meta::BUILTIN_BLACKLIST; // design §5.2 frozen contract — integration test (§5.1) 의 접근 surface.
 pub use connector::{FsScanSkips, FsSourceConnector};

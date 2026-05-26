@@ -33,7 +33,7 @@ pub struct Metadata {
     pub git_commit: Option<String>,
 
     /// p10-1A-1: programming language identifier (lowercase canonical). null
-    /// for markdown / pdf / image. Set by `kebab_parse_code::lang::code_lang_for_path`.
+    /// for markdown / pdf / image. Set by the local-filesystem source connector during ingest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_lang: Option<String>,
 }

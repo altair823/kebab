@@ -1,17 +1,10 @@
 //! `kebab-parse-code` — language-aware parsing for code corpora.
 //!
-//! Phase 1A-1 ships infrastructure only:
+//! Repo metadata (`detect_repo`) + per-language AST extractors (Rust = P10-1A-2, Python/TS/JS = P10-1B, Go = P10-1C-Go, Java+Kotlin = P10-1C-JK, C+C++ = P10-1D).
 //!
-//! - [`lang::code_lang_for_path`] — extension → language identifier.
-//! - [`repo::detect_repo`] — `.git/` walk-up → repo / branch / commit metadata.
-//! - [`skip::is_generated_file`] / [`skip::is_oversized`] — pre-ingest skip
-//!   helpers consulted by `kebab-source-fs`.
-//! - [`skip::BUILTIN_BLACKLIST`] — 6-entry safety-net pattern list.
+//! lang detect (`code_lang_for_path`) + pre-ingest skip helpers (`is_generated_file`, `is_oversized`, `BUILTIN_BLACKLIST`) 는 v0.18.0+ 부터 `kebab-source-fs::code_meta` 로 이동 — refactor 2026-05-26.
 //!
-//! Per-language parser modules (`rust`, `python`, `typescript`, …) land in
-//! later phases (1A-2 onwards). The crate boundary follows other
-//! `kebab-parse-*` crates per design §8: must NOT depend on store / embed
-//! / llm / rag.
+//! 본 crate 의 boundary 는 design §8 — store / embed / llm / rag / UI 의존 금지.
 
 pub mod c;
 pub mod cpp;
@@ -24,7 +17,6 @@ pub mod python;
 pub mod repo;
 pub mod rust;
 pub(crate) mod scaffold;
-pub mod skip;
 pub mod typescript;
 
 pub use c::{PARSER_VERSION as C_PARSER_VERSION, CAstExtractor};
@@ -33,9 +25,8 @@ pub use go::{PARSER_VERSION as GO_PARSER_VERSION, GoAstExtractor};
 pub use java::{PARSER_VERSION as JAVA_PARSER_VERSION, JavaAstExtractor};
 pub use javascript::{PARSER_VERSION as JS_PARSER_VERSION, JavascriptAstExtractor};
 pub use kotlin::{PARSER_VERSION as KOTLIN_PARSER_VERSION, KotlinAstExtractor};
-pub use lang::{code_lang_for_path, module_path_for_python, module_path_for_tsjs};
+pub use lang::{module_path_for_python, module_path_for_tsjs};
 pub use python::{PARSER_VERSION as PYTHON_PARSER_VERSION, PythonAstExtractor};
 pub use repo::{RepoMeta, detect_repo};
 pub use rust::{PARSER_VERSION as RUST_PARSER_VERSION, RustAstExtractor};
-pub use skip::{BUILTIN_BLACKLIST, is_generated_file, is_oversized};
 pub use typescript::{PARSER_VERSION as TS_PARSER_VERSION, TypescriptAstExtractor};
