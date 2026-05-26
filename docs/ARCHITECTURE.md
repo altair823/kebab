@@ -68,6 +68,7 @@ flowchart TB
         llmlocal["kebab-llm-local<br/>(Ollama)"]
         search["kebab-search"]
         rag["kebab-rag"]
+        nli["kebab-nli<br/>(NLI verifier, fb-41)"]
     end
     eval["kebab-eval"]
     config["kebab-config"]
@@ -106,6 +107,9 @@ flowchart TB
     rag --> search
     rag --> llm
     rag --> sqlite
+    rag --> nli
+    app --> nli
+    nli --> config
     search --> sqlite
     search --> vector
     search --> embed
@@ -181,6 +185,7 @@ kebab/
 │   ├── kebab-store-vector/                            # LanceDB VectorStore (P3-3, P7-3 follow-up)
 │   ├── kebab-llm/  kebab-llm-local/                      # LanguageModel trait + Ollama adapter (P4-1, P4-2)
 │   ├── kebab-rag/                                     # RAG pipeline (P4-3)
+│   ├── kebab-nli/                                     # NLI verifier (mDeBERTa-v3 XNLI, fb-41 PR-9a/9b/9c-1)
 │   ├── kebab-eval/                                    # golden query runner + metrics (P5-1, P5-2)
 │   ├── kebab-parse-image/                             # ImageExtractor + Ollama OCR + caption (P6)
 │   ├── kebab-parse-pdf/                               # lopdf per-page text extractor (P7-1)

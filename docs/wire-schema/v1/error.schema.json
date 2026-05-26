@@ -17,14 +17,16 @@
         "timeout",
         "io_error",
         "generic",
-        "multi_hop_decompose_failed"
+        "multi_hop_decompose_failed",
+        "nli_verification_failed",
+        "nli_model_unavailable"
       ]
     },
     "message": { "type": "string" },
     "details": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Per-code free-form context. config_invalid: { path, cause }. not_indexed: { expected, found }. model_unreachable: { endpoint, source }. model_not_pulled: { model }. timeout: { source }. io_error: { kind }. generic: { chain (when --verbose) }. multi_hop_decompose_failed: {} (reserved — currently emitted as Answer.refusal_reason on stdout, NOT as error.v1 on stderr; the enum member is forward-looking for a future RefusalReason → error_wire promotion)."
+      "description": "Per-code free-form context. config_invalid: { path, cause }. not_indexed: { expected, found }. model_unreachable: { endpoint, source }. model_not_pulled: { model }. timeout: { source }. io_error: { kind }. generic: { chain (when --verbose) }. multi_hop_decompose_failed: {} (reserved — currently emitted as Answer.refusal_reason on stdout, NOT as error.v1 on stderr; the enum member is forward-looking for a future RefusalReason → error_wire promotion). nli_verification_failed: {} (p9-fb-41 PR-9c-1 reserved — currently emitted only as Answer.refusal_reason on stdout; forward-looking for future RefusalReason → error_wire promotion). nli_model_unavailable: {} (p9-fb-41 PR-9c-1 reserved — same pattern as nli_verification_failed)."
     },
     "hint": {
       "anyOf": [

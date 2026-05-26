@@ -100,6 +100,12 @@ fn refusal_reason_label(r: &RefusalReason) -> &'static str {
         RefusalReason::NoChunks => "no_chunks",
         RefusalReason::LlmStreamAborted => "llm_stream_aborted",
         RefusalReason::MultiHopDecomposeFailed => "multi_hop_decompose_failed",
+        // p9-fb-41 PR-9c-1: mirror the serde(rename_all="snake_case")
+        // wire form. PR-9c-2 surfaces these on actual answers when
+        // `[rag].nli_threshold > 0`; the labels exist now so the
+        // match stays exhaustive without `_ => unreachable!()`.
+        RefusalReason::NliVerificationFailed => "nli_verification_failed",
+        RefusalReason::NliModelUnavailable => "nli_model_unavailable",
     }
 }
 

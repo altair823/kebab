@@ -144,3 +144,111 @@ fn error_schema_code_enum_includes_multi_hop_decompose_failed() {
         );
     }
 }
+
+// ── p9-fb-41 PR-9c-1: NLI verification surface pins ─────────────────────
+
+/// answer.v1 must declare a `verification` property AND a
+/// `$defs.VerificationSummary` entry with all three required fields.
+/// Guards against accidental schema deletion / typo in future edits.
+#[test]
+fn answer_schema_declares_verification_field_and_defs() {
+    let schema = parse_schema("answer.schema.json");
+    assert!(
+        schema["properties"]["verification"].is_object(),
+        "`verification` property must be declared on answer.v1"
+    );
+    // `verification` allows object-or-null (multi-hop with threshold>0
+    // emits an object; everything else omits the field).
+    let v_any_of = schema["properties"]["verification"]["anyOf"]
+        .as_array()
+        .expect("verification must declare anyOf (object | null)");
+    assert!(
+        v_any_of.iter().any(|v| v["type"] == "null"),
+        "verification anyOf must include null (single-pass / disabled gate omits the field)"
+    );
+    assert!(
+        v_any_of
+            .iter()
+            .any(|v| v["$ref"].as_str() == Some("#/$defs/VerificationSummary")),
+        "verification anyOf must $ref VerificationSummary"
+    );
+
+    // VerificationSummary $defs entry + required fields.
+    let vs = &schema["$defs"]["VerificationSummary"];
+    assert!(
+        vs.is_object(),
+        "$defs.VerificationSummary must be declared so verification.anyOf can $ref it"
+    );
+    let required: Vec<&str> = vs["required"]
+        .as_array()
+        .expect("VerificationSummary.required must be an array")
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    for needed in ["nli_score", "nli_threshold", "nli_passed"] {
+        assert!(
+            required.contains(&needed),
+            "VerificationSummary.required must include {needed:?}, got {required:?}"
+        );
+    }
+}
+
+#[test]
+fn answer_schema_refusal_reason_enum_includes_nli_verification_failed() {
+    let schema = parse_schema("answer.schema.json");
+    let refusal_any_of = schema["properties"]["refusal_reason"]["anyOf"]
+        .as_array()
+        .expect("refusal_reason must declare anyOf");
+    let enum_arr = refusal_any_of
+        .iter()
+        .find_map(|v| v["enum"].as_array())
+        .expect("one of refusal_reason.anyOf entries must declare an enum");
+    let values: Vec<&str> = enum_arr.iter().filter_map(|v| v.as_str()).collect();
+    assert!(
+        values.contains(&"nli_verification_failed"),
+        "refusal_reason enum must include `nli_verification_failed`, got {values:?}"
+    );
+}
+
+#[test]
+fn answer_schema_refusal_reason_enum_includes_nli_model_unavailable() {
+    let schema = parse_schema("answer.schema.json");
+    let refusal_any_of = schema["properties"]["refusal_reason"]["anyOf"]
+        .as_array()
+        .expect("refusal_reason must declare anyOf");
+    let enum_arr = refusal_any_of
+        .iter()
+        .find_map(|v| v["enum"].as_array())
+        .expect("one of refusal_reason.anyOf entries must declare an enum");
+    let values: Vec<&str> = enum_arr.iter().filter_map(|v| v.as_str()).collect();
+    assert!(
+        values.contains(&"nli_model_unavailable"),
+        "refusal_reason enum must include `nli_model_unavailable`, got {values:?}"
+    );
+}
+
+#[test]
+fn error_schema_code_enum_includes_nli_verification_failed() {
+    let schema = parse_schema("error.schema.json");
+    let code_enum = schema["properties"]["code"]["enum"]
+        .as_array()
+        .expect("error.v1 must declare code.enum");
+    let values: Vec<&str> = code_enum.iter().filter_map(|v| v.as_str()).collect();
+    assert!(
+        values.contains(&"nli_verification_failed"),
+        "error.v1 code enum must include forward-looking `nli_verification_failed`, got {values:?}"
+    );
+}
+
+#[test]
+fn error_schema_code_enum_includes_nli_model_unavailable() {
+    let schema = parse_schema("error.schema.json");
+    let code_enum = schema["properties"]["code"]["enum"]
+        .as_array()
+        .expect("error.v1 must declare code.enum");
+    let values: Vec<&str> = code_enum.iter().filter_map(|v| v.as_str()).collect();
+    assert!(
+        values.contains(&"nli_model_unavailable"),
+        "error.v1 code enum must include forward-looking `nli_model_unavailable`, got {values:?}"
+    );
+}
