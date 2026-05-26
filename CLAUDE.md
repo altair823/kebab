@@ -81,7 +81,7 @@ Bump 자체는 단순 minor / patch 한 줄 수정 (`Cargo.toml` workspace `vers
 Release 절차:
 
 1. `gitea-release v<X.Y.Z>` (gitea-ops skill) 으로 tag + push + release notes.
-2. release notes 는 사용자 도그푸딩에 영향 가는 surface 변경 위주 — wire schema 추가, CLI flag 신규, TUI 키 변경, V00X migration 등.
+2. release notes 는 사용자 도그푸딩에 영향이 가는 surface 변경을 위주로 — wire schema 추가, CLI flag 신규, TUI 키 변경, V00X migration 등 — 다룬다. 이때 추가된 기능과 변경사항은 유저가 이해할 수 있도록 친절하고 자세하게 풀어서 설명해야 하며, 단순히 commit subject 를 나열하는 형태로 끝내면 안 된다. 필요하다면 도그푸딩이나 테스트 결과도 함께 적어 둔다.
 3. 프리-1.0 (`0.x.y`) 단계: minor bump 시 wire schema additive / surface 변경 누적, patch bump 시 bug fix only.
 
 **bump 시점 = release 시점 같은 commit**. 즉 commit `chore: bump version 0.x → 0.y` 직후 같은 commit 에 tag. v0.1.0 (`2319206`) 처럼 bump 없이 tag 만 찍는 패턴은 후속 release 가 대상 commit 을 헷갈리게 함 — pre-release snapshot 은 SHA reference 로 충분.

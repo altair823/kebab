@@ -1,6 +1,7 @@
 .superpowers/
 .worktrees/
 .claude/
+.omc/
 /target
 **/*.rs.bk
 Cargo.lock.bak
