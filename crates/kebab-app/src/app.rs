@@ -40,11 +40,18 @@ use anyhow::{Context, Result, anyhow};
 use lru::LruCache;
 
 use kebab_core::{
-    Answer, DocumentStore, Embedder, IndexVersion, LanguageModel, Retriever, SearchHit,
-    SearchMode, SearchOpts, SearchQuery, VectorStore,
+    Answer, DocumentStore, Embedder, ExtractContext, Extractor, IndexVersion, LanguageModel,
+    MediaType, Retriever, SearchHit, SearchMode, SearchOpts, SearchQuery, VectorStore,
 };
 use kebab_embed_local::FastembedEmbedder;
 use kebab_llm_local::OllamaLanguageModel;
+use kebab_parse_code::{
+    CAstExtractor, CppAstExtractor, GoAstExtractor, JavaAstExtractor,
+    JavascriptAstExtractor, KotlinAstExtractor, PythonAstExtractor, RustAstExtractor,
+    TypescriptAstExtractor,
+};
+use kebab_parse_image::ImageExtractor;
+use kebab_parse_pdf::PdfTextExtractor;
 use kebab_rag::{AskOpts, RagPipeline};
 use kebab_search::{HybridRetriever, LexicalRetriever, VectorRetriever};
 use kebab_store_sqlite::SqliteStore;
@@ -115,6 +122,12 @@ pub fn short_query_hint(query_text: &str, hits_empty: bool) -> Option<String> {
 pub struct App {
     pub(crate) config: kebab_config::Config,
     pub(crate) sqlite: Arc<SqliteStore>,
+    /// post-v0.18.0 extractor-dispatch-unification: polymorphic Extractor
+    /// registry. App init 시 1회 등록되어 `extract_for(...)` 가 lookup
+    /// 한다. 현재 11 entry (ImageExtractor + PdfTextExtractor + 9 AST).
+    /// MarkdownExtractor 는 별 PR 에서 추가 — markdown ingest path 는
+    /// 본 PR 에서 free-function 그대로 유지.
+    pub(crate) extractors: Vec<Box<dyn Extractor + Send + Sync>>,
     /// Memoized embedder — built lazily on first `embedder()` call when
     /// embeddings are enabled. `OnceLock` keeps the struct `Sync` and
     /// the build path cold-only-once.
@@ -204,6 +217,25 @@ impl App {
         // `None` (cache disabled — every search hits the retrievers).
         let search_cache = NonZeroUsize::new(config.search.cache_capacity)
             .map(|cap| Mutex::new(LruCache::new(cap)));
+        // post-v0.18.0 extractor-dispatch-unification: build the 11-entry
+        // Extractor registry. All entries are state-less unit structs with
+        // zero-cost `new()`, so init cost is effectively 0 and side effects
+        // are 0 — `pipeline_verifier` fallible `?` below may bail but the
+        // already-constructed `extractors` Vec drops without cost. Markdown
+        // is NOT registered (see field doc).
+        let extractors: Vec<Box<dyn Extractor + Send + Sync>> = vec![
+            Box::new(ImageExtractor::new()),
+            Box::new(PdfTextExtractor::new()),
+            Box::new(RustAstExtractor::new()),
+            Box::new(PythonAstExtractor::new()),
+            Box::new(TypescriptAstExtractor::new()),
+            Box::new(JavascriptAstExtractor::new()),
+            Box::new(GoAstExtractor::new()),
+            Box::new(JavaAstExtractor::new()),
+            Box::new(KotlinAstExtractor::new()),
+            Box::new(CAstExtractor::new()),
+            Box::new(CppAstExtractor::new()),
+        ];
         // p9-fb-41 PR-9c-2: build the NLI verifier when the gate is
         // enabled. App carries it on `RagPipeline` via
         // `with_verifier` so the rag crate doesn't have to know about
@@ -222,12 +254,37 @@ impl App {
         Ok(Self {
             config,
             sqlite: Arc::new(sqlite),
+            extractors,
             embedder: OnceLock::new(),
             vector: OnceLock::new(),
             llm: OnceLock::new(),
             search_cache,
             pipeline_verifier,
         })
+    }
+
+    /// Polymorphic dispatcher for the [`Extractor`] trait. Looks up the
+    /// first Extractor whose `supports(media)` returns true and invokes
+    /// `extract(ctx, bytes)` on it.
+    ///
+    /// Errors with `anyhow!("no Extractor for media_type {media:?}")`
+    /// when no matching Extractor is registered. Callers in
+    /// `ingest_one_*_asset` reach this only after the outer 4-arm
+    /// dispatch (`MediaType::Markdown` / `Image` / `Pdf` / `Code(lang)`)
+    /// has matched, so a miss is a programming error — NOT a user-
+    /// facing skip.
+    pub(crate) fn extract_for(
+        &self,
+        media: &MediaType,
+        ctx: &ExtractContext<'_>,
+        bytes: &[u8],
+    ) -> Result<kebab_core::CanonicalDocument> {
+        let extractor = self
+            .extractors
+            .iter()
+            .find(|e| e.supports(media))
+            .ok_or_else(|| anyhow!("no Extractor for media_type {media:?}"))?;
+        extractor.extract(ctx, bytes)
     }
 
     /// Run a [`SearchQuery`] through the configured retriever stack and
@@ -1155,5 +1212,130 @@ mod tests_trace {
             .search_with_opts(q, opts)
             .expect("lexical-mode trace must succeed without embeddings");
         assert!(resp.trace.is_some(), "trace populated when opts.trace=true");
+    }
+}
+
+/// post-v0.18.0 extractor-dispatch-unification: in-crate unit tests for
+/// the `App.extractors` registry + `App::extract_for` polymorphic
+/// dispatch. In-crate (not `tests/`) because `extractors` + `extract_for`
+/// are `pub(crate)` — integration tests cannot reach them.
+///
+/// Spec §5.1 + plan §2 Step 10 — 3 test class:
+/// 1. registry length = 11 (image + pdf + 9 AST).
+/// 2. mutually-exclusive `supports()` grid over 16 sample MediaTypes.
+/// 3. `extract_for` returns `Err("no Extractor ...")` for registry-NOT-cover
+///    MediaType (Audio).
+#[cfg(test)]
+mod tests_extractor_dispatch {
+    use super::*;
+    use kebab_core::{AudioType, ExtractConfig, ImageType};
+
+    /// helper: tempdir-isolated App for tests (mirrors `tests_trace`'s
+    /// `open_app_with_temp_dir` pattern).
+    fn open_app_with_temp_dir() -> (tempfile::TempDir, App) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = kebab_config::Config::defaults();
+        cfg.storage.data_dir = dir.path().to_string_lossy().into_owned();
+        // Bring up migrations.
+        let store = kebab_store_sqlite::SqliteStore::open(&cfg).unwrap();
+        store.run_migrations().unwrap();
+        drop(store);
+        let app = App::open_with_config(cfg).unwrap();
+        (dir, app)
+    }
+
+    /// Registry length invariant: 11 Extractor (image + pdf + 9 AST).
+    /// Markdown is NOT registered (free-function path — defer to a
+    /// separate PR per spec §3.4).
+    #[test]
+    fn registry_has_eleven_extractors() {
+        let (_dir, app) = open_app_with_temp_dir();
+        assert_eq!(
+            app.extractors.len(),
+            11,
+            "registry must hold 11 Extractors (image + pdf + 9 AST). \
+             markdown 은 별 PR."
+        );
+    }
+
+    /// 11 Extractor 의 `supports()` 가 16 sample MediaType 에 대해
+    /// mutually exclusive — 어떤 두 Extractor 도 동일 MediaType 에
+    /// 대해 true 반환 안 됨.
+    #[test]
+    fn supports_grid_is_mutually_exclusive() {
+        let (_dir, app) = open_app_with_temp_dir();
+        let samples = vec![
+            MediaType::Markdown,
+            MediaType::Pdf,
+            MediaType::Image(ImageType::Png),
+            MediaType::Image(ImageType::Jpeg),
+            MediaType::Code("rust".into()),
+            MediaType::Code("python".into()),
+            MediaType::Code("typescript".into()),
+            MediaType::Code("javascript".into()),
+            MediaType::Code("go".into()),
+            MediaType::Code("java".into()),
+            MediaType::Code("kotlin".into()),
+            MediaType::Code("c".into()),
+            MediaType::Code("cpp".into()),
+            MediaType::Code("yaml".into()),  // registry NOT cover
+            MediaType::Code("shell".into()), // registry NOT cover
+            MediaType::Audio(AudioType::Wav), // registry NOT cover
+        ];
+        for sample in &samples {
+            let hits: Vec<_> = app
+                .extractors
+                .iter()
+                .filter(|e| e.supports(sample))
+                .collect();
+            assert!(
+                hits.len() <= 1,
+                "mutually exclusive violated for {sample:?}: {} hits",
+                hits.len()
+            );
+        }
+    }
+
+    /// `extract_for` 가 registry NOT cover MediaType (Audio) 에 대해
+    /// `Err("no Extractor for media_type ...")` 반환. Audio MediaType
+    /// 사용으로 RawAsset 의 actual content 의존 회피 — registry NOT
+    /// cover → 즉시 Err.
+    #[test]
+    fn extract_for_unsupported_media_errors() {
+        let (_dir, app) = open_app_with_temp_dir();
+
+        // Minimal RawAsset. Actual content never read — Audio MediaType
+        // 는 registry NOT cover → `extract_for` 가 dispatch loop 안에서
+        // 바로 Err 반환. RawAsset field set 은 `crates/kebab-core/src/
+        // asset.rs:62-73` 와 정합 (8 field).
+        let asset = kebab_core::RawAsset {
+            asset_id: kebab_core::AssetId("00".repeat(16)),
+            source_uri: kebab_core::SourceUri::File("/tmp/dummy.wav".into()),
+            workspace_path: kebab_core::WorkspacePath("dummy.wav".to_string()),
+            media_type: MediaType::Audio(AudioType::Wav),
+            byte_len: 0,
+            checksum: kebab_core::Checksum("00".repeat(32)),
+            discovered_at: time::OffsetDateTime::now_utc(),
+            // AssetStorage::Inline 미존재 — actual variant `Copied { path }`
+            // 사용 (kebab-core/src/asset.rs:55-60).
+            stored: kebab_core::AssetStorage::Copied {
+                path: std::path::PathBuf::from("/tmp/dummy.wav"),
+            },
+        };
+
+        let workspace_root: std::path::PathBuf = std::path::PathBuf::from("/tmp");
+        let cfg = ExtractConfig::default();
+        let ctx = ExtractContext {
+            asset: &asset,
+            workspace_root: &workspace_root,
+            config: &cfg,
+        };
+        let result = app.extract_for(&MediaType::Audio(AudioType::Wav), &ctx, &[]);
+        assert!(result.is_err(), "Audio 는 registry 미포함 → Err 기대");
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            err_msg.contains("no Extractor"),
+            "unexpected err: {err_msg}"
+        );
     }
 }
