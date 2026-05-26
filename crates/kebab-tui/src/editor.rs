@@ -54,7 +54,7 @@ pub(crate) fn with_external_program(
     struct Restore<'a> {
         terminal: &'a mut TuiTerminal,
     }
-    impl<'a> Drop for Restore<'a> {
+    impl Drop for Restore<'_> {
         fn drop(&mut self) {
             // Best-effort: errors here would clobber an in-flight
             // panic if propagated. Match the conservative posture in

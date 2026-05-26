@@ -33,7 +33,7 @@ fn fresh_app() -> App {
 fn make_hit(rank: u32, path: &str, snippet: &str, citation: Citation) -> SearchHit {
     SearchHit {
         rank,
-        chunk_id: ChunkId(format!("{:0<32}", rank)),
+        chunk_id: ChunkId(format!("{rank:0<32}")),
         doc_id: DocumentId(format!("{:0<32}", rank * 2)),
         doc_path: WorkspacePath::new(path.into()).unwrap(),
         heading_path: vec!["Section".into(), "Sub".into()],

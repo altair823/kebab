@@ -14,12 +14,10 @@ use common::TestEnv;
 fn require_avx_or_panic() {
     #[cfg(target_arch = "x86_64")]
     {
-        if !std::is_x86_feature_detected!("avx") {
-            panic!(
-                "kb-app vector integration test requires AVX-capable hardware; \
-                 host CPU lacks AVX. Run on an AVX-capable machine."
-            );
-        }
+        assert!(std::is_x86_feature_detected!("avx"), 
+            "kb-app vector integration test requires AVX-capable hardware; \
+             host CPU lacks AVX. Run on an AVX-capable machine."
+        );
     }
 }
 

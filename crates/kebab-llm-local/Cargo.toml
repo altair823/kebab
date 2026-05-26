@@ -34,3 +34,6 @@ anyhow     = { workspace = true }
 # `tokio::*` symbols, so the public/runtime API stays sync.
 wiremock   = { workspace = true }
 tokio      = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

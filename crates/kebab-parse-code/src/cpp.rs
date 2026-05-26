@@ -224,7 +224,7 @@ fn build_blocks_top(
         units.push(("<module>".to_string(), 1, total.max(1), false));
     }
     if !has_real_unit {
-        for (sym, _, _, _) in units.iter_mut() {
+        for (sym, _, _, _) in &mut units {
             if sym == "<top-level>" {
                 *sym = "<module>".to_string();
             }
@@ -243,7 +243,7 @@ fn build_blocks_top(
             lang: Some("cpp".to_string()),
         };
         let block_id = id_for_block(doc_id, "code", &[], ordinal as u32, &span);
-        let code = lines[(line_start as usize - 1)..=(line_end as usize - 1)].join("\n");
+        let code = lines[(line_start as usize - 1)..(line_end as usize)].join("\n");
         blocks.push(Block::Code(CodeBlock {
             common: CommonBlock {
                 block_id,
@@ -696,7 +696,7 @@ mod tests {
 
     #[test]
     fn namespace_and_class() {
-        let src = r#"
+        let src = r"
 namespace ns {
     class Foo {
     public:
@@ -706,7 +706,7 @@ namespace ns {
         int operator+(const Foo& o) { return 0; }
     };
 }
-"#;
+";
         let doc = tests_support::extract_cpp(src, "x/foo.cpp");
         let s = syms(&doc);
         assert!(s.iter().any(|x| x == "ns::Foo"), "ns::Foo missing: {s:?}");
@@ -718,11 +718,11 @@ namespace ns {
 
     #[test]
     fn anonymous_namespace() {
-        let src = r#"
+        let src = r"
 namespace {
     void hidden_fn() {}
 }
-"#;
+";
         let doc = tests_support::extract_cpp(src, "x/foo.cpp");
         let s = syms(&doc);
         assert!(
@@ -733,11 +733,11 @@ namespace {
 
     #[test]
     fn nested_namespace_specifier() {
-        let src = r#"
+        let src = r"
 namespace outer::inner {
     void fn_in_nested() {}
 }
-"#;
+";
         let doc = tests_support::extract_cpp(src, "x/foo.cpp");
         let s = syms(&doc);
         assert!(
@@ -748,9 +748,9 @@ namespace outer::inner {
 
     #[test]
     fn out_of_class_method_def() {
-        let src = r#"
+        let src = r"
 void ns::Foo::method() { }
-"#;
+";
         let doc = tests_support::extract_cpp(src, "x/foo.cpp");
         let s = syms(&doc);
         assert!(
@@ -761,7 +761,7 @@ void ns::Foo::method() { }
 
     #[test]
     fn template_declaration() {
-        let src = r#"
+        let src = r"
 template<typename T>
 class Bar {
     void tmpl_method() {}
@@ -769,7 +769,7 @@ class Bar {
 
 template<typename T>
 void tmpl_free_fn(T x) {}
-"#;
+";
         let doc = tests_support::extract_cpp(src, "x/foo.cpp");
         let s = syms(&doc);
         assert!(s.iter().any(|x| x == "Bar"), "Bar class missing: {s:?}");
@@ -785,12 +785,12 @@ void tmpl_free_fn(T x) {}
 
     #[test]
     fn enum_and_concept() {
-        let src = r#"
+        let src = r"
 enum class Color { Red, Green };
 
 template<typename T>
 concept Printable = requires(T t) { t.print(); };
-"#;
+";
         let doc = tests_support::extract_cpp(src, "x/foo.cpp");
         let s = syms(&doc);
         assert!(s.iter().any(|x| x == "Color"), "Color missing: {s:?}");
@@ -813,11 +813,11 @@ extern "C" {
 
     #[test]
     fn conversion_operator() {
-        let src = r#"
+        let src = r"
 class Foo {
     operator bool() const { return true; }
 };
-"#;
+";
         let doc = tests_support::extract_cpp(src, "x/foo.cpp");
         let s = syms(&doc);
         assert!(
@@ -852,11 +852,11 @@ class Foo {
 
     #[test]
     fn ref_returning_operator() {
-        let src = r#"
+        let src = r"
 class Foo {
     Foo& operator=(const Foo& o) { return *this; }
 };
-"#;
+";
         let doc = tests_support::extract_cpp(src, "x/foo.cpp");
         let s = syms(&doc);
         assert!(
@@ -867,14 +867,14 @@ class Foo {
 
     #[test]
     fn deterministic_across_runs() {
-        let src = r#"
+        let src = r"
 namespace ns {
     class Foo {
         void method() {}
     };
 }
 void free_fn() {}
-"#;
+";
         let a = tests_support::extract_cpp(src, "x/foo.cpp");
         for _ in 0..20 {
             assert_eq!(tests_support::extract_cpp(src, "x/foo.cpp").blocks, a.blocks);

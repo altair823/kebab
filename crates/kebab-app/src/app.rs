@@ -293,7 +293,7 @@ impl App {
         // so other in-flight searches can use the cache concurrently.
         drop(guard);
         let hits = self.search_uncached(query)?;
-        let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.put(key, hits.clone());
         Ok(hits)
     }
@@ -467,7 +467,7 @@ impl App {
 
             // Snippet truncation if opts.snippet_chars set (mirror non-trace path).
             if opts.snippet_chars.is_some() {
-                for h in hits.iter_mut() {
+                for h in &mut hits {
                     if h.snippet.chars().count() > snippet_chars {
                         h.snippet = trim_to_chars(&h.snippet, snippet_chars);
                     }
@@ -502,7 +502,7 @@ impl App {
         // `config.search.snippet_chars`; this only kicks in when the
         // caller asked for *less*).
         if opts.snippet_chars.is_some() {
-            for h in hits.iter_mut() {
+            for h in &mut hits {
                 if h.snippet.chars().count() > snippet_chars {
                     h.snippet = trim_to_chars(&h.snippet, snippet_chars);
                 }
@@ -521,7 +521,7 @@ impl App {
             {
                 current_snippet_cap =
                     (current_snippet_cap / 2).max(SNIPPET_FLOOR);
-                for h in hits.iter_mut() {
+                for h in &mut hits {
                     if h.snippet.chars().count() > current_snippet_cap {
                         h.snippet =
                             trim_to_chars(&h.snippet, current_snippet_cap);
@@ -868,7 +868,7 @@ impl App {
     /// clear` admin command). No-op when the cache is disabled.
     pub fn clear_search_cache(&self) {
         if let Some(cache) = self.search_cache.as_ref() {
-            let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+            let mut guard = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             guard.clear();
         }
     }

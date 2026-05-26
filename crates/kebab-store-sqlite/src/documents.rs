@@ -270,12 +270,12 @@ impl kebab_core::DocumentStore for SqliteStore {
     ) -> Result<Option<kebab_core::RawAsset>> {
         let conn = self.lock_conn();
         let result = conn.query_row(
-            r#"SELECT
+            r"SELECT
                 asset_id, source_uri, workspace_path, media_type,
                 byte_len, checksum, storage_kind, storage_path,
                 discovered_at
             FROM assets
-            WHERE asset_id = ?"#,
+            WHERE asset_id = ?",
             rusqlite::params![id.0.as_str()],
             asset_from_row,
         );
@@ -292,12 +292,12 @@ impl kebab_core::DocumentStore for SqliteStore {
     ) -> Result<Option<kebab_core::RawAsset>> {
         let conn = self.lock_conn();
         let result = conn.query_row(
-            r#"SELECT
+            r"SELECT
                 asset_id, source_uri, workspace_path, media_type,
                 byte_len, checksum, storage_kind, storage_path,
                 discovered_at
             FROM assets
-            WHERE workspace_path = ?"#,
+            WHERE workspace_path = ?",
             rusqlite::params![path.0.as_str()],
             asset_from_row,
         );
@@ -456,7 +456,7 @@ impl kebab_core::DocumentStore for SqliteStore {
         let mut stmt = conn.prepare(&sql).map_err(StoreError::from)?;
         let rows = stmt
             .query_map(
-                rusqlite::params_from_iter(params_dyn.iter().map(|b| b.as_ref())),
+                rusqlite::params_from_iter(params_dyn.iter().map(std::convert::AsRef::as_ref)),
                 doc_summary_from_sql,
             )
             .map_err(StoreError::from)?;
@@ -774,8 +774,8 @@ fn upsert_document(
             source_type,
             trust_level,
             doc.parser_version.0,
-            doc.doc_version as i64,
-            doc.schema_version as i64,
+            i64::from(doc.doc_version),
+            i64::from(doc.schema_version),
             metadata_json,
             provenance_json,
             created_at,

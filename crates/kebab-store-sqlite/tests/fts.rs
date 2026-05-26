@@ -86,7 +86,7 @@ fn fts_v002_backfills_existing_chunks() {
     //    on a customer DB upgrading from P1 to P2-1).
     const N: usize = 4;
     for i in 0..N {
-        let cid = format!("{:0>32}", i);
+        let cid = format!("{i:0>32}");
         insert_chunk(
             &conn,
             &cid,
@@ -112,7 +112,7 @@ fn fts_v002_backfills_existing_chunks() {
         "V002 backfill INSERT must seed one chunks_fts row per chunks row"
     );
     for i in 0..N {
-        let cid = format!("{:0>32}", i);
+        let cid = format!("{i:0>32}");
         let term = format!("seedrow{i}");
         let hit: String = conn
             .query_row(
@@ -137,7 +137,7 @@ fn fts_v002_backfill_select_matches_chunks_count() {
 
     let conn = raw_conn_no_fk(&env);
     for i in 0..5 {
-        let cid = format!("{:0>32}", i);
+        let cid = format!("{i:0>32}");
         insert_chunk(&conn, &cid, &"d".repeat(32), "[]", &format!("row {i}"));
     }
     // Wipe + run the literal V002 backfill INSERT.
@@ -250,7 +250,7 @@ fn fts_rebuild_chunks_fts_is_idempotent() {
 
     let conn = raw_conn_no_fk(&env);
     for i in 0..3 {
-        let cid = format!("{:0>32}", i);
+        let cid = format!("{i:0>32}");
         insert_chunk(&conn, &cid, &"d".repeat(32), "[]", &format!("token{i}"));
     }
     let before = count(&conn, "chunks_fts");
@@ -396,8 +396,7 @@ fn extract_migration_5_5_verbatim_block() -> String {
     // Walk back from the close marker to the start of its comment line.
     let close_line_start = migration[..close_idx]
         .rfind('\n')
-        .map(|n| n + 1)
-        .unwrap_or(0);
+        .map_or(0, |n| n + 1);
 
     migration[after_open_line..close_line_start].to_string()
 }

@@ -388,7 +388,7 @@ async fn ocr_integration_real_ollama_transcribes_text() {
         .expect("blocking task panicked")
         .expect("real Ollama OCR must succeed");
     eprintln!("integration OCR result: {:?}", text.joined);
-    let normalized = text.joined.to_lowercase().replace(",", "").replace(".", "");
+    let normalized = text.joined.to_lowercase().replace(',', "").replace('.', "");
     assert!(
         normalized.contains("hello") && normalized.contains("world"),
         "integration OCR did not capture expected text: {:?}",

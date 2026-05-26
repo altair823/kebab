@@ -27,3 +27,6 @@ tree-sitter-cpp        = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+
+[lints]
+workspace = true

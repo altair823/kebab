@@ -50,3 +50,6 @@ tempfile     = { workspace = true }
 # to simulate stale docs. `time` is the formatter used by the helper.
 rusqlite     = { workspace = true }
 time         = { workspace = true }
+
+[lints]
+workspace = true

@@ -53,3 +53,6 @@ serde_json      = { workspace = true }
 # touch rusqlite directly (P3-3 spec: kb-store-vector must not list
 # rusqlite/globset as direct deps).
 rusqlite        = { workspace = true }
+
+[lints]
+workspace = true

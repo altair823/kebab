@@ -25,3 +25,6 @@ tracing                   = { workspace = true }
 # default scope, excluding dev-deps) confirms this.
 kebab-parse-md = { path = "../kebab-parse-md" }
 serde_json  = { workspace = true }
+
+[lints]
+workspace = true

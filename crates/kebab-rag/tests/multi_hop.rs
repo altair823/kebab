@@ -68,7 +68,7 @@ fn multi_hop_decide_stop_triggers_synthesize() {
     // Three LLM calls in order: decompose → decide → synthesize.
     let lm = Arc::new(ScriptedLm::new(vec![
         r#"["q1"]"#,
-        r#"[]"#,
+        r"[]",
         "answer body [#1]",
     ]));
     let lm_handle = lm.clone();
@@ -131,7 +131,7 @@ fn multi_hop_decide_continue_adds_more_chunks() {
     let lm = Arc::new(ScriptedLm::new(vec![
         r#"["q1"]"#,
         r#"["q2"]"#,
-        r#"[]"#,
+        r"[]",
         "synthesized [#1] [#2]",
     ]));
     let lm_handle = lm.clone();
@@ -255,7 +255,7 @@ fn multi_hop_pool_chunks_dedup_by_chunk_id() {
 
     let lm = Arc::new(ScriptedLm::new(vec![
         r#"["q1", "q2"]"#,
-        r#"[]"#,
+        r"[]",
         "merged answer [#1]",
     ]));
     let lm_handle = lm.clone();
@@ -444,7 +444,7 @@ fn multi_hop_refuse_score_gate_preserves_hops_trace() {
     // never runs because we refuse before pack_context.
     let lm = Arc::new(ScriptedLm::new(vec![
         r#"["q1"]"#,
-        r#"[]"#,
+        r"[]",
     ]));
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
@@ -594,7 +594,7 @@ fn multi_hop_above_probe_gate_proceeds_to_decompose() {
 
     let lm = Arc::new(ScriptedLm::new(vec![
         r#"["q1"]"#,
-        r#"[]"#,
+        r"[]",
         "answer [#1]",
     ]));
     let lm_handle = lm.clone();
@@ -631,7 +631,7 @@ fn multi_hop_above_probe_gate_proceeds_to_decompose() {
 //    `Answer.verification` stays `None` (no verifier attached).
 // 4. `multi_hop_nli_model_unavailable_refuses` — verifier returns `Err` →
 //    refusal with `RefusalReason::NliModelUnavailable` + `verification = None`.
-// 5. `multi_hop_truncate_for_nli_preserves_hypothesis` — pure unit test on
+// 5. `multi_hop_truncate_for_nli_char_budget` — pure unit test on
 //    `truncate_for_nli`'s char-budget contract.
 
 /// Helper to build a "valid multi-hop happy-path" scenario where probe +
@@ -649,7 +649,7 @@ fn happy_multi_hop_env() -> (RagEnv, Arc<ScriptedRetriever>, Arc<ScriptedLm>) {
     let retriever = Arc::new(ScriptedRetriever::new(vec![hits.clone(), hits]));
     let lm = Arc::new(ScriptedLm::new(vec![
         r#"["q1"]"#,
-        r#"[]"#,
+        r"[]",
         "answer body [#1]",
     ]));
     (env, retriever, lm)
@@ -775,12 +775,11 @@ fn multi_hop_nli_model_unavailable_refuses() {
 }
 
 #[test]
-fn multi_hop_truncate_for_nli_preserves_hypothesis() {
-    // Long premise (>1600 chars) gets truncated, short hypothesis is
-    // passed unchanged (signature placeholder for v0.18.1 token-budget
-    // version). MAX_NLI_PREMISE_CHARS = 4 * 400 = 1600.
+fn multi_hop_truncate_for_nli_char_budget() {
+    // Long premise (>1600 chars) gets truncated.
+    // MAX_NLI_PREMISE_CHARS = 4 * 400 = 1600.
     let long_premise: String = "a".repeat(2000);
-    let (truncated, was_truncated) = truncate_for_nli(&long_premise, "short hypothesis");
+    let (truncated, was_truncated) = truncate_for_nli(&long_premise);
     assert!(was_truncated);
     assert_eq!(
         truncated.chars().count(),
@@ -790,20 +789,20 @@ fn multi_hop_truncate_for_nli_preserves_hypothesis() {
 
     // Short premise (under budget): no truncation, `was_truncated = false`.
     let short_premise = "short premise text";
-    let (passthrough, was_truncated) = truncate_for_nli(short_premise, "anything");
+    let (passthrough, was_truncated) = truncate_for_nli(short_premise);
     assert!(!was_truncated);
     assert_eq!(passthrough, short_premise);
 
     // Multi-byte safety: 1600 Korean chars (3 bytes each in UTF-8) fits
     // within the char budget even though byte length exceeds 4800.
     let kr_short: String = "가".repeat(1600);
-    let (passthrough_kr, was_truncated_kr) = truncate_for_nli(&kr_short, "h");
+    let (passthrough_kr, was_truncated_kr) = truncate_for_nli(&kr_short);
     assert!(!was_truncated_kr, "1600 KR chars == budget, no truncation");
     assert_eq!(passthrough_kr.chars().count(), 1600);
 
     // Multi-byte over-budget: truncation must count chars, not bytes.
     let kr_long: String = "가".repeat(2000);
-    let (truncated_kr, was_truncated_kr) = truncate_for_nli(&kr_long, "h");
+    let (truncated_kr, was_truncated_kr) = truncate_for_nli(&kr_long);
     assert!(was_truncated_kr);
     assert_eq!(
         truncated_kr.chars().count(),

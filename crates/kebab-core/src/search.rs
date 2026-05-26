@@ -471,7 +471,7 @@ mod tests {
             doc_path: WorkspacePath("a.md".into()),
             heading_path: vec![],
             section_label: None,
-            snippet: "".into(),
+            snippet: String::new(),
             citation: Citation::Line {
                 path: WorkspacePath("a.md".into()),
                 start: 1,
@@ -502,7 +502,7 @@ mod tests {
             doc_path: WorkspacePath("a.rs".into()),
             heading_path: vec![],
             section_label: None,
-            snippet: "".into(),
+            snippet: String::new(),
             citation: Citation::Code {
                 path: WorkspacePath("a.rs".into()),
                 line_start: 1,

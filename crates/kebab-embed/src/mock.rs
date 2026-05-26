@@ -132,10 +132,10 @@ impl Embedder for MockEmbedder {
                 .collect();
 
             // L2-normalize. Skip the rare all-zero case to avoid 0/0 = NaN.
-            let norm_sq: f64 = v.iter().map(|&x| (x as f64) * (x as f64)).sum();
+            let norm_sq: f64 = v.iter().map(|&x| f64::from(x) * f64::from(x)).sum();
             if norm_sq > 0.0 {
                 let inv = (1.0 / norm_sq.sqrt()) as f32;
-                for x in v.iter_mut() {
+                for x in &mut v {
                     *x *= inv;
                 }
             }

@@ -457,7 +457,7 @@ fn run_query(
         .prepare(&sql)
         .context("kb-search lexical: prepare FTS5 statement")?;
     let rows = stmt
-        .query_map(params_from_iter(params.iter().map(|b| b.as_ref())), row_from_sql)
+        .query_map(params_from_iter(params.iter().map(std::convert::AsRef::as_ref)), row_from_sql)
         .context("kb-search lexical: execute FTS5 query")?;
     let mut out: Vec<RawRow> = Vec::new();
     for r in rows {

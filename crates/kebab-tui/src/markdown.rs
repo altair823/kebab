@@ -221,7 +221,7 @@ pub fn render(text: &str, theme: &Theme) -> Vec<Line<'static>> {
                 // Render as `[^label]` so the footnote anchor is
                 // visible in the answer body.
                 current.push(Span::styled(
-                    format!("[^{}]", label),
+                    format!("[^{label}]"),
                     theme.style(Role::CitationMarker),
                 ));
             }
@@ -463,13 +463,13 @@ mod tests {
     #[test]
     fn inline_and_display_math_render_as_text() {
         let inline = render("see $E = mc^2$ here", &theme());
-        let combined: String = inline.iter().map(line_text).collect::<Vec<_>>().join("");
+        let combined: String = inline.iter().map(line_text).collect::<String>();
         assert!(
             combined.contains("E = mc^2"),
             "inline math content dropped: {combined:?}"
         );
         let display = render("$$\\sum_i x_i$$", &theme());
-        let combined: String = display.iter().map(line_text).collect::<Vec<_>>().join("");
+        let combined: String = display.iter().map(line_text).collect::<String>();
         assert!(
             combined.contains("\\sum_i x_i") || combined.contains("sum_i x_i"),
             "display math content dropped: {combined:?}"
@@ -589,7 +589,7 @@ mod tests {
     #[test]
     fn unterminated_bold_does_not_drop_content() {
         let lines = render("**still typing", &theme());
-        let combined: String = lines.iter().map(line_text).collect::<Vec<_>>().join("");
+        let combined: String = lines.iter().map(line_text).collect::<String>();
         assert!(
             combined.contains("still typing"),
             "stream-mid output dropped content text: {combined:?}"

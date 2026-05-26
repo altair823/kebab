@@ -142,7 +142,7 @@ fn splice_exif_into_jpeg(exif_blob: Vec<u8>) -> Vec<u8> {
     // + exif_blob.len(). Pre-validated against the 0xFFFF segment limit.
     let app1_payload_len = 2 + 6 + exif_blob.len();
     assert!(
-        app1_payload_len <= u16::MAX as usize,
+        u16::try_from(app1_payload_len).is_ok(),
         "EXIF segment too large for a single APP1"
     );
     out.extend_from_slice(&(app1_payload_len as u16).to_be_bytes());

@@ -27,3 +27,6 @@ kebab-core   = { path = "../kebab-core" }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+
+[lints]
+workspace = true

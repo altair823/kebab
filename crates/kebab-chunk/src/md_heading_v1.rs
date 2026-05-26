@@ -387,9 +387,7 @@ fn render_block_text(b: &Block) -> String {
         // alt keeps lexical search hits on filenames working even when
         // P6-1's filename auto-fill is bypassed.
         Block::ImageRef(i) => {
-            let alt = if !i.alt.is_empty() {
-                i.alt.clone()
-            } else {
+            let alt = if i.alt.is_empty() {
                 // P6-1 falls back to filename so this branch is
                 // defensive — keep it lest a future test fixture or
                 // synthetic block path skip the auto-fill.
@@ -399,17 +397,17 @@ fn render_block_text(b: &Block) -> String {
                     .filter(|s| !s.is_empty())
                     .unwrap_or("[image]")
                     .to_string()
+            } else {
+                i.alt.clone()
             };
             let ocr = i
                 .ocr
                 .as_ref()
-                .map(|o| o.joined.as_str())
-                .unwrap_or("");
+                .map_or("", |o| o.joined.as_str());
             let cap = i
                 .caption
                 .as_ref()
-                .map(|c| c.text.as_str())
-                .unwrap_or("");
+                .map_or("", |c| c.text.as_str());
             [alt.as_str(), ocr, cap]
                 .iter()
                 .filter(|s| !s.is_empty())

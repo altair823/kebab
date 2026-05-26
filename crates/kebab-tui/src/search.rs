@@ -239,16 +239,13 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
                 trace: true,
                 ..Default::default()
             };
-            match kebab_app::search_with_opts_with_config(state.config.clone(), q, opts) {
-                Ok(resp) => {
-                    if let Some(t) = resp.trace {
-                        state.trace_popup = Some(crate::trace_popup::TracePopupState::new(t));
-                    }
+            if let Ok(resp) = kebab_app::search_with_opts_with_config(state.config.clone(), q, opts) {
+                if let Some(t) = resp.trace {
+                    state.trace_popup = Some(crate::trace_popup::TracePopupState::new(t));
                 }
-                Err(_) => {
-                    // Silent failure — trace is debug-only; user
-                    // can still see search hits without it.
-                }
+            } else {
+                // Silent failure — trace is debug-only; user
+                // can still see search hits without it.
             }
         }
         return KeyOutcome::Continue;
@@ -481,9 +478,7 @@ pub fn build_jump_command(
     let mut args = leading_args;
 
     let editor_basename = std::path::Path::new(&program)
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| program.clone());
+        .file_name().map_or_else(|| program.clone(), |s| s.to_string_lossy().into_owned());
 
     match citation {
         Citation::Line { start, .. } => {
@@ -700,7 +695,7 @@ pub fn poll_worker(state: &mut App) {
                     // input has drifted since spawn, the gen-check
                     // already returned early.
                     let q_text =
-                        s.last_query.as_ref().map(|(t, _)| t.as_str()).unwrap_or("");
+                        s.last_query.as_ref().map_or("", |(t, _)| t.as_str());
                     s.short_query_hint =
                         kebab_app::short_query_hint(q_text, hits.is_empty());
                     s.hits = hits;

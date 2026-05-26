@@ -37,12 +37,10 @@ use tempfile::TempDir;
 pub fn require_avx_or_panic() {
     #[cfg(target_arch = "x86_64")]
     {
-        if !std::is_x86_feature_detected!("avx") {
-            panic!(
-                "kb-search hybrid integration test requires AVX-capable hardware; \
-                 host CPU lacks AVX. Run on an AVX-capable machine."
-            );
-        }
+        assert!(std::is_x86_feature_detected!("avx"), 
+            "kb-search hybrid integration test requires AVX-capable hardware; \
+             host CPU lacks AVX. Run on an AVX-capable machine."
+        );
     }
 }
 
@@ -285,7 +283,7 @@ impl HybridEnv {
             vector,
             doc_id: DocumentId(doc_id.to_string()),
             text: text.to_string(),
-            heading_path: heading_path.iter().map(|s| s.to_string()).collect(),
+            heading_path: heading_path.iter().map(std::string::ToString::to_string).collect(),
             model_id: EmbeddingModelId(TEST_MODEL_ID.to_string()),
             model_version: EmbeddingVersion("v1".to_string()),
             dimensions: TEST_DIMENSIONS,

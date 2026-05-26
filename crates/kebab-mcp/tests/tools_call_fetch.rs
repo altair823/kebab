@@ -98,8 +98,7 @@ async fn fetch_tool_chunk_returns_fetch_result_v1() {
 
     assert!(
         !result.is_error.unwrap_or(false),
-        "expected isError=false, got {:?}",
-        result
+        "expected isError=false, got {result:?}"
     );
 
     let content = result
@@ -123,7 +122,7 @@ async fn fetch_tool_chunk_returns_fetch_result_v1() {
         "kind must be 'chunk'"
     );
     assert!(
-        v.get("chunk").is_some_and(|c| c.is_object()),
+        v.get("chunk").is_some_and(serde_json::Value::is_object),
         "chunk payload must be populated for kind=chunk"
     );
 }

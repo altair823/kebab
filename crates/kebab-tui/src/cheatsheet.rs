@@ -140,7 +140,7 @@ fn push_section(
     for (key, desc) in keys {
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(format!("{:<18}", key), theme.style(Role::CitationMarker)),
+            Span::styled(format!("{key:<18}"), theme.style(Role::CitationMarker)),
             Span::raw("  "),
             Span::raw(desc.to_string()),
         ]));

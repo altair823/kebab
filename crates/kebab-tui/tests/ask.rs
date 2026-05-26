@@ -1073,7 +1073,7 @@ fn input_pane_omits_multi_hop_badge_when_toggled_off() {
         rendered.contains("F2=multi-hop"),
         "title binding hint must always be visible; got:\n{rendered}"
     );
-    let prompt_row = rendered.lines().find(|l| l.contains("?")).unwrap_or("");
+    let prompt_row = rendered.lines().find(|l| l.contains('?')).unwrap_or("");
     assert!(
         !prompt_row.contains("multi-hop"),
         "the badge belongs on the prompt row only when toggled on; got row:\n{prompt_row}"

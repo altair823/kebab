@@ -49,8 +49,7 @@ async fn schema_tool_returns_schema_v1_json() {
 
     assert!(
         !result.is_error.unwrap_or(false),
-        "expected isError=false on healthy schema, got {:?}",
-        result
+        "expected isError=false on healthy schema, got {result:?}"
     );
 
     let content = result.content.first().expect("expected at least one content item");
@@ -68,7 +67,7 @@ async fn schema_tool_returns_schema_v1_json() {
         "unexpected schema_version in: {v}"
     );
     assert_eq!(
-        v.get("capabilities").and_then(|c| c.get("mcp_server")).and_then(|b| b.as_bool()),
+        v.get("capabilities").and_then(|c| c.get("mcp_server")).and_then(serde_json::Value::as_bool),
         Some(true),
         "mcp_server capability flag should be true after fb-30",
     );

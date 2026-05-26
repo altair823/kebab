@@ -50,7 +50,7 @@ pub fn ensure_kebabignore_entry(workspace_root: &Path) -> Result<()> {
     if !existing.is_empty() && !existing.ends_with('\n') {
         file.write_all(b"\n")?;
     }
-    writeln!(file, "{}", KEBABIGNORE_LINE)?;
+    writeln!(file, "{KEBABIGNORE_LINE}")?;
     Ok(())
 }
 

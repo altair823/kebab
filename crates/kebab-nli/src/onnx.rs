@@ -1,6 +1,6 @@
 //! ONNX-backed `NliVerifier` adapter (mDeBERTa-v3 XNLI).
 //!
-//! PR-9b: real implementation. `new` resolves the cache directory from
+//! `new` resolves the cache directory from
 //! `config.storage.model_dir/nli/<sanitized-model-id>/` (matching the
 //! fastembed adapter's pattern of `model_dir/fastembed/`) and stamps it
 //! on `self`. The (potentially network-bound) model + tokenizer download
@@ -10,9 +10,9 @@
 //! a model load on every CLI invocation.
 //!
 //! Per design §2.2.2 (Lazy init), §2.2.3 (truncation = `OnlyFirst`,
-//! premise truncates, hypothesis preserved). PR-9c-1 will wire the
-//! `[models.nli]` config section; until then the model id is hard-coded
-//! to the Xenova mDeBERTa-v3 XNLI multilingual checkpoint.
+//! premise truncates, hypothesis preserved). The model id flows from
+//! `config.models.nli.model`; `config.models.nli.provider` selects the
+//! verifier impl (only `"onnx"` is implemented in v0.18).
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -26,14 +26,10 @@ use tokenizers::{
 
 use crate::{NliScores, NliVerifier};
 
-/// Default HuggingFace model id for the XNLI verifier. PR-9c-1 will
-/// replace this constant with a `config.models.nli.model` lookup once
-/// the `NliCfg` section lands. The Xenova repo packages the
-/// mDeBERTa-v3-base XNLI multilingual checkpoint as ONNX under the
-/// `onnx/model.onnx` path; the tokenizer ships at `tokenizer.json`.
-const DEFAULT_MODEL_ID: &str = "Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7";
-
-/// Filename inside the HF repo (NOT a path on disk).
+/// Filename inside the HF repo (NOT a path on disk). The Xenova repo
+/// packages the mDeBERTa-v3-base XNLI multilingual checkpoint (the
+/// default `config.models.nli.model` — see `kebab-config::NliCfg::defaults`)
+/// as ONNX under this path; the tokenizer ships at `tokenizer.json`.
 const HF_MODEL_FILE: &str = "onnx/model.onnx";
 /// Filename inside the HF repo (NOT a path on disk).
 const HF_TOKENIZER_FILE: &str = "tokenizer.json";
@@ -75,9 +71,19 @@ impl OnnxNliVerifier {
     /// and runs `create_dir_all` so the first `score` call can drop
     /// straight into download + load without re-deriving paths.
     ///
-    /// PR-9c-1 will swap `DEFAULT_MODEL_ID` for `config.models.nli.model`.
+    /// Reads `config.models.nli.model` for the HuggingFace model id
+    /// and `config.models.nli.provider` to select the verifier impl —
+    /// only `"onnx"` is implemented in v0.18. The defaults live in
+    /// `kebab-config::NliCfg::defaults` so this path always receives
+    /// a non-empty model id.
     pub fn new(config: &kebab_config::Config) -> Result<Self> {
-        let model_id = DEFAULT_MODEL_ID.to_string();
+        let provider = config.models.nli.provider.as_str();
+        if provider != "onnx" {
+            anyhow::bail!(
+                "kebab-nli: unsupported provider {provider:?} (only 'onnx' is implemented in v0.18)"
+            );
+        }
+        let model_id = config.models.nli.model.clone();
 
         // Match kebab-embed-local's two-step expansion: data_dir first,
         // then model_dir with `{data_dir}` substituted in.
@@ -235,11 +241,11 @@ impl NliVerifier for OnnxNliVerifier {
             .encode((premise, hypothesis), true)
             .map_err(|e| anyhow!("kebab-nli: tokenizer.encode failed: {e}"))?;
 
-        let ids: Vec<i64> = enc.get_ids().iter().map(|&u| u as i64).collect();
+        let ids: Vec<i64> = enc.get_ids().iter().map(|&u| i64::from(u)).collect();
         let mask: Vec<i64> = enc
             .get_attention_mask()
             .iter()
-            .map(|&u| u as i64)
+            .map(|&u| i64::from(u))
             .collect();
         let seq_len = ids.len();
 
@@ -266,8 +272,7 @@ impl NliVerifier for OnnxNliVerifier {
         let shape = logits.shape();
         if shape != [1, LOGITS_LEN] {
             anyhow::bail!(
-                "kebab-nli: unexpected logits shape {:?}, expected [1, {LOGITS_LEN}]",
-                shape
+                "kebab-nli: unexpected logits shape {shape:?}, expected [1, {LOGITS_LEN}]"
             );
         }
         let l = [logits[[0, 0]], logits[[0, 1]], logits[[0, 2]]];
@@ -329,5 +334,75 @@ mod tests {
             err.to_string().contains("empty hypothesis"),
             "unexpected error message: {err}"
         );
+    }
+
+    /// Pins that `config.models.nli.model` flows into `OnnxNliVerifier`
+    /// instead of being silently overridden by a hardcoded constant.
+    /// `model_id` is a private field, but this test lives in the same
+    /// module so it can read it directly — the wiring contract is
+    /// "whatever the user puts in TOML / KEBAB_MODELS_NLI_MODEL is the
+    /// id the verifier uses".
+    #[test]
+    fn new_uses_config_model_id() {
+        let (_tmp, mut cfg) = tempdir_config();
+        cfg.models.nli.model = "custom-org/custom-nli-model".to_string();
+        let v = OnnxNliVerifier::new(&cfg).expect("new should succeed with custom model id");
+        assert_eq!(v.model_id, "custom-org/custom-nli-model");
+        // The custom id also flows into the on-disk cache_dir layout
+        // (sanitized so `/` doesn't escape the namespace).
+        let s = v.cache_dir.to_string_lossy();
+        assert!(
+            s.contains("custom-org_custom-nli-model"),
+            "cache_dir should embed sanitized custom model id: {s}"
+        );
+    }
+
+    /// Pins that a non-`"onnx"` provider value errors out at `new` —
+    /// the field is no longer silently ignored.
+    #[test]
+    fn new_rejects_unsupported_provider() {
+        let (_tmp, mut cfg) = tempdir_config();
+        cfg.models.nli.provider = "candle".to_string();
+        let result = OnnxNliVerifier::new(&cfg);
+        assert!(result.is_err(), "non-onnx provider must error");
+        let msg = result.err().unwrap().to_string();
+        assert!(
+            msg.contains("unsupported provider") && msg.contains("candle"),
+            "error should name the rejected provider: {msg}"
+        );
+    }
+
+    // ── sanitize_model_id pure-fn coverage ────────────────────────────────
+    //
+    // Three tests pin the behavior of the private `sanitize_model_id`
+    // helper. These are orthogonal to the H1 executor tests above
+    // (which cover config-wiring); these cover the transformation
+    // contract of the sanitizer itself.
+
+    #[test]
+    fn sanitize_model_id_replaces_slash_with_underscore() {
+        let input = "Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7";
+        let expected = "Xenova_mDeBERTa-v3-base-xnli-multilingual-nli-2mil7";
+        assert_eq!(sanitize_model_id(input), expected);
+    }
+
+    #[test]
+    fn sanitize_model_id_is_idempotent_on_already_sanitized() {
+        // Input with no '/' must come back byte-for-byte unchanged.
+        let input = "Xenova_mDeBERTa-v3-base-xnli-multilingual-nli-2mil7";
+        assert_eq!(sanitize_model_id(input), input);
+    }
+
+    #[test]
+    fn sanitize_model_id_leaves_other_chars_untouched() {
+        // Hyphens, digits, dots, and underscores must all pass through
+        // unchanged — only '/' is replaced with '_'.
+        let input = "org_name/model-name_v2.3-alpha";
+        let got = sanitize_model_id(input);
+        assert_eq!(got, "org_name_model-name_v2.3-alpha");
+        assert!(!got.contains('/'), "no slash must remain after sanitize");
+        assert!(got.contains('-'), "hyphens must be preserved");
+        assert!(got.contains('.'), "dots must be preserved");
+        assert!(got.contains('_'), "underscores must be preserved");
     }
 }

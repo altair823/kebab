@@ -43,7 +43,7 @@ fn cli_mcp_initialize_then_tools_list() {
     reader.read_line(&mut line).unwrap();
     let init: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(
-        init.get("id").and_then(|i| i.as_i64()),
+        init.get("id").and_then(serde_json::Value::as_i64),
         Some(1),
         "unexpected id in initialize response: {init}"
     );
@@ -57,7 +57,7 @@ fn cli_mcp_initialize_then_tools_list() {
     reader.read_line(&mut line).unwrap();
     let list: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(
-        list.get("id").and_then(|i| i.as_i64()),
+        list.get("id").and_then(serde_json::Value::as_i64),
         Some(2),
         "unexpected id in tools/list response: {list}"
     );

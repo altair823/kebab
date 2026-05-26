@@ -204,9 +204,9 @@ pub fn status_line(state: &IngestState) -> String {
     }
     if state.counts.scanned == 0 {
         let secs = state.started_at.elapsed().as_secs();
-        return format!("ingest: scanning… [{}s]", secs);
+        return format!("ingest: scanning… [{secs}s]");
     }
-    let pct = (state.current_idx as u64).saturating_mul(100) / state.counts.scanned.max(1) as u64;
+    let pct = u64::from(state.current_idx).saturating_mul(100) / u64::from(state.counts.scanned.max(1));
     let elapsed = state.started_at.elapsed();
     let mm = elapsed.as_secs() / 60;
     let ss = elapsed.as_secs() % 60;

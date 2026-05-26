@@ -328,15 +328,15 @@ pub fn handle_key_library(state: &mut App, key: KeyEvent) -> KeyOutcome {
     let pending_g = std::mem::take(&mut inner.pending_g);
 
     match (key.code, key.modifiers) {
-        (KeyCode::Char('q'), _) | (KeyCode::Esc, _) => {
+        (KeyCode::Char('q') | KeyCode::Esc, _) => {
             state.should_quit = true;
             KeyOutcome::Quit
         }
-        (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
+        (KeyCode::Char('j') | KeyCode::Down, _) => {
             move_selection(inner, 1);
             KeyOutcome::Continue
         }
-        (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
+        (KeyCode::Char('k') | KeyCode::Up, _) => {
             move_selection(inner, -1);
             KeyOutcome::Continue
         }
@@ -486,7 +486,7 @@ pub(crate) fn refresh_docs(state: &mut App) -> anyhow::Result<()> {
             if len == 0 {
                 state.library.inner.list_state.select(None);
             } else {
-                let next = prior.map(|p| p.min(len - 1)).unwrap_or(0);
+                let next = prior.map_or(0, |p| p.min(len - 1));
                 state.library.inner.list_state.select(Some(next));
             }
             state.library.inner.needs_refresh = false;

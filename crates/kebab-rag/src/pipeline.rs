@@ -318,7 +318,7 @@ impl RagPipeline {
             });
         }
         let chunks_returned = u32::try_from(hits.len()).unwrap_or(u32::MAX);
-        let top_score = hits.first().map(|h| h.retrieval.fusion_score).unwrap_or(0.0);
+        let top_score = hits.first().map_or(0.0, |h| h.retrieval.fusion_score);
 
         tracing::debug!(
             target: "kebab-rag",
@@ -856,7 +856,7 @@ impl RagPipeline {
             });
         }
         let chunks_returned = u32::try_from(pool.len()).unwrap_or(u32::MAX);
-        let top_score = pool.first().map(|h| h.retrieval.fusion_score).unwrap_or(0.0);
+        let top_score = pool.first().map_or(0.0, |h| h.retrieval.fusion_score);
 
         // ── 3. Score gate / no chunks ──────────────────────────────────────
         // PR-3b-ii: forward the partial hop trace into the refusal so
@@ -1038,7 +1038,13 @@ impl RagPipeline {
                 "verifier must be Some when nli_threshold > 0.0 \
                  (kebab-app's open_with_config enforces this invariant)",
             );
-            let (truncated_premise, _was_truncated) = truncate_for_nli(&packed_text, &acc);
+            let (truncated_premise, was_truncated) = truncate_for_nli(&packed_text);
+            if was_truncated {
+                tracing::debug!(
+                    target: "kebab-rag",
+                    "NLI premise truncated to MAX_NLI_PREMISE_CHARS for entailment check"
+                );
+            }
             match v.score(&truncated_premise, &acc) {
                 Ok(scores) => {
                     let passed = scores.entailment >= self.config.rag.nli_threshold;
@@ -1149,7 +1155,7 @@ impl RagPipeline {
             refusal_phrase_detected = matched_refusal_phrase,
             finish_reason = ?finish_reason,
             chunks_used,
-            hops = answer.hops.as_ref().map(|v| v.len()).unwrap_or(0),
+            hops = answer.hops.as_ref().map_or(0, std::vec::Vec::len),
             "kb-rag: multi-hop ask done"
         );
 
@@ -1388,16 +1394,13 @@ impl RagPipeline {
             let chunk_full =
                 <SqliteStore as kebab_core::DocumentStore>::get_chunk(&self.docs, &hit.chunk_id)
                     .context("kb-rag: docs.get_chunk")?;
-            let chunk_text = match chunk_full {
-                Some(c) => c.text,
-                None => {
-                    tracing::warn!(
-                        target: "kebab-rag",
-                        chunk_id = %hit.chunk_id.0,
-                        "kb-rag: chunk not found in store; skipping"
-                    );
-                    continue;
-                }
+            let chunk_text = if let Some(c) = chunk_full { c.text } else {
+                tracing::warn!(
+                    target: "kebab-rag",
+                    chunk_id = %hit.chunk_id.0,
+                    "kb-rag: chunk not found in store; skipping"
+                );
+                continue;
             };
             let header = format!(
                 "[#{n}] doc={} heading={} span={}\n",
@@ -1636,9 +1639,9 @@ impl RagPipeline {
             // PR-9c-2: NLI refusal still carries the hop trace built
             // up to step 8.5 — synthesize ran, so the trace is the
             // full decompose+decide chain (terminal Synthesize hop is
-            // NOT appended for the refusal path; cleanup deferred to
-            // a follow-up if the user-visible trace shape needs the
-            // synthesize entry).
+            // NOT appended for the refusal path). See
+            // `tasks/HOTFIXES.md` "PR-9 NLI refusal: terminal Synthesize
+            // hop omitted" for follow-up.
             hops: Some(hops),
             verification: Some(v),
         };
@@ -1800,15 +1803,11 @@ pub(crate) const MULTI_HOP_MAX_SUB_QUERIES_HARD_CAP: usize = 10;
 pub const MAX_NLI_PREMISE_CHARS: usize = 4 * 400;
 
 /// p9-fb-41 PR-9c-2: truncate `premise` to fit the NLI input budget
-/// while preserving `hypothesis` in full. Returns `(truncated_premise,
-/// was_truncated)`. `was_truncated` is informational for tracing —
-/// the v0.18 wire doesn't surface it; a v0.19+ extension might.
-///
-/// `_hypothesis` is currently unused — placeholder for the v0.18.1
-/// token-budget version that would carve the budget *around* the
-/// hypothesis. Kept on the signature to preserve the contract from
-/// spec §2.2.3 / spec §3 PR-9c-2.
-pub fn truncate_for_nli(premise: &str, _hypothesis: &str) -> (String, bool) {
+/// (`MAX_NLI_PREMISE_CHARS`). Returns `(truncated_premise,
+/// was_truncated)`; `was_truncated` is informational so the callsite
+/// can log a truncation tracing event (the v0.18 wire doesn't surface
+/// it).
+pub fn truncate_for_nli(premise: &str) -> (String, bool) {
     if premise.chars().count() <= MAX_NLI_PREMISE_CHARS {
         (premise.to_string(), false)
     } else {
@@ -1999,13 +1998,11 @@ fn strip_markdown_json_fence(s: &str) -> &str {
     let after_open = trimmed
         .strip_prefix("```json")
         .or_else(|| trimmed.strip_prefix("```"))
-        .map(|rest| rest.trim_start_matches('\n'))
-        .unwrap_or(trimmed);
+        .map_or(trimmed, |rest| rest.trim_start_matches('\n'));
     let inner = after_open
         .trim_end()
         .strip_suffix("```")
-        .map(|rest| rest.trim_end())
-        .unwrap_or(after_open);
+        .map_or(after_open, str::trim_end);
     inner.trim()
 }
 

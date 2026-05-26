@@ -53,10 +53,10 @@ pub fn render_inspect(f: &mut Frame, area: Rect, state: &App) {
     let threshold_days = state.config.search.stale_threshold_days;
     match (&s.target, &s.doc, &s.chunk) {
         (Some(InspectTarget::Doc(_)), Some(doc), _) => {
-            render_doc(f, area, s, doc, &state.theme, threshold_days)
+            render_doc(f, area, s, doc, &state.theme, threshold_days);
         }
         (Some(InspectTarget::Chunk(_)), _, Some(chunk)) => {
-            render_chunk(f, area, s, chunk, &state.theme)
+            render_chunk(f, area, s, chunk, &state.theme);
         }
         _ => {
             let block = RBlock::default()
@@ -477,12 +477,12 @@ pub fn handle_key_inspect(state: &mut App, key: KeyEvent) -> KeyOutcome {
         return KeyOutcome::SwitchPane(Pane::Library);
     };
     match (key.code, key.modifiers) {
-        (KeyCode::Esc, _) | (KeyCode::Char('q'), _) => KeyOutcome::SwitchPane(s.return_to),
-        (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
+        (KeyCode::Esc | KeyCode::Char('q'), _) => KeyOutcome::SwitchPane(s.return_to),
+        (KeyCode::Char('j') | KeyCode::Down, _) => {
             s.scroll = s.scroll.saturating_add(1);
             KeyOutcome::Continue
         }
-        (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
+        (KeyCode::Char('k') | KeyCode::Up, _) => {
             s.scroll = s.scroll.saturating_sub(1);
             KeyOutcome::Continue
         }

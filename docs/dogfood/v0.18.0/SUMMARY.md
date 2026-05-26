@@ -66,3 +66,31 @@ Schema 정합:
 - happy-path (NLI 통과하는 실 grounded 답변) 직접 측정 부재 — 모든 retest 가 refuse path. dogfood corpus 가 *부정 / 부재 사실 위주* 라 happy path 의 sample 부족. v0.18.1 candidate: corpus 보강.
 - gemma3:4b 의 synthesize quality 가 baseline — 더 큰 모델 (gemma4:e4b 8B Q4) 에서는 happy path 확률 ↑ 가능. release notes 의 RAM 권장 가이드 의 의미.
 - S3 의 follow-up.
+
+## Post-cleanup retest (2026-05-26)
+
+workspace-wide cleanup (chore: clippy::pedantic baseline + auto-fix, 128 files / +552-472) 직후 동일 4 case 재실행. **PR-9d 와 byte-identical 결과**:
+
+| case | PR-9d | post-cleanup | 회귀 |
+|---|---|---|---|
+| S7 | `nli_verification_failed`, score=0.0035389824770390987 | `nli_verification_failed`, score=0.0035389824770390987 | ✓ identical |
+| S1 | `nli_verification_failed`, score=0.058334656059741974 | `nli_verification_failed`, score=0.058334656059741974 | ✓ identical |
+| S10 | `nli_verification_failed`, score=0.0027875436935573816 | `nli_verification_failed`, score=0.0027875436935573816 | ✓ identical |
+| S3 | `nli_model_unavailable` | `nli_model_unavailable` | ✓ identical (cleanup 무관 — root cause v0.18.1 follow-up) |
+
+cleanup 가 *mechanical refactor only* — behavior 회귀 0 + NLI score deterministic. cut PR v0.18.0 진행 가능 baseline.
+
+## Post-architectural-refactor retest (2026-05-26)
+
+OMC team `post-pr9-refactor` 의 architect 가 priorities 분석 후 executor + test-engineer 가 추가 cleanup 진행 — H1 (`models.nli.model` config wiring, `DEFAULT_MODEL_ID` 제거), H2 (`truncate_for_nli` 의 `_hypothesis` stub param 제거), H3 (`was_truncated` tracing::debug! 로 surfacing), D (MCP test flake fix), E (carried TODO → HOTFIXES cross-link). test-engineer 가 T1/T2/T3/T4 (총 9 new tests) 추가. system-architect 가 component-level review 후 "pre-cut nothing — all architectural items v0.18.1+ defer" 결론.
+
+본 architectural refactor 후 동일 4 case 재실행. **PR-9d / post-cleanup / post-refactor 3번 모두 byte-identical**:
+
+| case | PR-9d | post-cleanup | **post-refactor** |
+|---|---|---|---|
+| S7 | 0.0035389824770390987 | 0.0035389824770390987 | **0.0035389824770390987** ✓ |
+| S1 | 0.058334656059741974 | 0.058334656059741974 | **0.058334656059741974** ✓ |
+| S10 | 0.0027875436935573816 | 0.0027875436935573816 | **0.0027875436935573816** ✓ |
+| S3 | nli_model_unavailable | nli_model_unavailable | nli_model_unavailable ✓ |
+
+H1 의 config wiring (DEFAULT_MODEL_ID 제거 후 `config.models.nli.model` 사용) 가 *behavior 변경 0* — default config 의 model 값이 hardcoded 와 같음. workspace test 1304 passed + 1 pre-existing flaky (kebab-mcp HOTFIX #15 동일). cargo clippy --workspace --all-targets -j 1 -- -D warnings clean.

@@ -189,8 +189,8 @@ mod tests {
 
     fn make_rec(chunk_idx: u8, dim: usize) -> VectorRecord {
         VectorRecord {
-            chunk_id: ChunkId(format!("{:032x}", chunk_idx)),
-            embedding_id: EmbeddingId(format!("{:032x}", 0xeeeeu16 + chunk_idx as u16)),
+            chunk_id: ChunkId(format!("{chunk_idx:032x}")),
+            embedding_id: EmbeddingId(format!("{:032x}", 0xeeeeu16 + u16::from(chunk_idx))),
             vector: vec![0.1_f32; dim],
             doc_id: DocumentId("aaaa".repeat(8)),
             text: format!("text-{chunk_idx}"),

@@ -272,8 +272,7 @@ mod tests {
             let has_modifier = !style.add_modifier.is_empty();
             assert!(
                 has_color || has_modifier,
-                "role {:?} resolves to bare Style::default() in dark palette",
-                r
+                "role {r:?} resolves to bare Style::default() in dark palette"
             );
         }
     }

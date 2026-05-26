@@ -69,12 +69,12 @@ impl SqliteStore {
             params![
                 row.run_id,
                 row.scope_json,
-                row.scanned as i64,
-                row.new_count as i64,
-                row.updated_count as i64,
-                row.skipped_count as i64,
-                row.error_count as i64,
-                row.duration_ms as i64,
+                i64::from(row.scanned),
+                i64::from(row.new_count),
+                i64::from(row.updated_count),
+                i64::from(row.skipped_count),
+                i64::from(row.error_count),
+                i64::from(row.duration_ms),
                 started,
                 finished,
                 row.items_json,
@@ -191,7 +191,7 @@ impl kebab_core::JobRepo for SqliteStore {
         let mut stmt = conn.prepare(&sql).map_err(StoreError::from)?;
         let rows = stmt
             .query_map(
-                rusqlite::params_from_iter(params_dyn.iter().map(|b| b.as_ref())),
+                rusqlite::params_from_iter(params_dyn.iter().map(std::convert::AsRef::as_ref)),
                 job_row_from_sql,
             )
             .map_err(StoreError::from)?;

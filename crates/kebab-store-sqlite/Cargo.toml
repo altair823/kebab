@@ -37,3 +37,6 @@ serde_json      = { workspace = true }
 kebab-parse-md = { path = "../kebab-parse-md" }
 kebab-normalize = { path = "../kebab-normalize" }
 kebab-chunk = { path = "../kebab-chunk" }
+
+[lints]
+workspace = true

@@ -186,14 +186,12 @@ fn hybrid_snapshot_run_1() {
     // Refuse to silently "pass" against the committed placeholder. The
     // placeholder JSON carries a `_comment` field with regeneration
     // instructions; production fixtures (a captured list) do not.
-    if expected.get("_comment").is_some() {
-        panic!(
-            "snapshot fixture is a placeholder — regenerate on AVX hardware then commit. \
-             Path: {}. To regenerate: \
-             `KEBAB_UPDATE_SNAPSHOTS=1 cargo test -p kb-search -- --ignored hybrid_snapshot`.",
-            fixture.display()
-        );
-    }
+    assert!(!expected.get("_comment").is_some(), 
+        "snapshot fixture is a placeholder — regenerate on AVX hardware then commit. \
+         Path: {}. To regenerate: \
+         `KEBAB_UPDATE_SNAPSHOTS=1 cargo test -p kb-search -- --ignored hybrid_snapshot`.",
+        fixture.display()
+    );
 
     assert_eq!(
         actual, expected,

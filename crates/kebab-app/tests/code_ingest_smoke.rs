@@ -1267,7 +1267,7 @@ fn tier1_cpp_ingest_searchable() {
             // (method) depending on which chunk ranks first.
             assert!(
                 symbol.as_deref().is_some_and(|s| s.starts_with("kebab::chunk::Foo")),
-                "C++ symbol must start with namespace::Class prefix, got {:?}", symbol
+                "C++ symbol must start with namespace::Class prefix, got {symbol:?}"
             );
             assert!(*line_start >= 1, "line_start must be >=1");
         }

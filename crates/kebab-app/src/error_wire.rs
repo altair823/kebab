@@ -91,7 +91,7 @@ pub fn classify(err: &anyhow::Error, verbose: bool) -> ErrorV1 {
     }
     let mut details = json!({});
     if verbose {
-        let chain: Vec<String> = err.chain().map(|c| c.to_string()).collect();
+        let chain: Vec<String> = err.chain().map(std::string::ToString::to_string).collect();
         details = json!({"chain": chain});
     }
     ErrorV1 {

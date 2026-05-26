@@ -400,9 +400,9 @@ impl Iterator for OllamaStream {
                     // u32 saturation: even ~4G tokens is implausible for a
                     // single chat turn; we still saturate rather than
                     // panic on the unlikely case.
-                    prompt_tokens: prompt_tokens.min(u32::MAX as u64) as u32,
-                    completion_tokens: completion_tokens.min(u32::MAX as u64) as u32,
-                    latency_ms: (total_duration_ns / 1_000_000).min(u32::MAX as u64) as u32,
+                    prompt_tokens: prompt_tokens.min(u64::from(u32::MAX)) as u32,
+                    completion_tokens: completion_tokens.min(u64::from(u32::MAX)) as u32,
+                    latency_ms: (total_duration_ns / 1_000_000).min(u64::from(u32::MAX)) as u32,
                 };
                 return Some(Ok(TokenChunk::Done {
                     finish_reason,

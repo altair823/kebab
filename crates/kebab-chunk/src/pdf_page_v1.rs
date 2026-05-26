@@ -450,7 +450,7 @@ mod tests {
         // chunk_ids stay distinct despite identical block_ids — the
         // per-chunk policy_hash variant is doing its job.
         let mut ids: Vec<&str> = chunks.iter().map(|c| c.chunk_id.0.as_str()).collect();
-        ids.sort();
+        ids.sort_unstable();
         let total = ids.len();
         ids.dedup();
         assert_eq!(ids.len(), total, "all chunk_ids must be unique");
@@ -668,7 +668,7 @@ mod tests {
         // chunk_ids stay distinct (the per-chunk hash variant keys off
         // char_start which is now strictly increasing).
         let mut ids: Vec<&str> = chunks.iter().map(|c| c.chunk_id.0.as_str()).collect();
-        ids.sort();
+        ids.sort_unstable();
         let total = ids.len();
         ids.dedup();
         assert_eq!(ids.len(), total, "chunk_ids must remain unique");

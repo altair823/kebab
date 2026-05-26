@@ -111,7 +111,7 @@ impl Extractor for PdfTextExtractor {
         });
 
         let mut blocks: Vec<Block> = Vec::with_capacity(pages.len());
-        for (&page_num, _) in pages.iter() {
+        for &page_num in pages.keys() {
             let (text, warning) = match page_text::extract_one(&pdf_doc, page_num) {
                 Ok(t) if !t.trim().is_empty() => (t, None),
                 Ok(_) => (

@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn xdg_data_home_set_replaces_var() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let _guard = XdgGuard::capture();
         // SAFETY: lock held for the duration of this test.
         unsafe { std::env::set_var("XDG_DATA_HOME", "/custom/path") };
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn xdg_data_home_unset_uses_default() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let _guard = XdgGuard::capture();
         // SAFETY: lock held for the duration of this test.
         unsafe { std::env::remove_var("XDG_DATA_HOME") };
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn xdg_with_no_default_resolves_to_empty_when_unset() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let _guard = XdgGuard::capture();
         // SAFETY: lock held for the duration of this test.
         unsafe { std::env::remove_var("XDG_DATA_HOME") };
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn leading_tilde_expands_to_home() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let home = std::env::var("HOME").expect("HOME must be set in tests");
         let p = expand_path("~/runs", "");
         assert_eq!(p, PathBuf::from(home).join("runs"));
@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn tilde_path_ignores_base_dir() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let home = std::env::var("HOME").expect("HOME must be set in tests");
         let base = Path::new("/tmp/ignored-cfg");
         let p = expand_path_with_base("~/x", "", base);
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn xdg_var_path_ignores_base_dir() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let _guard = XdgGuard::capture();
         // SAFETY: lock held for the duration of this test.
         unsafe { std::env::set_var("XDG_DATA_HOME", "/xdg/data") };
@@ -255,7 +255,7 @@ mod tests {
         // Order matters: substitute `{data_dir}` (which itself contains
         // an unexpanded `${XDG_DATA_HOME}` and `~`), then the other two
         // resolve the result.
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let _guard = XdgGuard::capture();
         // SAFETY: lock held for the duration of this test.
         unsafe { std::env::set_var("XDG_DATA_HOME", "/xdg/data") };

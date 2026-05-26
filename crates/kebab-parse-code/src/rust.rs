@@ -336,7 +336,7 @@ fn build_blocks(
     // group is `<top-level>`, even a pure mod-decl group.
     let has_real_unit = units.iter().any(|(_, _, _, is_real)| *is_real);
     if has_real_unit {
-        for (sym, _, _, is_real) in units.iter_mut() {
+        for (sym, _, _, is_real) in &mut units {
             // Match on the *suffix*: a glue group may now carry a module
             // prefix (`inner::<module>`), so demote any `…<module>` to the
             // same-prefixed `…<top-level>` rather than only the bare form.
@@ -359,7 +359,7 @@ fn build_blocks(
             lang: Some("rust".to_string()),
         };
         let block_id = id_for_block(doc_id, "code", &[], ordinal as u32, &span);
-        let code = lines[(line_start as usize - 1)..=(line_end as usize - 1)].join("\n");
+        let code = lines[(line_start as usize - 1)..(line_end as usize)].join("\n");
         blocks.push(Block::Code(CodeBlock {
             common: CommonBlock {
                 block_id,
