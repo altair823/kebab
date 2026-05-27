@@ -17,7 +17,7 @@ pub fn extract_dctdecode_page_image(
 ) -> Result<Option<Vec<u8>>> {
     let pages = pdf_doc.get_pages();
     let &page_oid = pages.get(&page_num)
-        .with_context(|| format!("page {} not in get_pages()", page_num))?;
+        .with_context(|| format!("page {page_num} not in get_pages()"))?;
 
     // page → /Resources → /XObject → traverse for first /Subtype /Image with /Filter == /DCTDecode.
     let page = pdf_doc.get_dictionary(page_oid)?;
@@ -48,8 +48,7 @@ pub fn extract_dctdecode_page_image(
         let subtype_is_image = stream.dict.get(b"Subtype")
             .ok()
             .and_then(|o| match o { Object::Name(n) => Some(n.as_slice()), _ => None })
-            .map(|n| n == b"Image")
-            .unwrap_or(false);
+            .is_some_and(|n| n == b"Image");
         if !subtype_is_image { continue; }
 
         let filter_obj = stream.dict.get(b"Filter").ok();
