@@ -5,7 +5,7 @@ edition       = { workspace = true }
 rust-version  = { workspace = true }
 license       = { workspace = true }
 repository    = { workspace = true }
-description   = "Text PDF extractor (per-page text + page citation) for the kebab pipeline (P7-1)"
+description   = "Text PDF extractor + scanned-page image extract helpers for the kebab pipeline (P7-1 + v0.20.0 sub-item 1)"
 
 [dependencies]
 kebab-core   = { path = "../kebab-core" }

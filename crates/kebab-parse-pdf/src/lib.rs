@@ -18,7 +18,12 @@
 //! §9.2 (PDF text extraction), §9 versioning.
 
 mod info;
+mod page_image;
 mod page_text;
+mod text_quality;
+
+pub use page_image::extract_dctdecode_page_image;
+pub use text_quality::compute_valid_char_ratio;
 
 use anyhow::{Context, Result};
 use kebab_core::{
