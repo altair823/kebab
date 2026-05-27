@@ -30,7 +30,7 @@ edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/altair823/kebab"
-version       = "0.19.0"
+version       = "0.20.0"   # v0.20.0 sub-item 1 (scanned PDF OCR via qwen2.5vl:3b) — CLAUDE.md §Release 사용자 도그푸딩 트리거
 
 # pre-v0.18 workspace-wide cleanup: enable clippy::pedantic group with
 # intentional allow-list. The allowed lints are either cosmetic (doc style),
