@@ -1,48 +1,20 @@
 //! Integration tests for pdf_ocr_apply helper. spec §5.5 MockOcrEngine pattern.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use anyhow::Result;
+use common::mock_ocr::MockOcrEngine;
 use kebab_app::pdf_ocr_apply::{PdfOcrOpts, apply_ocr_to_pdf_pages};
 use kebab_core::{
     AssetStorage, Block, CanonicalDocument, Checksum, ExtractConfig, ExtractContext,
-    Extractor, Inline, Lang, MediaType, OcrText, RawAsset, SourceSpan,
+    Extractor, Inline, Lang, MediaType, RawAsset, SourceSpan,
     SourceUri, WorkspacePath, id_for_asset,
 };
-use kebab_parse_image::OcrEngine;
 use kebab_parse_pdf::PdfTextExtractor;
 use time::OffsetDateTime;
-
-// ── MockOcrEngine fixture ─────────────────────────────────────────────────
-
-struct MockOcrEngine {
-    expected_text: String,
-    fail: bool,
-}
-
-impl OcrEngine for MockOcrEngine {
-    fn engine_name(&self) -> &'static str {
-        "mock-ocr"
-    }
-
-    fn engine_version(&self) -> String {
-        "mock-v1".to_string()
-    }
-
-    fn recognize(&self, _img: &[u8], _hint: Option<&Lang>) -> Result<OcrText> {
-        if self.fail {
-            anyhow::bail!("mock failure");
-        }
-        Ok(OcrText {
-            joined: self.expected_text.clone(),
-            regions: Vec::new(),
-            engine: self.engine_name().to_string(),
-            engine_version: self.engine_version(),
-        })
-    }
-}
 
 // ── Fixture helpers ───────────────────────────────────────────────────────
 
@@ -136,10 +108,7 @@ fn default_opts(enabled: bool) -> PdfOcrOpts {
 fn f1_input_with_ocr_enabled_replaces_empty_block() {
     let bytes = f1_pdf_bytes();
     let mut canonical = canonical_with_empty_block();
-    let engine = MockOcrEngine {
-        expected_text: "MOCK_OCR_TEXT".into(),
-        fail: false,
-    };
+    let engine = MockOcrEngine::single("MOCK_OCR_TEXT", false);
     let opts = PdfOcrOpts {
         enabled: true,
         always_on: false,
@@ -166,10 +135,7 @@ fn f3_input_with_ocr_enabled_keeps_text_detect_blocks() {
     let bytes = f1_pdf_bytes(); // reuse F1 bytes; decision is based on canonical text
     let text = "충분한 한국어 텍스트 컨텐츠입니다. This has more than twenty characters.";
     let mut canonical = canonical_with_filled_block(text);
-    let engine = MockOcrEngine {
-        expected_text: "SHOULD_NOT_BE_CALLED".into(),
-        fail: false,
-    };
+    let engine = MockOcrEngine::single("SHOULD_NOT_BE_CALLED", false);
     let opts = default_opts(true);
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -189,10 +155,7 @@ fn f3_input_with_ocr_enabled_keeps_text_detect_blocks() {
 fn f1_input_with_ocr_disabled_keeps_empty_block() {
     let bytes = f1_pdf_bytes();
     let mut canonical = canonical_with_empty_block();
-    let engine = MockOcrEngine {
-        expected_text: "IGNORED".into(),
-        fail: false,
-    };
+    let engine = MockOcrEngine::single("IGNORED", false);
     let opts = default_opts(false);
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -206,10 +169,7 @@ fn f1_input_with_ocr_disabled_keeps_empty_block() {
 fn f4_input_with_ocr_enabled_replaces_mojibake_block() {
     let bytes = f1_pdf_bytes(); // F1 bytes carry DCTDecode image
     let mut canonical = canonical_with_mojibake_block();
-    let engine = MockOcrEngine {
-        expected_text: "OCR_MOJIBAKE_REPLACEMENT".into(),
-        fail: false,
-    };
+    let engine = MockOcrEngine::single("OCR_MOJIBAKE_REPLACEMENT", false);
     let opts = PdfOcrOpts {
         enabled: true,
         always_on: false,
@@ -238,10 +198,7 @@ fn f3_input_with_always_on_pushes_dual_blocks() {
     let text = "vector PDF 충분한 텍스트 컨텐츠입니다. This has enough characters for valid ratio.";
     let mut canonical = canonical_with_filled_block(text);
     let original_block_count = canonical.blocks.len();
-    let engine = MockOcrEngine {
-        expected_text: "OCR_DUAL".into(),
-        fail: false,
-    };
+    let engine = MockOcrEngine::single("OCR_DUAL", false);
     let opts = PdfOcrOpts {
         enabled: true,
         always_on: true,
@@ -280,10 +237,7 @@ fn f6_flatedecode_skipped_with_warning() {
     let bytes = std::fs::read("../kebab-parse-pdf/tests/fixtures/flate_raw.pdf")
         .expect("F6 fixture missing");
     let mut canonical = canonical_with_empty_block(); // page-1 block from F1
-    let engine = MockOcrEngine {
-        expected_text: "SHOULD_NOT_BE_CALLED".into(),
-        fail: false,
-    };
+    let engine = MockOcrEngine::single("SHOULD_NOT_BE_CALLED", false);
     let opts = default_opts(true);
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -307,10 +261,7 @@ fn f7_ccittfax_skipped_with_warning() {
     let bytes = std::fs::read("../kebab-parse-pdf/tests/fixtures/ccitt.pdf")
         .expect("F7 fixture missing");
     let mut canonical = canonical_with_empty_block(); // page-1 block from F1
-    let engine = MockOcrEngine {
-        expected_text: "SHOULD_NOT_BE_CALLED".into(),
-        fail: false,
-    };
+    let engine = MockOcrEngine::single("SHOULD_NOT_BE_CALLED", false);
     let opts = default_opts(true);
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -330,10 +281,7 @@ fn f7_ccittfax_skipped_with_warning() {
 fn ocr_engine_failure_surfaces_as_warning() {
     let bytes = f1_pdf_bytes();
     let mut canonical = canonical_with_empty_block();
-    let engine = MockOcrEngine {
-        expected_text: String::new(),
-        fail: true,
-    };
+    let engine = MockOcrEngine::single("", true);
     let opts = default_opts(true);
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -355,10 +303,7 @@ fn dual_block_ordinals_are_deterministic_and_unique() {
     let bytes = f1_pdf_bytes(); // 1-page PDF → page_count=1
     let text = "vector 충분한 텍스트. This text has more than twenty characters total.";
     let mut canonical = canonical_with_filled_block(text);
-    let engine = MockOcrEngine {
-        expected_text: "DUAL".into(),
-        fail: false,
-    };
+    let engine = MockOcrEngine::single("DUAL", false);
     let opts = PdfOcrOpts {
         enabled: true,
         always_on: true,
@@ -395,10 +340,7 @@ fn cancel_handle_aborts_mid_pdf() {
     let bytes = f1_pdf_bytes();
     let mut canonical = canonical_with_empty_block();
     let cancel = Arc::new(AtomicBool::new(true)); // pre-cancel
-    let engine = MockOcrEngine {
-        expected_text: "IGNORED".into(),
-        fail: false,
-    };
+    let engine = MockOcrEngine::single("IGNORED", false);
     let opts = PdfOcrOpts {
         enabled: true,
         always_on: false,

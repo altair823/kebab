@@ -169,3 +169,5 @@ fn copy_dir_recursive(src: &Path, dest: &Path) {
         }
     }
 }
+
+pub mod mock_ocr;
