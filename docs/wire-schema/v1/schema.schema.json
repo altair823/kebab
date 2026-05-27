@@ -36,6 +36,16 @@
       "properties": {
         "parser_version": { "type": "string" },
         "chunker_version": { "type": "string" },
+        "active_parsers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "v0.20.1+ (Bug #13). 활성 parser version 전체 (DISTINCT, ORDER BY). 빈 corpus → []. backward-compat: optional, 기존 client 무영향."
+        },
+        "active_chunkers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "v0.20.1+ (Bug #13). 활성 chunker version 전체 (DISTINCT, ORDER BY). 빈 corpus → []."
+        },
         "embedding_version": { "type": "string" },
         "prompt_template_version": { "type": "string" },
         "index_version": { "type": "string" },

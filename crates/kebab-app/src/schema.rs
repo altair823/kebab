@@ -39,6 +39,14 @@ pub struct Capabilities {
 pub struct Models {
     pub parser_version: String,
     pub chunker_version: String,
+    /// v0.20.1+ (Bug #13). Corpus 안 활성 parser version 전체.
+    /// 빈 corpus → empty Vec. backward compat: `parser_version` field 보존.
+    #[serde(default)]
+    pub active_parsers: Vec<String>,
+    /// v0.20.1+ (Bug #13). Corpus 안 활성 chunker version 전체.
+    /// 빈 corpus → empty Vec.
+    #[serde(default)]
+    pub active_chunkers: Vec<String>,
     pub embedding_version: String,
     pub prompt_template_version: String,
     pub index_version: String,
@@ -190,12 +198,16 @@ fn collect_stats(
 }
 
 fn collect_models(cfg: &Config, store: &kebab_store_sqlite::SqliteStore) -> Models {
+    let active_parsers = store.fetch_distinct_parser_versions().unwrap_or_default();
+    let active_chunkers = store.fetch_distinct_chunker_versions().unwrap_or_default();
     Models {
         // markdown parser only — pdf-page-v1 (P7) / image extractors (P6)
         // maintain their own versions; surface those when SchemaV1.models
         // becomes a multi-medium map (P+).
         parser_version: kebab_parse_md::PARSER_VERSION.to_string(),
         chunker_version: cfg.chunking.chunker_version.clone(),
+        active_parsers,
+        active_chunkers,
         // EmbeddingModelCfg uses `.model` (not `.id`) — adapt from plan.
         embedding_version: cfg.models.embedding.model.clone(),
         prompt_template_version: cfg.rag.prompt_template_version.clone(),

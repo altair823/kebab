@@ -961,6 +961,51 @@ impl SqliteStore {
         }
         Ok(out)
     }
+
+    /// p20-bugfix3 Bug #13: schema.v1.models.active_parsers 의 source.
+    /// `documents.parser_version` 컬럼의 DISTINCT 값을 정렬해 반환.
+    /// 빈 corpus → 빈 Vec.
+    pub fn fetch_distinct_parser_versions(&self) -> anyhow::Result<Vec<String>> {
+        use anyhow::Context;
+        let conn = self.read_conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT parser_version FROM documents \
+                  WHERE parser_version IS NOT NULL AND parser_version != '' \
+                  ORDER BY parser_version",
+            )
+            .context("prepare fetch_distinct_parser_versions")?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .context("query fetch_distinct_parser_versions")?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.context("read parser_version row")?);
+        }
+        Ok(out)
+    }
+
+    /// p20-bugfix3 Bug #13: schema.v1.models.active_chunkers 의 source.
+    /// `chunks.chunker_version` 컬럼의 DISTINCT 값을 정렬해 반환.
+    pub fn fetch_distinct_chunker_versions(&self) -> anyhow::Result<Vec<String>> {
+        use anyhow::Context;
+        let conn = self.read_conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT chunker_version FROM chunks \
+                  WHERE chunker_version IS NOT NULL AND chunker_version != '' \
+                  ORDER BY chunker_version",
+            )
+            .context("prepare fetch_distinct_chunker_versions")?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .context("query fetch_distinct_chunker_versions")?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.context("read chunker_version row")?);
+        }
+        Ok(out)
+    }
 }
 
 /// Apply the design §5 / task-spec pragmas. Called once per connection.

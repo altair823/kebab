@@ -152,7 +152,7 @@ Claude Code spawns `kebab mcp` at session start; the process stays alive across 
 
 Before using streaming or multi-turn features, probe what this binary supports — call `mcp__kebab__schema` (or CLI `kebab schema --json`):
 
-Returns `schema.v1`: `wire.schemas` (supported wire ids), `capabilities` (bool flags — e.g. `streaming_ask`, `rag_multi_turn`), `models` (version cascade 6-axis), `stats` (doc/chunk/asset count + last_ingest_at, plus p9-fb-37 health surface: `media_breakdown` per-kind doc counts (5 zero-padded keys: markdown / pdf / image / audio / other), `lang_breakdown` per BCP-47 lang (NULL keyed as the literal string `"null"`), `index_bytes.{sqlite,lancedb}` on-disk byte sums, `stale_doc_count` for docs older than `config.search.stale_threshold_days`). Gate streaming / session flows on `capabilities.streaming_ask` / `capabilities.rag_multi_turn` being `true`. Cheap call (no LLM), once per session.
+Returns `schema.v1`: `wire.schemas` (supported wire ids), `capabilities` (bool flags — e.g. `streaming_ask`, `rag_multi_turn`), `models` (version cascade 6-axis + v0.20.1 `active_parsers` / `active_chunkers` arrays for multi-version corpora), `stats` (doc/chunk/asset count + last_ingest_at, plus p9-fb-37 health surface: `media_breakdown` per-kind doc counts (5 zero-padded keys: markdown / pdf / image / audio / other), `lang_breakdown` per BCP-47 lang (NULL keyed as the literal string `"null"`), `index_bytes.{sqlite,lancedb}` on-disk byte sums, `stale_doc_count` for docs older than `config.search.stale_threshold_days`). Gate streaming / session flows on `capabilities.streaming_ask` / `capabilities.rag_multi_turn` being `true`. Cheap call (no LLM), once per session.
 
 ## Quick health check
 
