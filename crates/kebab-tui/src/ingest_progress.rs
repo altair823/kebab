@@ -154,6 +154,9 @@ fn apply_event(state: &mut IngestState, event: IngestEvent) {
             state.terminal_at = Some(std::time::Instant::now());
             state.aborted = true;
         }
+        // v0.20.0 sub-item 1: per-page PDF OCR events — TUI does not
+        // surface per-page OCR progress in v1; no counter to update.
+        IngestEvent::PdfOcrStarted { .. } | IngestEvent::PdfOcrFinished { .. } => {}
     }
 }
 

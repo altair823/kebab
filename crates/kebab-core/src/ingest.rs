@@ -83,6 +83,12 @@ pub struct IngestItem {
     pub parser_version: Option<ParserVersion>,
     pub chunker_version: Option<ChunkerVersion>,
     pub warnings: Vec<String>,
+    /// v0.20.0 sub-item 1: number of PDF pages 가 OCR pipeline 통과.
+    /// `None` = OCR disabled or non-PDF asset.
+    pub pdf_ocr_pages: Option<u32>,
+    /// v0.20.0 sub-item 1: cumulative OCR engine wall-clock duration (ms).
+    /// `None` = OCR disabled or non-PDF asset.
+    pub pdf_ocr_ms_total: Option<u64>,
     pub error: Option<String>,
 }
 

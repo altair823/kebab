@@ -141,6 +141,7 @@ proptest     = "1"
 # p9-fb-19: LRU cache for `App::search` results. Bounded capacity
 # from `config.search.cache_capacity` (default 256, ~1.3 MB cap).
 lru          = "0.12"
+lopdf        = "0.32"
 # fastembed-rs ships ONNX runtime via the `ort-download-binaries` feature
 # in its default set (which also pulls `hf-hub` for first-run model
 # downloads). Pinned to the 4.x line per task p3-2 (current 5.x release

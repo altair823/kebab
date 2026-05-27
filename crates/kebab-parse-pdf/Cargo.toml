@@ -20,7 +20,7 @@ tracing      = { workspace = true }
 # crates (pom, postscript, type1-encoding-parser, …) buy us nothing
 # at v1 (we don't call its whole-doc API), and the future scanned-PDF
 # OCR fallback can re-add it when it actually needs it.
-lopdf        = "0.32"
+lopdf        = { workspace = true }
 
 [dev-dependencies]
 blake3       = { workspace = true }

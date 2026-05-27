@@ -201,6 +201,9 @@ impl ProgressDisplay {
                     );
                 }
             }
+            // v0.20.0 sub-item 1: per-page PDF OCR events — not surfaced in
+            // human-readable progress output (no TTY bar update needed).
+            IngestEvent::PdfOcrStarted { .. } | IngestEvent::PdfOcrFinished { .. } => {}
         }
         Ok(())
     }

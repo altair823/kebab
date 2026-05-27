@@ -48,7 +48,7 @@ use kebab_core::{
     SourceUri, VectorRecord, VectorStore,
 };
 use kebab_llm_local::OllamaLanguageModel;
-use kebab_parse_image::{OllamaVisionOcr, apply_caption, apply_ocr};
+use kebab_parse_image::{OcrEngine, OllamaVisionOcr, apply_caption, apply_ocr};
 use kebab_parse_md::{BodyHints, build_canonical_document, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
 
@@ -357,6 +357,29 @@ pub fn ingest_with_config_opts(
         caption_llm: caption_llm.as_deref(),
     };
 
+    // p10 / v0.20 sub-item 1: PDF OCR engine eager init (H-5 resolution).
+    // image OCR pattern mirror — per-ingest 1회 build, fallible → fail-fast.
+    let pdf_ocr_engine: Option<OllamaVisionOcr> =
+        if app.config.pdf.ocr.enabled || app.config.pdf.ocr.always_on {
+            let cfg = &app.config.pdf.ocr;
+            let endpoint = match cfg.endpoint.as_deref() {
+                Some(s) if !s.is_empty() => s.to_string(),
+                _ => app.config.models.llm.endpoint.clone(),
+            };
+            Some(
+                OllamaVisionOcr::from_parts(
+                    endpoint,
+                    cfg.model.clone(),
+                    cfg.languages.clone(),
+                    cfg.max_pixels,
+                    cfg.request_timeout_secs,
+                )
+                .context("kb-app::ingest: build OllamaVisionOcr (pdf)")?,
+            )
+        } else {
+            None
+        };
+
     // Pre-load every existing doc_id so we can label `IngestItem.kind`
     // as `New` vs `Updated` correctly. `list_documents` returns one
     // row per `(workspace_path, asset_id)` — index by the deterministic
@@ -448,6 +471,9 @@ pub fn ingest_with_config_opts(
             &existing_doc_ids,
             &image_pipeline,
             force_reingest,
+            pdf_ocr_engine.as_ref(),
+            progress,
+            opts.cancel.as_ref(),
         );
 
         let item = match item {
@@ -476,6 +502,8 @@ pub fn ingest_with_config_opts(
                     parser_version: None,
                     chunker_version: None,
                     warnings: Vec::new(),
+                    pdf_ocr_pages: None,
+                    pdf_ocr_ms_total: None,
                     error: Some(format!("{e:#}")),
                 }
             }
@@ -864,6 +892,8 @@ fn try_skip_unchanged(
             parser_version: Some(existing_doc.parser_version.clone()),
             chunker_version: existing_doc.last_chunker_version.clone(),
             warnings: Vec::new(),
+            pdf_ocr_pages: None,
+            pdf_ocr_ms_total: None,
             error: None,
         }));
     }
@@ -922,6 +952,8 @@ fn try_skip_unchanged(
         parser_version: Some(existing_doc.parser_version.clone()),
         chunker_version: existing_doc.last_chunker_version.clone(),
         warnings: Vec::new(),
+        pdf_ocr_pages: None,
+        pdf_ocr_ms_total: None,
         error: None,
     }))
 }
@@ -964,6 +996,9 @@ fn ingest_one_asset(
     existing_doc_ids: &std::collections::HashSet<String>,
     image_pipeline: &ImagePipeline<'_>,
     force_reingest: bool,
+    pdf_ocr_engine: Option<&OllamaVisionOcr>,
+    progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
+    cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     tracing::debug!(
         target: "kebab-app::ingest",
@@ -999,6 +1034,9 @@ fn ingest_one_asset(
                 vector_store,
                 existing_doc_ids,
                 force_reingest,
+                pdf_ocr_engine,
+                progress,
+                cancel,
             );
         }
         // p10-1A-2 / 1B: code ingest dispatch. p10-2: Tier 2 langs added. p10-3: shell added. p10-1D: c/cpp added.
@@ -1033,6 +1071,8 @@ fn ingest_one_asset(
                 parser_version: None,
                 chunker_version: None,
                 warnings: vec![unsupported_media_warning(&asset.workspace_path.0)],
+                pdf_ocr_pages: None,
+                pdf_ocr_ms_total: None,
                 error: None,
             });
         }
@@ -1052,6 +1092,8 @@ fn ingest_one_asset(
                 parser_version: None,
                 chunker_version: None,
                 warnings: vec!["kb:// URI not yet supported".to_string()],
+                pdf_ocr_pages: None,
+                pdf_ocr_ms_total: None,
                 error: None,
             });
         }
@@ -1201,6 +1243,8 @@ fn ingest_one_asset(
         parser_version: Some(parser_version.clone()),
         chunker_version: Some(MdHeadingV1Chunker.chunker_version()),
         warnings: warning_notes,
+        pdf_ocr_pages: None,
+        pdf_ocr_ms_total: None,
         error: None,
     })
 }
@@ -1246,6 +1290,8 @@ fn ingest_one_image_asset(
                 warnings: vec![
                     "kb:// URI not yet supported".to_string(),
                 ],
+                pdf_ocr_pages: None,
+                pdf_ocr_ms_total: None,
                 error: None,
             });
         }
@@ -1456,6 +1502,8 @@ fn ingest_one_image_asset(
         parser_version: Some(canonical.parser_version.clone()),
         chunker_version: Some(MdHeadingV1Chunker.chunker_version()),
         warnings: warning_notes,
+        pdf_ocr_pages: None,
+        pdf_ocr_ms_total: None,
         error: None,
     })
 }
@@ -1726,6 +1774,9 @@ fn ingest_one_pdf_asset(
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
     force_reingest: bool,
+    pdf_ocr_engine: Option<&OllamaVisionOcr>,
+    progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
+    cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     let path = match &asset.source_uri {
         SourceUri::File(p) => p.clone(),
@@ -1743,6 +1794,8 @@ fn ingest_one_pdf_asset(
                 warnings: vec![
                     "kb:// URI not yet supported".to_string(),
                 ],
+                pdf_ocr_pages: None,
+                pdf_ocr_ms_total: None,
                 error: None,
             });
         }
@@ -1778,6 +1831,62 @@ fn ingest_one_pdf_asset(
     let mut canonical = app
         .extract_for(&asset.media_type, &ctx, &bytes)
         .context("kb-app::extract_for (pdf)")?;
+
+    // v0.20 sub-item 1: post-extract OCR enrichment (PR #187 registry
+    // dispatch invariant 보존 — extract_for 가 normal entry).
+    let (pdf_ocr_pages, pdf_ocr_ms_total): (Option<u32>, Option<u64>) =
+        if app.config.pdf.ocr.enabled || app.config.pdf.ocr.always_on {
+            match pdf_ocr_engine {
+                Some(engine) => {
+                    let ocr_opts = crate::pdf_ocr_apply::PdfOcrOpts {
+                        enabled: app.config.pdf.ocr.enabled || app.config.pdf.ocr.always_on,
+                        always_on: app.config.pdf.ocr.always_on,
+                        valid_ratio_threshold: app.config.pdf.ocr.valid_ratio_threshold,
+                        min_char_count: app.config.pdf.ocr.min_char_count,
+                        lang_hint: app.config.pdf.ocr.lang_hint.clone().map(kebab_core::Lang),
+                        cancel: cancel.cloned(),
+                    };
+                    let summary = crate::pdf_ocr_apply::apply_ocr_to_pdf_pages(
+                        &mut canonical,
+                        engine,
+                        &bytes,
+                        &ocr_opts,
+                        |p| match p {
+                            crate::pdf_ocr_apply::PdfOcrProgress::Started { page } => {
+                                if let Some(sender) = progress {
+                                    let _ = sender.send(
+                                        crate::ingest_progress::IngestEvent::PdfOcrStarted {
+                                            page,
+                                        },
+                                    );
+                                }
+                            }
+                            crate::pdf_ocr_apply::PdfOcrProgress::Finished {
+                                page,
+                                ms,
+                                chars,
+                                skipped: _,
+                            } => {
+                                if let Some(sender) = progress {
+                                    let _ = sender.send(
+                                        crate::ingest_progress::IngestEvent::PdfOcrFinished {
+                                            page,
+                                            ms,
+                                            chars,
+                                            ocr_engine: engine.engine_name().to_string(),
+                                        },
+                                    );
+                                }
+                            }
+                        },
+                    )?;
+                    (Some(summary.pages_ocrd), Some(summary.ms_total))
+                }
+                None => (Some(0), Some(0)),
+            }
+        } else {
+            (None, None)
+        };
 
     // Per-medium chunker selection: PDF docs always use pdf-page-v1
     // regardless of `config.chunking.chunker_version`. The chunker
@@ -1880,6 +1989,8 @@ fn ingest_one_pdf_asset(
         parser_version: Some(canonical.parser_version.clone()),
         chunker_version: Some(chunker.chunker_version()),
         warnings,
+        pdf_ocr_pages,
+        pdf_ocr_ms_total,
         error: None,
     })
 }
@@ -1921,6 +2032,8 @@ fn ingest_one_code_asset(
                 warnings: vec![
                     "kb:// URI not yet supported".to_string(),
                 ],
+                pdf_ocr_pages: None,
+                pdf_ocr_ms_total: None,
                 error: None,
             });
         }
@@ -2227,6 +2340,8 @@ fn ingest_one_code_asset(
         parser_version: Some(canonical.parser_version.clone()),
         chunker_version: Some(chunker_version),
         warnings,
+        pdf_ocr_pages: None,
+        pdf_ocr_ms_total: None,
         error: None,
     })
 }

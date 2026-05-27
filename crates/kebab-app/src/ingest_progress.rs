@@ -85,6 +85,15 @@ pub enum IngestEvent {
     /// aggregate at the cancel boundary. Emitted by `p9-fb-04`; this
     /// task never produces `Aborted`.
     Aborted { counts: AggregateCounts },
+    /// PDF page 별 OCR 시작 시 emit. v0.20.0 sub-item 1.
+    PdfOcrStarted { page: u32 },
+    /// PDF page 별 OCR 종료 시 emit. v0.20.0 sub-item 1.
+    PdfOcrFinished {
+        page: u32,
+        ms: u64,
+        chars: u32,
+        ocr_engine: String,
+    },
 }
 
 /// Map a `MediaType` to the short label used by `IngestEvent::AssetStarted`.

@@ -13,6 +13,8 @@
       "error": null,
       "kind": "new",
       "parser_version": "md-frontmatter-v2",
+      "pdf_ocr_ms_total": null,
+      "pdf_ocr_pages": null,
       "warnings": []
     },
     {
@@ -26,6 +28,8 @@
       "error": null,
       "kind": "updated",
       "parser_version": "md-frontmatter-v2",
+      "pdf_ocr_ms_total": null,
+      "pdf_ocr_pages": null,
       "warnings": [
         "malformed frontmatter"
       ]

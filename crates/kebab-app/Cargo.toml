@@ -35,7 +35,7 @@ kebab-parse-image = { path = "../kebab-parse-image" }
 # per-asset dispatch (see `ingest_one_asset` PDF branch) and runs the
 # resulting `CanonicalDocument` through `kebab-chunk::PdfPageV1Chunker`.
 kebab-parse-pdf = { path = "../kebab-parse-pdf" }
-lopdf            = "0.32"
+lopdf            = { workspace = true }
 # p10-1A-2: Rust AST extractor lives here. App threads it into the
 # per-asset dispatch (see `ingest_one_asset` Code branch) and runs the
 # resulting `CanonicalDocument` through `kebab-chunk::CodeRustAstV1Chunker`.
@@ -76,7 +76,7 @@ image                = { version = "0.25", default-features = false, features = 
 # lopdf builder pattern `kebab-parse-pdf::tests::common` uses; pinned
 # to the same major (0.32) so byte output is identical between the two
 # fixture surfaces.
-lopdf                = "0.32"
+lopdf                = { workspace = true }
 # error_wire::tests::llm_unreachable_classifies_to_model_unreachable needs a real
 # reqwest::Error (private constructor) — built from a connect-refused call.
 reqwest      = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
