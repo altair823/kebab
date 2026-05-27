@@ -156,7 +156,7 @@ enum Cmd {
 
         /// p9-fb-36: filter by `assets.media_type` kind. Comma-separated.
         /// Aliases: `md` → `markdown`. Other accepted: `markdown`, `pdf`,
-        /// `image`, `audio`, `other`. Unknown values match nothing.
+        /// `image`, `audio`, `code`, `other`. Unknown values match nothing.
         #[arg(long, value_delimiter = ',')]
         media: Vec<String>,
 
