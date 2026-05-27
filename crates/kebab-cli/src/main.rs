@@ -819,6 +819,17 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
 
             // p9-fb-42: bulk mode requires no query; single-query mode requires query.
             let query_text = match query.as_ref() {
+                Some(q) if q.trim().is_empty() => {
+                    return Err(anyhow::Error::new(kebab_app::StructuredError(
+                        kebab_app::ErrorV1 {
+                            schema_version: kebab_app::ERROR_V1_ID.to_string(),
+                            code: "invalid_input".to_string(),
+                            message: "query is empty; provide a non-empty search term or use --bulk".into(),
+                            details: serde_json::Value::Null,
+                            hint: Some("e.g. `kebab search 'rust async'` or `kebab search --bulk < queries.ndjson`".into()),
+                        },
+                    )));
+                }
                 Some(q) => q.clone(),
                 None => {
                     return Err(anyhow::anyhow!("query is required unless --bulk is set"));
@@ -988,6 +999,17 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             multi_hop,
         } => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+            if query.trim().is_empty() {
+                return Err(anyhow::Error::new(kebab_app::StructuredError(
+                    kebab_app::ErrorV1 {
+                        schema_version: kebab_app::ERROR_V1_ID.to_string(),
+                        code: "invalid_input".to_string(),
+                        message: "query is empty; provide a non-empty prompt".into(),
+                        details: serde_json::Value::Null,
+                        hint: Some("e.g. `kebab ask \"explain this code\"`".into()),
+                    },
+                )));
+            }
             if *stream {
                 // p9-fb-33: streaming branch. Background thread runs
                 // ask_with_config (which calls into the rag pipeline);
