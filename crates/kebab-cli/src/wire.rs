@@ -332,6 +332,8 @@ mod tests {
             models: Models {
                 parser_version: "x".to_string(),
                 chunker_version: "y".to_string(),
+                active_parsers: vec![],
+                active_chunkers: vec![],
                 embedding_version: "z".to_string(),
                 prompt_template_version: "w".to_string(),
                 index_version: "v".to_string(),
