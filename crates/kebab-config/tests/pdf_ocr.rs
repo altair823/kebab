@@ -45,8 +45,8 @@ lang_hint = "kor"
 #[test]
 fn pdf_ocr_defaults_off_with_qwen_3b() {
     let cfg = Config::defaults();
-    assert_eq!(cfg.pdf.ocr.enabled, false);
-    assert_eq!(cfg.pdf.ocr.always_on, false);
+    assert!(!cfg.pdf.ocr.enabled);
+    assert!(!cfg.pdf.ocr.always_on);
     assert_eq!(cfg.pdf.ocr.engine, "ollama-vision");
     assert_eq!(cfg.pdf.ocr.model, "qwen2.5vl:3b");
     assert!(cfg.pdf.ocr.endpoint.is_none());
@@ -69,9 +69,9 @@ fn pdf_ocr_env_overrides() {
 
     let cfg = Config::defaults().apply_env(&env);
 
-    assert_eq!(cfg.pdf.ocr.enabled, true);
+    assert!(cfg.pdf.ocr.enabled);
     assert_eq!(cfg.pdf.ocr.model, "qwen2.5vl:7b");
-    assert_eq!(cfg.pdf.ocr.always_on, true);
+    assert!(cfg.pdf.ocr.always_on);
     assert!((cfg.pdf.ocr.valid_ratio_threshold - 0.75).abs() < 1e-6);
 
     // 다른 env var 가 default 보존
