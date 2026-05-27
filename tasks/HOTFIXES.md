@@ -14,6 +14,45 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-27 — v0.20.0 sub-item 1: chunk_id `#c{char_start}` workaround collapses under aggressive overlap (Bug #3 second-iteration patch)
+
+**Symptom**: F2 (1580 chars OCR, scanned_page2.pdf) ingest 시
+`DocumentStore::put_chunks (pdf): sqlite error: UNIQUE constraint
+failed: chunks.chunk_id: ... Error code 1555: A PRIMARY KEY constraint
+failed`. `kebab v0.20.0` (commit `b4d9e60`) dogfood (qwen2.5vl:3b 의
+`192.168.0.47:11434` Ollama endpoint, `/build/cache/tmp/v0.20-dogfood`
+isolated KB) `--force-reingest` 마다 reproducible.
+
+**Root cause**: `crates/kebab-chunk/src/pdf_page_v1.rs:170` 의
+`per_chunk_hash = format!("{base_policy_hash}#c{char_start}")` 에서
+`char_start` = post-overlap `actual_start`. line 266-281 의 overlap
+walk 가 `prev_min` floor 까지만 back-walk 하므로 aggressive overlap
++ 첫 segment 가 작은 page (F2 의 한국어 OCR text: 첫 ~10 char 안
+sentence-end → segment_1 = [0, 30], segment_2 = [30, n], overlap_bytes
+240 / chars=80 → segment_2 의 actual_start 가 prev_min=0 으로
+collapse) → 두 chunk 의 `#c0` suffix identical → identical chunk_id →
+`chunks` PRIMARY KEY violation.
+
+**Fix** (spec §4.4): `chunk_page` return tuple 에 `segment_start`
+추가 (3-tuple → 4-tuple `(segment_start, actual_start, chunk_end,
+slice)`), caller `per_chunk_hash` 의 suffix 를 `segment_start` 로
+변경. `segment_start` 는 `bounds[seg_idx]` (dedup 후 strictly
+increasing) — overlap walk 와 무관하게 모든 chunk distinct. citation
+locality 의 `SourceSpan::Page.char_start` 는 여전히 post-overlap
+`actual_start` 유지.
+
+**chunker_version cascade**: `pdf-page-v1` → `pdf-page-v1.1` bump
+(spec §4.4.1 round 1c M-1 결정, design §9 cascade rule 의 직접 적용).
+multi-chunk PDF page (pre-OCR 시점 `metro-korea.pdf` 의 21 block /
+34 chunk 같은 정상 path) 의 chunk_id 가 변경 — explicit user-facing
+audit trail 확보, store layer 의 자동 invalidation report. v0.20.0
+force-update path 라 사용자 cost zero (어차피 fresh ingest).
+
+**Amends**: spec `docs/superpowers/specs/2026-05-27-v0.20-sub1-bugfix-spec.md`
+§4.4. parent design §4.2 chunk_id recipe 자체 unchanged (workaround
+layer 의 internal computation 만 변경). parent PR #189
+(`feat/pdf-scanned-ocr`, force-update path).
+
 ## 2026-05-26 — design deviation — kebab-normalize + kebab-parse-types 흡수 (24 → 22 crates)
 
 **Symptom**: design deviation — post-PR9 audit (system-architect, `tasks/INDEX.md` L169) identified 두 crate (`kebab-normalize` + `kebab-parse-types`) 가 dead abstraction. design §3.7b 의 "thin layer" raison d'être ((a) `kebab-core` namespace 폭발 방지, (b) normalize 의 parser non-dependence) 가 4 parser 중 1개 (markdown) 만 lift 를 경유하는 현실에서 fan-in/fan-out 모두 1 → layer 의미 잃음. `kebab-parse-types` 의 production caller 가 2개 (`kebab-parse-md` + `kebab-normalize`) 이고 `kebab-normalize` 자체 caller 가 1개 (`kebab-app`) — 모두 markdown 의 lift 경로 안에서 단일 fan-in 경계 가능.
