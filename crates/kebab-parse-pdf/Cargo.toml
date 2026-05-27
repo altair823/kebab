@@ -23,7 +23,10 @@ tracing      = { workspace = true }
 lopdf        = { workspace = true }
 
 [dev-dependencies]
-blake3       = { workspace = true }
+anyhow            = { workspace = true }
+blake3            = { workspace = true }
+kebab-parse-image = { path = "../kebab-parse-image" }
+strsim            = "0.11"
 
 [lints]
 workspace = true

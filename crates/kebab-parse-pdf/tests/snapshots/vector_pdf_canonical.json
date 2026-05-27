@@ -1,0 +1,43 @@
+{
+  "doc_id": "c90fae7576fe514fb08190cb29d1ef5d",
+  "source_asset_id": "babe9824b6b28237c0898575a40ba48d",
+  "workspace_path": "mojibake.pdf",
+  "title": "mojibake",
+  "lang": "und",
+  "blocks": [],
+  "metadata": {
+    "aliases": [],
+    "tags": [],
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z",
+    "source_type": "paper",
+    "trust_level": "primary",
+    "user_id_alias": null,
+    "user": {
+      "pdf": {
+        "page_count": 0
+      }
+    }
+  },
+  "provenance": {
+    "events": [
+      {
+        "at": "1970-01-01T00:00:00Z",
+        "agent": "kb-source-fs",
+        "kind": "discovered",
+        "note": null
+      },
+      {
+        "at": "1970-01-01T00:00:00Z",
+        "agent": "kb-parse-pdf",
+        "kind": "parsed",
+        "note": "parser_version=pdf-text-v1; page_count=0"
+      }
+    ]
+  },
+  "parser_version": "pdf-text-v1",
+  "schema_version": 1,
+  "doc_version": 1,
+  "last_chunker_version": null,
+  "last_embedding_version": null
+}
