@@ -998,6 +998,7 @@ impl PdfOcrCfg {
 }
 
 fn default_pdf_ocr_request_timeout_secs() -> u64 { 600 } // CPU 환경 105s 의 5x 여유
+<!-- HOTFIX 2026-05-27: pdf.ocr.request_timeout_secs default 60s (Bug #11). See tasks/HOTFIXES.md 2026-05-27 entry. -->
 fn default_pdf_ocr_valid_ratio() -> f32 { 0.5 }
 fn default_pdf_ocr_min_char_count() -> u32 { 20 }
 fn default_pdf_ocr_lang_hint() -> Option<String> { Some("kor".to_string()) }
@@ -1626,6 +1627,7 @@ v0.19 시점 indexed scanned PDF (= 빈 block + warning) 는 v0.20 upgrade 후�
 | OQ | description | resolution status |
 |---|---|---|
 | OQ-1 | `request_timeout_secs = 600` default 가 GPU 환경에서 과보호 — config tuning 가이드 필요 | dogfood 후 documentation update |
+<!-- HOTFIX 2026-05-27: OQ-1 resolved — default 60s (Bug #11). See tasks/HOTFIXES.md 2026-05-27 entry. -->
 | OQ-2 | citation.v1 의 `ocr_origin: bool` additive 추가 시점 | user feedback 누적 후 별 sub-item |
 | OQ-3 | doctor.v1 의 ollama model availability check | 별 sub-item (sub-item #N — doctor 확장) |
 | OQ-4 | partial-PDF persistence (per-page commit) | 별 sub-item (사용자 책 ingest UX feedback 후 P+) |

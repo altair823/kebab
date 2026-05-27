@@ -14,6 +14,21 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-27 — PDF OCR `request_timeout_secs` default 600s → 60s (Bug #11)
+
+**Discovered**: v0.20.0 final dogfood (2026-05-27), metro-korea.pdf 의 page 8 + 13.
+
+**Symptom**: 두 page 모두 `kebab ingest` 가 600s 까지 완전 timeout (`ms: 600000, chars: 0, skipped: true`). 본문 indexed 안 됨, page 당 20분 cost 낭비, user 가 ingest 완료 signal 못 받음.
+
+**Root cause**: `default_pdf_ocr_request_timeout_secs() = 600` (spec `2026-05-27-pdf-scanned-ocr-spec.md` line 1000 + OQ-1 line 1628 의 "CPU 환경 105s 의 5x 여유" 가정). 실측 cloud GPU Ollama 의 per-page throughput 는 6-32s — 600s 까지 가야 timeout 이라면 Ollama 다운 상태가 사실상 확실. 600s 가 fail-fast 신호로 작동 안 함.
+
+**Fix** (v0.20.0 bugfix3 round 3, branch `feat/pdf-scanned-ocr`):
+- `crates/kebab-config/src/lib.rs` `default_pdf_ocr_request_timeout_secs() = 60`.
+- Doc-comment 보강 — 6-32s 정상 throughput, 60s 초과는 Ollama 다운 / 매우 dense·고해상도 page 신호.
+- User override path 보존 — `config.toml [pdf.ocr] request_timeout_secs = N` 로 늘릴 수 있음.
+
+**Amends**: `docs/superpowers/specs/2026-05-27-pdf-scanned-ocr-spec.md` line 1000 / OQ-1 line 1628 (frozen — text 변경 없음, inline HTML 주석 cross-link 1 줄만 추가). 본 entry 가 live source of truth.
+
 ## 2026-05-27 — Identity-H mojibake marker bypassed OCR fallback (Bug #6)
 
 - **Symptom**: `metro-korea.pdf` (Identity-H CID font without ToUnicode CMap) 의 ingest 가 `pdf_ocr_pages=0` 으로 종료. text 전체가 `?Identity-H Unimplemented?` marker 1154회 반복 (lopdf 0.32.0 emit). text-detect ratio = 1.0 → OCR fallback threshold 0.5 bypass.
