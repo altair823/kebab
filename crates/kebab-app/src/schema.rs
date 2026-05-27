@@ -142,10 +142,10 @@ fn capabilities_snapshot() -> Capabilities {
         rag_multi_turn: true,
         search_cache: true,
         incremental_ingest: true,
-        streaming_ask: false,
+        streaming_ask: true,
         http_daemon: false,
         mcp_server: true,
-        single_file_ingest: false,
+        single_file_ingest: true,
         bulk_search: true,
     }
 }
@@ -266,5 +266,26 @@ mod tests_stats_ext {
         assert!(s.stats.index_bytes.sqlite > 0);
         assert_eq!(s.stats.index_bytes.lancedb, 0);
         assert_eq!(s.stats.stale_doc_count, 0);
+    }
+}
+
+#[cfg(test)]
+mod tests_capabilities {
+    use super::*;
+
+    #[test]
+    fn capabilities_streaming_ask_matches_cli_surface() {
+        // Bug #9: kebab ask --stream 가 answer_event.v1 ndjson 191 event 정상 emit →
+        // capabilities.streaming_ask 가 true 여야 함.
+        let caps = capabilities_snapshot();
+        assert!(caps.streaming_ask, "streaming_ask must be true (Bug #9)");
+    }
+
+    #[test]
+    fn capabilities_single_file_ingest_matches_cli_surface() {
+        // Bug #9: kebab ingest-file <path> + kebab ingest-stdin --title <T> 양쪽 모두
+        // ingest_report.v1 정상 emit → capabilities.single_file_ingest 가 true 여야 함.
+        let caps = capabilities_snapshot();
+        assert!(caps.single_file_ingest, "single_file_ingest must be true (Bug #9)");
     }
 }
