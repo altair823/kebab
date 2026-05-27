@@ -57,7 +57,7 @@ fn schema_report_reflects_freshly_ingested_kb() {
         schema.wire.schemas
     );
     assert!(schema.capabilities.json_mode);
-    assert!(!schema.capabilities.streaming_ask);
+    assert!(schema.capabilities.streaming_ask); // Bug #9: streaming_ask is now true
     assert!(
         schema.capabilities.mcp_server,
         "mcp_server should be true after fb-30",
