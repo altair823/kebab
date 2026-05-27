@@ -50,6 +50,11 @@ pub struct Config {
     /// load cleanly with built-in defaults.
     #[serde(default)]
     pub ingest: IngestCfg,
+    /// v0.20.0 sub-item 1: PDF ingest pipeline settings. `#[serde(default)]`
+    /// so pre-v0.20 config files without a `[pdf]` section load with
+    /// built-in defaults (OCR disabled — opt-in for scanned PDF KB).
+    #[serde(default = "PdfCfg::defaults")]
+    pub pdf: PdfCfg,
     /// p9-fb-05: directory of the on-disk config file this `Config`
     /// was loaded from, if any. Populated by `Config::from_file` /
     /// `Config::load` — never serialized (`#[serde(skip)]`). Used by
@@ -392,6 +397,88 @@ impl CaptionCfg {
     }
 }
 
+/// Settings for the PDF ingest pipeline (P7 + v0.20.0 sub-item 1).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PdfCfg {
+    #[serde(default = "PdfOcrCfg::defaults")]
+    pub ocr: PdfOcrCfg,
+}
+
+impl PdfCfg {
+    pub fn defaults() -> Self {
+        Self { ocr: PdfOcrCfg::defaults() }
+    }
+}
+
+impl Default for PdfCfg {
+    fn default() -> Self { Self::defaults() }
+}
+
+/// v0.20.0 sub-item 1: scanned PDF OCR via Ollama vision LLM. Default
+/// disabled — opt-in because OCR adds ~45-100s per scanned page on CPU
+/// (qwen2.5vl:3b, remote). Enable for book / paper scan KB.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PdfOcrCfg {
+    /// Run OCR on scanned PDF pages. Default `false` (opt-in).
+    pub enabled: bool,
+    /// `false` (default) — text-detect first + vision fallback on
+    /// scanned pages only. `true` — vision LLM 호출 on every page
+    /// (vector PDF 의 dual-text confidence boost — doubles chunk count).
+    pub always_on: bool,
+    /// Engine identifier. v1 only ships `"ollama-vision"`.
+    pub engine: String,
+    /// Vision model id. Default `"qwen2.5vl:3b"` per PoC (§3.5 family
+    /// asymmetry vs image OCR's gemma4:e4b is acknowledged).
+    pub model: String,
+    /// HTTP endpoint. `None` → fall back to `models.llm.endpoint`.
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    /// BCP-47 language hints rendered into prompt.
+    pub languages: Vec<String>,
+    /// Long-edge cap (px). Larger images bloat prompt cost.
+    pub max_pixels: u32,
+    /// HTTP request timeout (sec). Same `0` = "fail immediately"
+    /// semantics as `image.ocr.request_timeout_secs` (NOT a disable
+    /// sentinel — see image.ocr docs).
+    #[serde(default = "default_pdf_ocr_request_timeout_secs")]
+    pub request_timeout_secs: u64,
+    /// Valid char ratio threshold (0.0..=1.0). Page with ratio below
+    /// this is classified as scanned/mojibake → OCR fallback. Default
+    /// `0.5`.
+    #[serde(default = "default_pdf_ocr_valid_ratio")]
+    pub valid_ratio_threshold: f32,
+    /// Minimum char count per page below which page is auto-scanned.
+    /// Default `20`.
+    #[serde(default = "default_pdf_ocr_min_char_count")]
+    pub min_char_count: u32,
+    /// Single-page lang hint. Default `Some("kor")`. `None` = no hint.
+    #[serde(default = "default_pdf_ocr_lang_hint")]
+    pub lang_hint: Option<String>,
+}
+
+impl PdfOcrCfg {
+    pub fn defaults() -> Self {
+        Self {
+            enabled: false,
+            always_on: false,
+            engine: "ollama-vision".to_string(),
+            model: "qwen2.5vl:3b".to_string(),
+            endpoint: None,
+            languages: vec!["eng".to_string(), "kor".to_string()],
+            max_pixels: 2048,
+            request_timeout_secs: default_pdf_ocr_request_timeout_secs(),
+            valid_ratio_threshold: default_pdf_ocr_valid_ratio(),
+            min_char_count: default_pdf_ocr_min_char_count(),
+            lang_hint: default_pdf_ocr_lang_hint(),
+        }
+    }
+}
+
+fn default_pdf_ocr_request_timeout_secs() -> u64 { 600 }
+fn default_pdf_ocr_valid_ratio() -> f32 { 0.5 }
+fn default_pdf_ocr_min_char_count() -> u32 { 20 }
+fn default_pdf_ocr_lang_hint() -> Option<String> { Some("kor".to_string()) }
+
 /// p9-fb-14: TUI-only configuration. Currently a single `theme`
 /// selector (`"dark"` / `"light"`); future fields (custom role
 /// overrides, mode-machine cursor shapes, …) extend the same
@@ -539,6 +626,7 @@ impl Config {
             image: ImageCfg::defaults(),
             ui: UiCfg::defaults(),
             ingest: IngestCfg::default(),
+            pdf: PdfCfg::defaults(),
             // p9-fb-05: defaults are not loaded from disk, so no
             // source_dir. Relative `workspace.root` (rare with
             // defaults) falls back to caller `cwd` via the
@@ -901,6 +989,45 @@ impl Config {
                 }
                 "KEBAB_IMAGE_CAPTION_PROMPT_TEMPLATE_VERSION" => {
                     self.image.caption.prompt_template_version = v.clone();
+                }
+
+                // pdf.ocr (v0.20.0 sub-item 1)
+                "KEBAB_PDF_OCR_ENABLED" => self.pdf.ocr.enabled = parse_bool(v),
+                "KEBAB_PDF_OCR_ALWAYS_ON" => self.pdf.ocr.always_on = parse_bool(v),
+                "KEBAB_PDF_OCR_ENGINE" => self.pdf.ocr.engine = v.clone(),
+                "KEBAB_PDF_OCR_MODEL" => self.pdf.ocr.model = v.clone(),
+                "KEBAB_PDF_OCR_ENDPOINT" => {
+                    self.pdf.ocr.endpoint = if v.is_empty() { None } else { Some(v.clone()) };
+                }
+                "KEBAB_PDF_OCR_LANGUAGES" => {
+                    self.pdf.ocr.languages = v
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+                "KEBAB_PDF_OCR_MAX_PIXELS" => {
+                    if let Ok(n) = v.parse::<u32>() {
+                        self.pdf.ocr.max_pixels = n;
+                    }
+                }
+                "KEBAB_PDF_OCR_REQUEST_TIMEOUT_SECS" => {
+                    if let Ok(n) = v.parse::<u64>() {
+                        self.pdf.ocr.request_timeout_secs = n;
+                    }
+                }
+                "KEBAB_PDF_OCR_VALID_RATIO_THRESHOLD" => {
+                    if let Ok(n) = v.parse::<f32>() {
+                        self.pdf.ocr.valid_ratio_threshold = n.clamp(0.0, 1.0);
+                    }
+                }
+                "KEBAB_PDF_OCR_MIN_CHAR_COUNT" => {
+                    if let Ok(n) = v.parse::<u32>() {
+                        self.pdf.ocr.min_char_count = n;
+                    }
+                }
+                "KEBAB_PDF_OCR_LANG_HINT" => {
+                    self.pdf.ocr.lang_hint = if v.is_empty() { None } else { Some(v.clone()) };
                 }
 
                 // Unknown KEBAB_* keys are silently ignored — see

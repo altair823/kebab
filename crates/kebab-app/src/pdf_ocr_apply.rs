@@ -22,11 +22,26 @@ use lopdf::Document as LopdfDocument;
 use time::OffsetDateTime;
 use tracing::warn;
 
+/// Per-page OCR knobs threaded through [`apply_ocr_to_pdf_pages`].
+/// Mirrors the `[pdf.ocr]` config block (spec §4.5); the facade
+/// (`kebab_app::ingest_one_pdf_asset`) fills these from
+/// `kebab_config::Config::pdf::ocr` plus runtime flags (CLI / SIGINT).
 pub struct PdfOcrOpts {
+    /// Master switch. `false` short-circuits to
+    /// `PdfOcrSummary { pages_ocrd: 0, ms_total: 0 }` without lopdf reparse.
     pub enabled: bool,
+    /// `true` → 모든 page OCR (dual-block path, new `Block::Paragraph` push).
+    /// `false` → text-detect block 의 `min_char_count` 또는
+    /// `valid_ratio_threshold` 미달인 page 만 OCR (in-place mutate).
     pub always_on: bool,
+    /// 0.0..=1.0. text-detect block 의 `compute_valid_char_ratio` 가
+    /// 본 임계 미만이면 OCR fallback. Default `0.5`.
     pub valid_ratio_threshold: f32,
+    /// text-detect block 의 char count 가 본 임계 미만이면 OCR fallback.
+    /// empty page (cover, blank separator) 자동 skip. Default `20`.
     pub min_char_count: u32,
+    /// OCR engine 에 전달할 언어 힌트 (예: `Lang("kor".into())`).
+    /// `None` → no hint passed to engine.
     pub lang_hint: Option<Lang>,
     /// Optional per-page cancellation handle. checked at start of each page
     /// loop iteration; set→true 시 `cancelled mid-PDF` error 반환. plan §6 E4
@@ -34,12 +49,34 @@ pub struct PdfOcrOpts {
     pub cancel: Option<Arc<AtomicBool>>,
 }
 
+/// OCR run summary returned by [`apply_ocr_to_pdf_pages`] for the caller's
+/// `IngestItem.pdf_ocr_pages` + `pdf_ocr_ms_total` wire fields (§4.6.2).
 #[derive(Debug)]
 pub struct PdfOcrSummary {
+    /// Number of pages 가 OCR pipeline 을 실제 통과 (skipped page 제외).
     pub pages_ocrd: u32,
+    /// Cumulative wall-clock duration of successful OCR engine calls (ms).
+    /// `saturating_add` 사용 — 24-day cumulative 까지 overflow-safe.
     pub ms_total: u64,
 }
 
+/// Post-extract OCR enrichment for PDF. Walks `canonical.blocks` page-by-page,
+/// classifies each page via `text_quality::compute_valid_char_ratio` +
+/// `min_char_count`, and either:
+/// - skips (vector PDF + sufficient text + `always_on=false`),
+/// - mutates the text-detect `Block::Paragraph` in-place with OCR output
+///   (scanned/mojibake page), or
+/// - pushes a new `Block::Paragraph` with dual ordinal (`always_on=true` +
+///   vector page).
+///
+/// Errors:
+/// - cancel handle (`opts.cancel = Some(true)`) → `Err("PDF OCR cancelled mid-PDF at page N")`.
+/// - lopdf re-parse failure → `Err(...)`.
+/// - per-page OCR engine failure 또는 DCTDecode 부재 → `ProvenanceKind::Warning`
+///   event push + `emit_progress(Finished { skipped: true })` + continue
+///   (no `Err` propagation).
+///
+/// See spec §4.1 + §4.4 for the full pipeline.
 pub fn apply_ocr_to_pdf_pages<F>(
     canonical: &mut CanonicalDocument,
     engine: &dyn OcrEngine,
@@ -233,12 +270,26 @@ fn find_paragraph_block_idx(blocks: &[Block], page_num: u32) -> usize {
         .expect("PdfTextExtractor emits 1 Block::Paragraph per page (invariant)")
 }
 
+/// Per-page OCR progress event 가 caller 의 `emit_progress` closure 호출 시 emit.
+/// Step 6 의 ingest_one_pdf_asset 가 IngestEvent::PdfOcrStarted / PdfOcrFinished
+/// 로 carry (spec §4.6.1 wire schema).
 pub enum PdfOcrProgress {
-    Started { page: u32 },
-    Finished {
+    /// page 별 OCR 시작 시 emit. `engine.recognize` 호출 직전.
+    Started {
+        /// 1-based PDF page number.
         page: u32,
+    },
+    /// page 별 OCR 종료 시 emit (성공 / skip / failure 모두).
+    Finished {
+        /// 1-based PDF page number.
+        page: u32,
+        /// `engine.recognize` wall-clock duration. skip path 의 의미는 mixed
+        /// (DCTDecode 부재 시 `0`, OCR engine 실패 시 actual latency before bail).
         ms: u64,
+        /// OCR result text 의 char count. skip 시 `0`.
         chars: u32,
+        /// `true` = DCTDecode 부재 또는 OCR engine 실패 로 skip.
+        /// `false` = 정상 OCR 완료.
         skipped: bool,
     },
 }
