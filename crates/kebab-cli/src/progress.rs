@@ -201,9 +201,25 @@ impl ProgressDisplay {
                     );
                 }
             }
-            // v0.20.0 sub-item 1: per-page PDF OCR events — not surfaced in
-            // human-readable progress output (no TTY bar update needed).
-            IngestEvent::PdfOcrStarted { .. } | IngestEvent::PdfOcrFinished { .. } => {}
+            // v0.20.0 sub-item 1: per-page PDF OCR events — sub-progress lines
+            // under AssetStarted for scanned PDF. spec §4.6.1 line 1085-1086.
+            // skipped=true 시 (DCTDecode 부재 또는 engine fail) skip line.
+            IngestEvent::PdfOcrStarted { page } => {
+                if !quiet {
+                    let mut err = std::io::stderr().lock();
+                    let _ = writeln!(err, "  📷 OCR page {page}...");
+                }
+            }
+            IngestEvent::PdfOcrFinished { page, ms, chars, ocr_engine, skipped } => {
+                if !quiet {
+                    let mut err = std::io::stderr().lock();
+                    if *skipped {
+                        let _ = writeln!(err, "  ⊘ OCR page {page} skipped (no DCTDecode or engine fail, {ms}ms)");
+                    } else {
+                        let _ = writeln!(err, "  ✓ OCR page {page} ({chars} chars, {ms}ms via {ocr_engine})");
+                    }
+                }
+            }
         }
         Ok(())
     }
