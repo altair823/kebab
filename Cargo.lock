@@ -4411,8 +4411,10 @@ dependencies = [
  "anyhow",
  "blake3",
  "kebab-core",
+ "kebab-parse-image",
  "lopdf",
  "serde_json",
+ "strsim",
  "time",
  "tracing",
 ]
