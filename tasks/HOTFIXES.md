@@ -14,6 +14,13 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-27 — Identity-H mojibake marker bypassed OCR fallback (Bug #6)
+
+- **Symptom**: `metro-korea.pdf` (Identity-H CID font without ToUnicode CMap) 의 ingest 가 `pdf_ocr_pages=0` 으로 종료. text 전체가 `?Identity-H Unimplemented?` marker 1154회 반복 (lopdf 0.32.0 emit). text-detect ratio = 1.0 → OCR fallback threshold 0.5 bypass.
+- **Root cause**: `crates/kebab-parse-pdf/src/text_quality.rs::compute_valid_char_ratio()` 의 `is_valid_text_char()` 가 ASCII printable range (0x0020..=0x007E) 를 unconditional valid 처리. marker (28 ASCII char) 는 valid 로 count.
+- **Fix**: `MOJIBAKE_MARKERS` const 도입 + marker strip after-strip 의 trim-empty → 0.0 + dominance heuristic (strip > 잔여 일 때 cap 0.3). spec ACCEPT: `docs/superpowers/specs/2026-05-27-v0.20-sub1-bugfix2-spec.md` §4.1. parser_version/wire schema 영향 0.
+- **User action**: 이미 `metro-korea.pdf` class 의 mojibake-heavy PDF 를 v0.20.0 pre-bugfix2 binary 로 indexed 한 경우, `kebab ingest --force-reingest <workspace>` 로 cached skip 무효화 필요 (release notes 동등 안내).
+
 ## 2026-05-27 — v0.20.0 sub-item 1: chunk_id `#c{char_start}` workaround collapses under aggressive overlap (Bug #3 second-iteration patch)
 
 **Symptom**: F2 (1580 chars OCR, scanned_page2.pdf) ingest 시
