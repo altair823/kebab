@@ -62,6 +62,7 @@ pub mod external;
 pub mod fetch;
 pub mod ingest_progress;
 pub mod logging;
+pub mod pdf_ocr_apply;
 pub mod reset;
 pub mod schema;
 mod staleness;
