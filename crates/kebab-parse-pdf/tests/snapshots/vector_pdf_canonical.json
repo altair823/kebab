@@ -2,9 +2,30 @@
   "doc_id": "c90fae7576fe514fb08190cb29d1ef5d",
   "source_asset_id": "babe9824b6b28237c0898575a40ba48d",
   "workspace_path": "mojibake.pdf",
-  "title": "mojibake",
+  "title": "untitled",
   "lang": "und",
-  "blocks": [],
+  "blocks": [
+    {
+      "kind": "paragraph",
+      "common": {
+        "block_id": "22bb97fc37da5c55c099e2763f95ffd9",
+        "heading_path": [],
+        "source_span": {
+          "kind": "page",
+          "page": 1,
+          "char_start": 0,
+          "char_end": 64
+        }
+      },
+      "text": "\n�����\u0014�\u0000\u0000 �=¤̘\u0000  \u0014\u0000 � ���T��\u0000 ���L\n�\\�mŴ\u0000 �8ǐ�\u0000\u0000 �h����\u0000 ��ư\u0000.\n",
+      "inlines": [
+        {
+          "kind": "text",
+          "text": "\n�����\u0014�\u0000\u0000 �=¤̘\u0000  \u0014\u0000 � ���T��\u0000 ���L\n�\\�mŴ\u0000 �8ǐ�\u0000\u0000 �h����\u0000 ��ư\u0000.\n"
+        }
+      ]
+    }
+  ],
   "metadata": {
     "aliases": [],
     "tags": [],
@@ -15,7 +36,9 @@
     "user_id_alias": null,
     "user": {
       "pdf": {
-        "page_count": 0
+        "creator": "anonymous",
+        "page_count": 1,
+        "producer": "ReportLab PDF Library - (opensource)"
       }
     }
   },
@@ -31,7 +54,7 @@
         "at": "1970-01-01T00:00:00Z",
         "agent": "kb-parse-pdf",
         "kind": "parsed",
-        "note": "parser_version=pdf-text-v1; page_count=0"
+        "note": "parser_version=pdf-text-v1; page_count=1"
       }
     ]
   },

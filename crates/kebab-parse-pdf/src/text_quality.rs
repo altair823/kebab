@@ -87,9 +87,10 @@ mod tests {
         assert!((r - 1.0).abs() < 1e-6, "got {r}");
     }
 
-    // F4 measurement: valid_ratio = 0.0000 (lopdf returns empty string — ToUnicode CMap 부재로
-    // extract_text 가 빈 text 반환). Case A (< 0.3) → active.
-    // fixture fix: mojibake.pdf 의 startxref 22130 → 22114 (16-byte offset 오차 수정).
+    // F4 measurement: pikepdf-fixed fixture (Bug #4). Pages tree 복원 후 lopdf 가
+    // page 1 을 로드하고 CID 2-byte code 를 fallback decode → 일부 Latin 범위
+    // codepoint 와 충돌 → ratio ≈ 0.375 (non-zero 이지만 production
+    // valid_ratio_threshold=0.5 미만). OCR trigger 조건 valid.
     #[test]
     fn f4_fixture_ratio_under_threshold() {
         use lopdf::Document;
@@ -97,6 +98,6 @@ mod tests {
         let doc = Document::load_mem(bytes).unwrap();
         let text = doc.extract_text(&[1]).unwrap_or_default();
         let r = compute_valid_char_ratio(&text);
-        assert!(r < 0.3, "F4 mojibake fixture 의 valid_ratio < 0.3 (got {r})");
+        assert!(r < 0.5, "F4 mojibake fixture 의 valid_ratio < 0.5 (production OCR trigger threshold — got {r})");
     }
 }

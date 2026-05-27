@@ -68,3 +68,37 @@ fn vector_pdf_extract_byte_identical_to_baseline() {
         "vector PDF canonical must be byte-identical to baseline (Step 1-8 regression)"
     );
 }
+
+#[test]
+fn mojibake_fixture_load_yields_one_page() {
+    let bytes = include_bytes!("fixtures/mojibake.pdf");
+    let doc = lopdf::Document::load_mem(bytes).expect("load mojibake");
+    assert_eq!(doc.get_pages().len(), 1, "F4 must have 1 page");
+}
+
+#[test]
+fn mojibake_fixture_has_no_tounicode_cmap() {
+    let bytes = include_bytes!("fixtures/mojibake.pdf");
+    let count = bytes
+        .windows(b"/ToUnicode".len())
+        .filter(|w| *w == b"/ToUnicode")
+        .count();
+    assert_eq!(count, 0, "F4 must have no /ToUnicode marker");
+}
+
+#[test]
+fn pdf_text_extractor_on_mojibake_yields_one_block() {
+    let bytes = include_bytes!("fixtures/mojibake.pdf");
+    let asset = make_raw_asset("mojibake.pdf");
+    let workspace_root = Path::new("/");
+    let config = ExtractConfig::default();
+    let ctx = ExtractContext {
+        asset: &asset,
+        workspace_root,
+        config: &config,
+    };
+    let canonical = PdfTextExtractor::new()
+        .extract(&ctx, bytes)
+        .expect("PdfTextExtractor::extract");
+    assert_eq!(canonical.blocks.len(), 1, "F4 must yield 1 block");
+}
