@@ -326,6 +326,19 @@ max_pixels = 1600                     # long-edge cap
 enabled = true                        # vision LM 으로 한 문장 객관 설명 생성
 max_pixels = 768
 prompt_template_version = "caption-v1"
+
+[pdf.ocr]
+enabled = true               # smoke test 의 OCR path 활성화 (manual invoke)
+always_on = false
+engine = "ollama-vision"
+model = "qwen2.5vl:3b"
+# endpoint = "http://192.168.0.47:11434"   # 사용자 dogfood host
+languages = ["eng", "kor"]
+max_pixels = 2048
+request_timeout_secs = 600
+valid_ratio_threshold = 0.5
+min_char_count = 20
+lang_hint = "kor"
 ```
 
 이미지 자산 한 장당 OCR 1 호출 + Caption 1 호출 → ~3-6초 (`gemma4:e4b` 기준). 다이어그램 / 카메라 사진 / 스크린샷 위주 워크스페이스에 권장. 책 / 스캔본은 P7 PDF 라인으로.
@@ -714,6 +727,22 @@ kebab --config /tmp/kebab-smoke/config.toml ingest
 
 # fb-39 의 P@k metric 으로 small vs large 비교:
 kebab --config /tmp/kebab-smoke/config.toml eval run
+```
+
+### v0.20 force-reingest (scanned PDF OCR)
+
+v0.19 binary 로 indexed scanned PDF (책 스캔 등) 가 v0.20 upgrade 후 OCR path 진입 안 함 — `parser_version = "pdf-text-v1"` 보존이라 `try_skip_unchanged` 가 Unchanged 반환. 명시적 force:
+
+```bash
+# v0.19 에서 scanned PDF 가 빈 block + "scanned candidate" warning 으로 indexed:
+KEBAB_PDF_OCR_ENABLED=false kebab --config /tmp/kebab-smoke/config.toml ingest
+
+# v0.20 binary upgrade 후 OCR 활성화 (config 갱신 또는 env) + force-reingest:
+KEBAB_PDF_OCR_ENABLED=true kebab --config /tmp/kebab-smoke/config.toml ingest --force-reingest
+
+# 결과: 이전 빈 block 들이 OCR text block 으로 replace, provenance.events 에
+# OcrApplied event 가 page 마다 추가. ingest_progress 의 pdf_ocr_started/finished
+# 가 stderr 에 emit.
 ```
 
 자세한 history 와 발견된 버그는 [tasks/HOTFIXES.md](../tasks/HOTFIXES.md) 참조.

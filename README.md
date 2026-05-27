@@ -192,7 +192,7 @@ flowchart TB
 
 ## Configuration
 
-- `~/.config/kebab/config.toml` — `kebab init` 가 XDG 경로에 생성. `[workspace]` (root, exclude — include 필드는 제거됨, 지원 형식은 자동 결정), `[storage]`, `[chunking]`, `[models.embedding]`, `[models.llm]`, `[image.ocr]`, `[image.caption]`, `[search]`, `[rag]`, `[ui]` 절. 
+- `~/.config/kebab/config.toml` — `kebab init` 가 XDG 경로에 생성. `[workspace]` (root, exclude — include 필드는 제거됨, 지원 형식은 자동 결정), `[storage]`, `[chunking]`, `[models.embedding]`, `[models.llm]`, `[image.ocr]`, `[image.caption]`, `[pdf.ocr]`, `[search]`, `[rag]`, `[ui]` 절. 
   - `[models.embedding]` — 
     - `model` (default `"multilingual-e5-large"`, fb-39b) — 다국어 sentence embedding 모델. 1024-dim. ONNX (~1.3 GB) 첫 실행 시 fastembed cache (`config.storage.model_dir/fastembed/`) 에 자동 다운로드. `"multilingual-e5-small"` (384 dim) 는 backwards-compat 으로 사용 가능 — TOML 에 명시.
     - `dimensions` (default `1024`) — 모델의 embedding 차원. config 와 LanceDB stored dim 불일치 시 검색 결과 0 건 (orphan table). 모델 변경 시 `kebab reset --vector-only && kebab ingest` 로 vector index 재구축 권장.
@@ -210,6 +210,29 @@ flowchart TB
 - `workspace.root` 경로 형식: 절대 (`/foo/bar`) / tilde (`~/KnowledgeBase`, default) / env (`${XDG_DATA_HOME}/kebab`) / 상대 (`./notes`, `notes`, `../shared/x`) 모두 가능. **상대 경로의 base 는 config.toml 자체가 위치한 디렉토리** — 사용자의 `cwd` 와 무관 (`--config /tmp/cfg.toml` + `root = "kb"` → `/tmp/kb`). p9-fb-05 정책.
 
 config 예시는 [docs/SMOKE.md](docs/SMOKE.md) 의 `/tmp/kebab-smoke/config.toml` 블록 참조.
+
+### `[pdf.ocr]` — scanned PDF OCR (v0.20.0+)
+
+embedded text 가 없는 scanned PDF (책 스캔, 영수증, 카메라 page 등) 의 OCR 활성화. **default off (opt-in)** — OCR 한 page 당 ~45-100s (qwen2.5vl:3b on CPU) 의 cost 때문에 책 / 논문 archive 등 명시적 KB 에만 활성화.
+
+```toml
+[pdf.ocr]
+enabled = false              # opt-in: 책 / 논문 archive KB 에서 true
+always_on = false            # true 시 vector PDF page 도 dual-block OCR (confidence boost)
+engine = "ollama-vision"
+model = "qwen2.5vl:3b"       # PoC alnum 94.79% page1 / 81.56% 받침 (vs gemma4:e4b 의 27%)
+# endpoint = "http://localhost:11434"   # 미명시 시 models.llm.endpoint fallback
+languages = ["eng", "kor"]
+max_pixels = 2048
+request_timeout_secs = 600
+valid_ratio_threshold = 0.5  # text-detect threshold — mojibake / scanned 판정 boundary
+min_char_count = 20
+lang_hint = "kor"
+```
+
+env override: `KEBAB_PDF_OCR_*` 11 변수 (예: `KEBAB_PDF_OCR_ENABLED=true kebab ingest`).
+
+**v0.20 upgrade after**: scanned PDF 가 v0.19 에 빈 block + warning 으로 indexed 된 경우 자동으로 OCR 재실행 안 됨 (parser_version `"pdf-text-v1"` 보존). 명시적 재처리: `kebab ingest --force-reingest`.
 
 ## 외부 AI 통합
 
