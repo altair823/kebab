@@ -109,6 +109,15 @@ pub(crate) fn is_generated_file(path: &Path) -> Result<bool> {
     )
 }
 
+/// Returns true when `path`'s filename/extension is recognised as a code
+/// file (per `code_lang_for_path`). Used by the walker to apply
+/// `[ingest.code].max_file_bytes` / `max_file_lines` only to code files,
+/// not to PDF/image/markdown (which have their own size controls in
+/// their respective parsers).
+pub(crate) fn is_code_file(path: &Path) -> bool {
+    code_lang_for_path(path).is_some()
+}
+
 /// Check if `path` exceeds `max_bytes` or `max_lines`. Byte cap first
 /// (cheap), then line cap (streaming with early exit).
 pub(crate) fn is_oversized(path: &Path, max_bytes: u64, max_lines: u32) -> Result<bool> {

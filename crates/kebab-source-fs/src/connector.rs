@@ -165,13 +165,16 @@ impl FsSourceConnector {
                 continue;
             }
 
-            // Size-cap check (byte or line limit).
-            if crate::code_meta::is_oversized(
-                &abs_path,
-                self.max_file_bytes,
-                self.max_file_lines,
-            )
-            .unwrap_or(false)
+            // v0.20.0 sub-item 1 bugfix (#2): size-cap applies ONLY to
+            // code files. PDF/image/markdown bypass — their parsers
+            // have their own size controls. spec §3.3.
+            if crate::code_meta::is_code_file(&abs_path)
+                && crate::code_meta::is_oversized(
+                    &abs_path,
+                    self.max_file_bytes,
+                    self.max_file_lines,
+                )
+                .unwrap_or(false)
             {
                 fs_skips.skipped_size_exceeded =
                     fs_skips.skipped_size_exceeded.saturating_add(1);
@@ -184,7 +187,7 @@ impl FsSourceConnector {
                     path = %rel_path.display(),
                     max_bytes = self.max_file_bytes,
                     max_lines = self.max_file_lines,
-                    "skip: file exceeds size cap"
+                    "skip: code file exceeds size cap"
                 );
                 continue;
             }
@@ -763,5 +766,29 @@ mod tests {
             "skipped_size_exceeded should be >= 1 (line cap); got {}",
             skips.skipped_size_exceeded
         );
+    }
+
+    #[test]
+    fn size_cap_skips_only_code_files() {
+        use tempfile::tempdir;
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+
+        // 300 KB pdf / md / rs (each > 262 144 byte cap)
+        std::fs::write(root.join("paper.pdf"), vec![b'%'; 300_000]).unwrap();
+        std::fs::write(root.join("notes.md"), vec![b'#'; 300_000]).unwrap();
+        std::fs::write(root.join("big.rs"), vec![b'/'; 300_000]).unwrap();
+
+        let cfg = cfg_with_size_cap(root.to_str().unwrap(), 262_144, 5_000);
+        let connector = FsSourceConnector::new(&cfg).unwrap();
+        let (assets, skips) = connector.scan_with_skips(&SourceScope::default()).unwrap();
+
+        let paths: Vec<_> = assets.iter().map(|a| a.workspace_path.0.as_str()).collect();
+        assert!(paths.iter().any(|p| p.contains("paper.pdf")), "PDF must pass: {paths:?}");
+        assert!(paths.iter().any(|p| p.contains("notes.md")), "MD must pass: {paths:?}");
+        assert!(!paths.iter().any(|p| p.contains("big.rs")), "code file must skip: {paths:?}");
+
+        assert_eq!(skips.skip_examples.size_exceeded.len(), 1);
+        assert!(skips.skip_examples.size_exceeded[0].contains("big.rs"));
     }
 }
