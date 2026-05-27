@@ -131,11 +131,11 @@ B2 fixture 합성 후 actual `/Filter` 측정 (shell grep + Python re 기반 pro
 - F6 (`flate_raw.pdf`): `/Filter /FlateDecode` — 872 bytes, DCTDecode 부재 ✅.
   Pillow RGB→PDF 가 DCTDecode 를 사용하는 것 확인 → 수동 PDF 작성(zlib.compress) 으로 생성.
 - F7 (`ccitt.pdf`): `/Filter [ /CCITTFaxDecode ]` — 2060 bytes, DCTDecode 부재 ✅.
-  Pillow bilevel('1') + TIFF group4 → ImageMagick `convert -compress Group4` 경로.
+  Pillow bilevel('1') + TIFF group4 → ghostscript `pdfwrite -dMonoImageFilter=/CCITTFaxEncode -dEncodeMonoImages=true` 경로.
 
 Step 3 의 `extract_dctdecode_page_image` 의 baseline.
 
 주요 관찰:
 - reportlab 기본값 (`useA85=1`) 은 `/Filter [ /ASCII85Decode /DCTDecode ]` chain → `useA85=0` 으로 순수 DCTDecode 획득.
 - Pillow `Image.new('RGB').save('.pdf','PDF')` 는 DCTDecode (JPEG) 로 저장 — FlateDecode raw pixel 이 필요한 F6 는 수동 PDF 작성 필요.
-- ghostscript pdfwrite 가 TIFF 직접 입력을 지원 안 함 (v10.02.1 `/undefined in II*`) — ImageMagick `convert -compress Group4` 로 대체.
+- ghostscript pdfwrite default 가 TIFF 입력 시 `/undefined in II*` 로 실패 — `-dMonoImageFilter=/CCITTFaxEncode -dEncodeMonoImages=true` flag 로 우회 (ImageMagick fallback 불필요).
