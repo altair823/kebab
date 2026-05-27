@@ -11,5 +11,5 @@
 pub use crate::doctor_signal::{DoctorUnhealthy, NoHitSignal, RefusalSignal};
 
 pub use kebab_llm_local::LlmError;
-pub use kebab_config::ConfigInvalid;
+pub use kebab_config::{ConfigInvalid, ConfigNotFound};
 pub use kebab_store_sqlite::NotIndexed;

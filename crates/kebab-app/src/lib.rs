@@ -71,6 +71,7 @@ pub use app::{App, SearchResponse, short_query_hint};
 pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
 pub use reset::{ResetReport, ResetScope, enumerate_orphans};
 pub use error_wire::{ERROR_V1_ID, ErrorV1, StructuredError, classify};
+pub use kebab_config::{ConfigInvalid, ConfigNotFound};
 pub use fetch::fetch_with_config;
 #[doc(hidden)]
 pub use bulk::{BULK_QUERIES_MAX, bulk_search_with_config};

@@ -2,11 +2,10 @@
 //! on stderr while non-json mode emits the legacy `error:` text prefix.
 //!
 //! The `config_invalid` code is triggered by supplying an *existing* but
-//! malformed TOML file via `--config`. Note: supplying a *non-existent*
-//! path does NOT trigger this error — Config::load silently falls back to
-//! defaults when the specified config file is absent (by design, so that
-//! `kebab doctor` runs before `kebab init` is ever called). A file that
-//! exists but fails TOML parsing is the reliable path to `config_invalid`.
+//! malformed TOML file via `--config`. A file that exists but fails TOML
+//! parsing is the reliable path to `config_invalid`. Supplying a path that
+//! does not exist emits `config_not_found` instead (Bug #10 fix, v0.20.0
+//! bugfix3); see `cli_config_not_found.rs` for those tests.
 
 use std::process::Command;
 

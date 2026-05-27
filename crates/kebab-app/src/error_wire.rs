@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::error_signal::{ConfigInvalid, LlmError, NotIndexed};
+use crate::error_signal::{ConfigInvalid, ConfigNotFound, LlmError, NotIndexed};
 
 // p9-fb-34: `stale_cursor` is constructed directly by `cursor::decode`
 // and surfaced through `StructuredError` (an anyhow-friendly wrapper
@@ -63,6 +63,20 @@ pub fn classify(err: &anyhow::Error, verbose: bool) -> ErrorV1 {
                 "cause": s.cause,
             }),
             hint: Some("check `--config <path>` and TOML syntax".to_string()),
+        };
+    }
+    if let Some(s) = err.downcast_ref::<ConfigNotFound>() {
+        return ErrorV1 {
+            schema_version: ERROR_V1_ID.to_string(),
+            code: "config_not_found".to_string(),
+            message: s.to_string(),
+            details: json!({
+                "path": s.path.to_string_lossy(),
+            }),
+            hint: Some(
+                "verify --config <path>; pass an existing toml file or omit --config to use XDG default"
+                    .to_string(),
+            ),
         };
     }
     if let Some(s) = err.downcast_ref::<NotIndexed>() {

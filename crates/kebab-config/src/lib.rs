@@ -24,6 +24,15 @@ pub struct ConfigInvalid {
     pub cause: String,
 }
 
+/// p20-bugfix3 Bug #10: explicit `--config <path>` was missing → silent
+/// fallback to defaults instead of fail-fast. `kebab-app::error_wire::classify`
+/// downcasts → `code: "config_not_found"` ErrorV1.
+#[derive(Debug, thiserror::Error)]
+#[error("config file does not exist: {path}")]
+pub struct ConfigNotFound {
+    pub path: PathBuf,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub schema_version: u32,
@@ -688,7 +697,11 @@ impl Config {
     pub fn load(path: Option<&Path>) -> anyhow::Result<Self> {
         let from_disk = match path {
             Some(p) if p.exists() => Self::from_file(p)?,
-            Some(_) => Self::defaults(),
+            Some(p) => {
+                return Err(anyhow::Error::new(ConfigNotFound {
+                    path: p.to_path_buf(),
+                }));
+            }
             None => {
                 let p = Self::xdg_config_path();
                 if p.exists() {
@@ -1816,5 +1829,18 @@ mod fb27_tests {
             "expected parse_failed cause, got: {}",
             signal.cause
         );
+    }
+
+    #[test]
+    fn config_load_explicit_nonexistent_path_returns_config_not_found() {
+        // Bug #10: --config /tmp/nonexistent.toml → silent fallback 금지.
+        let p = std::path::Path::new("/tmp/__kebab_bugfix3_nonexistent.toml");
+        assert!(!p.exists(), "test precondition: path must not exist");
+
+        let err = Config::load(Some(p)).expect_err("expected ConfigNotFound");
+        let signal = err
+            .downcast_ref::<ConfigNotFound>()
+            .expect("from_load error should downcast to ConfigNotFound");
+        assert_eq!(signal.path, p.to_path_buf());
     }
 }
