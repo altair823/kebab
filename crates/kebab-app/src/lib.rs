@@ -1865,7 +1865,7 @@ fn ingest_one_pdf_asset(
                                 page,
                                 ms,
                                 chars,
-                                skipped: _,
+                                skipped,
                             } => {
                                 if let Some(sender) = progress {
                                     let _ = sender.send(
@@ -1874,6 +1874,7 @@ fn ingest_one_pdf_asset(
                                             ms,
                                             chars,
                                             ocr_engine: engine.engine_name().to_string(),
+                                            skipped,
                                         },
                                     );
                                 }

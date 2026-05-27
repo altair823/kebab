@@ -16,6 +16,8 @@
         "asset_finished",
         "embed_batch_started",
         "embed_batch_finished",
+        "pdf_ocr_started",
+        "pdf_ocr_finished",
         "completed",
         "aborted"
       ]
@@ -33,7 +35,11 @@
     },
     "chunks":       { "type": "integer", "minimum": 0, "description": "asset_finished: chunk count produced for this asset." },
     "n_chunks":     { "type": "integer", "minimum": 0, "description": "embed_batch_started / embed_batch_finished: chunks in this embedding batch." },
-    "ms":           { "type": "integer", "minimum": 0, "description": "embed_batch_finished: wall-clock duration of the batch." },
+    "ms":           { "type": "integer", "minimum": 0, "description": "embed_batch_finished / pdf_ocr_finished: wall-clock duration (ms). pdf_ocr_finished skip path 의 의미는 mixed (DCTDecode 부재 시 0, engine 실패 시 latency-before-bail)." },
+    "chars":        { "type": "integer", "minimum": 0, "description": "pdf_ocr_finished: char count of OCR result. Skip 시 0." },
+    "page":         { "type": "integer", "minimum": 1, "description": "pdf_ocr_started / pdf_ocr_finished: 1-based PDF page number under OCR." },
+    "ocr_engine":   { "type": "string", "description": "pdf_ocr_finished: engine_name (e.g. 'ollama-vision')." },
+    "skipped":      { "type": "boolean", "description": "pdf_ocr_finished: true 일 시 OCR 미수행 (DCTDecode 부재 또는 engine 실패). chars=0 만으로는 skip 과 0-char result 구분 불가." },
     "counts":       {
       "type": "object",
       "description": "completed / aborted: aggregate counters at the moment the run ended (mirrors fields on `ingest_report.v1`).",

@@ -46,9 +46,12 @@ pub struct AggregateCounts {
 /// Ordering invariant per design §2.4a:
 ///
 /// ```text
-/// ScanStarted < ScanCompleted < (AssetStarted < AssetFinished)*
-///                             < (Completed | Aborted)
+/// ScanStarted < ScanCompleted
+///   < (AssetStarted [< (PdfOcrStarted < PdfOcrFinished)*] < AssetFinished)*
+///   < (Completed | Aborted)
 /// ```
+///
+/// `[]` = optional, per-PDF asset only (v0.20.0 sub-item 1).
 ///
 /// Embed-batch events (`embed_batch_started` / `embed_batch_finished`
 /// in §2.4a) are reserved for a future iteration and are not emitted
@@ -88,11 +91,14 @@ pub enum IngestEvent {
     /// PDF page 별 OCR 시작 시 emit. v0.20.0 sub-item 1.
     PdfOcrStarted { page: u32 },
     /// PDF page 별 OCR 종료 시 emit. v0.20.0 sub-item 1.
+    /// `skipped` = `true` 일 시 OCR 미수행 (DCTDecode 부재 또는 engine 실패).
+    /// `chars = 0` 만으로는 "skip" 과 "0-char OCR result" 구분 불가, `skipped` field 가 명시적.
     PdfOcrFinished {
         page: u32,
         ms: u64,
         chars: u32,
         ocr_engine: String,
+        skipped: bool,
     },
 }
 

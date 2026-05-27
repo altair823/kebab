@@ -38,7 +38,28 @@
       },
       "description": "p9-fb-25: per-extension skip count. Key = lowercase extension without leading dot (e.g. 'docx'). Files without extension key under '<no-ext>'."
     },
-    "items":          { "type": ["array", "null"] },
+    "items": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["kind", "doc_path"],
+        "properties": {
+          "kind":             { "type": "string", "enum": ["new", "updated", "skipped", "unchanged", "error"] },
+          "doc_id":           { "type": ["string", "null"] },
+          "doc_path":         { "type": "string" },
+          "asset_id":         { "type": ["string", "null"] },
+          "byte_len":         { "type": ["integer", "null"], "minimum": 0 },
+          "block_count":      { "type": ["integer", "null"], "minimum": 0 },
+          "chunk_count":      { "type": ["integer", "null"], "minimum": 0 },
+          "parser_version":   { "type": ["string", "null"] },
+          "chunker_version":  { "type": ["string", "null"] },
+          "warnings":         { "type": "array", "items": { "type": "string" } },
+          "pdf_ocr_pages":    { "type": ["integer", "null"], "minimum": 0, "description": "v0.20.0 sub-item 1: number of PDF pages 가 OCR pipeline 통과. null = OCR disabled or non-PDF asset." },
+          "pdf_ocr_ms_total": { "type": ["integer", "null"], "minimum": 0, "description": "v0.20.0 sub-item 1: cumulative OCR engine wall-clock duration (ms). null = OCR disabled or non-PDF asset." },
+          "error":            { "type": ["string", "null"] }
+        }
+      }
+    },
     "skipped_gitignore":         { "type": "integer", "minimum": 0 },
     "skipped_kebabignore":       { "type": "integer", "minimum": 0 },
     "skipped_builtin_blacklist": { "type": "integer", "minimum": 0 },
