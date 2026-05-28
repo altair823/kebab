@@ -58,6 +58,7 @@ async fn ingest_dual_write_doc_id_matches_ndjson() {
         env.config.logging = LoggingCfg {
             ingest_log_enabled: true,
             ingest_log_dir: log_dir.clone(),
+            ..Default::default()
         };
 
         // Copy scanned PDF into workspace

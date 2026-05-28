@@ -42,3 +42,28 @@ fn pre_v020_config_without_logging_section_gets_defaults() {
     assert!(w.logging.ingest_log_enabled);
     assert_eq!(w.logging.ingest_log_dir, PathBuf::from("{state_dir}/logs"));
 }
+
+// Test 4 (AC-9 v0.20.x r2): old config with only ingest_log_enabled + ingest_log_dir
+// parses without error and produces correct defaults for keep_recent_runs + retention_days.
+#[test]
+fn old_logging_config_parses_with_defaults() {
+    let toml = r#"
+[logging]
+ingest_log_enabled = true
+ingest_log_dir = "{state_dir}/logs"
+"#;
+    let w: LoggingWrapper = toml::from_str(toml).expect("old logging config must parse");
+    assert!(w.logging.ingest_log_enabled);
+    assert_eq!(
+        w.logging.ingest_log_dir,
+        PathBuf::from("{state_dir}/logs")
+    );
+    assert_eq!(
+        w.logging.keep_recent_runs, 100,
+        "keep_recent_runs must default to 100"
+    );
+    assert_eq!(
+        w.logging.retention_days, 30,
+        "retention_days must default to 30"
+    );
+}

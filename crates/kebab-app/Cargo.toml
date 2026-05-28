@@ -72,6 +72,7 @@ rusqlite             = { workspace = true }
 
 [dev-dependencies]
 rusqlite             = { workspace = true }
+filetime             = "0.2"
 tempfile             = { workspace = true }
 # Image-pipeline integration tests use wiremock to stub Ollama for OCR
 # / caption HTTP calls. Async runtime to host the mock server only;

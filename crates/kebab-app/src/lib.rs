@@ -321,6 +321,15 @@ pub fn ingest_with_config_opts(
     let ocr_pages_cnt: Arc<Mutex<u32>> = Arc::new(Mutex::new(0u32));
     let ocr_failures_cnt: Arc<Mutex<u32>> = Arc::new(Mutex::new(0u32));
 
+    // v0.20.x r2: prune stale pdf_ocr_events rows once per ingest run.
+    let _pruned = app
+        .sqlite
+        .prune_pdf_ocr_events(app.config.logging.retention_days)
+        .unwrap_or_else(|e| {
+            tracing::warn!(target: "kebab-app", "pdf_ocr_events prune failed: {e}");
+            0
+        });
+
     // Walk the workspace.
     crate::ingest_progress::emit(
         progress,
