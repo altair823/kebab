@@ -127,3 +127,72 @@ fn lexical_mixed_korean_english_multi_token_query_hits() {
         hits.iter().map(|h| &h.doc_path.0).collect::<Vec<_>>()
     );
 }
+
+// ── S7 V009 morphological tokenizer end-to-end tests ─────────────────
+
+/// S7 — V009 morphological tokenizer: 한국어 2자 query 가 end-to-end
+/// lexical 경로에서 hit. lindera ko-dic 이 '한국어를' → '한국어' 형태소로
+/// 분해, '서울은' → '서울' 로 분해하여 tokenized_korean_text column 에
+/// 기록 → FTS5 매칭.
+#[test]
+fn korean_morphological_2char_query_lexical_mode() {
+    let env = TestEnv::lexical_only();
+    let doc_path = env.workspace_root.join("korean-wiki.md");
+    std::fs::write(
+        &doc_path,
+        "# 한국어 위키\n\n한국어를 공부합니다.\n서울은 한국의 수도입니다.\n",
+    )
+    .expect("write korean-wiki fixture");
+
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true)
+        .expect("ingest must succeed");
+
+    let hits = kebab_app::search_with_config(env.config.clone(), common::lexical_query("한국"))
+        .expect("search 한국");
+    assert!(
+        !hits.is_empty(),
+        "'한국' 2-char Korean query must return at least one hit (V009 morphological); got {:?}",
+        hits.iter().map(|h| &h.doc_path.0).collect::<Vec<_>>()
+    );
+
+    let hits = kebab_app::search_with_config(env.config.clone(), common::lexical_query("서울"))
+        .expect("search 서울");
+    assert!(
+        !hits.is_empty(),
+        "'서울' 2-char Korean query must return at least one hit; got {:?}",
+        hits.iter().map(|h| &h.doc_path.0).collect::<Vec<_>>()
+    );
+}
+
+/// S7 — V009 morphological tokenizer: 한-영 혼합 query lexical hit.
+/// 'Rust' (English whole-token) + '최적화' (Korean morpheme) 각각 hit.
+#[test]
+fn korean_morphological_mixed_english_korean_query() {
+    let env = TestEnv::lexical_only();
+    let doc_path = env.workspace_root.join("rust-optimization.md");
+    std::fs::write(
+        &doc_path,
+        "# Rust 최적화 노트\n\nRust 최적화는 zero-cost abstraction 을 강조한다.\n",
+    )
+    .expect("write rust-optimization fixture");
+
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true)
+        .expect("ingest must succeed");
+
+    let hits = kebab_app::search_with_config(env.config.clone(), common::lexical_query("Rust"))
+        .expect("search Rust");
+    assert!(
+        !hits.is_empty(),
+        "'Rust' English whole-token must hit; got {:?}",
+        hits.iter().map(|h| &h.doc_path.0).collect::<Vec<_>>()
+    );
+
+    let hits =
+        kebab_app::search_with_config(env.config.clone(), common::lexical_query("최적화"))
+            .expect("search 최적화");
+    assert!(
+        !hits.is_empty(),
+        "'최적화' Korean morpheme must hit; got {:?}",
+        hits.iter().map(|h| &h.doc_path.0).collect::<Vec<_>>()
+    );
+}

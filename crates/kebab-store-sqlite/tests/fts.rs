@@ -581,3 +581,67 @@ fn fts_v009_unicode61_space_separated_korean_token_hits() {
     // substring (token 의 부분 문자열) 은 V009 unicode61 에서 0-hit.
     assert_eq!(count_match(&conn, "발생한"), 0, "substring '발생한' of '발생한다' 0-hit");
 }
+
+// ── 8. V009 morphological tokenizer behavior ──────────────────────────
+
+/// V009 의 핵심 가치: 한국어 2자 query 가 hit. 형태소 분해된
+/// tokenized_korean_text column 이 chunks_fts 에 indexed.
+#[test]
+fn fts_v009_korean_morphological_2char_query_hits() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config()).unwrap();
+    store.run_migrations().unwrap();
+
+    let conn = raw_conn_no_fk(&env);
+    let text = "한국 문화는 오래되었다";
+    let tokenized = tokenize_korean_morphological(text);
+    conn.execute(
+        "INSERT INTO chunks (
+            chunk_id, doc_id, text, heading_path_json, section_label,
+            source_spans_json, token_estimate, chunker_version,
+            policy_hash, block_ids_json, created_at,
+            tokenized_korean_text
+        ) VALUES (?, ?, ?, '[]', NULL, '[]', 0, 'v1', 'h', '[]', '2024-01-01T00:00:00Z', ?)",
+        rusqlite::params![
+            &"k".repeat(32),
+            &"d".repeat(32),
+            text,
+            tokenized,
+        ],
+    )
+    .expect("insert chunk with tokenized_korean_text");
+
+    assert!(
+        count_match(&conn, "한국") >= 1,
+        "2-char Korean morpheme '한국' must hit when tokenized column is populated"
+    );
+}
+
+/// V009 의 Path A 회귀 확인: 영어 substring 매칭이 사라짐
+/// (unicode61 의 whole-token only 동작).
+#[test]
+fn fts_v009_english_whole_token_only() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config()).unwrap();
+    store.run_migrations().unwrap();
+
+    let conn = raw_conn_no_fk(&env);
+    insert_chunk(
+        &conn,
+        &"e".repeat(32),
+        &"d".repeat(32),
+        "[]",
+        "the tokenizer normalizes whitespace before matching",
+    );
+
+    assert_eq!(
+        count_match(&conn, "token"),
+        0,
+        "V009 unicode61: 'token' is substring of 'tokenizer', should NOT hit"
+    );
+    assert_eq!(
+        count_match(&conn, "tokenizer"),
+        1,
+        "V009 unicode61: whole-token 'tokenizer' must hit"
+    );
+}
