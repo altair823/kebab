@@ -203,6 +203,10 @@ ort          = { version = "=2.0.0-rc.9", default-features = false, features = [
 tokenizers   = { version = "0.21", default-features = false, features = ["onig"] }
 hf-hub       = { version = "0.4", default-features = false, features = ["ureq", "rustls-tls"] }
 ndarray      = "0.16"
+# Korean morphological tokenizer (FTS v0.20.x, §6.1). lindera-ko-dic bundles
+# the KO-DIC dictionary as an embedded blob via the embed-ko-dic feature.
+lindera        = "3"
+lindera-ko-dic = "3"
 
 # Disk-footprint trim for dev / test builds. Codegen, opt-level, and
 # behavior are unchanged — only DWARF debug info is reduced (line
