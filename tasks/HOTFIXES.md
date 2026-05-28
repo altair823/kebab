@@ -22,10 +22,12 @@ git history.
 
 **Root cause**: trigram 의 bucket 미존재. unicode61 기반 단순 3-gram 분해로는 2-char 한국어 단어를 충분히 커버 못함.
 
-**Fix**: V009 migration + lindera-ko-dic 형태소분석기 + tokenized_korean_text column + first-boot eager backfill. branch `feat/korean-morphological-tokenizer` (8 commit + 5 follow-up).
-- `migrations/V009__fts_korean_morphological.sql` — FTS5 tokenize 함수 + tokenized_korean_text column 신설.
-- `crates/kebab-search/src/lexical.rs` — lindera integration + 한국어 쿼리 prefix matching 재설계.
-- `crates/kebab-app/src/ingest.rs` — first-boot V009 trigger + eager backfill.
+**Fix**: V009 migration + lindera-ko-dic 형태소분석기 + tokenized_korean_text column + first-boot eager backfill. branch `feat/korean-morphological-tokenizer` (17 commit).
+- `migrations/V009__fts_korean_morphological.sql` — `tokenized_korean_text` column ADD + chunks_fts (trigram → unicode61) + CASE expression triggers + corpus_revision bump.
+- `crates/kebab-chunk/src/lib.rs::tokenize_korean_morphological` — lindera ko-dic 형태소 분석 helper (OnceLock 캐시 + None fallback).
+- `crates/kebab-store-sqlite/src/store.rs::backfill_tokenized_korean_text` — 1000-row batch transaction + idempotent backfill (tokenize closure 주입으로 dependency-inversion).
+- `crates/kebab-app/src/app.rs::App::open_with_config` — first-boot hook 에서 backfill 호출 (실패 시 warn log + App open 계속).
+- `crates/kebab-search/src/lexical.rs::build_match_string` — `MIN_QUERY_CHARS` 3 → 2 로 낮춰 2자 한국어 query 통과 허용 (V007 시절 doc-comment 의 trigram 가정 갱신).
 
 **Amends**: design §5.5 (FTS5 한국어 지원으로 갱신), §9 (index_version cascade — `fts5-v009-korean-morphological` suffix), HOTFIXES 2026-05-24 trigram entry (한국어 2자 query 미해결 footnote 해소).
 
