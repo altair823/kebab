@@ -122,12 +122,16 @@ PR #189 (2026-05-28 머지, commit `09333d0`) 으로 PDF scanned OCR (qwen2.5vl:
   - 각 sub-item 별 spec/plan/executor cycle.
 
 - **G — v0.20.1 patch release + release notes** ⏳ A 머지 후 (또는 C/B 시점에 따라 조기 cut).
-  - CLAUDE.md release 룰 — sub-item 1 base + bugfix1-4 + log feature 누적 → minor surface 변경 다수 + wire schema additive minor + config 신규 → **v0.20.1 patch bump + release notes**.
+  - CLAUDE.md release 룰 — sub-item 1 base + bugfix1-4 + log feature + logging r2 누적 → minor surface 변경 다수 + wire schema additive minor + config 신규 → **v0.20.1 patch bump + release notes**.
   - 핵심 surface (사용자 도그푸딩 가이드 형식):
     - OCR timeout default 180s (HOTFIXES 2026-05-28).
     - `[logging]` config section (default enabled) + `{state_dir}/logs/ingest-{run_id}.ndjson` 자동 생성.
-    - `ingest_progress.v1.pdf_ocr_finished` 의 4 추가 field (image_byte_size, image_width, image_height, failure_reason).
+    - `[logging] keep_recent_runs` (100) + `retention_days` (30) — OR-on-stale cleanup.
+    - `ingest_progress.v1.pdf_ocr_finished` 의 4 추가 field (image_byte_size, image_width, image_height, failure_reason) — image_w/h 가 round 2 (PR #190) 에서 실제 capture.
     - `schema.v1.models` 의 `active_parsers` + `active_chunkers` (additive minor).
+    - V008 migration — `pdf_ocr_events` table (per-OCR-call historical record).
+    - 새 wire schemas — `ocr_stats.v1` + `ocr_failures.v1` (CLI inspect 의 emit).
+    - CLI `kebab inspect ocr-stats` + `kebab inspect ocr-failures` — sweet-spot 점진 분석.
     - CLI `--media code` first-class, empty query → `invalid_input`, `--config` missing → `config_not_found` + exit 2.
     - capabilities.streaming_ask + single_file_ingest 가 true (이전 false 거짓 정정).
   - bump 작업: workspace `Cargo.toml` version → 0.20.1, tag, gitea-release.
@@ -139,12 +143,13 @@ PR #189 (2026-05-28 머지, commit `09333d0`) 으로 PDF scanned OCR (qwen2.5vl:
 - Bug #12 (Code block wire `.code` field, `.text` 가 아닌 jq fallback artifact) — falsified.
 - ask 한국어 query phrasing-sensitive refusal — RAG corner case / NLI gate behavior. 별도 brainstorm.
 
-### Logging feature future enhancements (v0.20 sub-item 1 의 ingest log 의 후속, low priority)
+### Logging feature enhancements — ✅ closed (PR #190, 2026-05-28 merged commit `7bbdc89a`)
 
-- `image_width` + `image_height` capture (현재 null — pdf_ocr_apply caller 의 raster decode dimension).
-- SQLite mirror (per-OCR-call historical table) — 점진적 sweet-spot 분석에 강력.
-- CLI query — `kebab inspect ocr-stats --json` / `kebab inspect ocr-failures --doc-id <id>`.
-- log retention / rotation policy (daily 또는 max-files limit).
+logging round 2 (PR #190) 으로 4 enhancement 모두 closed:
+- ✅ `image_width` + `image_height` capture (raster JPEG decode).
+- ✅ SQLite mirror (V008 `pdf_ocr_events` table + dual-write).
+- ✅ CLI query (`kebab inspect ocr-stats` + `ocr-failures` — `ocr_stats.v1` + `ocr_failures.v1` wire schemas).
+- ✅ log retention (`keep_recent_runs` + `retention_days` — file + SQLite cleanup).
 
 ### P9 dogfooding 백로그 (fb-26 ~ fb-42) — release 분할
 
