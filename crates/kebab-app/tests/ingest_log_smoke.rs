@@ -4,11 +4,11 @@
 
 use std::path::PathBuf;
 
-use tempfile::TempDir;
 use kebab_app::{IngestOpts, ingest_with_config_opts};
 use kebab_config::{Config, LoggingCfg};
 use kebab_core::SourceScope;
 use serde_json::Value;
+use tempfile::TempDir;
 
 fn minimal_config(workspace: &std::path::Path, log_dir: &std::path::Path) -> Config {
     let data_dir = workspace.parent().unwrap().join("data");
@@ -41,7 +41,11 @@ fn ingest_log_smoke() {
     let log_dir = tmp.path().join("logs");
 
     // 1. Minimal corpus: 1 markdown + 1 scanned PDF (OCR disabled — no Ollama needed).
-    std::fs::write(workspace.join("hello.md"), "# Hello\n\nThis is a smoke test.\n").unwrap();
+    std::fs::write(
+        workspace.join("hello.md"),
+        "# Hello\n\nThis is a smoke test.\n",
+    )
+    .unwrap();
     let pdf_src = PathBuf::from("../kebab-parse-pdf/tests/fixtures/scanned_page1.pdf");
     if pdf_src.exists() {
         std::fs::copy(&pdf_src, workspace.join("scanned.pdf")).unwrap();
@@ -62,13 +66,17 @@ fn ingest_log_smoke() {
     // 4. Assert log file exists in log_dir.
     let log_files: Vec<_> = std::fs::read_dir(&log_dir)
         .unwrap()
-        .filter_map(|e| e.ok())
+        .filter_map(Result::ok)
         .filter(|e| {
             e.file_name().to_string_lossy().starts_with("ingest-")
                 && e.file_name().to_string_lossy().ends_with(".ndjson")
         })
         .collect();
-    assert_eq!(log_files.len(), 1, "expected exactly 1 ingest-*.ndjson file, found: {log_files:?}");
+    assert_eq!(
+        log_files.len(),
+        1,
+        "expected exactly 1 ingest-*.ndjson file, found: {log_files:?}"
+    );
 
     // 5. Parse each line as JSON — assert kind field present and valid.
     let body = std::fs::read_to_string(log_files[0].path()).unwrap();
@@ -79,7 +87,8 @@ fn ingest_log_smoke() {
     for line in &lines {
         let v: Value = serde_json::from_str(line)
             .unwrap_or_else(|e| panic!("line is not valid JSON: {e}\nline: {line}"));
-        let kind = v.get("kind")
+        let kind = v
+            .get("kind")
             .and_then(|k| k.as_str())
             .unwrap_or_else(|| panic!("line missing 'kind' field: {line}"));
         assert!(
@@ -96,7 +105,7 @@ fn ingest_log_smoke() {
         Some("summary"),
         "last line must be kind=summary, got: {last}"
     );
-    let scanned = last_v.get("scanned").and_then(|s| s.as_u64()).unwrap_or(0);
+    let scanned = last_v.get("scanned").and_then(Value::as_u64).unwrap_or(0);
     assert!(scanned > 0, "summary.scanned should be > 0, got: {last}");
 }
 
@@ -108,7 +117,11 @@ fn ingest_log_disabled_emits_no_file() {
     std::fs::create_dir_all(&workspace).unwrap();
     let log_dir = tmp.path().join("logs");
 
-    std::fs::write(workspace.join("hello.md"), "# Hello\n\nDisabled log test.\n").unwrap();
+    std::fs::write(
+        workspace.join("hello.md"),
+        "# Hello\n\nDisabled log test.\n",
+    )
+    .unwrap();
 
     let data_dir = tmp.path().join("data");
     std::fs::create_dir_all(&data_dir).unwrap();
@@ -140,7 +153,7 @@ fn ingest_log_disabled_emits_no_file() {
     let log_file_count = if log_dir.exists() {
         std::fs::read_dir(&log_dir)
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(Result::ok)
             .filter(|e| {
                 e.file_name().to_string_lossy().starts_with("ingest-")
                     && e.file_name().to_string_lossy().ends_with(".ndjson")
@@ -149,5 +162,8 @@ fn ingest_log_disabled_emits_no_file() {
     } else {
         0
     };
-    assert_eq!(log_file_count, 0, "no ingest-*.ndjson file should be created when disabled");
+    assert_eq!(
+        log_file_count, 0,
+        "no ingest-*.ndjson file should be created when disabled"
+    );
 }
