@@ -45,6 +45,7 @@ blake3               = { workspace = true }
 serde                = { workspace = true }
 serde_json           = { workspace = true }
 time                 = { workspace = true }
+uuid                 = { workspace = true }
 tracing              = { workspace = true }
 tracing-subscriber   = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 tracing-appender     = "0.2"

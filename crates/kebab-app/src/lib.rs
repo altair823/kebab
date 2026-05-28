@@ -60,6 +60,7 @@ pub mod error_signal;
 pub mod error_wire;
 pub mod external;
 pub mod fetch;
+pub mod ingest_log;
 pub mod ingest_progress;
 pub mod logging;
 pub mod pdf_ocr_apply;
@@ -68,6 +69,7 @@ pub mod schema;
 mod staleness;
 
 pub use app::{App, SearchResponse, short_query_hint};
+pub use ingest_log::{IngestLogWriter, IngestSummary, LogEvent};
 pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
 pub use reset::{ResetReport, ResetScope, enumerate_orphans};
 pub use error_wire::{ERROR_V1_ID, ErrorV1, StructuredError, classify};
