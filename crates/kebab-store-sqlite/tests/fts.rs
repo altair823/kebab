@@ -496,16 +496,24 @@ fn fts_store_drop_releases_wal_files() {
     }
 }
 
-// ── 7. Trigram tokenizer behavior (V007) — Korean + English ──────────
+// ── 7. Tokenizer behavior (V009 unicode61 + Korean morpheme column) ───
+//
+// V007 의 trigram-specific substring 매칭 test 들은 V009 로 obsolete:
+// - English substring (`token` → `tokenizer` hit) 는 unicode61 의 whole-token
+//   매칭으로 회귀 — spec §3 Non-Goals 의 Path A 명시.
+// - Korean substring (`발생한` → `발생한다` hit) 도 동일하게 whole-token only.
+//
+// V009 의 신규 검증은 S7 (plan §2 Step 7) 에서 추가되는
+// `fts_v009_korean_morphological_2char_query_hits` + `fts_v009_english_whole_token_only`
+// 가 담당한다. 2자 query 0-hit 의 pinned 동작 (`fts_trigram_korean_short_query_zero_hit_pinned`)
+// 은 V009 의 형태소 분해가 hit 시키므로 의도된 회귀 — S7 의 신규 test 가 새 baseline 을 핀.
 
-/// V007 의 trigram tokenizer 가 한국어 3자 이상 연속 substring 을
-/// 매칭하는지. Codex round 1/2 가 sqlite 3.45.1 로 검증한 동작을 pin:
-/// - raw query 가 3자 이상 공백 없는 substring 인 경우 hit.
-/// - raw query 가 공백을 포함하면 FTS5 가 토큰 경계로 분리 →
-///   양 토큰이 3자 미만이면 0-hit.
-/// - quoted phrase ("..." 안에 공백 포함) 는 통째로 substring 매칭.
+/// V009 의 unicode61 + morpheme column 환경에서 단일 토큰 매칭이 정상
+/// 동작하는지 sanity check. 형태소 사전이 없어도 chunks_fts 의
+/// `tokenize='unicode61'` 만으로도 space-separated 한국어 token (chunk text
+/// 의 raw 공백 split) 은 매칭되어야 한다.
 #[test]
-fn fts_trigram_korean_3char_substring_hits() {
+fn fts_v009_unicode61_space_separated_korean_token_hits() {
     let env = common::TestEnv::new();
     let store = SqliteStore::open(&env.config()).unwrap();
     store.run_migrations().unwrap();
@@ -519,87 +527,9 @@ fn fts_trigram_korean_3char_substring_hits() {
         "해시 충돌은 키와 값을 매핑할 때 발생한다",
     );
 
-    // raw 3+ chars 공백 없는 연속 substring → hit.
-    assert_eq!(
-        count_match(&conn, "충돌은"),
-        1,
-        "raw 3-char 공백 없는 substring '충돌은' must hit"
-    );
-    assert_eq!(
-        count_match(&conn, "발생한"),
-        1,
-        "raw 3-char 공백 없는 substring '발생한' must hit"
-    );
-
-    // quoted phrase (공백 포함) → substring 매칭으로 hit.
-    assert_eq!(
-        count_match(&conn, "\"해시 충돌\""),
-        1,
-        "quoted whole phrase '해시 충돌' (5 chars including space)"
-    );
-    assert_eq!(
-        count_match(&conn, "\"시 충\""),
-        1,
-        "quoted phrase '시 충' across the space boundary"
-    );
-
-    // raw with no whitespace but substring not present in source → 0-hit.
-    assert_eq!(
-        count_match(&conn, "해시충"),
-        0,
-        "원문에 공백 없는 '해시충' trigram 이 없으므로 0-hit"
-    );
-}
-
-/// V007 trigram 의 핵심 제약: 3 Unicode chars 미만 query 는 색인 단위가
-/// 없어 항상 0-hit. design §3.4 + 사용자 결정 (lexical core 정상 0-hit,
-/// CLI/TUI wrapper 가 안내 메시지 출력). 회귀 감지 — trigram 구조 변경
-/// 또는 다른 tokenizer 도입 시 이 test 가 먼저 fail 한다.
-#[test]
-fn fts_trigram_korean_short_query_zero_hit_pinned() {
-    let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
-    store.run_migrations().unwrap();
-
-    let conn = raw_conn_no_fk(&env);
-    insert_chunk(
-        &conn,
-        &"k".repeat(32),
-        &"d".repeat(32),
-        "[]",
-        "해시 충돌은 키와 값을 매핑할 때 발생한다",
-    );
-
-    // 2자 한국어 query — 도그푸딩에서 보고된 핵심 케이스 ('충돌'/'값').
-    assert_eq!(count_match(&conn, "충돌"), 0, "2-char Korean query");
-    // 1자 한국어 query.
-    assert_eq!(count_match(&conn, "키"), 0, "1-char Korean query");
-}
-
-/// V007 trigram 은 영어에도 substring 매칭으로 동작 — recall ↑, 단어
-/// 경계 정밀도 ↓. design §3.4 의 동작 변경을 명시적으로 핀.
-#[test]
-fn fts_trigram_english_substring_hits() {
-    let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
-    store.run_migrations().unwrap();
-
-    let conn = raw_conn_no_fk(&env);
-    insert_chunk(
-        &conn,
-        &"e".repeat(32),
-        &"d".repeat(32),
-        "[]",
-        "the tokenizer normalizes whitespace before matching",
-    );
-
-    // trigram substring — 'token' hits inside 'tokenizer'.
-    assert_eq!(
-        count_match(&conn, "token"),
-        1,
-        "substring of 'tokenizer' — trigram recall"
-    );
-    assert_eq!(count_match(&conn, "izer"), 1, "substring of 'tokenizer'");
-    // 3-char-minimum applies to English too.
-    assert_eq!(count_match(&conn, "to"), 0, "2-char English query");
+    // unicode61 이 공백으로 분리한 token 은 그대로 매칭.
+    assert_eq!(count_match(&conn, "충돌은"), 1, "whole-token '충돌은' hit");
+    assert_eq!(count_match(&conn, "해시"), 1, "whole-token '해시' hit");
+    // substring (token 의 부분 문자열) 은 V009 unicode61 에서 0-hit.
+    assert_eq!(count_match(&conn, "발생한"), 0, "substring '발생한' of '발생한다' 0-hit");
 }
