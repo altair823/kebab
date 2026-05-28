@@ -43,6 +43,34 @@ git history.
 - `kebab search "한국"` / `kebab search "서울"` 등 2-char 한국어 단어가 이제 hit.
 - hybrid/vector 모드에서 한국어 검색은 이미 정상 (embedding 의존), lexical 개선으로 RRF 점수 향상.
 - `kebab.sqlite` 크기 증가 (형태소 tokenizer 비용, 도그푸딩 KB 기준 +5-10% 또는 수십 MB).
+
+**Dogfood verification (2026-05-28)** — 2-file Korean wiki fixture (`korea-overview.md` + `korea-compound.md`, DOGFOOD.md §2.1bis reference corpus 참조) 로 fresh KB 색인 + 검증:
+
+| Scenario | Query | Hits | Status |
+|---|---|---|---|
+| §2.1.a Korean 2-char | `'한국'` | 4 | ✅ |
+| §2.1.a Korean 2-char | `'서울'` | 2 | ✅ |
+| §2.1.b Korean 3-char | `'지하철'` | 2 | ✅ |
+| §2.1.b Compound noun | `'한국어'` | 1 | ✅ |
+| §2.1.b Compound noun | `'한국문화'` | 1 | ✅ |
+| §2.1.b Compound noun | `'서울특별시'` | 1 | ✅ (ko-dic morpheme decomposition evidence — `서울특별시` → `[서울, 특별시]`) |
+| §2.1.d 1-char filter | `'키'` | 0 | ✅ (MIN_QUERY_CHARS=2) |
+| §2.1.f raw FTS5 mode | `"'한국'"` | 4 | ✅ |
+| §2.1.g FTS5 phrase | `'"서울 의"'` | 2 | ✅ |
+| §2.2 Vector | `'한국 문화 와 전통'` (k=3) | 3 | ✅ |
+| §2.3 Hybrid | `'한국'` (k=3) | 3 | ✅ |
+| §1 Ingest idempotent | re-ingest | 0 new/updated | ✅ |
+| §6 Wire schema | `kebab schema --json` | `kebab_version=0.20.1`, `schema_version=schema.v1` | ✅ |
+| §9 Doctor | `kebab doctor --json` | `ok=true` | ✅ |
+
+**Snippet evidence** (lindera 분해 확인):
+- `'한국'` query → "한국 은 동아시아 의 반 도 국가 다 . 한국 어 는 한반도 의 주요 언어 다" (조사 `은`, `의` 분리).
+- `'서울'` query → "서울특별시 와 부산광역시" — ko-dic 의 compound `서울특별시` → `[서울, 특별시]` 자동 분해.
+
+**Known limitation (Option α acceptance)**:
+- 사용자 KnowledgeBase 같은 영어/code 위주 KB 에서는 한국어 token 자체 부재로 lexical 0-hit 자연 (vector/hybrid mode 로 우회).
+- ko-dic 이 compound noun (`한국정부`, `대한민국` 등) 을 단일 token 으로 저장하는 경우 그 chunk 의 `'한국'` 단독 query 는 hit X.
+- N-gram supplement (Option β, sub-token 추가 emit) 은 v0.21.x P9 follow-up.
 - README + SKILL.md + HANDOFF.md 세 문서 반영.
 
 Cross-link: `migrations/V009__fts_korean_morphological.sql`, `crates/kebab-search/src/lexical.rs`, design §5.5 / §9, `docs/superpowers/specs/2026-05-28-v0.20.x-korean-morphological-tokenizer-spec.md`.
