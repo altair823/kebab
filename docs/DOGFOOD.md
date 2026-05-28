@@ -285,16 +285,75 @@ echo "# stdin content" | "$RELEASE_BIN" ingest-stdin --title "from stdin" --conf
 ```
 
 **verify**:
-- FTS5 trigram (v0.17.0) — 한국어 2자 이상 query hit.
-- `chunks_fts` schema (`text`, `heading_path` 별 column).
+- FTS5 `unicode61` + lindera ko-dic 형태소 분해 column (v0.20.1, V009 migration).
+- `chunks_fts` schema (`text`, `heading_path` 별 column) — V009 의 chunks_ai/au trigger 가 `tokenized_korean_text` 를 CASE expression 으로 raw text 앞에 prepend.
+- 한국어 2-char query (`한국`, `서울`) 가 chunk 의 ko-dic 분해된 morpheme 또는 explicit 공백 분리된 token 과 일치 시 hit.
+- 영어는 V002 의 whole-token 매칭으로 회귀 (`token` query 는 `token` 토큰만 hit, `tokenizer` substring 은 hit X). substring recall 이 필요하면 vector/hybrid mode 권장.
 
 **scenarios**:
-- 2.1.a Korean trigram query (`해시 충돌`).
-- 2.1.b English/Korean mixed (`Rust 충돌`).
-- 2.1.c 1-char query → 0 hit + hint.
-- 2.1.d raw mode escape (`heading_path : <token>`).
-- 2.1.e FTS5 phrase query (`"specific phrase"`).
-- 2.1.f exclusion (`-token`).
+- 2.1.a Korean 2-char query (`한국`, `서울` → ≥ 1 hit on Korean wiki fixture).
+- 2.1.b Korean compound noun (`한국어`, `서울특별시` → ko-dic 의 형태소 분해 + 단일 noun 동시 매칭).
+- 2.1.c English/Korean mixed (`Rust 최적화` → token-AND 두 토큰 모두 hit).
+- 2.1.d 1-char query → 0 hit (MIN_QUERY_CHARS = 2 filter, `build_match_string` v0.20.1 갱신).
+- 2.1.e English whole-token (`tokenizer` hit, `token` 은 `tokenizer` 의 substring 매칭 X — V007 trigram 회귀).
+- 2.1.f raw mode escape (`heading_path : <token>`).
+- 2.1.g FTS5 phrase query (`"specific phrase"`).
+- 2.1.h exclusion (`-token`).
+
+### §2.1bis V009 morphological tokenizer dogfood evidence (v0.20.1)
+
+**Reference corpus** (이 fixture 로 ingest 시 모든 scenario 보장 hit):
+
+```bash
+mkdir -p $DOGFOOD/corpus
+cat > $DOGFOOD/corpus/korea-overview.md <<'EOF'
+# 한국 개요
+
+한국 은 동아시아 의 반도 국가다. 한국 어 는 한반도 의 주요 언어다.
+서울 은 한국 의 수도다. 서울 의 지하철 은 1974년 1호선 개통 후
+지금까지 23개 노선으로 확장되었다.
+
+## 한국 문화
+
+한국 의 문화 는 오래 된 역사 와 깊은 전통 을 가진다.
+EOF
+
+cat > $DOGFOOD/corpus/korea-compound.md <<'EOF'
+# 한국어 와 한국문화
+
+한국어 학습 자료. 한국문화 의 핵심 은 정 (情) 이다.
+서울특별시 와 부산광역시 는 한국 의 양대 도시다.
+EOF
+```
+
+**검증 명령** (모두 hit ≥ 1):
+
+```bash
+KB="$RELEASE_BIN --config $DOGFOOD/config.toml"
+
+# 한국어 2-char (Bug #8 close, v0.20.1 의 핵심 가치)
+$KB search '한국' --mode lexical --json | jq '.hits | length'   # ≥ 1
+$KB search '서울' --mode lexical --json | jq '.hits | length'   # ≥ 1
+
+# 한국어 3-char + compound noun
+$KB search '지하철' --mode lexical --json | jq '.hits | length' # ≥ 1
+$KB search '한국어' --mode lexical --json | jq '.hits | length' # ≥ 1
+$KB search '한국문화' --mode lexical --json | jq '.hits | length' # ≥ 1
+$KB search '서울특별시' --mode lexical --json | jq '.hits | length' # ≥ 1
+
+# 영어 whole-token (V002 동작 회귀)
+$KB search 'token' --mode lexical --json | jq '.hits | length'   # 0 또는 별 token 으로 존재 시 hit
+$KB search 'tokenizer' --mode lexical --json | jq '.hits | length' # ≥ 1 if corpus has 'tokenizer' word
+```
+
+**예상 snippet (lindera 분해 evidence)**:
+- `'한국'` query → "한국 은 동아시아 의 반 도 국가 다" — ko-dic 의 명사 boundary + 조사 분리 확인.
+- `'서울'` query → "서울특별시 와" — ko-dic 의 compound `서울특별시` → `[서울, 특별시]` 분해.
+
+**Known limitation (spec critic R1 #3 acceptance, Option α)**:
+- ko-dic 이 compound noun 을 단일 token 으로 저장하는 경우 (예: `한국정부` 가 한 token) → `'한국'` query 는 그 chunk 에 hit X.
+- KB 가 영어/code 위주 (예: 사용자 KnowledgeBase 가 React docs) 면 한국어 token 자체 부재로 0 hit 정상.
+- N-gram supplement (Option β) 는 v0.21.x P9 follow-up.
 
 ### §2.2 Vector search (P3)
 
