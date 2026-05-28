@@ -702,7 +702,7 @@ impl Config {
                 stale_threshold_days: 30,
             },
             rag: RagCfg {
-                prompt_template_version: "rag-v2".to_string(),
+                prompt_template_version: "rag-v3".to_string(),
                 score_gate: 0.30,
                 explain_default: false,
                 max_context_tokens: 8000,
@@ -1273,7 +1273,7 @@ rrf_k = 60
 snippet_chars = 220
 
 [rag]
-prompt_template_version = "rag-v2"
+prompt_template_version = "rag-v3"
 score_gate = 0.3
 explain_default = false
 max_context_tokens = 8000
@@ -1313,9 +1313,9 @@ theme = "dark"
     }
 
     #[test]
-    fn defaults_rag_prompt_template_version_is_rag_v2() {
+    fn defaults_rag_prompt_template_version_is_rag_v3() {
         let c = Config::defaults();
-        assert_eq!(c.rag.prompt_template_version, "rag-v2");
+        assert_eq!(c.rag.prompt_template_version, "rag-v3");
     }
 
     #[test]
