@@ -206,9 +206,7 @@ impl IngestSummary {
 /// Simple percentile extraction on a sorted copy of `samples`.
 /// Returns `(p50, p90, p99, max)`. All `None` when samples is empty.
 /// p99 surfaces via `inspect ocr-stats`; `IngestSummary` uses p50/p90/max only.
-pub(crate) fn percentiles(
-    samples: &[u64],
-) -> (Option<u64>, Option<u64>, Option<u64>, Option<u64>) {
+pub(crate) fn percentiles(samples: &[u64]) -> (Option<u64>, Option<u64>, Option<u64>, Option<u64>) {
     if samples.is_empty() {
         return (None, None, None, None);
     }
@@ -245,13 +243,7 @@ pub(crate) fn cleanup_old_logs(
         .collect();
 
     // Sort newest-first by mtime (files without mtime go to the end).
-    entries.sort_by_key(|e| {
-        std::cmp::Reverse(
-            e.metadata()
-                .ok()
-                .and_then(|m| m.modified().ok()),
-        )
-    });
+    entries.sort_by_key(|e| std::cmp::Reverse(e.metadata().ok().and_then(|m| m.modified().ok())));
 
     let cutoff = SystemTime::now()
         .checked_sub(std::time::Duration::from_secs(
@@ -414,11 +406,7 @@ mod tests {
             let mtime = SystemTime::now()
                 .checked_sub(std::time::Duration::from_secs(age_days * 86400))
                 .unwrap();
-            filetime::set_file_mtime(
-                &path,
-                filetime::FileTime::from_system_time(mtime),
-            )
-            .unwrap();
+            filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(mtime)).unwrap();
         }
         // keep_recent=3, retention_days=90 (no time-based deletion)
         cleanup_old_logs(dir, 3, 90).unwrap();
@@ -442,11 +430,7 @@ mod tests {
             let mtime = SystemTime::now()
                 .checked_sub(std::time::Duration::from_secs(90 * 86400))
                 .unwrap();
-            filetime::set_file_mtime(
-                &path,
-                filetime::FileTime::from_system_time(mtime),
-            )
-            .unwrap();
+            filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(mtime)).unwrap();
         }
         // keep_recent=10 (both within count) but retention_days=30 → both stale
         cleanup_old_logs(dir, 10, 30).unwrap();
@@ -454,6 +438,10 @@ mod tests {
             .unwrap()
             .filter_map(|e| e.ok())
             .collect();
-        assert_eq!(remaining.len(), 0, "stale files must be deleted even within keep_recent");
+        assert_eq!(
+            remaining.len(),
+            0,
+            "stale files must be deleted even within keep_recent"
+        );
     }
 }

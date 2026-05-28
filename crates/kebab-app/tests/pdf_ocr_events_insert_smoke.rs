@@ -66,8 +66,7 @@ async fn ingest_dual_write_doc_id_matches_ndjson() {
         std::fs::copy(scanned_pdf_src(), &dest).expect("copy scanned PDF");
 
         // Run ingest
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
-            .expect("ingest");
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).expect("ingest");
 
         // Read ndjson log
         let log_files: Vec<_> = std::fs::read_dir(&log_dir)

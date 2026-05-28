@@ -1147,10 +1147,7 @@ impl App {
     }
 
     #[doc(hidden)]
-    pub fn inspect_ocr_stats_with_config(
-        &self,
-        _cfg: &kebab_config::Config,
-    ) -> Result<OcrStatsV1> {
+    pub fn inspect_ocr_stats_with_config(&self, _cfg: &kebab_config::Config) -> Result<OcrStatsV1> {
         use crate::ingest_log::percentiles;
         let conn = self.sqlite.read_conn();
 
@@ -1189,9 +1186,7 @@ impl App {
         let mut by_engine = std::collections::BTreeMap::new();
         {
             let mut stmt = conn
-                .prepare(
-                    "SELECT ocr_engine, COUNT(*) FROM pdf_ocr_events GROUP BY ocr_engine",
-                )
+                .prepare("SELECT ocr_engine, COUNT(*) FROM pdf_ocr_events GROUP BY ocr_engine")
                 .context("prepare engine query")?;
             let rows = stmt
                 .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
@@ -1215,17 +1210,14 @@ impl App {
                       LIMIT 10",
                 )
                 .context("prepare by_doc query")?;
-            stmt.query_map(
-                [],
-                |r| {
-                    Ok(OcrStatsByDoc {
-                        doc_id: r.get(0)?,
-                        failure_count: r.get(1)?,
-                        success_count: r.get(2)?,
-                        p90_ms: None, // per-doc p90 deferred (open question #3)
-                    })
-                },
-            )
+            stmt.query_map([], |r| {
+                Ok(OcrStatsByDoc {
+                    doc_id: r.get(0)?,
+                    failure_count: r.get(1)?,
+                    success_count: r.get(2)?,
+                    p90_ms: None, // per-doc p90 deferred (open question #3)
+                })
+            })
             .context("query by_doc")?
             .filter_map(|r| r.ok())
             .collect()

@@ -190,10 +190,9 @@ where
                     kind: ProvenanceKind::Warning,
                     note: Some(note),
                 });
-                let (image_width, image_height) =
-                    extract_image_dimensions(&page_image_bytes)
-                        .map(|(w, h)| (Some(w), Some(h)))
-                        .unwrap_or((None, None));
+                let (image_width, image_height) = extract_image_dimensions(&page_image_bytes)
+                    .map(|(w, h)| (Some(w), Some(h)))
+                    .unwrap_or((None, None));
                 emit_progress(PdfOcrProgress::Finished {
                     page: page_num,
                     ms: start.elapsed().as_millis() as u64,

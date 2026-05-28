@@ -25,7 +25,11 @@ fn v008_pdf_ocr_events_table_exists() {
         )
         .optional()
     });
-    assert_eq!(name.as_deref(), Some("pdf_ocr_events"), "pdf_ocr_events table must exist after V008");
+    assert_eq!(
+        name.as_deref(),
+        Some("pdf_ocr_events"),
+        "pdf_ocr_events table must exist after V008"
+    );
 }
 
 /// AC-8: insert 2 rows with different timestamps; prune with retention_days=0
@@ -74,9 +78,7 @@ fn record_and_prune_pdf_ocr_event() {
 
     // prune with retention_days=0 → cutoff=now → deletes any row with ts < now.
     // The 1970 row should be deleted; the 2099 row survives.
-    let pruned = store
-        .prune_pdf_ocr_events(0)
-        .expect("prune");
+    let pruned = store.prune_pdf_ocr_events(0).expect("prune");
     assert_eq!(pruned, 1, "should have deleted exactly 1 old row");
 
     // Verify only the future row remains

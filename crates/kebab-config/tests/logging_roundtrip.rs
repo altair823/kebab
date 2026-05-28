@@ -54,10 +54,7 @@ ingest_log_dir = "{state_dir}/logs"
 "#;
     let w: LoggingWrapper = toml::from_str(toml).expect("old logging config must parse");
     assert!(w.logging.ingest_log_enabled);
-    assert_eq!(
-        w.logging.ingest_log_dir,
-        PathBuf::from("{state_dir}/logs")
-    );
+    assert_eq!(w.logging.ingest_log_dir, PathBuf::from("{state_dir}/logs"));
     assert_eq!(
         w.logging.keep_recent_runs, 100,
         "keep_recent_runs must default to 100"

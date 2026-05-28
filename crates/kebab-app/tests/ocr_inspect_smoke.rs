@@ -111,7 +111,10 @@ fn ocr_failures_corpus_wide() {
 
     assert_eq!(result.schema_version, "ocr_failures.v1");
     assert!(result.failure_count >= 1, "expected at least 1 failure");
-    assert!(!result.failures.is_empty(), "failures list must be non-empty");
+    assert!(
+        !result.failures.is_empty(),
+        "failures list must be non-empty"
+    );
 }
 
 /// AC-5: `inspect_ocr_failures` with doc_id filter returns matching rows.

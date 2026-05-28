@@ -1018,11 +1018,19 @@ impl SqliteStore {
               ms, chars, success, reason, ocr_engine)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
-                run_id, ts, doc_id, doc_path, page,
-                image_byte_size, image_width, image_height,
-                ms, chars,
+                run_id,
+                ts,
+                doc_id,
+                doc_path,
+                page,
+                image_byte_size,
+                image_width,
+                image_height,
+                ms,
+                chars,
                 if success { 1i32 } else { 0i32 },
-                reason, ocr_engine
+                reason,
+                ocr_engine
             ],
         )?;
         Ok(())
@@ -1034,8 +1042,7 @@ impl SqliteStore {
     /// means "delete everything older than now" (i.e. all past rows).
     pub fn prune_pdf_ocr_events(&self, retention_days: u32) -> anyhow::Result<u64> {
         use time::format_description::well_known::Rfc3339;
-        let cutoff = time::OffsetDateTime::now_utc()
-            - time::Duration::days(retention_days as i64);
+        let cutoff = time::OffsetDateTime::now_utc() - time::Duration::days(retention_days as i64);
         let cutoff_ts = cutoff
             .format(&Rfc3339)
             .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
