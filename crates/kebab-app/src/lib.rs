@@ -72,7 +72,7 @@ pub mod reset;
 pub mod schema;
 mod staleness;
 
-pub use app::{App, SearchResponse, short_query_hint};
+pub use app::{App, SearchResponse};
 #[doc(hidden)]
 pub use bulk::{BULK_QUERIES_MAX, bulk_search_with_config};
 pub use error_wire::{ERROR_V1_ID, ErrorV1, StructuredError, classify};

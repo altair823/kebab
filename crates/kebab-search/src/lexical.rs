@@ -202,6 +202,9 @@ impl Retriever for LexicalRetriever {
 /// - Finally wrap the combined expression in `text : (<expr>)` so the
 ///   match is scoped to the body column. FTS5's column-filter syntax
 ///   accepts an arbitrary OR/AND sub-expression inside the parens.
+///
+/// V009 unicode61 + 형태소 tokenizer 환경에서는 multi-token Korean
+/// query 의 OR-combine 분기는 redundant 하나 보존 (future 확장성).
 fn build_match_string(text: &str) -> Option<String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {

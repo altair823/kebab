@@ -89,29 +89,6 @@ pub struct SearchResponse {
     pub hint: Option<String>,
 }
 
-/// v0.17.0 A5 Step 4b: decide whether to attach a "3자 이상 키워드 권장"
-/// hint to a `SearchResponse`. Fires only when the result set is empty
-/// *and* the trimmed query is shorter than the trigram tokenizer can
-/// resolve. Raw FTS5 mode (`'...'`) opts out — the user explicitly
-/// invoked FTS5 syntax. Identical condition powers the CLI stderr line
-/// and (separately) the TUI status bar.
-pub fn short_query_hint(query_text: &str, hits_empty: bool) -> Option<String> {
-    if !hits_empty {
-        return None;
-    }
-    let trimmed = query_text.trim();
-    let bytes = trimmed.as_bytes();
-    // Raw single-quote mode: user opted into FTS5 syntax, no advisory.
-    if bytes.len() >= 2 && bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\'' {
-        return None;
-    }
-    if trimmed.chars().count() < 3 {
-        Some("3자 이상 키워드 권장 (trigram tokenizer 제약)".to_string())
-    } else {
-        None
-    }
-}
-
 /// Facade state — see module docs for lifetime rules.
 ///
 /// The struct is public so long-lived callers (kb-eval, the future P9
@@ -557,7 +534,7 @@ impl App {
 
             // Trace path skips the budget loop. Caller will inspect
             // `hits.len()` and `trace.timing` rather than paginate.
-            let hint = short_query_hint(&query.text, hits.is_empty());
+            let hint: Option<String> = None;
             return Ok(SearchResponse {
                 hits,
                 next_cursor: None,
@@ -641,7 +618,7 @@ impl App {
             None
         };
 
-        let hint = short_query_hint(&query.text, hits.is_empty());
+        let hint: Option<String> = None;
         Ok(SearchResponse {
             hits,
             next_cursor,

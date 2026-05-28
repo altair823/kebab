@@ -212,32 +212,10 @@ fn search_plain_emits_truncated_hint_to_stderr() {
 }
 
 #[test]
-fn search_plain_emits_short_query_hint_to_stderr() {
-    // v0.17.0 A5 Step 6: 2-char query under trigram tokenizer emits
-    // empty hits + stderr `[hint]` advisory. Empty workspace is enough
-    // — hits are always empty so the hint condition depends only on
-    // query length (<3 chars trimmed) + non-raw mode + hits.is_empty.
-    let dir = tempfile::tempdir().unwrap();
-    let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
-    common::ingest(&cfg, &workspace);
-
-    let (_stdout, stderr) = common::run_search_with_args(&cfg, &["--mode", "lexical", "ab"]);
-    assert!(
-        stderr.contains("[hint]"),
-        "stderr must carry short-query hint: {stderr:?}"
-    );
-    assert!(
-        stderr.contains("3자 이상"),
-        "hint message must mention '3자 이상' (Korean advisory): {stderr:?}"
-    );
-}
-
-#[test]
-fn search_json_emits_hint_field_for_short_query() {
-    // v0.17.0 A5 Step 6: --json mode carries the same advisory on the
-    // `search_response.v1.hint` additive field. Empty hits + 2-char
-    // query + non-raw mode trips the helper. Verifies the MCP-visible
-    // surface (agents read the field instead of parsing stderr).
+fn search_json_hint_absent_for_short_query_v009() {
+    // V009 unicode61 + 형태소 tokenizer 환경에서는 2-char 한국어 query 도
+    // hit 가능하므로 short_query_hint helper 가 제거됨. hint 는 항상
+    // None — wire schema field 는 유지되나 JSON 에서 omit 됨.
     let dir = tempfile::tempdir().unwrap();
     let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
     common::ingest(&cfg, &workspace);
@@ -250,12 +228,9 @@ fn search_json_emits_hint_field_for_short_query() {
         v["hits"].as_array().unwrap().is_empty(),
         "empty hits expected for short query in empty KB: {v}"
     );
-    assert_eq!(
-        v["hint"]
-            .as_str()
-            .expect("hint field set on short empty result"),
-        "3자 이상 키워드 권장 (trigram tokenizer 제약)",
-        "hint must carry the standard advisory: {v}"
+    assert!(
+        v.get("hint").is_none(),
+        "hint must be absent (always None post-V009): {v}"
     );
 }
 

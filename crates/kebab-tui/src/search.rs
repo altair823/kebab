@@ -440,7 +440,6 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
 /// with a fresh typing session.
 fn mark_input_changed(s: &mut crate::app::SearchState) {
     s.input_dirty_at = Some(time::OffsetDateTime::now_utc());
-    s.short_query_hint = None;
 }
 
 fn cycle_mode(m: SearchMode) -> SearchMode {
@@ -612,11 +611,6 @@ pub(crate) fn fire_search(state: &mut App) -> anyhow::Result<()> {
         s.generation = s.generation.wrapping_add(1);
         s.searching = true;
         s.input_dirty_at = None;
-        // v0.17.0 A5 Step 5: hint belongs to the *prior* result set —
-        // a fresh worker spawn invalidates it so the status bar
-        // doesn't keep showing the old advisory while the new
-        // query is in flight.
-        s.short_query_hint = None;
         let q_text = s.input.as_str().to_string();
         s.last_query = Some((q_text.clone(), s.mode));
         (q_text, s.mode, s.generation)
@@ -699,8 +693,6 @@ pub fn poll_worker(state: &mut App) {
                     // the user submitted for *this* result set. If
                     // input has drifted since spawn, the gen-check
                     // already returned early.
-                    let q_text = s.last_query.as_ref().map_or("", |(t, _)| t.as_str());
-                    s.short_query_hint = kebab_app::short_query_hint(q_text, hits.is_empty());
                     s.hits = hits;
                     s.selected_hit = 0;
                     s.preview = None;
@@ -708,7 +700,6 @@ pub fn poll_worker(state: &mut App) {
                 Err(e) => {
                     s.hits.clear();
                     s.selected_hit = 0;
-                    s.short_query_hint = None;
                     state.error_overlay = Some(crate::error_popup::ErrorOverlay::from_anyhow(&e));
                 }
             }
