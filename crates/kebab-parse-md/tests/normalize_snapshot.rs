@@ -16,8 +16,7 @@
 use std::path::PathBuf;
 
 use kebab_core::{
-    AssetId, AssetStorage, Checksum, MediaType, ParserVersion, RawAsset, SourceUri,
-    WorkspacePath,
+    AssetId, AssetStorage, Checksum, MediaType, ParserVersion, RawAsset, SourceUri, WorkspacePath,
 };
 use kebab_parse_md::{BodyHints, build_canonical_document, parse_blocks, parse_frontmatter};
 use serde_json::Value;
@@ -101,8 +100,7 @@ fn code_and_table_canonical_snapshot() {
         Some(span) => bytes[..span.end].iter().filter(|b| **b == b'\n').count() as u32 + 1,
         None => 1,
     };
-    let (blocks, parse_warns) =
-        parse_blocks(&bytes, body_offset_lines).expect("blocks parse");
+    let (blocks, parse_warns) = parse_blocks(&bytes, body_offset_lines).expect("blocks parse");
 
     let parser_version = ParserVersion("kb-normalize-snapshot-test-0".into());
     let mut metadata = metadata;
@@ -111,14 +109,8 @@ fn code_and_table_canonical_snapshot() {
     metadata.aliases.sort();
     metadata.tags.sort();
 
-    let doc = build_canonical_document(
-        &asset,
-        metadata,
-        blocks,
-        &parser_version,
-        parse_warns,
-    )
-    .expect("build_canonical_document");
+    let doc = build_canonical_document(&asset, metadata, blocks, &parser_version, parse_warns)
+        .expect("build_canonical_document");
 
     // Assert the BodyHints → first_h1 → user.title → CanonicalDocument.title
     // lift chain end-to-end. Pinned in the snapshot too, but the explicit
@@ -140,8 +132,7 @@ fn code_and_table_canonical_snapshot() {
             baseline_path.display()
         ),
     };
-    let expected: Value =
-        serde_json::from_str(&baseline_text).expect("baseline parses as json");
+    let expected: Value = serde_json::from_str(&baseline_text).expect("baseline parses as json");
 
     if actual != expected {
         if std::env::var("UPDATE_SNAPSHOTS").is_ok() {

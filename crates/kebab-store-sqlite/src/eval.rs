@@ -209,11 +209,9 @@ impl SqliteStore {
             Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
             Err(e) => return Err(StoreError::from(e).into()),
         };
-        let created_at = OffsetDateTime::parse(
-            &created_str,
-            &time::format_description::well_known::Rfc3339,
-        )
-        .with_context(|| format!("parse eval_runs.created_at for {run_id}"))?;
+        let created_at =
+            OffsetDateTime::parse(&created_str, &time::format_description::well_known::Rfc3339)
+                .with_context(|| format!("parse eval_runs.created_at for {run_id}"))?;
         Ok(Some(EvalRunRecord {
             run_id,
             suite,
@@ -228,10 +226,7 @@ impl SqliteStore {
     /// `query_id` ASC for determinism (the table has no insertion-order
     /// column; query_id ordering matches the BTreeSet sort the loader
     /// uses for missing-id reporting).
-    pub fn load_eval_query_results(
-        &self,
-        run_id: &str,
-    ) -> Result<Vec<EvalQueryResultRecord>> {
+    pub fn load_eval_query_results(&self, run_id: &str) -> Result<Vec<EvalQueryResultRecord>> {
         let conn = self.lock_conn();
         let mut stmt = conn
             .prepare(
@@ -258,11 +253,7 @@ impl SqliteStore {
     /// `Err` (not `Ok(0)`) if the run is missing — we never want to
     /// silently drop computed metrics. Called once per run by
     /// P5-2's `store_aggregate`.
-    pub fn update_eval_run_aggregate(
-        &self,
-        run_id: &str,
-        aggregate_json: &str,
-    ) -> Result<()> {
+    pub fn update_eval_run_aggregate(&self, run_id: &str, aggregate_json: &str) -> Result<()> {
         let conn = self.lock_conn();
         let updated = conn
             .execute(

@@ -22,13 +22,13 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::types::{ParsedBlock, ParsedPayload, Warning, WarningKind};
 use anyhow::Result;
 use kebab_core::{
     Block, BlockId, CanonicalDocument, CodeBlock, CommonBlock, DocumentId, HeadingBlock,
     ImageRefBlock, Inline, Lang, ListBlock, Metadata, ParserVersion, Provenance, ProvenanceEvent,
     ProvenanceKind, RawAsset, TableBlock, TextBlock, id_for_block, id_for_doc,
 };
-use crate::types::{ParsedBlock, ParsedPayload, Warning, WarningKind};
 use time::OffsetDateTime;
 use unicode_normalization::UnicodeNormalization;
 
@@ -234,11 +234,9 @@ fn lift_block(
     // wire form matches ID input). Without this, NFD `\u{1100}\u{1161}`
     // and NFC `\u{AC00}` (both render as 가) would produce different
     // `block_id`s for what is logically the same heading.
-    let heading_path_nfc: Vec<String> =
-        pb.heading_path.iter().map(|s| s.nfc().collect()).collect();
+    let heading_path_nfc: Vec<String> = pb.heading_path.iter().map(|s| s.nfc().collect()).collect();
     let ordinal = next_ordinal(counters, &heading_path_nfc, kind);
-    let block_id: BlockId =
-        id_for_block(doc_id, kind, &heading_path_nfc, ordinal, &pb.source_span);
+    let block_id: BlockId = id_for_block(doc_id, kind, &heading_path_nfc, ordinal, &pb.source_span);
     let common = CommonBlock {
         block_id,
         heading_path: heading_path_nfc,
@@ -426,8 +424,8 @@ fn workspace_path_stem(workspace_path: &str) -> String {
 mod tests {
     use super::*;
     use kebab_core::{
-        AssetId, AssetStorage, Checksum, MediaType, SourceSpan, SourceType, SourceUri,
-        TrustLevel, WorkspacePath, normalize::to_posix,
+        AssetId, AssetStorage, Checksum, MediaType, SourceSpan, SourceType, SourceUri, TrustLevel,
+        WorkspacePath, normalize::to_posix,
     };
     use serde_json::Value;
     use std::path::{Path, PathBuf};
@@ -581,8 +579,7 @@ mod tests {
         let asset = fixture_asset();
         let metadata = fixture_metadata();
         let pv = parser_version();
-        let doc =
-            build_canonical_document(&asset, metadata, blocks, &pv, vec![]).unwrap();
+        let doc = build_canonical_document(&asset, metadata, blocks, &pv, vec![]).unwrap();
 
         // Compute the expected IDs out-of-band so the test pins both
         // the (heading_path, kind) ordinal grouping AND the value of
@@ -647,8 +644,7 @@ mod tests {
         let asset = fixture_asset();
         let metadata = fixture_metadata();
         let pv = parser_version();
-        let doc =
-            build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
+        let doc = build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
         let kinds: Vec<_> = doc.provenance.events.iter().map(|e| e.kind).collect();
         assert_eq!(
             kinds,
@@ -665,7 +661,10 @@ mod tests {
         assert_eq!(events[2].agent, "kb-normalize");
         // Pin the implementation invariant that Parsed and Normalized
         // share the single `now_utc()` reading inside one call.
-        assert_eq!(events[1].at, events[2].at, "Parsed and Normalized share now_utc");
+        assert_eq!(
+            events[1].at, events[2].at,
+            "Parsed and Normalized share now_utc"
+        );
     }
 
     /// Warnings carried into `build_canonical_document` are emitted as
@@ -679,13 +678,17 @@ mod tests {
             kind: WarningKind::MalformedFrontmatter,
             note: "missing closing fence".into(),
         }];
-        let doc =
-            build_canonical_document(&asset, metadata, vec![], &pv, warnings).unwrap();
+        let doc = build_canonical_document(&asset, metadata, vec![], &pv, warnings).unwrap();
         assert_eq!(doc.provenance.events.len(), 4);
         let last = doc.provenance.events.last().unwrap();
         assert_eq!(last.kind, ProvenanceKind::Warning);
         assert_eq!(last.agent, "kb-parse-md");
-        assert!(last.note.as_deref().unwrap().contains("missing closing fence"));
+        assert!(
+            last.note
+                .as_deref()
+                .unwrap()
+                .contains("missing closing fence")
+        );
     }
 
     /// `metadata.user["title"]` and `metadata.user["lang"]` are lifted
@@ -697,8 +700,7 @@ mod tests {
         let asset = fixture_asset();
         let metadata = fixture_metadata();
         let pv = parser_version();
-        let doc =
-            build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
+        let doc = build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
         assert_eq!(doc.title, "Example");
         assert_eq!(doc.lang, Lang("en".into()));
         assert!(!doc.metadata.user.contains_key("title"));
@@ -744,14 +746,9 @@ mod tests {
         // determinism is exercised on a non-empty `lift_block` path
         // (block_id hashing, NFC normalization, ordinal counters), not
         // just an empty Vec.
-        let baseline = build_canonical_document(
-            &asset,
-            metadata.clone(),
-            fixture_blocks_five(),
-            &pv,
-            vec![],
-        )
-        .unwrap();
+        let baseline =
+            build_canonical_document(&asset, metadata.clone(), fixture_blocks_five(), &pv, vec![])
+                .unwrap();
         let baseline_json = serde_json::to_string(&strip_dynamic_at(&baseline)).unwrap();
 
         let start = std::time::Instant::now();
@@ -788,8 +785,7 @@ mod tests {
             kind: WarningKind::ExtractFailed,
             note: "pulldown-cmark panicked; body discarded".into(),
         }];
-        let doc =
-            build_canonical_document(&asset, metadata, vec![], &pv, warnings).unwrap();
+        let doc = build_canonical_document(&asset, metadata, vec![], &pv, warnings).unwrap();
         let warning_event = doc
             .provenance
             .events
@@ -825,14 +821,11 @@ mod tests {
         let asset = fixture_asset();
         let metadata = fixture_metadata();
         let pv = parser_version();
-        let doc =
-            build_canonical_document(&asset, metadata, blocks, &pv, vec![]).unwrap();
+        let doc = build_canonical_document(&asset, metadata, blocks, &pv, vec![]).unwrap();
 
         // No AudioRef block in the canonical output.
         assert!(
-            !doc.blocks
-                .iter()
-                .any(|b| matches!(b, Block::AudioRef(_))),
+            !doc.blocks.iter().any(|b| matches!(b, Block::AudioRef(_))),
             "AudioRef block should be skipped pre-P8"
         );
 
@@ -908,8 +901,7 @@ mod tests {
             .user
             .insert("title".into(), Value::String(String::new()));
         let pv = parser_version();
-        let doc =
-            build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
+        let doc = build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
         // workspace_path = "notes/example.md" → stem "example".
         assert_eq!(doc.title, "example");
     }
@@ -926,8 +918,7 @@ mod tests {
             .user
             .insert("title".into(), Value::Number(42.into()));
         let pv = parser_version();
-        let doc =
-            build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
+        let doc = build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
         assert_eq!(doc.title, "example");
     }
 
@@ -940,8 +931,7 @@ mod tests {
         let mut metadata = fixture_metadata();
         metadata.user.insert("lang".into(), Value::Array(vec![]));
         let pv = parser_version();
-        let doc =
-            build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
+        let doc = build_canonical_document(&asset, metadata, vec![], &pv, vec![]).unwrap();
         assert_eq!(doc.lang, Lang(String::new()));
     }
 
@@ -995,14 +985,22 @@ mod tests {
     /// Step 2 — first H1 wins when frontmatter empty.
     #[test]
     fn derive_title_uses_h1_when_no_frontmatter() {
-        let blocks = vec![paragraph("intro"), heading(1, "Real Title"), heading(2, "Sub")];
+        let blocks = vec![
+            paragraph("intro"),
+            heading(1, "Real Title"),
+            heading(2, "Sub"),
+        ];
         assert_eq!(derive_title("", &blocks, "stem"), "Real Title");
     }
 
     /// Step 3 — first H2 wins when no H1.
     #[test]
     fn derive_title_uses_h2_when_no_h1() {
-        let blocks = vec![heading(2, "First H2"), heading(2, "Second H2"), heading(1, "")];
+        let blocks = vec![
+            heading(2, "First H2"),
+            heading(2, "Second H2"),
+            heading(1, ""),
+        ];
         assert_eq!(derive_title("", &blocks, "stem"), "First H2");
     }
 
@@ -1021,7 +1019,9 @@ mod tests {
                 lang: None,
                 code: "code should be skipped".into(),
             }),
-            paragraph("This paragraph wins. Long text that would exceed eighty characters once concatenated end-to-end here."),
+            paragraph(
+                "This paragraph wins. Long text that would exceed eighty characters once concatenated end-to-end here.",
+            ),
         ];
         let title = derive_title("", &blocks, "stem");
         assert_eq!(title.chars().count(), 80);
@@ -1037,7 +1037,10 @@ mod tests {
             headers: vec!["a".into()],
             rows: vec![vec!["1".into()]],
         })];
-        assert_eq!(derive_title("", &blocks, "table-only-doc"), "table-only-doc");
+        assert_eq!(
+            derive_title("", &blocks, "table-only-doc"),
+            "table-only-doc"
+        );
     }
 
     /// Step 5 sentinel — empty file_stem AND no usable blocks falls back
@@ -1076,8 +1079,7 @@ mod tests {
             },
         }];
         let pv = parser_version();
-        let doc =
-            build_canonical_document(&asset, metadata, blocks, &pv, vec![]).unwrap();
+        let doc = build_canonical_document(&asset, metadata, blocks, &pv, vec![]).unwrap();
         assert_eq!(doc.title, "Lifted From H1");
     }
 

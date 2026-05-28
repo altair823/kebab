@@ -29,7 +29,9 @@ fn fresh_doc_is_not_stale_with_default_threshold() {
     assert!(
         hits.iter().all(|h| !h.stale),
         "freshly-ingested doc must not be stale at default 30d threshold: {:?}",
-        hits.iter().map(|h| (h.doc_path.0.clone(), h.stale)).collect::<Vec<_>>()
+        hits.iter()
+            .map(|h| (h.doc_path.0.clone(), h.stale))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -50,7 +52,9 @@ fn threshold_zero_disables_staleness() {
     assert!(
         hits.iter().all(|h| !h.stale),
         "threshold=0 disables staleness even for year-old docs: {:?}",
-        hits.iter().map(|h| (h.doc_path.0.clone(), h.stale)).collect::<Vec<_>>()
+        hits.iter()
+            .map(|h| (h.doc_path.0.clone(), h.stale))
+            .collect::<Vec<_>>()
     );
 }
 

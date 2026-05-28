@@ -145,10 +145,7 @@ pub fn render_skipped_breakdown(map: &std::collections::BTreeMap<String, u32>) -
 /// Best-effort send into an optional `mpsc::Sender`. A dropped receiver
 /// is silently absorbed — the ingest hot path must not stall on a slow
 /// consumer. Logged at `trace` for diagnostics.
-pub(crate) fn emit(
-    progress: Option<&std::sync::mpsc::Sender<IngestEvent>>,
-    event: IngestEvent,
-) {
+pub(crate) fn emit(progress: Option<&std::sync::mpsc::Sender<IngestEvent>>, event: IngestEvent) {
     if let Some(tx) = progress {
         if tx.send(event).is_err() {
             tracing::trace!(
@@ -192,7 +189,10 @@ mod tests {
             media: "markdown".into(),
         };
         let v = serde_json::to_value(&ev).unwrap();
-        assert_eq!(v.get("kind").and_then(|s| s.as_str()), Some("asset_started"));
+        assert_eq!(
+            v.get("kind").and_then(|s| s.as_str()),
+            Some("asset_started")
+        );
         assert_eq!(v.get("idx").and_then(serde_json::Value::as_u64), Some(1));
         assert_eq!(v.get("total").and_then(serde_json::Value::as_u64), Some(10));
         assert_eq!(v.get("path").and_then(|s| s.as_str()), Some("notes/foo.md"));
@@ -211,8 +211,14 @@ mod tests {
         let v = serde_json::to_value(&ev).unwrap();
         assert_eq!(v.get("kind").and_then(|s| s.as_str()), Some("completed"));
         let counts = v.get("counts").unwrap();
-        assert_eq!(counts.get("scanned").and_then(serde_json::Value::as_u64), Some(5));
-        assert_eq!(counts.get("new").and_then(serde_json::Value::as_u64), Some(2));
+        assert_eq!(
+            counts.get("scanned").and_then(serde_json::Value::as_u64),
+            Some(5)
+        );
+        assert_eq!(
+            counts.get("new").and_then(serde_json::Value::as_u64),
+            Some(2)
+        );
     }
 
     #[test]

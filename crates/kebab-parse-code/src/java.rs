@@ -83,8 +83,9 @@ impl Extractor for JavaAstExtractor {
         let parser_version = self.parser_version();
         let doc_id = id_for_doc(&asset.workspace_path, &asset.asset_id, &parser_version);
 
-        let source = String::from_utf8(bytes.to_vec())
-            .map_err(|e| anyhow::anyhow!("kebab-parse-code: Java source is not valid UTF-8: {e}"))?;
+        let source = String::from_utf8(bytes.to_vec()).map_err(|e| {
+            anyhow::anyhow!("kebab-parse-code: Java source is not valid UTF-8: {e}")
+        })?;
 
         let blocks = build_blocks(&source, &doc_id)?;
         let unit_count = blocks.len() as u32;
@@ -302,9 +303,7 @@ fn walk_top(
         let s = unit_start(&child);
         let e = child.end_position().row as u32 + 1;
         match child.kind() {
-            "class_declaration"
-            | "interface_declaration"
-            | "record_declaration" => {
+            "class_declaration" | "interface_declaration" | "record_declaration" => {
                 if let Some(name) = node_name_text(&child, src) {
                     glue.retain(|(_, gs, _)| *gs < s);
                     flush_glue(glue, units, mod_prefix, mod_path);
@@ -426,7 +425,11 @@ fn flush_glue(
     // imports (1A's `only_mod_decls` analog). The post-pass demotes any
     // `<module>` to `<top-level>` if the file produced any real unit.
     let only_imports = glue.iter().all(|(is_import, _, _)| *is_import == 1);
-    let label = if only_imports { "<module>" } else { "<top-level>" };
+    let label = if only_imports {
+        "<module>"
+    } else {
+        "<top-level>"
+    };
     units.push((join_symbol(mod_prefix, mod_path, label), s, e, false));
     glue.clear();
 }
@@ -482,7 +485,8 @@ mod tests {
         syms.sort();
         // package extracted from source = com.kebab.chunk
         assert!(
-            syms.iter().any(|s| s == "com.kebab.chunk.MdHeadingV1Chunker"),
+            syms.iter()
+                .any(|s| s == "com.kebab.chunk.MdHeadingV1Chunker"),
             "got {syms:?}"
         );
         // constructor — Java convention is class-name-as-method-name

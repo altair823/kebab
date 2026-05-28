@@ -49,7 +49,10 @@ fn create_get_roundtrip() {
     let store = open_store(&tmp);
     let session = make_session("sess-1");
     store.create_session(&session).unwrap();
-    let fetched = store.get_session("sess-1").unwrap().expect("session present");
+    let fetched = store
+        .get_session("sess-1")
+        .unwrap()
+        .expect("session present");
     assert_eq!(fetched, session);
 }
 
@@ -112,20 +115,16 @@ fn append_turn_bumps_session_updated_at() {
     let store = open_store(&tmp);
     let session = make_session("bump");
     store.create_session(&session).unwrap();
-    let pre = store
-        .get_session("bump")
-        .unwrap()
-        .unwrap()
-        .updated_at;
+    let pre = store.get_session("bump").unwrap().unwrap().updated_at;
     let mut t = make_turn("bump", 0);
     t.created_at = pre + 100;
     store.append_turn(&t).unwrap();
-    let post = store
-        .get_session("bump")
-        .unwrap()
-        .unwrap()
-        .updated_at;
-    assert_eq!(post, pre + 100, "updated_at must follow latest turn's created_at");
+    let post = store.get_session("bump").unwrap().unwrap().updated_at;
+    assert_eq!(
+        post,
+        pre + 100,
+        "updated_at must follow latest turn's created_at"
+    );
 }
 
 #[test]
@@ -168,7 +167,9 @@ fn list_sessions_respects_limit() {
     let tmp = TempDir::new().unwrap();
     let store = open_store(&tmp);
     for i in 0..5 {
-        store.create_session(&make_session(&format!("s{i}"))).unwrap();
+        store
+            .create_session(&make_session(&format!("s{i}")))
+            .unwrap();
     }
     assert_eq!(store.list_sessions(2).unwrap().len(), 2);
     assert_eq!(store.list_sessions(100).unwrap().len(), 5);

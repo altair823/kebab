@@ -23,5 +23,8 @@ fn open_existing_does_not_create_missing_db() {
     let dir = tempfile::tempdir().unwrap();
     let nonexistent_db = dir.path().join("does-not-exist.sqlite");
     let _ = SqliteStore::open_existing(&nonexistent_db);
-    assert!(!nonexistent_db.exists(), "open_existing must NOT create the file");
+    assert!(
+        !nonexistent_db.exists(),
+        "open_existing must NOT create the file"
+    );
 }

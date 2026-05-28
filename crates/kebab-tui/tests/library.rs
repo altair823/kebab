@@ -18,7 +18,12 @@ use time::OffsetDateTime;
 
 fn make_doc(path: &str, title: &str, tags: Vec<&str>) -> DocSummary {
     DocSummary {
-        doc_id: DocumentId(format!("{:0<32}", path.chars().filter(|c| c.is_alphanumeric()).collect::<String>())),
+        doc_id: DocumentId(format!(
+            "{:0<32}",
+            path.chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+        )),
         doc_path: WorkspacePath::new(path.into()).unwrap(),
         title: title.into(),
         lang: Lang("en".into()),
@@ -88,10 +93,8 @@ fn handle_key_library_q_quits() {
 #[test]
 fn handle_key_library_esc_quits_when_no_overlay() {
     let mut app = app_with_docs(vec![]);
-    let outcome = kebab_tui::handle_key_library(
-        &mut app,
-        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-    );
+    let outcome =
+        kebab_tui::handle_key_library(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert_eq!(outcome, KeyOutcome::Quit);
 }
 
@@ -118,10 +121,8 @@ fn handle_key_library_question_switches_to_ask() {
 #[test]
 fn handle_key_library_enter_does_not_switch_when_empty() {
     let mut app = app_with_docs(vec![]);
-    let outcome = kebab_tui::handle_key_library(
-        &mut app,
-        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-    );
+    let outcome =
+        kebab_tui::handle_key_library(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(outcome, KeyOutcome::Continue);
 }
 
@@ -185,10 +186,8 @@ fn handle_key_library_arrow_down_moves_selection() {
 #[test]
 fn handle_key_library_enter_inspects_when_docs_present() {
     let mut app = app_with_docs(vec![make_doc("a.md", "A", vec![])]);
-    let outcome = kebab_tui::handle_key_library(
-        &mut app,
-        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-    );
+    let outcome =
+        kebab_tui::handle_key_library(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(outcome, KeyOutcome::SwitchPane(Pane::Inspect));
 }
 
@@ -209,10 +208,8 @@ fn handle_key_library_f_opens_filter_overlay_then_enter_refreshes() {
         );
     }
     // Enter commits + refreshes.
-    let o2 = kebab_tui::handle_key_library(
-        &mut app,
-        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-    );
+    let o2 =
+        kebab_tui::handle_key_library(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(o2, KeyOutcome::Refresh);
 }
 
@@ -235,10 +232,8 @@ fn filter_overlay_accepts_hangul_tags() {
         );
     }
     // Enter commits.
-    let o2 = kebab_tui::handle_key_library(
-        &mut app,
-        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-    );
+    let o2 =
+        kebab_tui::handle_key_library(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(o2, KeyOutcome::Refresh);
     // The library filter should now contain "한글" as a tag.
     let filter = app.library_filter_for_testing();
@@ -272,9 +267,9 @@ fn filter_overlay_render_places_cursor_on_focused_field() {
     // After draw, ratatui calls backend.set_cursor_position when the
     // frame's cursor_position is Some. The terminal's
     // get_cursor_position proxies to the backend.
-    let pos = terminal.get_cursor_position().expect(
-        "filter overlay must call set_cursor_position, so cursor pos must be readable",
-    );
+    let pos = terminal
+        .get_cursor_position()
+        .expect("filter overlay must call set_cursor_position, so cursor pos must be readable");
     // The Tags label ("tags_any (csv): ") has display_width 16; inner.x
     // is 1 (inside border). With empty input cursor_col=0, expected x=17.
     // We assert x>0 to avoid hardcoding the exact layout geometry while
@@ -325,7 +320,10 @@ fn library_renders_column_header_row() {
         .lines()
         .position(|line| line.contains("TITLE"))
         .expect("TITLE header should be present");
-    let lines_after = rendered.lines().skip(title_line_idx + 1).collect::<Vec<_>>();
+    let lines_after = rendered
+        .lines()
+        .skip(title_line_idx + 1)
+        .collect::<Vec<_>>();
     assert!(
         lines_after.iter().any(|line| line.contains("doc-")),
         "no data rows after header:\n{rendered}"
@@ -338,7 +336,11 @@ fn library_renders_column_header_row() {
 #[test]
 fn library_renders_korean_titles_without_overflow() {
     let docs = vec![
-        make_doc("ko/한글-노트.md", "러스트로 만드는 지식 베이스", vec!["rust", "한글"]),
+        make_doc(
+            "ko/한글-노트.md",
+            "러스트로 만드는 지식 베이스",
+            vec!["rust", "한글"],
+        ),
         make_doc("jp/漢字メモ.md", "日本語のテストドキュメント", vec!["jp"]),
         make_doc("mix/hello-세계.md", "Hello, 세계 mixed title", vec!["mix"]),
     ];

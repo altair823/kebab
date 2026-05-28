@@ -1,8 +1,8 @@
 //! `md-heading-v1` — heading-aware Markdown chunker.
 
 use kebab_core::{
-    Block, BlockId, CanonicalDocument, Chunk, ChunkPolicy, Chunker,
-    ChunkerVersion, DocumentId, SourceSpan, id_for_chunk,
+    Block, BlockId, CanonicalDocument, Chunk, ChunkPolicy, Chunker, ChunkerVersion, DocumentId,
+    SourceSpan, id_for_chunk,
 };
 
 /// Version label emitted by [`MdHeadingV1Chunker`]. Bumping this label
@@ -99,11 +99,7 @@ impl Chunker for MdHeadingV1Chunker {
         hex[..POLICY_HASH_HEX_LEN].to_string()
     }
 
-    fn chunk(
-        &self,
-        doc: &CanonicalDocument,
-        policy: &ChunkPolicy,
-    ) -> anyhow::Result<Vec<Chunk>> {
+    fn chunk(&self, doc: &CanonicalDocument, policy: &ChunkPolicy) -> anyhow::Result<Vec<Chunk>> {
         let policy_hash = self.policy_hash(policy);
         let chunker_version = self.chunker_version();
         let mut out: Vec<Chunk> = Vec::new();
@@ -152,22 +148,12 @@ impl Chunker for MdHeadingV1Chunker {
                     // `collect_overlap_seed` keeps seed ≤ target/2, so
                     // a flush here never produces a chunk smaller than
                     // the seed budget.
-                    let would_exceed = acc.text_tokens + next_tokens
-                        > policy.target_tokens
+                    let would_exceed = acc.text_tokens + next_tokens > policy.target_tokens
                         && acc.has_non_heading_content();
                     if would_exceed {
-                        let overlap_seed = collect_overlap_seed(
-                            &acc,
-                            policy.overlap_tokens,
-                            policy.target_tokens,
-                        );
-                        flush(
-                            &mut acc,
-                            doc,
-                            &chunker_version,
-                            &policy_hash,
-                            &mut out,
-                        );
+                        let overlap_seed =
+                            collect_overlap_seed(&acc, policy.overlap_tokens, policy.target_tokens);
+                        flush(&mut acc, doc, &chunker_version, &policy_hash, &mut out);
                         // Seed next accumulator with the prior chunk's
                         // tail blocks (paragraph-level overlap). The
                         // heading is *not* re-included here — it lives
@@ -292,10 +278,11 @@ fn build_chunk(
 ) -> Chunk {
     debug_assert!(!blocks.is_empty(), "build_chunk requires ≥1 block");
 
-    let block_ids: Vec<BlockId> =
-        blocks.iter().map(|b| common(b).block_id.clone()).collect();
-    let source_spans: Vec<SourceSpan> =
-        blocks.iter().map(|b| common(b).source_span.clone()).collect();
+    let block_ids: Vec<BlockId> = blocks.iter().map(|b| common(b).block_id.clone()).collect();
+    let source_spans: Vec<SourceSpan> = blocks
+        .iter()
+        .map(|b| common(b).source_span.clone())
+        .collect();
 
     // heading_path: pick the first non-Heading block's heading_path
     // (which already includes every parent heading per kb-normalize).
@@ -339,12 +326,7 @@ fn build_chunk(
         text.len().div_ceil(BYTES_PER_TOKEN)
     };
 
-    let chunk_id = id_for_chunk(
-        &doc.doc_id,
-        chunker_version,
-        &block_ids,
-        policy_hash,
-    );
+    let chunk_id = id_for_chunk(&doc.doc_id, chunker_version, &block_ids, policy_hash);
 
     Chunk {
         chunk_id,
@@ -400,14 +382,8 @@ fn render_block_text(b: &Block) -> String {
             } else {
                 i.alt.clone()
             };
-            let ocr = i
-                .ocr
-                .as_ref()
-                .map_or("", |o| o.joined.as_str());
-            let cap = i
-                .caption
-                .as_ref()
-                .map_or("", |c| c.text.as_str());
+            let ocr = i.ocr.as_ref().map_or("", |o| o.joined.as_str());
+            let cap = i.caption.as_ref().map_or("", |c| c.text.as_str());
             [alt.as_str(), ocr, cap]
                 .iter()
                 .filter(|s| !s.is_empty())
@@ -447,9 +423,8 @@ fn common(b: &Block) -> &kebab_core::CommonBlock {
 mod tests {
     use super::*;
     use kebab_core::{
-        AssetId, CodeBlock, CommonBlock, HeadingBlock, ImageRefBlock, Lang,
-        Metadata, Provenance, SourceType, TableBlock, TextBlock, TrustLevel,
-        WorkspacePath, id_for_block,
+        AssetId, CodeBlock, CommonBlock, HeadingBlock, ImageRefBlock, Lang, Metadata, Provenance,
+        SourceType, TableBlock, TextBlock, TrustLevel, WorkspacePath, id_for_block,
     };
     use time::OffsetDateTime;
 
@@ -492,12 +467,7 @@ mod tests {
         SourceSpan::Line { start, end }
     }
 
-    fn common_for(
-        kind: &str,
-        heading_path: &[String],
-        ordinal: u32,
-        s: SourceSpan,
-    ) -> CommonBlock {
+    fn common_for(kind: &str, heading_path: &[String], ordinal: u32, s: SourceSpan) -> CommonBlock {
         CommonBlock {
             block_id: id_for_block(&doc_id(), kind, heading_path, ordinal, &s),
             heading_path: heading_path.to_vec(),
@@ -532,12 +502,7 @@ mod tests {
         })
     }
 
-    fn paragraph(
-        text: &str,
-        heading_path: &[&str],
-        ordinal: u32,
-        line: u32,
-    ) -> Block {
+    fn paragraph(text: &str, heading_path: &[&str], ordinal: u32, line: u32) -> Block {
         let hp: Vec<String> = heading_path.iter().map(|s| (*s).into()).collect();
         Block::Paragraph(TextBlock {
             common: common_for("paragraph", &hp, ordinal, span(line, line)),
@@ -546,12 +511,7 @@ mod tests {
         })
     }
 
-    fn code_block(
-        code: &str,
-        heading_path: &[&str],
-        ordinal: u32,
-        s: SourceSpan,
-    ) -> Block {
+    fn code_block(code: &str, heading_path: &[&str], ordinal: u32, s: SourceSpan) -> Block {
         let hp: Vec<String> = heading_path.iter().map(|s| (*s).into()).collect();
         Block::Code(CodeBlock {
             common: common_for("code", &hp, ordinal, s),
@@ -578,12 +538,7 @@ mod tests {
         })
     }
 
-    fn image_ref(
-        alt: &str,
-        heading_path: &[&str],
-        ordinal: u32,
-        line: u32,
-    ) -> Block {
+    fn image_ref(alt: &str, heading_path: &[&str], ordinal: u32, line: u32) -> Block {
         let hp: Vec<String> = heading_path.iter().map(|s| (*s).into()).collect();
         Block::ImageRef(ImageRefBlock {
             common: common_for("imageref", &hp, ordinal, span(line, line)),

@@ -10,8 +10,7 @@ fn main() {
     let out = std::env::args()
         .nth(1)
         .expect("usage: gen_smoke_png <out.png>");
-    let img: ImageBuffer<Rgb<u8>, _> =
-        ImageBuffer::from_fn(100, 50, |_, _| Rgb([255, 0, 0]));
+    let img: ImageBuffer<Rgb<u8>, _> = ImageBuffer::from_fn(100, 50, |_, _| Rgb([255, 0, 0]));
     let mut buf = Cursor::new(Vec::new());
     img.write_to(&mut buf, image::ImageFormat::Png)
         .expect("encode PNG");

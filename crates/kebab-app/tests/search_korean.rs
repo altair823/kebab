@@ -75,11 +75,9 @@ fn lexical_multi_token_korean_query_hits() {
     kebab_app::ingest_with_config(env.config.clone(), env.scope(), true)
         .expect("ingest must succeed");
 
-    let hits = kebab_app::search_with_config(
-        env.config.clone(),
-        common::lexical_query("해시 충돌"),
-    )
-    .expect("search must succeed");
+    let hits =
+        kebab_app::search_with_config(env.config.clone(), common::lexical_query("해시 충돌"))
+            .expect("search must succeed");
 
     assert!(
         !hits.is_empty(),
@@ -113,11 +111,9 @@ fn lexical_mixed_korean_english_multi_token_query_hits() {
     kebab_app::ingest_with_config(env.config.clone(), env.scope(), true)
         .expect("ingest must succeed");
 
-    let hits = kebab_app::search_with_config(
-        env.config.clone(),
-        common::lexical_query("Rust 충돌은"),
-    )
-    .expect("search must succeed");
+    let hits =
+        kebab_app::search_with_config(env.config.clone(), common::lexical_query("Rust 충돌은"))
+            .expect("search must succeed");
 
     assert!(
         !hits.is_empty(),

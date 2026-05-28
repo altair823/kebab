@@ -2,13 +2,15 @@
 //
 // Integration tests for [pdf.ocr] config section (v0.20.0 sub-item 1).
 
-use std::collections::HashMap;
 use kebab_config::{Config, PdfCfg};
+use std::collections::HashMap;
 
 // Test 1: toml roundtrip — spec §4.5 line 1034-1047 example block.
 // Config requires many required fields; test the [pdf] section via PdfCfg wrapper.
 #[derive(serde::Deserialize)]
-struct PdfWrapper { pdf: PdfCfg }
+struct PdfWrapper {
+    pdf: PdfCfg,
+}
 
 #[test]
 fn pdf_ocr_toml_roundtrip() {
@@ -50,7 +52,10 @@ fn pdf_ocr_defaults_off_with_qwen_3b() {
     assert_eq!(cfg.pdf.ocr.engine, "ollama-vision");
     assert_eq!(cfg.pdf.ocr.model, "qwen2.5vl:3b");
     assert!(cfg.pdf.ocr.endpoint.is_none());
-    assert_eq!(cfg.pdf.ocr.languages, vec!["eng".to_string(), "kor".to_string()]);
+    assert_eq!(
+        cfg.pdf.ocr.languages,
+        vec!["eng".to_string(), "kor".to_string()]
+    );
     assert_eq!(cfg.pdf.ocr.max_pixels, 2048);
     assert_eq!(cfg.pdf.ocr.request_timeout_secs, 180); // Bug #11: 600 → 60 → 180 (HOTFIXES 2026-05-28)
     assert!((cfg.pdf.ocr.valid_ratio_threshold - 0.5).abs() < 1e-6);
@@ -63,9 +68,15 @@ fn pdf_ocr_defaults_off_with_qwen_3b() {
 fn pdf_ocr_env_overrides() {
     let mut env: HashMap<String, String> = HashMap::new();
     env.insert("KEBAB_PDF_OCR_ENABLED".to_string(), "true".to_string());
-    env.insert("KEBAB_PDF_OCR_MODEL".to_string(), "qwen2.5vl:7b".to_string());
+    env.insert(
+        "KEBAB_PDF_OCR_MODEL".to_string(),
+        "qwen2.5vl:7b".to_string(),
+    );
     env.insert("KEBAB_PDF_OCR_ALWAYS_ON".to_string(), "true".to_string());
-    env.insert("KEBAB_PDF_OCR_VALID_RATIO_THRESHOLD".to_string(), "0.75".to_string());
+    env.insert(
+        "KEBAB_PDF_OCR_VALID_RATIO_THRESHOLD".to_string(),
+        "0.75".to_string(),
+    );
 
     let cfg = Config::defaults().apply_env(&env);
 

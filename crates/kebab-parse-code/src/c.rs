@@ -300,12 +300,7 @@ fn build_blocks(
     if units.is_empty() {
         // Completely empty file or whitespace/comments only.
         let total = lines.len() as u32;
-        units.push((
-            "<module>".to_string(),
-            1,
-            total.max(1),
-            false,
-        ));
+        units.push(("<module>".to_string(), 1, total.max(1), false));
     }
     // If there is only glue (no real unit) the single pushed "<top-level>"
     // label should be "<module>" — rename it now.
@@ -383,10 +378,7 @@ fn recover_typedef_alias(node: tree_sitter::Node, source: &str) -> Option<String
 /// Handles the common shapes: direct `type_identifier`, or one wrapped
 /// in pointer / function declarator nodes (the alias is always the
 /// rightmost `type_identifier` descendant).
-fn extract_typedef_alias_name<'a>(
-    decl: tree_sitter::Node,
-    source: &'a str,
-) -> Option<&'a str> {
+fn extract_typedef_alias_name<'a>(decl: tree_sitter::Node, source: &'a str) -> Option<&'a str> {
     if decl.kind() == "type_identifier" {
         return Some(&source[decl.start_byte()..decl.end_byte()]);
     }
@@ -490,7 +482,10 @@ mod tests {
         let src = "int *find(int *arr, int n) { return arr; }\n";
         let doc = tests_support::extract_c(src, "x/find.c");
         let s = syms(&doc);
-        assert!(s.iter().any(|x| x == "find"), "ptr-return fn missing: {s:?}");
+        assert!(
+            s.iter().any(|x| x == "find"),
+            "ptr-return fn missing: {s:?}"
+        );
     }
 
     #[test]
@@ -695,7 +690,10 @@ void print_result(int v) {
         let s = syms(&doc);
         // Two real functions + one glue block
         assert!(s.iter().any(|x| x == "compute"), "compute missing: {s:?}");
-        assert!(s.iter().any(|x| x == "print_result"), "print_result missing: {s:?}");
+        assert!(
+            s.iter().any(|x| x == "print_result"),
+            "print_result missing: {s:?}"
+        );
         assert!(
             s.iter().any(|x| x == "<top-level>"),
             "<top-level> glue missing: {s:?}"
@@ -711,10 +709,7 @@ void noop(void) {}
 ";
         let a = tests_support::extract_c(src, "x/det.c");
         for _ in 0..20 {
-            assert_eq!(
-                tests_support::extract_c(src, "x/det.c").blocks,
-                a.blocks
-            );
+            assert_eq!(tests_support::extract_c(src, "x/det.c").blocks, a.blocks);
         }
     }
 }

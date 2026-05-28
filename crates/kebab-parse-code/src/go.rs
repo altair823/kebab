@@ -363,7 +363,11 @@ fn flush_glue(
     // imports (1A's `only_mod_decls` analog). The post-pass demotes any
     // `<module>` to `<top-level>` if the file produced any real unit.
     let only_imports = glue.iter().all(|(is_import, _, _)| *is_import == 1);
-    let label = if only_imports { "<module>" } else { "<top-level>" };
+    let label = if only_imports {
+        "<module>"
+    } else {
+        "<top-level>"
+    };
     units.push((join_symbol(mod_prefix, &[], label), s, e, false));
     glue.clear();
 }
@@ -429,8 +433,7 @@ mod tests {
             "got {syms:?}"
         );
         assert!(
-            syms.iter()
-                .any(|s| s == "chunk.(MdHeadingV1Chunker).Name2"),
+            syms.iter().any(|s| s == "chunk.(MdHeadingV1Chunker).Name2"),
             "got {syms:?}"
         );
         assert!(syms.iter().any(|s| s == "chunk.Stringer"), "got {syms:?}");

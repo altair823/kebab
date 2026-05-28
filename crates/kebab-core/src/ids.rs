@@ -14,8 +14,7 @@ use crate::asset::WorkspacePath;
 use crate::document::SourceSpan;
 use crate::errors::CoreError;
 use crate::versions::{
-    ChunkerVersion, EmbeddingModelId, EmbeddingVersion, IndexVersion,
-    ParserVersion,
+    ChunkerVersion, EmbeddingModelId, EmbeddingVersion, IndexVersion, ParserVersion,
 };
 
 macro_rules! newtype_id {
@@ -54,9 +53,7 @@ fn validate_hex32(s: &str) -> Result<(), CoreError> {
         )));
     }
     if !s.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(CoreError::InvalidId(format!(
-            "non-hex character in {s:?}"
-        )));
+        return Err(CoreError::InvalidId(format!("non-hex character in {s:?}")));
     }
     Ok(())
 }

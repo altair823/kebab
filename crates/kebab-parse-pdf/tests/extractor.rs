@@ -36,7 +36,10 @@ fn three_page_pdf_emits_one_paragraph_block_per_page() {
     assert_eq!(doc.title, "three");
     assert_eq!(doc.lang.0, "und");
     assert_eq!(doc.parser_version.0, kebab_parse_pdf::PARSER_VERSION);
-    assert_eq!(doc.metadata.user["pdf"]["page_count"], Value::Number(3.into()));
+    assert_eq!(
+        doc.metadata.user["pdf"]["page_count"],
+        Value::Number(3.into())
+    );
 
     let blocks = paragraph_blocks(&doc);
     assert_eq!(blocks.len(), 3);
@@ -149,7 +152,10 @@ fn page_count_matches_actual_count() {
         .extract(&fx.ctx(), &bytes)
         .expect("5-page extraction must succeed");
 
-    assert_eq!(doc.metadata.user["pdf"]["page_count"], Value::Number(5.into()));
+    assert_eq!(
+        doc.metadata.user["pdf"]["page_count"],
+        Value::Number(5.into())
+    );
     assert_eq!(doc.blocks.len(), 5);
 }
 
@@ -277,7 +283,10 @@ fn snapshot_three_page_canonical_document_stable() {
             Value::Number(((i as u64) + 1).into())
         );
     }
-    assert_eq!(json["metadata"]["source_type"], Value::String("paper".into()));
+    assert_eq!(
+        json["metadata"]["source_type"],
+        Value::String("paper".into())
+    );
     assert_eq!(
         json["metadata"]["trust_level"],
         Value::String("primary".into())

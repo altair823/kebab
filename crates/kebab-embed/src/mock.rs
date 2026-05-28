@@ -52,11 +52,7 @@ impl MockEmbedder {
     /// Construct with `seed = 0`. Use [`Self::with_seed`] to pick a different
     /// seed (e.g., to verify two embedders with the same identity but
     /// different seeds yield different vectors).
-    pub fn new(
-        model_id: EmbeddingModelId,
-        version: EmbeddingVersion,
-        dimensions: usize,
-    ) -> Self {
+    pub fn new(model_id: EmbeddingModelId, version: EmbeddingVersion, dimensions: usize) -> Self {
         Self {
             model_id,
             version,

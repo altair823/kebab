@@ -46,67 +46,99 @@ pub fn render_cheatsheet(f: &mut Frame, area: Rect, app: &App) {
     let mut lines: Vec<Line> = Vec::new();
     lines.push(Line::from(Span::styled(
         "kebab TUI — keymap (F1 / Esc to close)",
-        app.theme
-            .style(Role::Heading)
-            .add_modifier(Modifier::BOLD),
+        app.theme.style(Role::Heading).add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(""));
 
-    push_section(&mut lines, &app.theme, "Global", &[
-        ("i", "Normal → Insert (every pane — p9-fb-21)"),
-        ("Esc", "Insert → Normal (any pane)"),
-        ("F1", "toggle this cheatsheet"),
-        ("Tab / Shift-Tab", "(future) cycle pane"),
-    ]);
+    push_section(
+        &mut lines,
+        &app.theme,
+        "Global",
+        &[
+            ("i", "Normal → Insert (every pane — p9-fb-21)"),
+            ("Esc", "Insert → Normal (any pane)"),
+            ("F1", "toggle this cheatsheet"),
+            ("Tab / Shift-Tab", "(future) cycle pane"),
+        ],
+    );
 
-    push_section(&mut lines, &app.theme, "Library", &[
-        ("j / k", "move selection (Normal)"),
-        ("gg / G", "top / bottom"),
-        ("f", "filter overlay"),
-        ("/", "switch to Search"),
-        ("?", "switch to Ask"),
-        ("Enter", "inspect selected doc"),
-        ("r", "background ingest"),
-        ("q", "quit"),
-    ]);
+    push_section(
+        &mut lines,
+        &app.theme,
+        "Library",
+        &[
+            ("j / k", "move selection (Normal)"),
+            ("gg / G", "top / bottom"),
+            ("f", "filter overlay"),
+            ("/", "switch to Search"),
+            ("?", "switch to Ask"),
+            ("Enter", "inspect selected doc"),
+            ("r", "background ingest"),
+            ("q", "quit"),
+        ],
+    );
 
-    push_section(&mut lines, &app.theme, "Search", &[
-        ("type", "query (Insert)"),
-        ("Tab", "cycle search mode (lexical / vector / hybrid)"),
-        ("Enter", "force search now (skip debounce)"),
-        ("j / k", "move selection (Normal)"),
-        ("← / →", "move cursor in query (p9-fb-22)"),
-        ("Home / End", "cursor to start / end of query"),
-        ("Delete", "remove char at cursor"),
-        ("g", "open hit's citation in $EDITOR (Normal)"),
-        ("o", "inspect selected hit's chunk (Normal — was `i` pre-fb-21)"),
-        ("t", "open retrieval trace popup (Normal — p9-fb-37)"),
-        ("i", "Normal → Insert (toggle back to typing)"),
-        ("Esc", "back to Library"),
-    ]);
+    push_section(
+        &mut lines,
+        &app.theme,
+        "Search",
+        &[
+            ("type", "query (Insert)"),
+            ("Tab", "cycle search mode (lexical / vector / hybrid)"),
+            ("Enter", "force search now (skip debounce)"),
+            ("j / k", "move selection (Normal)"),
+            ("← / →", "move cursor in query (p9-fb-22)"),
+            ("Home / End", "cursor to start / end of query"),
+            ("Delete", "remove char at cursor"),
+            ("g", "open hit's citation in $EDITOR (Normal)"),
+            (
+                "o",
+                "inspect selected hit's chunk (Normal — was `i` pre-fb-21)",
+            ),
+            ("t", "open retrieval trace popup (Normal — p9-fb-37)"),
+            ("i", "Normal → Insert (toggle back to typing)"),
+            ("Esc", "back to Library"),
+        ],
+    );
 
-    push_section(&mut lines, &app.theme, "Ask", &[
-        ("type", "question (Insert)"),
-        ("Enter", "submit"),
-        ("e", "toggle explain mode (Normal)"),
-        ("F2", "toggle multi-hop pipeline (p9-fb-41 — affects next submission)"),
-        ("j / k", "scroll transcript (Normal — disengages auto-tail)"),
-        ("Shift-G", "jump to bottom + re-engage auto-tail (p9-fb-22)"),
-        ("PgUp / PgDn", "page-scroll the transcript (p9-fb-24, disengages auto-tail)"),
-        ("← / →", "move cursor in input (p9-fb-22)"),
-        ("Home / End", "cursor to start / end of input"),
-        ("Delete", "remove char at cursor"),
-        ("i", "Normal → Insert (toggle back to typing)"),
-        ("Ctrl-L", "new conversation (clears turns)"),
-        ("Esc", "back to Library (cancels in-flight worker)"),
-    ]);
+    push_section(
+        &mut lines,
+        &app.theme,
+        "Ask",
+        &[
+            ("type", "question (Insert)"),
+            ("Enter", "submit"),
+            ("e", "toggle explain mode (Normal)"),
+            (
+                "F2",
+                "toggle multi-hop pipeline (p9-fb-41 — affects next submission)",
+            ),
+            ("j / k", "scroll transcript (Normal — disengages auto-tail)"),
+            ("Shift-G", "jump to bottom + re-engage auto-tail (p9-fb-22)"),
+            (
+                "PgUp / PgDn",
+                "page-scroll the transcript (p9-fb-24, disengages auto-tail)",
+            ),
+            ("← / →", "move cursor in input (p9-fb-22)"),
+            ("Home / End", "cursor to start / end of input"),
+            ("Delete", "remove char at cursor"),
+            ("i", "Normal → Insert (toggle back to typing)"),
+            ("Ctrl-L", "new conversation (clears turns)"),
+            ("Esc", "back to Library (cancels in-flight worker)"),
+        ],
+    );
 
-    push_section(&mut lines, &app.theme, "Inspect", &[
-        ("j / k", "scroll lines"),
-        ("PgUp / PgDn", "scroll pages"),
-        ("c", "collapse / expand all sections"),
-        ("Esc / q", "back to originating pane"),
-    ]);
+    push_section(
+        &mut lines,
+        &app.theme,
+        "Inspect",
+        &[
+            ("j / k", "scroll lines"),
+            ("PgUp / PgDn", "scroll pages"),
+            ("c", "collapse / expand all sections"),
+            ("Esc / q", "back to originating pane"),
+        ],
+    );
 
     // Pane footer: which pane is currently focused (helps the
     // reader correlate \"the keys above\" with their current

@@ -29,9 +29,8 @@ fn rust_file_ingests_and_searches_as_code_citation() {
     )
     .unwrap();
 
-    let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
-            .expect("ingest must succeed");
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
 
     assert_eq!(report.errors, 0, "no errors expected: {report:?}");
     let items = report.items.as_ref().expect("items present");
@@ -127,9 +126,8 @@ fn rust_code_search_hit_has_repo() {
     )
     .unwrap();
 
-    let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
-            .expect("ingest must succeed");
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
     assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
 
     let hits = kebab_app::search_with_config(env.config.clone(), lexical_query("mul"))
@@ -147,8 +145,7 @@ fn rust_code_search_hit_has_repo() {
         .and_then(|n| n.to_str())
         .map(str::to_owned);
     assert_eq!(
-        h.repo,
-        expected_repo,
+        h.repo, expected_repo,
         "SearchHit.repo must match the workspace dir name (detect_repo result)"
     );
     // Also sanity-check code_lang is still filled.
@@ -177,9 +174,8 @@ fn python_file_ingests_and_searches_as_code_citation() {
     )
     .unwrap();
 
-    let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
-            .expect("ingest must succeed");
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
 
     assert!(report.new >= 1, "python file ingested: {report:?}");
 
@@ -254,9 +250,8 @@ fn typescript_file_ingests_and_searches_as_code_citation() {
     )
     .unwrap();
 
-    let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
-            .expect("ingest must succeed");
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
 
     assert!(report.new >= 1, "ts file ingested: {report:?}");
 
@@ -331,9 +326,8 @@ fn javascript_file_ingests_and_searches_as_code_citation() {
     )
     .unwrap();
 
-    let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
-            .expect("ingest must succeed");
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("ingest must succeed");
 
     assert!(report.new >= 1, "js file ingested: {report:?}");
 
@@ -515,7 +509,11 @@ fn java_file_ingests_and_searches_as_code_citation() {
             line_start,
             ..
         } => {
-            assert_eq!(lang.as_deref(), Some("java"), "citation.lang must be 'java'");
+            assert_eq!(
+                lang.as_deref(),
+                Some("java"),
+                "citation.lang must be 'java'"
+            );
             assert_eq!(
                 symbol.as_deref(),
                 Some("com.foo.Foo.bar"),
@@ -586,7 +584,11 @@ fn kotlin_file_ingests_and_searches_as_code_citation() {
             line_start,
             ..
         } => {
-            assert_eq!(lang.as_deref(), Some("kotlin"), "citation.lang must be 'kotlin'");
+            assert_eq!(
+                lang.as_deref(),
+                Some("kotlin"),
+                "citation.lang must be 'kotlin'"
+            );
             assert_eq!(
                 symbol.as_deref(),
                 Some("com.foo.Foo.bar"),
@@ -651,8 +653,8 @@ fn tier2_k8s_yaml_ingest_searchable() {
             ..Default::default()
         },
     };
-    let hits = kebab_app::search_with_config(env.config.clone(), query)
-        .expect("search must succeed");
+    let hits =
+        kebab_app::search_with_config(env.config.clone(), query).expect("search must succeed");
 
     let h = hits
         .iter()
@@ -666,7 +668,11 @@ fn tier2_k8s_yaml_ingest_searchable() {
             line_start,
             ..
         } => {
-            assert_eq!(lang.as_deref(), Some("yaml"), "citation.lang must be 'yaml'");
+            assert_eq!(
+                lang.as_deref(),
+                Some("yaml"),
+                "citation.lang must be 'yaml'"
+            );
             assert_eq!(
                 symbol.as_deref(),
                 Some("Deployment/prod/api"),
@@ -730,8 +736,8 @@ fn tier2_dockerfile_ingest_searchable() {
             ..Default::default()
         },
     };
-    let hits = kebab_app::search_with_config(env.config.clone(), query)
-        .expect("search must succeed");
+    let hits =
+        kebab_app::search_with_config(env.config.clone(), query).expect("search must succeed");
 
     let h = hits
         .iter()
@@ -813,8 +819,8 @@ fn tier2_cargo_toml_ingest_searchable() {
             ..Default::default()
         },
     };
-    let hits = kebab_app::search_with_config(env.config.clone(), query)
-        .expect("search must succeed");
+    let hits =
+        kebab_app::search_with_config(env.config.clone(), query).expect("search must succeed");
 
     let h = hits
         .iter()
@@ -896,8 +902,8 @@ fn tier3_shell_ingest_searchable() {
             ..Default::default()
         },
     };
-    let hits = kebab_app::search_with_config(env.config.clone(), query)
-        .expect("search must succeed");
+    let hits =
+        kebab_app::search_with_config(env.config.clone(), query).expect("search must succeed");
 
     let h = hits
         .iter()
@@ -987,8 +993,8 @@ fn tier3_yaml_fallback_picks_up_non_k8s_yaml() {
             ..Default::default()
         },
     };
-    let hits = kebab_app::search_with_config(env.config.clone(), query)
-        .expect("search must succeed");
+    let hits =
+        kebab_app::search_with_config(env.config.clone(), query).expect("search must succeed");
 
     let h = hits
         .iter()
@@ -1031,14 +1037,9 @@ fn tier3_yaml_fallback_picks_up_non_k8s_yaml() {
 fn rust_file_re_ingest_is_unchanged() {
     let env = TestEnv::lexical_only();
 
-    std::fs::write(
-        env.workspace_root.join("stable.rs"),
-        "pub fn noop() {}\n",
-    )
-    .unwrap();
+    std::fs::write(env.workspace_root.join("stable.rs"), "pub fn noop() {}\n").unwrap();
 
-    let r1 =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let r1 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
     let item1 = r1
         .items
         .as_ref()
@@ -1049,8 +1050,7 @@ fn rust_file_re_ingest_is_unchanged() {
         .unwrap();
     assert_eq!(item1.kind, IngestItemKind::New);
 
-    let r2 =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let r2 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
     let item2 = r2
         .items
         .unwrap()
@@ -1081,9 +1081,8 @@ fn tier3_yaml_fallback_reingest_is_unchanged() {
     )
     .unwrap();
 
-    let report1 =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
-            .expect("first ingest");
+    let report1 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("first ingest");
     let item1 = report1
         .items
         .as_ref()
@@ -1093,7 +1092,8 @@ fn tier3_yaml_fallback_reingest_is_unchanged() {
         .expect("docker-compose.yml in first report");
     assert!(
         matches!(item1.kind, IngestItemKind::New),
-        "first ingest must be New, got {:?}", item1.kind
+        "first ingest must be New, got {:?}",
+        item1.kind
     );
     assert_eq!(
         item1.chunker_version.as_ref().map(|c| c.0.as_str()),
@@ -1101,9 +1101,8 @@ fn tier3_yaml_fallback_reingest_is_unchanged() {
         "first ingest must use Tier 3 fallback chunker"
     );
 
-    let report2 =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
-            .expect("second ingest");
+    let report2 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("second ingest");
     let item2 = report2
         .items
         .as_ref()
@@ -1113,7 +1112,8 @@ fn tier3_yaml_fallback_reingest_is_unchanged() {
         .expect("docker-compose.yml in second report");
     assert!(
         matches!(item2.kind, IngestItemKind::Unchanged),
-        "second ingest must be Unchanged, got {:?}", item2.kind
+        "second ingest must be Unchanged, got {:?}",
+        item2.kind
     );
 }
 
@@ -1163,8 +1163,8 @@ fn tier1_c_ingest_searchable() {
             ..Default::default()
         },
     };
-    let hits = kebab_app::search_with_config(env.config.clone(), query)
-        .expect("search must succeed");
+    let hits =
+        kebab_app::search_with_config(env.config.clone(), query).expect("search must succeed");
 
     let h = hits
         .iter()
@@ -1247,8 +1247,8 @@ fn tier1_cpp_ingest_searchable() {
             ..Default::default()
         },
     };
-    let hits = kebab_app::search_with_config(env.config.clone(), query)
-        .expect("search must succeed");
+    let hits =
+        kebab_app::search_with_config(env.config.clone(), query).expect("search must succeed");
 
     let h = hits
         .iter()
@@ -1266,7 +1266,9 @@ fn tier1_cpp_ingest_searchable() {
             // Symbol could be "kebab::chunk::Foo" (class) or "kebab::chunk::Foo::bar"
             // (method) depending on which chunk ranks first.
             assert!(
-                symbol.as_deref().is_some_and(|s| s.starts_with("kebab::chunk::Foo")),
+                symbol
+                    .as_deref()
+                    .is_some_and(|s| s.starts_with("kebab::chunk::Foo")),
                 "C++ symbol must start with namespace::Class prefix, got {symbol:?}"
             );
             assert!(*line_start >= 1, "line_start must be >=1");
@@ -1335,8 +1337,8 @@ fn tier2_k8s_multi_resource_yaml_ingests_without_collision() {
             ..Default::default()
         },
     };
-    let hits = kebab_app::search_with_config(env.config.clone(), query)
-        .expect("search must succeed");
+    let hits =
+        kebab_app::search_with_config(env.config.clone(), query).expect("search must succeed");
     assert!(
         hits.len() >= 2,
         "expected ≥2 hits (Deployment + Service), got {}",
@@ -1359,9 +1361,8 @@ fn tier3_shell_reingest_is_unchanged() {
     )
     .unwrap();
 
-    let report1 =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
-            .expect("first ingest");
+    let report1 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("first ingest");
     let item1 = report1
         .items
         .as_ref()
@@ -1371,12 +1372,12 @@ fn tier3_shell_reingest_is_unchanged() {
         .expect("deploy.sh in first report");
     assert!(
         matches!(item1.kind, IngestItemKind::New),
-        "first ingest must be New, got {:?}", item1.kind
+        "first ingest must be New, got {:?}",
+        item1.kind
     );
 
-    let report2 =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
-            .expect("second ingest");
+    let report2 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+        .expect("second ingest");
     let item2 = report2
         .items
         .as_ref()
@@ -1386,6 +1387,7 @@ fn tier3_shell_reingest_is_unchanged() {
         .expect("deploy.sh in second report");
     assert!(
         matches!(item2.kind, IngestItemKind::Unchanged),
-        "shell reingest must be Unchanged, got {:?}", item2.kind
+        "shell reingest must be Unchanged, got {:?}",
+        item2.kind
     );
 }

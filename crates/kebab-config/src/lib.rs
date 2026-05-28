@@ -420,12 +420,16 @@ pub struct PdfCfg {
 
 impl PdfCfg {
     pub fn defaults() -> Self {
-        Self { ocr: PdfOcrCfg::defaults() }
+        Self {
+            ocr: PdfOcrCfg::defaults(),
+        }
     }
 }
 
 impl Default for PdfCfg {
-    fn default() -> Self { Self::defaults() }
+    fn default() -> Self {
+        Self::defaults()
+    }
 }
 
 /// v0.20.x ingest log surface: structured ndjson log written per ingest run.
@@ -444,7 +448,9 @@ pub struct LoggingCfg {
     pub ingest_log_dir: PathBuf,
 }
 
-fn default_ingest_log_enabled() -> bool { true }
+fn default_ingest_log_enabled() -> bool {
+    true
+}
 fn default_ingest_log_dir() -> PathBuf {
     PathBuf::from("{state_dir}/logs")
 }
@@ -531,10 +537,18 @@ impl PdfOcrCfg {
 /// metro-korea.pdf page 8/9/13) 의 OCR 을 강제 timeout 시켜 본문 indexed 손실.
 /// **conservative starting point 180s 로 재조정** + dogfood evidence 기반 sweet spot
 /// 점진적 축소 정책. user 가 `[pdf.ocr] request_timeout_secs = N` 으로 직접 tune.
-fn default_pdf_ocr_request_timeout_secs() -> u64 { 180 }
-fn default_pdf_ocr_valid_ratio() -> f32 { 0.5 }
-fn default_pdf_ocr_min_char_count() -> u32 { 20 }
-fn default_pdf_ocr_lang_hint() -> Option<String> { Some("kor".to_string()) }
+fn default_pdf_ocr_request_timeout_secs() -> u64 {
+    180
+}
+fn default_pdf_ocr_valid_ratio() -> f32 {
+    0.5
+}
+fn default_pdf_ocr_min_char_count() -> u32 {
+    20
+}
+fn default_pdf_ocr_lang_hint() -> Option<String> {
+    Some("kor".to_string())
+}
 
 /// p9-fb-14: TUI-only configuration. Currently a single `theme`
 /// selector (`"dark"` / `"light"`); future fields (custom role
@@ -675,8 +689,7 @@ impl Config {
                 explain_default: false,
                 max_context_tokens: 8000,
                 multi_hop_max_depth: default_multi_hop_max_depth(),
-                multi_hop_max_sub_queries_per_iter:
-                    default_multi_hop_max_sub_queries_per_iter(),
+                multi_hop_max_sub_queries_per_iter: default_multi_hop_max_sub_queries_per_iter(),
                 multi_hop_max_pool_chunks: default_multi_hop_max_pool_chunks(),
                 nli_threshold: default_nli_threshold(),
             },
@@ -1015,11 +1028,7 @@ impl Config {
                 "KEBAB_IMAGE_OCR_ENDPOINT" => {
                     // Empty env value is treated the same as "fall back
                     // to models.llm.endpoint" — i.e. set None.
-                    self.image.ocr.endpoint = if v.is_empty() {
-                        None
-                    } else {
-                        Some(v.clone())
-                    };
+                    self.image.ocr.endpoint = if v.is_empty() { None } else { Some(v.clone()) };
                 }
                 "KEBAB_IMAGE_OCR_LANGUAGES" => {
                     // Comma-separated list, e.g. "eng,kor".
@@ -1319,7 +1328,10 @@ theme = "dark"
     #[test]
     fn env_overrides_chunking_target_tokens() {
         let mut env = HashMap::new();
-        env.insert("KEBAB_CHUNKING_TARGET_TOKENS".to_string(), "777".to_string());
+        env.insert(
+            "KEBAB_CHUNKING_TARGET_TOKENS".to_string(),
+            "777".to_string(),
+        );
         let c = Config::defaults().apply_env(&env);
         assert_eq!(c.chunking.target_tokens, 777);
     }
@@ -1331,7 +1343,10 @@ theme = "dark"
             "KEBAB_MODELS_LLM_ENDPOINT".to_string(),
             "http://10.0.0.1:11434".to_string(),
         );
-        env.insert("KEBAB_MODELS_LLM_TEMPERATURE".to_string(), "0.7".to_string());
+        env.insert(
+            "KEBAB_MODELS_LLM_TEMPERATURE".to_string(),
+            "0.7".to_string(),
+        );
         let c = Config::defaults().apply_env(&env);
         assert_eq!(c.models.llm.endpoint, "http://10.0.0.1:11434");
         assert!((c.models.llm.temperature - 0.7).abs() < 1e-6);
@@ -1361,8 +1376,7 @@ theme = "dark"
     /// shared with the OCR-side invariant via [`LEGACY_PRE_TIMEOUT_TOML`].
     #[test]
     fn legacy_config_without_request_timeout_secs_uses_default() {
-        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
-            .expect("parse legacy config");
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML).expect("parse legacy config");
         assert_eq!(c.models.llm.request_timeout_secs, 300);
     }
 
@@ -1391,10 +1405,7 @@ theme = "dark"
     /// existing configs that omit the new field keep behaving identically.
     #[test]
     fn default_ocr_request_timeout_secs_is_300() {
-        assert_eq!(
-            Config::defaults().image.ocr.request_timeout_secs,
-            300
-        );
+        assert_eq!(Config::defaults().image.ocr.request_timeout_secs, 300);
     }
 
     #[test]
@@ -1414,8 +1425,7 @@ theme = "dark"
     /// with the LLM-side invariant via [`LEGACY_PRE_TIMEOUT_TOML`].
     #[test]
     fn legacy_config_without_ocr_request_timeout_secs_uses_default() {
-        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
-            .expect("parse legacy config");
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML).expect("parse legacy config");
         assert_eq!(c.image.ocr.request_timeout_secs, 300);
     }
 
@@ -1428,10 +1438,7 @@ theme = "dark"
 
     #[test]
     fn default_multi_hop_max_sub_queries_per_iter_is_5() {
-        assert_eq!(
-            Config::defaults().rag.multi_hop_max_sub_queries_per_iter,
-            5
-        );
+        assert_eq!(Config::defaults().rag.multi_hop_max_sub_queries_per_iter, 5);
     }
 
     #[test]
@@ -1445,10 +1452,7 @@ theme = "dark"
     #[test]
     fn env_overrides_multi_hop_knobs() {
         let mut env = HashMap::new();
-        env.insert(
-            "KEBAB_RAG_MULTI_HOP_MAX_DEPTH".to_string(),
-            "5".to_string(),
-        );
+        env.insert("KEBAB_RAG_MULTI_HOP_MAX_DEPTH".to_string(), "5".to_string());
         env.insert(
             "KEBAB_RAG_MULTI_HOP_MAX_SUB_QUERIES_PER_ITER".to_string(),
             "7".to_string(),
@@ -1470,8 +1474,7 @@ theme = "dark"
     /// (that fixture also predates the multi_hop_* fields).
     #[test]
     fn legacy_config_without_multi_hop_knobs_uses_defaults() {
-        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
-            .expect("parse legacy config");
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML).expect("parse legacy config");
         assert_eq!(c.rag.multi_hop_max_depth, 3);
         assert_eq!(c.rag.multi_hop_max_sub_queries_per_iter, 5);
         // v0.18 dogfood (post-PR-7): pool default 30 → 15.
@@ -1504,8 +1507,7 @@ theme = "dark"
     /// all PR-9c-1 fields).
     #[test]
     fn legacy_config_without_nli_uses_defaults() {
-        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
-            .expect("parse legacy config");
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML).expect("parse legacy config");
         assert_eq!(c.rag.nli_threshold, 0.0);
         assert_eq!(
             c.models.nli.model,
@@ -1705,7 +1707,11 @@ max_context_tokens = 8000
             "[workspace]\ninclude = [\"**/*.md\", \"**/*.txt\"]",
         );
         let parsed: Result<Config, _> = toml::from_str(&toml_text);
-        assert!(parsed.is_ok(), "legacy include must not break load: {:?}", parsed.err());
+        assert!(
+            parsed.is_ok(),
+            "legacy include must not break load: {:?}",
+            parsed.err()
+        );
         let cfg = parsed.unwrap();
         assert_eq!(cfg.workspace.root, "/tmp/kebab-legacy");
     }
@@ -1715,7 +1721,10 @@ max_context_tokens = 8000
     #[test]
     fn workspace_cfg_has_only_root_and_exclude_fields() {
         let ws = Config::defaults().workspace;
-        let WorkspaceCfg { root: _, exclude: _ } = &ws;
+        let WorkspaceCfg {
+            root: _,
+            exclude: _,
+        } = &ws;
     }
 
     #[test]
@@ -1727,9 +1736,10 @@ max_context_tokens = 8000
     #[test]
     fn env_override_stale_threshold() {
         let c = Config::defaults();
-        let env: HashMap<String, String> = [
-            ("KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(), "7".to_string()),
-        ]
+        let env: HashMap<String, String> = [(
+            "KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(),
+            "7".to_string(),
+        )]
         .into_iter()
         .collect();
         let c = c.apply_env(&env);
@@ -1744,9 +1754,10 @@ max_context_tokens = 8000
         // `fb27_tests::file_negative_stale_threshold_returns_config_invalid`)
         // is the spec-required hard error surface.
         let c = Config::defaults();
-        let env: HashMap<String, String> = [
-            ("KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(), "-5".to_string()),
-        ]
+        let env: HashMap<String, String> = [(
+            "KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(),
+            "-5".to_string(),
+        )]
         .into_iter()
         .collect();
         let c = c.apply_env(&env);
@@ -1765,7 +1776,10 @@ max_context_tokens = 8000
             std::env::set_var("XDG_CONFIG_HOME", "/tmp/kebabtest-xdg-config");
         }
         let p = Config::xdg_config_path();
-        assert_eq!(p, PathBuf::from("/tmp/kebabtest-xdg-config/kebab/config.toml"));
+        assert_eq!(
+            p,
+            PathBuf::from("/tmp/kebabtest-xdg-config/kebab/config.toml")
+        );
         // SAFETY: scope-local restore.
         unsafe {
             match prev {
@@ -1810,10 +1824,7 @@ max_context_tokens = 8000
         let base = Config::defaults();
         let mut toml_text = toml::to_string(&base).unwrap();
         // Inject max_file_bytes override into the [ingest.code] table.
-        toml_text = toml_text.replace(
-            "max_file_bytes = 262144",
-            "max_file_bytes = 524288",
-        );
+        toml_text = toml_text.replace("max_file_bytes = 262144", "max_file_bytes = 524288");
         let cfg: Config = toml::from_str(&toml_text).unwrap();
         assert_eq!(cfg.ingest.code.max_file_bytes, 524_288);
     }
@@ -1828,7 +1839,8 @@ mod fb27_tests {
     fn config_invalid_carries_path_and_cause() {
         let nonexistent = PathBuf::from("/this/path/should/not/exist/kebab.toml");
         let err = Config::from_file(&nonexistent).unwrap_err();
-        let signal = err.downcast_ref::<ConfigInvalid>()
+        let signal = err
+            .downcast_ref::<ConfigInvalid>()
             .expect("from_file error should downcast to ConfigInvalid");
         assert_eq!(signal.path, nonexistent);
         assert!(!signal.cause.is_empty(), "cause should be non-empty");
@@ -1840,7 +1852,8 @@ mod fb27_tests {
         let p = dir.path().join("bad.toml");
         std::fs::write(&p, "this is not [valid toml").unwrap();
         let err = Config::from_file(&p).unwrap_err();
-        let signal = err.downcast_ref::<ConfigInvalid>()
+        let signal = err
+            .downcast_ref::<ConfigInvalid>()
             .expect("malformed TOML should downcast to ConfigInvalid");
         assert_eq!(signal.path, p);
         assert!(!signal.cause.is_empty(), "cause should be non-empty");
@@ -1864,13 +1877,11 @@ mod fb27_tests {
             toml_text.contains("stale_threshold_days = 30"),
             "default value drifted; update test fixture"
         );
-        toml_text = toml_text.replace(
-            "stale_threshold_days = 30",
-            "stale_threshold_days = -5",
-        );
+        toml_text = toml_text.replace("stale_threshold_days = 30", "stale_threshold_days = -5");
         std::fs::write(&p, &toml_text).unwrap();
         let err = Config::from_file(&p).unwrap_err();
-        let signal = err.downcast_ref::<ConfigInvalid>()
+        let signal = err
+            .downcast_ref::<ConfigInvalid>()
             .expect("negative stale_threshold_days should downcast to ConfigInvalid");
         assert_eq!(signal.path, p);
         assert!(

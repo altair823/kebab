@@ -9,7 +9,7 @@
 
 use crate::tier2_shared::{build_chunk_no_symbol, policy_hash};
 use anyhow::Result;
-use kebab_core::{Block, CanonicalDocument, Chunk, ChunkPolicy, ChunkerVersion, Chunker};
+use kebab_core::{Block, CanonicalDocument, Chunk, ChunkPolicy, Chunker, ChunkerVersion};
 
 pub const VERSION_LABEL: &str = "code-text-paragraph-v1";
 

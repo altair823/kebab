@@ -13,8 +13,8 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use kebab_core::{
-    Block, CanonicalDocument, CommonBlock, Inline, Lang, ProvenanceEvent,
-    ProvenanceKind, SourceSpan, TextBlock, id_for_block,
+    Block, CanonicalDocument, CommonBlock, Inline, Lang, ProvenanceEvent, ProvenanceKind,
+    SourceSpan, TextBlock, id_for_block,
 };
 use kebab_parse_image::OcrEngine;
 use kebab_parse_pdf::{compute_valid_char_ratio, extract_dctdecode_page_image};
@@ -88,7 +88,10 @@ where
     F: FnMut(PdfOcrProgress),
 {
     if !opts.enabled {
-        return Ok(PdfOcrSummary { pages_ocrd: 0, ms_total: 0 });
+        return Ok(PdfOcrSummary {
+            pages_ocrd: 0,
+            ms_total: 0,
+        });
     }
     let pdf_doc = LopdfDocument::load_mem(pdf_bytes)
         .context("kb-app::pdf_ocr_apply: re-parse PDF for image extract")?;
@@ -117,8 +120,7 @@ where
         };
         let chars = text.chars().count() as u32;
         let valid_ratio = compute_valid_char_ratio(&text);
-        let needs_ocr =
-            chars < opts.min_char_count || valid_ratio < opts.valid_ratio_threshold;
+        let needs_ocr = chars < opts.min_char_count || valid_ratio < opts.valid_ratio_threshold;
 
         // 결정 matrix:
         //   always_on=true → 모든 page OCR (dual-block).
@@ -131,7 +133,9 @@ where
 
         emit_progress(PdfOcrProgress::Started { page: page_num });
 
-        let page_image_bytes = if let Some(b) = extract_dctdecode_page_image(&pdf_doc, page_num)? { b } else {
+        let page_image_bytes = if let Some(b) = extract_dctdecode_page_image(&pdf_doc, page_num)? {
+            b
+        } else {
             let note = format!(
                 "page={page_num} skipped: no DCTDecode image XObject (vector PDF page or unsupported /Filter — v1 supports DCTDecode passthrough only; see release notes for normalization guidance)"
             );
@@ -266,7 +270,10 @@ where
 
     canonical.blocks.extend(ocr_blocks);
     canonical.provenance.events.extend(new_events);
-    Ok(PdfOcrSummary { pages_ocrd, ms_total })
+    Ok(PdfOcrSummary {
+        pages_ocrd,
+        ms_total,
+    })
 }
 
 fn find_paragraph_block_idx(blocks: &[Block], page_num: u32) -> usize {

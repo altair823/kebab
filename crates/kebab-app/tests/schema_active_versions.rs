@@ -37,8 +37,14 @@ fn schema_models_active_arrays_empty_on_empty_corpus() {
     drop(store);
 
     let s = schema_with_config(&cfg).unwrap();
-    assert!(s.models.active_parsers.is_empty(), "empty corpus → no parsers");
-    assert!(s.models.active_chunkers.is_empty(), "empty corpus → no chunkers");
+    assert!(
+        s.models.active_parsers.is_empty(),
+        "empty corpus → no parsers"
+    );
+    assert!(
+        s.models.active_chunkers.is_empty(),
+        "empty corpus → no chunkers"
+    );
     // backward compat: 기존 단일 field 는 markdown default 보존.
     assert_eq!(s.models.parser_version, kebab_parse_md::PARSER_VERSION);
 }
@@ -55,10 +61,19 @@ fn schema_emits_active_parsers_and_chunkers_array_after_ingest() {
     kebab_app::ingest_with_config(cfg.clone(), scope, false).unwrap();
 
     let s = schema_with_config(&cfg).unwrap();
-    assert!(!s.models.active_parsers.is_empty(), "active_parsers populated after ingest");
-    assert!(!s.models.active_chunkers.is_empty(), "active_chunkers populated after ingest");
+    assert!(
+        !s.models.active_parsers.is_empty(),
+        "active_parsers populated after ingest"
+    );
+    assert!(
+        !s.models.active_chunkers.is_empty(),
+        "active_chunkers populated after ingest"
+    );
     // active arrays must be sorted (ORDER BY in SQL).
     let mut sorted = s.models.active_parsers.clone();
     sorted.sort();
-    assert_eq!(s.models.active_parsers, sorted, "active_parsers must be sorted");
+    assert_eq!(
+        s.models.active_parsers, sorted,
+        "active_parsers must be sorted"
+    );
 }

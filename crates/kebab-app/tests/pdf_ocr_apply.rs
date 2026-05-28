@@ -9,9 +9,8 @@ use std::sync::atomic::AtomicBool;
 use common::mock_ocr::MockOcrEngine;
 use kebab_app::pdf_ocr_apply::{PdfOcrOpts, apply_ocr_to_pdf_pages};
 use kebab_core::{
-    AssetStorage, Block, CanonicalDocument, Checksum, ExtractConfig, ExtractContext,
-    Extractor, Inline, Lang, MediaType, RawAsset, SourceSpan,
-    SourceUri, WorkspacePath, id_for_asset,
+    AssetStorage, Block, CanonicalDocument, Checksum, ExtractConfig, ExtractContext, Extractor,
+    Inline, Lang, MediaType, RawAsset, SourceSpan, SourceUri, WorkspacePath, id_for_asset,
 };
 use kebab_parse_pdf::PdfTextExtractor;
 use time::OffsetDateTime;
@@ -258,8 +257,8 @@ fn f6_flatedecode_skipped_with_warning() {
 // Test 7: F7 CCITTFax → skip + warning (verifier M-4 split)
 #[test]
 fn f7_ccittfax_skipped_with_warning() {
-    let bytes = std::fs::read("../kebab-parse-pdf/tests/fixtures/ccitt.pdf")
-        .expect("F7 fixture missing");
+    let bytes =
+        std::fs::read("../kebab-parse-pdf/tests/fixtures/ccitt.pdf").expect("F7 fixture missing");
     let mut canonical = canonical_with_empty_block(); // page-1 block from F1
     let engine = MockOcrEngine::single("SHOULD_NOT_BE_CALLED", false);
     let opts = default_opts(true);

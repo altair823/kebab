@@ -32,10 +32,18 @@ pub fn detect_repo(path: &Path) -> Option<RepoMeta> {
         if dotgit.is_dir() {
             let name = cur.file_name()?.to_string_lossy().into_owned();
             let (branch, commit) = read_head(cur);
-            return Some(RepoMeta { name, branch, commit });
+            return Some(RepoMeta {
+                name,
+                branch,
+                commit,
+            });
         } else if dotgit.is_file() {
             let name = cur.file_name()?.to_string_lossy().into_owned();
-            return Some(RepoMeta { name, branch: None, commit: None });
+            return Some(RepoMeta {
+                name,
+                branch: None,
+                commit: None,
+            });
         }
         cur = cur.parent()?;
     }
@@ -50,10 +58,7 @@ fn read_head(repo_dir: &Path) -> (Option<String>, Option<String>) {
                 .flatten()
                 .map(|n| n.shorten().to_string())
                 .or_else(|| Some("detached".to_string()));
-            let commit = repo
-                .head_id()
-                .ok()
-                .map(|id| id.to_string());
+            let commit = repo.head_id().ok().map(|id| id.to_string());
             (branch, commit)
         }
         Err(_) => (None, None),

@@ -124,7 +124,11 @@ fn dockerfile_emits_single_chunk() {
                 Some("<dockerfile>"),
                 "symbol must be '<dockerfile>'"
             );
-            assert_eq!(lang.as_deref(), Some("dockerfile"), "lang must be 'dockerfile'");
+            assert_eq!(
+                lang.as_deref(),
+                Some("dockerfile"),
+                "lang must be 'dockerfile'"
+            );
         }
         other => panic!("expected SourceSpan::Code, got {other:?}"),
     }

@@ -36,12 +36,7 @@ fn json_mode_emits_error_v1_on_config_invalid() {
     std::fs::write(&bad_config, b"this is not { valid toml !!!").unwrap();
 
     let mut cmd = Command::new(kebab_bin());
-    cmd.args([
-        "--json",
-        "--config",
-        bad_config.to_str().unwrap(),
-        "ingest",
-    ]);
+    cmd.args(["--json", "--config", bad_config.to_str().unwrap(), "ingest"]);
     for (k, v) in xdg_envs(tmp.path()) {
         cmd.env(k, v);
     }
@@ -55,7 +50,10 @@ fn json_mode_emits_error_v1_on_config_invalid() {
     assert_eq!(exit_code, 2, "expected exit code 2, got {exit_code}");
 
     let stderr = String::from_utf8(out.stderr).unwrap();
-    let first_line = stderr.lines().next().expect("stderr must have at least one line");
+    let first_line = stderr
+        .lines()
+        .next()
+        .expect("stderr must have at least one line");
     let v: serde_json::Value =
         serde_json::from_str(first_line).expect("stderr first line must be valid JSON");
 

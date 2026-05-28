@@ -40,11 +40,7 @@ impl kebab_core::DocumentStore for SqliteStore {
             }
         };
         let conn = self.lock_conn();
-        purge_orphan_at_workspace_path(
-            &conn,
-            &asset.workspace_path.0,
-            &asset.asset_id.0,
-        )?;
+        purge_orphan_at_workspace_path(&conn, &asset.workspace_path.0, &asset.asset_id.0)?;
         upsert_asset_row(&conn, asset, storage_kind, &storage_path)
     }
 
@@ -57,11 +53,7 @@ impl kebab_core::DocumentStore for SqliteStore {
         Ok(())
     }
 
-    fn put_blocks(
-        &self,
-        doc: &kebab_core::DocumentId,
-        blocks: &[kebab_core::Block],
-    ) -> Result<()> {
+    fn put_blocks(&self, doc: &kebab_core::DocumentId, blocks: &[kebab_core::Block]) -> Result<()> {
         let mut conn = self.lock_conn();
         let tx = conn.transaction().map_err(StoreError::from)?;
         // DELETE-then-INSERT: §5.4 has no UNIQUE on (doc_id, ordinal)
@@ -100,11 +92,7 @@ impl kebab_core::DocumentStore for SqliteStore {
         Ok(())
     }
 
-    fn put_chunks(
-        &self,
-        doc: &kebab_core::DocumentId,
-        chunks: &[kebab_core::Chunk],
-    ) -> Result<()> {
+    fn put_chunks(&self, doc: &kebab_core::DocumentId, chunks: &[kebab_core::Chunk]) -> Result<()> {
         let now = OffsetDateTime::now_utc()
             .format(&time::format_description::well_known::Rfc3339)
             .context("format chunk created_at")?;
@@ -126,8 +114,8 @@ impl kebab_core::DocumentStore for SqliteStore {
                 .context("serialize chunk.heading_path")?;
             let source_spans = serde_json::to_string(&chunk.source_spans)
                 .context("serialize chunk.source_spans")?;
-            let block_ids = serde_json::to_string(&chunk.block_ids)
-                .context("serialize chunk.block_ids")?;
+            let block_ids =
+                serde_json::to_string(&chunk.block_ids).context("serialize chunk.block_ids")?;
             // §5.5 has a `section_label` column but the in-memory Chunk
             // struct does not carry it (nor does the wire schema §2.6).
             // Persist NULL until a future bump introduces the field.
@@ -193,16 +181,15 @@ impl kebab_core::DocumentStore for SqliteStore {
         let mut blocks: Vec<kebab_core::Block> = Vec::new();
         for row in block_rows {
             let payload_json = row.map_err(StoreError::from)?;
-            let block: kebab_core::Block = serde_json::from_str(&payload_json)
-                .context("deserialize block payload_json")?;
+            let block: kebab_core::Block =
+                serde_json::from_str(&payload_json).context("deserialize block payload_json")?;
             blocks.push(block);
         }
 
-        let metadata: kebab_core::Metadata = serde_json::from_str(&row.metadata_json)
-            .context("deserialize metadata_json")?;
+        let metadata: kebab_core::Metadata =
+            serde_json::from_str(&row.metadata_json).context("deserialize metadata_json")?;
         let provenance: kebab_core::Provenance =
-            serde_json::from_str(&row.provenance_json)
-                .context("deserialize provenance_json")?;
+            serde_json::from_str(&row.provenance_json).context("deserialize provenance_json")?;
 
         Ok(Some(kebab_core::CanonicalDocument {
             doc_id: kebab_core::DocumentId(row.doc_id),
@@ -248,9 +235,8 @@ impl kebab_core::DocumentStore for SqliteStore {
         let source_spans: Vec<kebab_core::SourceSpan> =
             serde_json::from_str(&row.source_spans_json)
                 .context("deserialize chunk.source_spans_json")?;
-        let block_ids: Vec<kebab_core::BlockId> =
-            serde_json::from_str(&row.block_ids_json)
-                .context("deserialize chunk.block_ids_json")?;
+        let block_ids: Vec<kebab_core::BlockId> = serde_json::from_str(&row.block_ids_json)
+            .context("deserialize chunk.block_ids_json")?;
         Ok(Some(kebab_core::Chunk {
             chunk_id: kebab_core::ChunkId(row.chunk_id),
             doc_id: kebab_core::DocumentId(row.doc_id),
@@ -264,10 +250,7 @@ impl kebab_core::DocumentStore for SqliteStore {
         }))
     }
 
-    fn get_asset(
-        &self,
-        id: &kebab_core::AssetId,
-    ) -> Result<Option<kebab_core::RawAsset>> {
+    fn get_asset(&self, id: &kebab_core::AssetId) -> Result<Option<kebab_core::RawAsset>> {
         let conn = self.lock_conn();
         let result = conn.query_row(
             r"SELECT
@@ -346,16 +329,15 @@ impl kebab_core::DocumentStore for SqliteStore {
         let mut blocks: Vec<kebab_core::Block> = Vec::new();
         for block_row in block_rows {
             let payload_json = block_row.map_err(StoreError::from)?;
-            let block: kebab_core::Block = serde_json::from_str(&payload_json)
-                .context("deserialize block payload_json")?;
+            let block: kebab_core::Block =
+                serde_json::from_str(&payload_json).context("deserialize block payload_json")?;
             blocks.push(block);
         }
 
-        let metadata: kebab_core::Metadata = serde_json::from_str(&row.metadata_json)
-            .context("deserialize metadata_json")?;
+        let metadata: kebab_core::Metadata =
+            serde_json::from_str(&row.metadata_json).context("deserialize metadata_json")?;
         let provenance: kebab_core::Provenance =
-            serde_json::from_str(&row.provenance_json)
-                .context("deserialize provenance_json")?;
+            serde_json::from_str(&row.provenance_json).context("deserialize provenance_json")?;
 
         Ok(Some(kebab_core::CanonicalDocument {
             doc_id,
@@ -421,12 +403,14 @@ impl kebab_core::DocumentStore for SqliteStore {
         if let Some(trust_min) = &filter.trust_min {
             // Map the enum to its rank: Generated < Secondary < Primary.
             // (Higher trust strictly contains lower trust.)
-            sql.push_str(" AND CASE d.trust_level
+            sql.push_str(
+                " AND CASE d.trust_level
                 WHEN 'primary' THEN 3
                 WHEN 'secondary' THEN 2
                 WHEN 'generated' THEN 1
                 ELSE 0
-                END >= ?");
+                END >= ?",
+            );
             let rank: i64 = match trust_min {
                 kebab_core::TrustLevel::Primary => 3,
                 kebab_core::TrustLevel::Secondary => 2,
@@ -606,21 +590,27 @@ fn doc_summary_from_sql(row: &rusqlite::Row<'_>) -> rusqlite::Result<kebab_core:
     // De-serialize the lowercase string forms that match
     // `#[serde(rename_all = "lowercase")]` on each enum.
     let source_type: kebab_core::SourceType =
-        serde_json::from_value(serde_json::Value::String(source_type_raw))
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(e)))?;
+        serde_json::from_value(serde_json::Value::String(source_type_raw)).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(e))
+        })?;
     let trust_level: kebab_core::TrustLevel =
-        serde_json::from_value(serde_json::Value::String(trust_level_raw))
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, Box::new(e)))?;
+        serde_json::from_value(serde_json::Value::String(trust_level_raw)).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, Box::new(e))
+        })?;
     let created_at = OffsetDateTime::parse(
         &created_at_raw,
         &time::format_description::well_known::Rfc3339,
     )
-    .map_err(|e| rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(e)))?;
+    .map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(e))
+    })?;
     let updated_at = OffsetDateTime::parse(
         &updated_at_raw,
         &time::format_description::well_known::Rfc3339,
     )
-    .map_err(|e| rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, Box::new(e)))?;
+    .map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, Box::new(e))
+    })?;
 
     Ok(kebab_core::DocSummary {
         doc_id: kebab_core::DocumentId(doc_id),
@@ -678,14 +668,18 @@ fn asset_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<kebab_core::RawAs
     };
 
     let workspace_path = kebab_core::WorkspacePath(workspace_path_raw);
-    let media_type: kebab_core::MediaType = serde_json::from_str(&media_type_json)
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e)))?;
+    let media_type: kebab_core::MediaType =
+        serde_json::from_str(&media_type_json).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
+        })?;
     let checksum = kebab_core::Checksum(checksum_raw.clone());
     let discovered_at = time::OffsetDateTime::parse(
         &discovered_at_raw,
         &time::format_description::well_known::Rfc3339,
     )
-    .map_err(|e| rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, Box::new(e)))?;
+    .map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(8, rusqlite::types::Type::Text, Box::new(e))
+    })?;
 
     let storage_path = PathBuf::from(&storage_path_raw);
     let stored = if storage_kind == "copied" {
@@ -702,14 +696,15 @@ fn asset_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<kebab_core::RawAs
         source_uri,
         workspace_path,
         media_type,
-        byte_len: u64::try_from(byte_len)
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
+        byte_len: u64::try_from(byte_len).map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(
                 // index parameter for named-column path is unused but the
                 // type still requires a number; pass 0 with a clear msg.
                 0,
                 rusqlite::types::Type::Integer,
                 Box::new(e),
-            ))?,
+            )
+        })?,
         checksum,
         discovered_at,
         stored,
@@ -721,10 +716,8 @@ fn upsert_document(
     tx: &rusqlite::Transaction<'_>,
     doc: &kebab_core::CanonicalDocument,
 ) -> Result<()> {
-    let metadata_json = serde_json::to_string(&doc.metadata)
-        .context("serialize metadata")?;
-    let provenance_json = serde_json::to_string(&doc.provenance)
-        .context("serialize provenance")?;
+    let metadata_json = serde_json::to_string(&doc.metadata).context("serialize metadata")?;
+    let provenance_json = serde_json::to_string(&doc.provenance).context("serialize provenance")?;
     // String form of the lowercase serde representation. We avoid
     // embedding `serde_json::to_string` quotes (`"markdown"` → just
     // `markdown` for the column).
@@ -811,8 +804,11 @@ fn replace_document_tags(
     doc_id: &kebab_core::DocumentId,
     tags: &[String],
 ) -> Result<()> {
-    tx.execute("DELETE FROM document_tags WHERE doc_id = ?", params![doc_id.0])
-        .map_err(StoreError::from)?;
+    tx.execute(
+        "DELETE FROM document_tags WHERE doc_id = ?",
+        params![doc_id.0],
+    )
+    .map_err(StoreError::from)?;
     let mut stmt = tx
         .prepare(
             "INSERT INTO document_tags (doc_id, tag) VALUES (?, ?)

@@ -43,9 +43,7 @@ fn twin_files_second_ingest_is_unchanged() {
     let items = first.items.as_ref().expect("items must be present");
     let twin_items: Vec<_> = items
         .iter()
-        .filter(|i| {
-            i.doc_path.0.ends_with("__init__.py")
-        })
+        .filter(|i| i.doc_path.0.ends_with("__init__.py"))
         .collect();
     assert_eq!(
         twin_items.len(),
@@ -63,8 +61,14 @@ fn twin_files_second_ingest_is_unchanged() {
     // Second ingest — same files, same content → both must be Unchanged.
     let second = ingest_with_config(env.config.clone(), env.scope(), false)
         .expect("second ingest must succeed");
-    assert_eq!(second.errors, 0, "second ingest: no errors; report={second:?}");
-    assert_eq!(second.new, 0, "second ingest: no new docs; report={second:?}");
+    assert_eq!(
+        second.errors, 0,
+        "second ingest: no errors; report={second:?}"
+    );
+    assert_eq!(
+        second.new, 0,
+        "second ingest: no new docs; report={second:?}"
+    );
     assert_eq!(
         second.updated, 0,
         "second ingest: no updated docs (twin-file bug would set this to 2); report={second:?}"

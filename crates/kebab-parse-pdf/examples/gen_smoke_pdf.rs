@@ -11,7 +11,9 @@ use std::io::Write;
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let out = args.next().expect("usage: gen_smoke_pdf <out.pdf> <text...>");
+    let out = args
+        .next()
+        .expect("usage: gen_smoke_pdf <out.pdf> <text...>");
     let pages: Vec<String> = args.collect();
     if pages.is_empty() {
         eprintln!("at least one page text required");
@@ -34,10 +36,7 @@ fn main() {
             operations: vec![
                 Operation::new("BT", vec![]),
                 Operation::new("Tf", vec!["F1".into(), 14.into()]),
-                Operation::new(
-                    "Td",
-                    vec![Object::Integer(72), Object::Integer(720)],
-                ),
+                Operation::new("Td", vec![Object::Integer(72), Object::Integer(720)]),
                 Operation::new("Tj", vec![Object::string_literal(text.as_str())]),
                 Operation::new("ET", vec![]),
             ],
@@ -65,8 +64,7 @@ fn main() {
             Object::Integer(842),
         ],
     };
-    doc.objects
-        .insert(pages_id, Object::Dictionary(pages_dict));
+    doc.objects.insert(pages_id, Object::Dictionary(pages_dict));
     let catalog_id = doc.add_object(dictionary! {
         "Type" => "Catalog",
         "Pages" => pages_id,

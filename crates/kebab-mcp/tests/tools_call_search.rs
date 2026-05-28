@@ -10,10 +10,7 @@ use rmcp::model::RawContent;
 fn minimal_config(data_dir: &std::path::Path, workspace_root: &std::path::Path) -> Config {
     let mut cfg = Config::defaults();
     cfg.storage.data_dir = data_dir.to_string_lossy().into_owned();
-    cfg.storage.model_dir = data_dir
-        .join("models")
-        .to_string_lossy()
-        .into_owned();
+    cfg.storage.model_dir = data_dir.join("models").to_string_lossy().into_owned();
     cfg.workspace.root = workspace_root.to_string_lossy().into_owned();
     cfg.workspace.exclude.clear();
     cfg.models.embedding.provider = "none".to_string();
@@ -99,15 +96,15 @@ async fn search_tool_returns_search_response_v1() {
         "expected at least one hit for 'kebab' in 'a.md'"
     );
     assert_eq!(
-        hits[0]
-            .get("schema_version")
-            .and_then(|s| s.as_str()),
+        hits[0].get("schema_version").and_then(|s| s.as_str()),
         Some("search_hit.v1"),
         "first hit should carry schema_version=search_hit.v1"
     );
     // truncated must be present (bool); next_cursor may be null on last page.
     assert!(
-        v.get("truncated").and_then(serde_json::Value::as_bool).is_some(),
+        v.get("truncated")
+            .and_then(serde_json::Value::as_bool)
+            .is_some(),
         "envelope should carry truncated:bool"
     );
     assert!(

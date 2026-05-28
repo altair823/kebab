@@ -107,5 +107,8 @@ fn ingest_file_errors_on_unsupported_extension() {
 
     let err = kebab_app::ingest_file_with_config(cfg, &docx).unwrap_err();
     assert!(err.to_string().contains("unsupported extension"), "{err}");
-    assert!(err.to_string().contains(".docx") || err.to_string().contains("docx"), "{err}");
+    assert!(
+        err.to_string().contains(".docx") || err.to_string().contains("docx"),
+        "{err}"
+    );
 }

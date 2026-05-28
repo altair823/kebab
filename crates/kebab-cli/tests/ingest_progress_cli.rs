@@ -90,12 +90,7 @@ fn ingest_human_non_tty_emits_progress_lines_to_stderr() {
     // target is `hidden` and progress lines go to stderr instead.
     let (tmp, ws) = fixture_workspace();
     let mut cmd = Command::new(kebab_bin());
-    cmd.args([
-        "ingest",
-        "--root",
-        ws.to_str().unwrap(),
-        "--summary-only",
-    ]);
+    cmd.args(["ingest", "--root", ws.to_str().unwrap(), "--summary-only"]);
     for (k, v) in xdg_envs(tmp.path()) {
         cmd.env(k, v);
     }
@@ -155,8 +150,14 @@ fn ingest_json_progress_lines_carry_kind_and_ts() {
             saw_completed = true;
             // Counts mirror the report.
             let counts = v.get("counts").unwrap();
-            assert_eq!(counts.get("scanned").and_then(serde_json::Value::as_u64), Some(2));
-            assert_eq!(counts.get("new").and_then(serde_json::Value::as_u64), Some(2));
+            assert_eq!(
+                counts.get("scanned").and_then(serde_json::Value::as_u64),
+                Some(2)
+            );
+            assert_eq!(
+                counts.get("new").and_then(serde_json::Value::as_u64),
+                Some(2)
+            );
         }
     }
     assert!(saw_scan_started, "missing scan_started event");

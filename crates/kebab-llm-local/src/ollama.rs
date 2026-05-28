@@ -41,9 +41,7 @@
 use std::io::{BufRead, BufReader};
 use std::time::Duration;
 
-use kebab_core::{
-    FinishReason, GenerateRequest, LanguageModel, ModelRef, TokenChunk, TokenUsage,
-};
+use kebab_core::{FinishReason, GenerateRequest, LanguageModel, ModelRef, TokenChunk, TokenUsage};
 use serde::{Deserialize, Serialize};
 
 use crate::error::LlmError;
@@ -346,9 +344,9 @@ impl Iterator for OllamaStream {
                         // misrouted reverse proxy returning 200). Per §10
                         // error taxonomy this is `Stream`, not
                         // `Malformed`.
-                        return Some(Err(anyhow::Error::from(LlmError::Stream(
-                            truncate_body(&preview, 512),
-                        ))));
+                        return Some(Err(anyhow::Error::from(LlmError::Stream(truncate_body(
+                            &preview, 512,
+                        )))));
                     }
                     // Mid-stream corruption — earlier lines parsed, this
                     // one didn't. That's `Malformed`.
@@ -364,9 +362,9 @@ impl Iterator for OllamaStream {
             // Server-side error envelope on a 200 stream.
             if let Some(err) = line.error {
                 self.done = true;
-                return Some(Err(anyhow::Error::from(LlmError::Stream(
-                    truncate_body(&err, 512),
-                ))));
+                return Some(Err(anyhow::Error::from(LlmError::Stream(truncate_body(
+                    &err, 512,
+                )))));
             }
 
             if line.done {
@@ -451,11 +449,7 @@ fn map_send_error(err: reqwest::Error, endpoint: &str) -> LlmError {
 /// Map a non-2xx HTTP response to an [`LlmError`]. Pattern-matches on the
 /// 404 + "model" / "not found" body envelope to surface the actionable
 /// `ollama pull <model>` hint.
-fn map_status_error(
-    status: reqwest::StatusCode,
-    body: &str,
-    model_id: &str,
-) -> LlmError {
+fn map_status_error(status: reqwest::StatusCode, body: &str, model_id: &str) -> LlmError {
     if status == reqwest::StatusCode::NOT_FOUND {
         let lower = body.to_ascii_lowercase();
         // Heuristic: Ollama's "model not pulled" envelope is roughly
@@ -473,10 +467,7 @@ fn map_status_error(
             return LlmError::ModelNotPulled(model_id.to_string());
         }
     }
-    LlmError::Stream(truncate_body(
-        &format!("status={status} body={body}"),
-        512,
-    ))
+    LlmError::Stream(truncate_body(&format!("status={status} body={body}"), 512))
 }
 
 /// Truncate a body / error string to `n` characters, appending an
@@ -491,7 +482,10 @@ fn truncate_body(s: &str, n: usize) -> String {
         return s.to_string();
     }
     let mut out: String = s.chars().take(n).collect();
-    out.push_str(&format!("... (truncated, original {} chars)", s.chars().count()));
+    out.push_str(&format!(
+        "... (truncated, original {} chars)",
+        s.chars().count()
+    ));
     out
 }
 
@@ -512,11 +506,7 @@ mod tests {
     #[test]
     fn map_status_error_404_with_model_not_found_returns_not_pulled() {
         let body = r#"{"error":"model 'qwen2.5:7b-instruct' not found, try pulling it first"}"#;
-        let err = map_status_error(
-            reqwest::StatusCode::NOT_FOUND,
-            body,
-            "qwen2.5:7b-instruct",
-        );
+        let err = map_status_error(reqwest::StatusCode::NOT_FOUND, body, "qwen2.5:7b-instruct");
         match err {
             LlmError::ModelNotPulled(m) => assert_eq!(m, "qwen2.5:7b-instruct"),
             other => panic!("expected ModelNotPulled, got {other:?}"),
@@ -540,11 +530,7 @@ mod tests {
         // The English "not found" substring is absent, but the model id
         // is echoed — heuristic should still route to ModelNotPulled.
         let body = r#"{"error":"모델 'qwen2.5:7b-instruct' 을(를) 찾을 수 없습니다"}"#;
-        let err = map_status_error(
-            reqwest::StatusCode::NOT_FOUND,
-            body,
-            "qwen2.5:7b-instruct",
-        );
+        let err = map_status_error(reqwest::StatusCode::NOT_FOUND, body, "qwen2.5:7b-instruct");
         assert!(
             matches!(err, LlmError::ModelNotPulled(ref m) if m == "qwen2.5:7b-instruct"),
             "expected ModelNotPulled for localized 404 body, got {err:?}",

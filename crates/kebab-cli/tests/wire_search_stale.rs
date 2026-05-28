@@ -59,15 +59,14 @@ fn search_json_includes_indexed_at_and_stale() {
         .get("hits")
         .and_then(|h| h.as_array())
         .unwrap_or_else(|| panic!("expected hits array, got {stdout}"));
-    let first = arr.first().unwrap_or_else(|| panic!("expected ≥1 hit, got empty hits: {stdout}"));
+    let first = arr
+        .first()
+        .unwrap_or_else(|| panic!("expected ≥1 hit, got empty hits: {stdout}"));
     assert!(
         first.get("indexed_at").is_some(),
         "missing indexed_at in {first}"
     );
-    assert!(
-        first.get("stale").is_some(),
-        "missing stale in {first}"
-    );
+    assert!(first.get("stale").is_some(), "missing stale in {first}");
     assert_eq!(
         first["stale"], false,
         "freshly ingested doc must not be stale at default 30d threshold"

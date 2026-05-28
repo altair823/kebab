@@ -41,10 +41,7 @@ fn sample_request() -> GenerateRequest {
 
 /// Helper: drive `generate_stream` to completion on a blocking thread so
 /// the sync `OllamaLanguageModel` stays off the async runtime.
-async fn collect_chunks(
-    cfg: Config,
-    req: GenerateRequest,
-) -> anyhow::Result<Vec<TokenChunk>> {
+async fn collect_chunks(cfg: Config, req: GenerateRequest) -> anyhow::Result<Vec<TokenChunk>> {
     tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<TokenChunk>> {
         let llm = OllamaLanguageModel::new(&cfg)?;
         let stream = llm.generate_stream(req)?;
@@ -58,10 +55,7 @@ async fn collect_chunks(
 /// `generate_stream` itself (rather than a stream-mid error). Used by the
 /// "unreachable endpoint" / "model not pulled" tests where the error
 /// surfaces on `.send()` before any chunks flow.
-async fn run_expecting_request_error(
-    cfg: Config,
-    req: GenerateRequest,
-) -> anyhow::Error {
+async fn run_expecting_request_error(cfg: Config, req: GenerateRequest) -> anyhow::Error {
     tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
         let llm = OllamaLanguageModel::new(&cfg)?;
         let _stream = llm.generate_stream(req)?;
@@ -78,9 +72,12 @@ async fn run_expecting_request_error(
 async fn streamed_response_produces_tokens_then_done() {
     let server = MockServer::start().await;
     let body = concat!(
-        r#"{"response":"hi","done":false}"#, "\n",
-        r#"{"response":" there","done":false}"#, "\n",
-        r#"{"response":"","done":true,"done_reason":"stop","prompt_eval_count":3,"eval_count":2,"total_duration":1500000}"#, "\n",
+        r#"{"response":"hi","done":false}"#,
+        "\n",
+        r#"{"response":" there","done":false}"#,
+        "\n",
+        r#"{"response":"","done":true,"done_reason":"stop","prompt_eval_count":3,"eval_count":2,"total_duration":1500000}"#,
+        "\n",
     );
     Mock::given(method("POST"))
         .and(path("/api/generate"))
@@ -96,7 +93,10 @@ async fn streamed_response_produces_tokens_then_done() {
     assert!(matches!(&chunks[0], TokenChunk::Token(t) if t == "hi"));
     assert!(matches!(&chunks[1], TokenChunk::Token(t) if t == " there"));
     match &chunks[2] {
-        TokenChunk::Done { finish_reason, usage } => {
+        TokenChunk::Done {
+            finish_reason,
+            usage,
+        } => {
             assert!(matches!(finish_reason, FinishReason::Stop));
             assert_eq!(usage.prompt_tokens, 3);
             assert_eq!(usage.completion_tokens, 2);
@@ -155,10 +155,13 @@ async fn multibyte_chars_within_a_line_round_trip() {
     let server = MockServer::start().await;
     let body = concat!(
         // "한국어" (Korean) — each char is 3 bytes in UTF-8.
-        r#"{"response":"한국어","done":false}"#, "\n",
+        r#"{"response":"한국어","done":false}"#,
+        "\n",
         // Followed by an emoji ZWJ sequence (4 bytes per scalar).
-        r#"{"response":"🦀","done":false}"#, "\n",
-        r#"{"response":"","done":true,"done_reason":"stop","prompt_eval_count":1,"eval_count":4,"total_duration":0}"#, "\n",
+        r#"{"response":"🦀","done":false}"#,
+        "\n",
+        r#"{"response":"","done":true,"done_reason":"stop","prompt_eval_count":1,"eval_count":4,"total_duration":0}"#,
+        "\n",
     );
     Mock::given(method("POST"))
         .and(path("/api/generate"))
@@ -257,8 +260,10 @@ async fn other_4xx_maps_to_stream_error() {
 async fn done_reason_length_maps_to_finish_reason_length() {
     let server = MockServer::start().await;
     let body = concat!(
-        r#"{"response":"a","done":false}"#, "\n",
-        r#"{"response":"","done":true,"done_reason":"length","prompt_eval_count":1,"eval_count":1,"total_duration":0}"#, "\n",
+        r#"{"response":"a","done":false}"#,
+        "\n",
+        r#"{"response":"","done":true,"done_reason":"length","prompt_eval_count":1,"eval_count":1,"total_duration":0}"#,
+        "\n",
     );
     Mock::given(method("POST"))
         .and(path("/api/generate"))
@@ -281,8 +286,10 @@ async fn done_reason_length_maps_to_finish_reason_length() {
 async fn done_reason_abort_maps_to_finish_reason_aborted() {
     let server = MockServer::start().await;
     let body = concat!(
-        r#"{"response":"a","done":false}"#, "\n",
-        r#"{"response":"","done":true,"done_reason":"abort","prompt_eval_count":1,"eval_count":1,"total_duration":0}"#, "\n",
+        r#"{"response":"a","done":false}"#,
+        "\n",
+        r#"{"response":"","done":true,"done_reason":"abort","prompt_eval_count":1,"eval_count":1,"total_duration":0}"#,
+        "\n",
     );
     Mock::given(method("POST"))
         .and(path("/api/generate"))
@@ -312,9 +319,11 @@ async fn missing_eval_counts_default_to_zero() {
     // here — the comment documents the intent.
     let server = MockServer::start().await;
     let body = concat!(
-        r#"{"response":"hi","done":false}"#, "\n",
+        r#"{"response":"hi","done":false}"#,
+        "\n",
         // No prompt_eval_count / eval_count / total_duration.
-        r#"{"response":"","done":true,"done_reason":"stop"}"#, "\n",
+        r#"{"response":"","done":true,"done_reason":"stop"}"#,
+        "\n",
     );
     Mock::given(method("POST"))
         .and(path("/api/generate"))
@@ -339,9 +348,11 @@ async fn missing_eval_counts_default_to_zero() {
 async fn missing_done_reason_defaults_to_stop() {
     let server = MockServer::start().await;
     let body = concat!(
-        r#"{"response":"hi","done":false}"#, "\n",
+        r#"{"response":"hi","done":false}"#,
+        "\n",
         // Final frame omits done_reason entirely.
-        r#"{"response":"","done":true,"prompt_eval_count":1,"eval_count":1,"total_duration":0}"#, "\n",
+        r#"{"response":"","done":true,"prompt_eval_count":1,"eval_count":1,"total_duration":0}"#,
+        "\n",
     );
     Mock::given(method("POST"))
         .and(path("/api/generate"))
@@ -406,8 +417,10 @@ async fn endpoint_with_trailing_slash_does_not_double_slash() {
     //      fail the assertion.
     let server = MockServer::start().await;
     let body = concat!(
-        r#"{"response":"ok","done":false}"#, "\n",
-        r#"{"response":"","done":true,"done_reason":"stop","prompt_eval_count":1,"eval_count":1,"total_duration":0}"#, "\n",
+        r#"{"response":"ok","done":false}"#,
+        "\n",
+        r#"{"response":"","done":true,"done_reason":"stop","prompt_eval_count":1,"eval_count":1,"total_duration":0}"#,
+        "\n",
     );
     Mock::given(method("POST"))
         .and(path("/api/generate"))
@@ -451,8 +464,10 @@ async fn determinism_seed_zero_temp_zero_two_runs_identical() {
     // (#[ignore]) where reproducibility is modulo model-internal nondet.
     let server = MockServer::start().await;
     let body = concat!(
-        r#"{"response":"deterministic","done":false}"#, "\n",
-        r#"{"response":"","done":true,"done_reason":"stop","prompt_eval_count":1,"eval_count":1,"total_duration":0}"#, "\n",
+        r#"{"response":"deterministic","done":false}"#,
+        "\n",
+        r#"{"response":"","done":true,"done_reason":"stop","prompt_eval_count":1,"eval_count":1,"total_duration":0}"#,
+        "\n",
     );
     Mock::given(method("POST"))
         .and(path("/api/generate"))

@@ -12,11 +12,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use common::{
-    HybridEnv, id32, require_avx_or_panic, TEST_LEX_INDEX_VERSION, TEST_VEC_INDEX_VERSION,
+    HybridEnv, TEST_LEX_INDEX_VERSION, TEST_VEC_INDEX_VERSION, id32, require_avx_or_panic,
 };
-use kebab_core::{
-    MediaType, Retriever, SearchFilters, SearchHit, SearchMode, SearchQuery,
-};
+use kebab_core::{MediaType, Retriever, SearchFilters, SearchHit, SearchMode, SearchQuery};
 use kebab_search::{FusionPolicy, HybridRetriever};
 use rusqlite::params;
 use serde_json::json;
@@ -39,10 +37,34 @@ fn seed_disjoint_corpus(env: &HybridEnv) -> Vec<String> {
     // a token with the query.
     let chunks = [
         // (chunk_id, doc_id, path, text, headings)
-        (id32("c1"), id32("d1"), "notes/rust1.md", "rust cargo macros", &["A"][..]),
-        (id32("c2"), id32("d2"), "notes/rust2.md", "rust traits and lifetimes", &["B"][..]),
-        (id32("c3"), id32("d3"), "notes/python.md", "python dataclasses tutorial", &["C"][..]),
-        (id32("c4"), id32("d4"), "notes/go.md", "go interfaces and channels", &["D"][..]),
+        (
+            id32("c1"),
+            id32("d1"),
+            "notes/rust1.md",
+            "rust cargo macros",
+            &["A"][..],
+        ),
+        (
+            id32("c2"),
+            id32("d2"),
+            "notes/rust2.md",
+            "rust traits and lifetimes",
+            &["B"][..],
+        ),
+        (
+            id32("c3"),
+            id32("d3"),
+            "notes/python.md",
+            "python dataclasses tutorial",
+            &["C"][..],
+        ),
+        (
+            id32("c4"),
+            id32("d4"),
+            "notes/go.md",
+            "go interfaces and channels",
+            &["D"][..],
+        ),
     ];
     let mut ids = Vec::new();
     for (cid, did, path, text, headings) in &chunks {
@@ -113,7 +135,10 @@ fn hybrid_determinism_same_query_twice() {
     };
     let a = h.search(&q).unwrap();
     let b = h.search(&q).unwrap();
-    assert_eq!(a, b, "identical query must yield byte-identical Vec<SearchHit>");
+    assert_eq!(
+        a, b,
+        "identical query must yield byte-identical Vec<SearchHit>"
+    );
 }
 
 #[test]
@@ -139,16 +164,18 @@ fn hybrid_snapshot_run_1() {
     //   - that fusion_score is non-increasing
     //   - method = Hybrid for every hit
     let actual = json!(
-        hits.iter().map(|h: &SearchHit| json!({
-            "chunk_id": h.chunk_id.0,
-            "rank": h.rank,
-            "method": h.retrieval.method,
-            "lexical_rank": h.retrieval.lexical_rank,
-            "vector_rank": h.retrieval.vector_rank,
-            "lex_some": h.retrieval.lexical_score.is_some(),
-            "vec_some": h.retrieval.vector_score.is_some(),
-            "fusion_score_positive": h.retrieval.fusion_score > 0.0,
-        })).collect::<Vec<_>>()
+        hits.iter()
+            .map(|h: &SearchHit| json!({
+                "chunk_id": h.chunk_id.0,
+                "rank": h.rank,
+                "method": h.retrieval.method,
+                "lexical_rank": h.retrieval.lexical_rank,
+                "vector_rank": h.retrieval.vector_rank,
+                "lex_some": h.retrieval.lexical_score.is_some(),
+                "vec_some": h.retrieval.vector_score.is_some(),
+                "fusion_score_positive": h.retrieval.fusion_score > 0.0,
+            }))
+            .collect::<Vec<_>>()
     );
 
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -186,7 +213,8 @@ fn hybrid_snapshot_run_1() {
     // Refuse to silently "pass" against the committed placeholder. The
     // placeholder JSON carries a `_comment` field with regeneration
     // instructions; production fixtures (a captured list) do not.
-    assert!(!expected.get("_comment").is_some(), 
+    assert!(
+        !expected.get("_comment").is_some(),
         "snapshot fixture is a placeholder — regenerate on AVX hardware then commit. \
          Path: {}. To regenerate: \
          `KEBAB_UPDATE_SNAPSHOTS=1 cargo test -p kb-search -- --ignored hybrid_snapshot`.",
@@ -282,11 +310,8 @@ fn vector_hit_carries_indexed_at() {
     let now_rfc = now.format(&Rfc3339).expect("format now as rfc3339");
     {
         let conn = env.sqlite.read_conn();
-        conn.execute(
-            "UPDATE documents SET updated_at = ?",
-            params![now_rfc],
-        )
-        .expect("bump documents.updated_at");
+        conn.execute("UPDATE documents SET updated_at = ?", params![now_rfc])
+            .expect("bump documents.updated_at");
     }
 
     let r = env.vector_retriever();

@@ -92,11 +92,7 @@ impl Chunker for PdfPageV1Chunker {
         hex[..POLICY_HASH_HEX_LEN].to_string()
     }
 
-    fn chunk(
-        &self,
-        doc: &CanonicalDocument,
-        policy: &ChunkPolicy,
-    ) -> anyhow::Result<Vec<Chunk>> {
+    fn chunk(&self, doc: &CanonicalDocument, policy: &ChunkPolicy) -> anyhow::Result<Vec<Chunk>> {
         // Validate up front — every block must be a Paragraph carrying
         // SourceSpan::Page. A mixed document signals a routing bug in
         // the caller (e.g. running this chunker on Markdown) and is
@@ -109,18 +105,13 @@ impl Chunker for PdfPageV1Chunker {
                 ),
             };
             if !matches!(common.source_span, SourceSpan::Page { .. }) {
-                anyhow::bail!(
-                    "PdfPageV1Chunker only handles PDF docs (got non-Page source_span)"
-                );
+                anyhow::bail!("PdfPageV1Chunker only handles PDF docs (got non-Page source_span)");
             }
         }
 
         let base_policy_hash = self.policy_hash(policy);
         let chunker_version = self.chunker_version();
-        let target_bytes = policy
-            .target_tokens
-            .saturating_mul(BYTES_PER_TOKEN)
-            .max(1);
+        let target_bytes = policy.target_tokens.saturating_mul(BYTES_PER_TOKEN).max(1);
         // Clamp the overlap to half the target. Without this, a policy
         // with `overlap_tokens >= target_tokens` would make every chunk
         // fully re-emit the previous chunk's text — mirrors
@@ -157,10 +148,8 @@ impl Chunker for PdfPageV1Chunker {
                 // typography); silent `as u32` truncation would only
                 // surface on corrupted input, where an explicit panic
                 // is preferable to an off-by-2^32 span.
-                let char_start_u32 = u32::try_from(char_start)
-                    .expect("page chars fit in u32");
-                let char_end_u32 =
-                    u32::try_from(char_end).expect("page chars fit in u32");
+                let char_start_u32 = u32::try_from(char_start).expect("page chars fit in u32");
+                let char_end_u32 = u32::try_from(char_end).expect("page chars fit in u32");
                 let span = SourceSpan::Page {
                     page: page_num,
                     char_start: Some(char_start_u32),
@@ -213,7 +202,11 @@ impl Chunker for PdfPageV1Chunker {
 /// - `chunk_end` = chunk's end char index (exclusive).
 ///
 /// Returns an empty vector when `text` is empty or whitespace-only.
-fn chunk_page(text: &str, target_bytes: usize, overlap_bytes: usize) -> Vec<(usize, usize, usize, String)> {
+fn chunk_page(
+    text: &str,
+    target_bytes: usize,
+    overlap_bytes: usize,
+) -> Vec<(usize, usize, usize, String)> {
     let chars: Vec<char> = text.chars().collect();
     let n = chars.len();
     if n == 0 {
@@ -233,8 +226,7 @@ fn chunk_page(text: &str, target_bytes: usize, overlap_bytes: usize) -> Vec<(usi
         let c = chars[k];
         let nx = chars[k + 1];
         let is_paragraph_break = c == '\n' && nx == '\n';
-        let is_sentence_end =
-            matches!(c, '.' | '?' | '!') && nx.is_whitespace();
+        let is_sentence_end = matches!(c, '.' | '?' | '!') && nx.is_whitespace();
         if (is_paragraph_break || is_sentence_end) && k + 2 <= n {
             bounds.push(k + 2);
         }
@@ -246,9 +238,7 @@ fn chunk_page(text: &str, target_bytes: usize, overlap_bytes: usize) -> Vec<(usi
     bounds.dedup();
 
     // UTF-8 byte length of the slice between two char indices.
-    let byte_len = |a: usize, b: usize| -> usize {
-        chars[a..b].iter().map(|c| c.len_utf8()).sum()
-    };
+    let byte_len = |a: usize, b: usize| -> usize { chars[a..b].iter().map(|c| c.len_utf8()).sum() };
 
     let mut chunks: Vec<(usize, usize, usize, String)> = Vec::new();
     let mut seg_idx: usize = 0;
@@ -403,7 +393,11 @@ mod tests {
             assert_eq!(c.heading_path, Vec::<String>::new());
             assert_eq!(c.source_spans.len(), 1);
             match c.source_spans[0] {
-                SourceSpan::Page { page, char_start, char_end } => {
+                SourceSpan::Page {
+                    page,
+                    char_start,
+                    char_end,
+                } => {
                     assert_eq!(page, (i as u32) + 1);
                     assert_eq!(char_start, Some(0));
                     assert!(char_end.unwrap() > 0);
@@ -448,11 +442,16 @@ mod tests {
         // N-1's char_end).
         for w in chunks.windows(2) {
             let prev_end = match w[0].source_spans[0] {
-                SourceSpan::Page { char_end: Some(e), .. } => e,
+                SourceSpan::Page {
+                    char_end: Some(e), ..
+                } => e,
                 _ => panic!("missing char_end"),
             };
             let next_start = match w[1].source_spans[0] {
-                SourceSpan::Page { char_start: Some(s), .. } => s,
+                SourceSpan::Page {
+                    char_start: Some(s),
+                    ..
+                } => s,
                 _ => panic!("missing char_start"),
             };
             assert!(
@@ -666,11 +665,17 @@ mod tests {
         // overlap) is the failure mode.
         for w in chunks.windows(2) {
             let prev_start = match w[0].source_spans[0] {
-                SourceSpan::Page { char_start: Some(s), .. } => s,
+                SourceSpan::Page {
+                    char_start: Some(s),
+                    ..
+                } => s,
                 _ => panic!("missing char_start"),
             };
             let next_start = match w[1].source_spans[0] {
-                SourceSpan::Page { char_start: Some(s), .. } => s,
+                SourceSpan::Page {
+                    char_start: Some(s),
+                    ..
+                } => s,
                 _ => panic!("missing char_start"),
             };
             assert!(
@@ -703,7 +708,7 @@ mod tests {
         let page_text = format!("{early_seg}. {tail}");
 
         let doc = make_pdf_doc(&[&page_text]);
-        let policy = default_policy(500, 80);  // target=1500 byte, overlap=240 byte
+        let policy = default_policy(500, 80); // target=1500 byte, overlap=240 byte
         let chunks = PdfPageV1Chunker.chunk(&doc, &policy).unwrap();
 
         assert!(

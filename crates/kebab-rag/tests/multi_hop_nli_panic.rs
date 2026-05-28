@@ -58,8 +58,8 @@ fn setup_happy_pipeline_no_verifier(nli_threshold: f32) -> (RagPipeline, RagEnv)
     // Three LLM calls: decompose → decide (stop) → synthesize.
     // Synthesize emits a non-empty answer so step 8.5 is reached.
     let lm = Arc::new(ScriptedLm::new(vec![
-        r#"["q1"]"#,   // decompose
-        r"[]",         // decide: stop signal
+        r#"["q1"]"#,        // decompose
+        r"[]",              // decide: stop signal
         "answer body [#1]", // synthesize: non-empty → step 8.5 entered
     ]));
     let lm_dyn: Arc<dyn LanguageModel> = lm;

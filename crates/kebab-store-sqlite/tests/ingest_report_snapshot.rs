@@ -9,8 +9,8 @@
 use std::path::PathBuf;
 
 use kebab_core::{
-    AssetId, ChunkerVersion, DocumentId, IngestItem, IngestItemKind, IngestReport,
-    ParserVersion, SourceScope, WorkspacePath,
+    AssetId, ChunkerVersion, DocumentId, IngestItem, IngestItemKind, IngestReport, ParserVersion,
+    SourceScope, WorkspacePath,
 };
 use serde_json::Value;
 

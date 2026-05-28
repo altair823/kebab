@@ -80,8 +80,14 @@ fn jpeg_with_exif_gps_captures_whitelisted_tags() {
         Some(&Value::String("2024-08-15T12:34:56".into()))
     );
     assert_eq!(exif.get("orientation"), Some(&Value::Number(1.into())));
-    let lat = exif.get("gps_lat").and_then(serde_json::Value::as_f64).expect("gps_lat");
-    let lon = exif.get("gps_lon").and_then(serde_json::Value::as_f64).expect("gps_lon");
+    let lat = exif
+        .get("gps_lat")
+        .and_then(serde_json::Value::as_f64)
+        .expect("gps_lat");
+    let lon = exif
+        .get("gps_lon")
+        .and_then(serde_json::Value::as_f64)
+        .expect("gps_lon");
     assert!((lat - 37.5).abs() < 1e-6, "lat={lat}");
     assert!((lon - 127.0).abs() < 1e-6, "lon={lon}");
 
@@ -118,7 +124,10 @@ fn no_exif_image_yields_empty_exif_map() {
         .get("exif")
         .and_then(|v| v.as_object())
         .expect("exif object present");
-    assert!(exif.is_empty(), "no-EXIF PNG must yield empty exif map: {exif:?}");
+    assert!(
+        exif.is_empty(),
+        "no-EXIF PNG must yield empty exif map: {exif:?}"
+    );
 }
 
 #[test]
@@ -147,7 +156,12 @@ fn corrupt_image_emits_warning_no_panic() {
     let block = extract_block(&doc);
     assert!(matches!(
         block.common.source_span,
-        SourceSpan::Region { x: 0, y: 0, w: 0, h: 0 }
+        SourceSpan::Region {
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0
+        }
     ));
     // Warning provenance event.
     let warnings: Vec<_> = doc
@@ -281,7 +295,10 @@ fn jpeg_with_gps_out_of_range_drops_latitude() {
         !exif.contains_key("gps_lat"),
         "out-of-range latitude must be dropped"
     );
-    let lon = exif.get("gps_lon").and_then(serde_json::Value::as_f64).expect("gps_lon");
+    let lon = exif
+        .get("gps_lon")
+        .and_then(serde_json::Value::as_f64)
+        .expect("gps_lon");
     assert!((lon - 127.0).abs() < 1e-6);
 }
 

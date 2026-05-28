@@ -172,7 +172,10 @@ mod tests {
         });
         let v1 = classify(&err, false);
         assert_eq!(v1.code, "config_invalid");
-        assert_eq!(v1.details.get("path").and_then(|p| p.as_str()), Some("/tmp/x.toml"));
+        assert_eq!(
+            v1.details.get("path").and_then(|p| p.as_str()),
+            Some("/tmp/x.toml")
+        );
         assert!(v1.hint.is_some());
     }
 
@@ -196,7 +199,8 @@ mod tests {
         // the resulting LlmError::Unreachable maps to "model_unreachable".
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_millis(500))
-            .build().unwrap();
+            .build()
+            .unwrap();
         let err = client.get("http://127.0.0.1:1").send().unwrap_err();
         let llm = LlmError::Unreachable {
             endpoint: "http://127.0.0.1:1".to_string(),
@@ -212,7 +216,10 @@ mod tests {
         let llm = LlmError::ModelNotPulled("gemma4:e4b".to_string());
         let v1 = classify(&anyhow::Error::new(llm), false);
         assert_eq!(v1.code, "model_not_pulled");
-        assert_eq!(v1.details.get("model").and_then(|p| p.as_str()), Some("gemma4:e4b"));
+        assert_eq!(
+            v1.details.get("model").and_then(|p| p.as_str()),
+            Some("gemma4:e4b")
+        );
     }
 
     #[test]
@@ -249,7 +256,10 @@ mod tests {
         // (single source of truth). classify must not pattern-match on
         // anyhow string contents — that would create two sources of
         // truth. The bare anyhow string falls through to "generic".
-        assert_ne!(v1.code, "stale_cursor", "classify must not produce stale_cursor from bare anyhow string");
+        assert_ne!(
+            v1.code, "stale_cursor",
+            "classify must not produce stale_cursor from bare anyhow string"
+        );
     }
 
     #[test]

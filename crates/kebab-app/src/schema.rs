@@ -168,12 +168,8 @@ fn open_store_for_stats(cfg: &Config) -> anyhow::Result<kebab_store_sqlite::Sqli
     kebab_store_sqlite::SqliteStore::open_existing(&db_path)
 }
 
-fn collect_stats(
-    cfg: &Config,
-    store: &kebab_store_sqlite::SqliteStore,
-) -> anyhow::Result<Stats> {
-    let counts = store
-        .count_summary_with_threshold(u64::from(cfg.search.stale_threshold_days))?;
+fn collect_stats(cfg: &Config, store: &kebab_store_sqlite::SqliteStore) -> anyhow::Result<Stats> {
+    let counts = store.count_summary_with_threshold(u64::from(cfg.search.stale_threshold_days))?;
     let data_dir = kebab_config::expand_path(&cfg.storage.data_dir, "");
     let index_bytes = kebab_store_sqlite::stats_ext::index_bytes(&data_dir)
         .map_err(|e| anyhow::anyhow!("index_bytes: {e}"))?;
@@ -298,6 +294,9 @@ mod tests_capabilities {
         // Bug #9: kebab ingest-file <path> + kebab ingest-stdin --title <T> 양쪽 모두
         // ingest_report.v1 정상 emit → capabilities.single_file_ingest 가 true 여야 함.
         let caps = capabilities_snapshot();
-        assert!(caps.single_file_ingest, "single_file_ingest must be true (Bug #9)");
+        assert!(
+            caps.single_file_ingest,
+            "single_file_ingest must be true (Bug #9)"
+        );
     }
 }

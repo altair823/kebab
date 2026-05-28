@@ -112,7 +112,13 @@ fn kebab_readonly_env_blocks_ingest() {
 fn readonly_json_mode_emits_error_v1() {
     let (tmp, ws) = fixture_workspace();
     let out = Command::new(kebab_bin())
-        .args(["--readonly", "--json", "ingest", "--root", ws.to_str().unwrap()])
+        .args([
+            "--readonly",
+            "--json",
+            "ingest",
+            "--root",
+            ws.to_str().unwrap(),
+        ])
         .envs(xdg_envs(tmp.path()))
         .output()
         .unwrap();
@@ -164,12 +170,22 @@ fn quiet_flag_suppresses_progress_stderr() {
 fn quiet_with_json_stdout_has_report_stderr_is_empty() {
     let (tmp, ws) = fixture_workspace();
     let out = Command::new(kebab_bin())
-        .args(["--quiet", "--json", "ingest", "--root", ws.to_str().unwrap()])
+        .args([
+            "--quiet",
+            "--json",
+            "ingest",
+            "--root",
+            ws.to_str().unwrap(),
+        ])
         .envs(xdg_envs(tmp.path()))
         .output()
         .unwrap();
 
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.is_empty(), "expected empty stderr, got: {stderr}");
     let stdout = String::from_utf8_lossy(&out.stdout);

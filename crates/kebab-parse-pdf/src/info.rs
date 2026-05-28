@@ -29,10 +29,7 @@ pub(crate) fn extract_info(doc: &lopdf::Document) -> InfoDict {
 
     let dict = match info_obj {
         lopdf::Object::Dictionary(d) => Some(d),
-        lopdf::Object::Reference(id) => doc
-            .get_object(*id)
-            .ok()
-            .and_then(|o| o.as_dict().ok()),
+        lopdf::Object::Reference(id) => doc.get_object(*id).ok().and_then(|o| o.as_dict().ok()),
         _ => None,
     };
 

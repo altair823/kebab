@@ -36,9 +36,7 @@
 //! - No tokenizer. `usage.prompt_tokens` / `completion_tokens` are whatever
 //!   the constructor was given — the mock does not count.
 
-use kebab_core::{
-    FinishReason, GenerateRequest, LanguageModel, ModelRef, TokenChunk, TokenUsage,
-};
+use kebab_core::{FinishReason, GenerateRequest, LanguageModel, ModelRef, TokenChunk, TokenUsage};
 
 /// Deterministic test double. See module docs for the streaming recipe.
 pub struct MockLanguageModel {

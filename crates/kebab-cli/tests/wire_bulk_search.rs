@@ -21,7 +21,11 @@ fn cargo_bin() -> &'static str {
     env!("CARGO_BIN_EXE_kebab")
 }
 
-fn run_bulk_with_stdin(cfg: &std::path::Path, stdin_body: &str, json: bool) -> std::process::Output {
+fn run_bulk_with_stdin(
+    cfg: &std::path::Path,
+    stdin_body: &str,
+    json: bool,
+) -> std::process::Output {
     let mut cmd = Command::new(cargo_bin());
     cmd.arg("--config").arg(cfg).arg("search").arg("--bulk");
     if json {
@@ -94,7 +98,10 @@ fn empty_stdin_returns_empty_results_with_zero_summary() {
     let out = run_bulk_with_stdin(&cfg, "", true);
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.trim().is_empty(), "expected empty stdout, got: {stdout}");
+    assert!(
+        stdout.trim().is_empty(),
+        "expected empty stdout, got: {stdout}"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("bulk_summary: total=0 succeeded=0 failed=0"));
 }

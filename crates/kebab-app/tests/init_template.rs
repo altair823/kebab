@@ -17,9 +17,8 @@ fn init_workspace_header_lists_supported_extensions() {
     }
     kebab_app::init_workspace(true).expect("init_workspace");
     let cfg_path = kebab_config::Config::xdg_config_path();
-    let body = std::fs::read_to_string(&cfg_path).unwrap_or_else(|e| {
-        panic!("read config at {}: {e}", cfg_path.display())
-    });
+    let body = std::fs::read_to_string(&cfg_path)
+        .unwrap_or_else(|e| panic!("read config at {}: {e}", cfg_path.display()));
     assert!(
         body.contains("처리 가능한 형식"),
         "header lists supported types section: body=\n{body}"

@@ -289,7 +289,6 @@ impl Default for AskState {
     }
 }
 
-
 /// What the Inspect pane is currently showing — owned by p9-4.
 #[derive(Clone, Debug)]
 pub enum InspectTarget {
@@ -512,10 +511,7 @@ impl App {
     /// Marked `#[doc(hidden)]` because it is a test seam, not part
     /// of the official UI API.
     #[doc(hidden)]
-    pub fn populate_library_for_testing(
-        &mut self,
-        docs: Vec<kebab_core::DocSummary>,
-    ) {
+    pub fn populate_library_for_testing(&mut self, docs: Vec<kebab_core::DocSummary>) {
         self.library.inner.docs = docs;
         self.library.inner.needs_refresh = false;
         let len = self.library.inner.docs.len();

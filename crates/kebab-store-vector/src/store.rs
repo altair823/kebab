@@ -12,8 +12,8 @@ use arrow_array::{Array, Float32Array, RecordBatch, StringArray};
 use arrow_schema::SchemaRef;
 use futures::TryStreamExt;
 use kebab_core::{
-    ChunkId, DocumentId, EmbeddingModelId, IndexId, SearchFilters,
-    VectorHit, VectorRecord, VectorStore,
+    ChunkId, DocumentId, EmbeddingModelId, IndexId, SearchFilters, VectorHit, VectorRecord,
+    VectorStore,
 };
 use kebab_store_sqlite::{EmbeddingRecordRow, SqliteStore};
 use lancedb::Connection;
@@ -95,8 +95,7 @@ impl LanceVectorStore {
     /// section.
     pub fn new(config: &kebab_config::Config, sqlite: Arc<SqliteStore>) -> Result<Self> {
         let data_dir = expand_path(&config.storage.data_dir, "");
-        let vector_dir =
-            expand_path(&config.storage.vector_dir, &data_dir.to_string_lossy());
+        let vector_dir = expand_path(&config.storage.vector_dir, &data_dir.to_string_lossy());
         std::fs::create_dir_all(&vector_dir)
             .with_context(|| format!("create vector_dir {}", vector_dir.display()))?;
 
@@ -108,13 +107,12 @@ impl LanceVectorStore {
             .context("build tokio runtime for kb-store-vector")?;
 
         let uri = vector_dir.to_string_lossy().into_owned();
-        let connection = runtime
-            .block_on(async {
-                lancedb::connect(&uri)
-                    .execute()
-                    .await
-                    .context("lancedb::connect")
-            })?;
+        let connection = runtime.block_on(async {
+            lancedb::connect(&uri)
+                .execute()
+                .await
+                .context("lancedb::connect")
+        })?;
 
         tracing::debug!(
             target: "kebab-store-vector",
@@ -174,19 +172,13 @@ impl LanceVectorStore {
                 }
                 Ok(())
             }
-            other => anyhow::bail!(
-                "embedding column has unexpected Arrow type {other:?}"
-            ),
+            other => anyhow::bail!("embedding column has unexpected Arrow type {other:?}"),
         }
     }
 }
 
 impl VectorStore for LanceVectorStore {
-    fn ensure_table(
-        &self,
-        model: &EmbeddingModelId,
-        dim: usize,
-    ) -> Result<IndexId> {
+    fn ensure_table(&self, model: &EmbeddingModelId, dim: usize) -> Result<IndexId> {
         let table_name = lance_table_name(&model.0, dim);
         // The trait method only needs the IndexId — we don't return the
         // Lance handle. Open (or create) the table to enforce idempotence
@@ -220,10 +212,7 @@ impl VectorStore for LanceVectorStore {
         let model_version = recs[0].model_version.clone();
         let dim = recs[0].dimensions;
         for r in recs {
-            if r.model_id != model_id
-                || r.model_version != model_version
-                || r.dimensions != dim
-            {
+            if r.model_id != model_id || r.model_version != model_version || r.dimensions != dim {
                 anyhow::bail!(
                     "kb-store-vector::upsert called with mixed (model_id, model_version, dim) — caller must bucket per table"
                 );
@@ -264,15 +253,13 @@ impl VectorStore for LanceVectorStore {
 
         // Phase 2: Lance MergeInsert keyed on chunk_id.
         let batch = build_batch(recs, dim, now)?;
-        merge_insert_batch(&self.runtime, &table, batch)
-            .context("phase 2: Lance MergeInsert")?;
+        merge_insert_batch(&self.runtime, &table, batch).context("phase 2: Lance MergeInsert")?;
 
         // Phase 3: flip rows to status='committed'. If we crashed
         // between phase 2 and phase 3, the rows stay 'pending' and a
         // future upsert call retries them (Lance MergeInsert dedupes
         // on chunk_id, so the retry is a no-op on the Lance side).
-        let embedding_ids: Vec<String> =
-            recs.iter().map(|r| r.embedding_id.0.clone()).collect();
+        let embedding_ids: Vec<String> = recs.iter().map(|r| r.embedding_id.0.clone()).collect();
         self.sqlite
             .mark_embedding_records_committed(&embedding_ids)
             .context("phase 3: mark embedding_records committed")?;
@@ -356,9 +343,7 @@ impl VectorStore for LanceVectorStore {
                     table
                         .delete(&predicate)
                         .await
-                        .with_context(|| {
-                            format!("Lance delete on {name} ({} ids)", batch.len())
-                        })?;
+                        .with_context(|| format!("Lance delete on {name} ({} ids)", batch.len()))?;
                 }
             }
             anyhow::Ok(())
@@ -389,7 +374,10 @@ impl VectorStore for LanceVectorStore {
         let dim = query_vec.len();
         let table_name = if let Some(name) = self
             .runtime
-            .block_on(async { find_matching_table(&self.connection, dim).await })? { name } else {
+            .block_on(async { find_matching_table(&self.connection, dim).await })?
+        {
+            name
+        } else {
             tracing::debug!(
                 target: "kebab-store-vector",
                 dim,
@@ -403,8 +391,7 @@ impl VectorStore for LanceVectorStore {
         // exclude tombstoned / pending rows.
         let overfetch = k.saturating_mul(OVERFETCH_MULTIPLIER).max(k);
         let raw_hits = self.runtime.block_on(async {
-            let table = match self.connection.open_table(&table_name).execute().await
-            {
+            let table = match self.connection.open_table(&table_name).execute().await {
                 Ok(t) => t,
                 Err(lancedb::Error::TableNotFound { .. }) => return Ok(Vec::new()),
                 Err(e) => return Err(anyhow::Error::from(e)),
@@ -536,10 +523,8 @@ fn decode_lance_hits(batches: &[RecordBatch]) -> Result<Vec<LanceCandidate>> {
         for i in 0..batch.num_rows() {
             let dist = distances.value(i);
             let score = score_from_distance(dist);
-            let heading_path: Vec<String> = serde_json::from_str(
-                heading_path_str.value(i),
-            )
-            .unwrap_or_default();
+            let heading_path: Vec<String> =
+                serde_json::from_str(heading_path_str.value(i)).unwrap_or_default();
             out.push(LanceCandidate {
                 chunk_id: ChunkId(chunk_ids.value(i).to_string()),
                 doc_id: DocumentId(doc_ids.value(i).to_string()),
@@ -571,10 +556,7 @@ fn score_from_distance(distance: f32) -> f32 {
 }
 
 /// Find a Lance table whose embedding column is FixedSizeList<Float32, dim>.
-async fn find_matching_table(
-    connection: &Connection,
-    dim: usize,
-) -> Result<Option<String>> {
+async fn find_matching_table(connection: &Connection, dim: usize) -> Result<Option<String>> {
     let names = connection
         .table_names()
         .execute()
@@ -588,9 +570,7 @@ async fn find_matching_table(
             Ok(t) => {
                 let schema = t.schema().await.context("schema for table")?;
                 if let Ok(field) = schema.field_with_name("embedding") {
-                    if let arrow_schema::DataType::FixedSizeList(_, table_dim) =
-                        field.data_type()
-                    {
+                    if let arrow_schema::DataType::FixedSizeList(_, table_dim) = field.data_type() {
                         if (*table_dim as usize) == dim {
                             return Ok(Some(name));
                         }
@@ -612,17 +592,10 @@ async fn find_matching_table(
 
 /// Run the Lance MergeInsert under our embedded runtime. Pulled out
 /// of `upsert` so the trait method stays compact.
-fn merge_insert_batch(
-    runtime: &Runtime,
-    table: &lancedb::Table,
-    batch: RecordBatch,
-) -> Result<()> {
+fn merge_insert_batch(runtime: &Runtime, table: &lancedb::Table, batch: RecordBatch) -> Result<()> {
     let schema = batch.schema();
     runtime.block_on(async move {
-        let reader = arrow_array::RecordBatchIterator::new(
-            vec![Ok(batch)].into_iter(),
-            schema,
-        );
+        let reader = arrow_array::RecordBatchIterator::new(vec![Ok(batch)].into_iter(), schema);
         let mut builder = table.merge_insert(&["chunk_id"]);
         builder
             .when_matched_update_all(None)
@@ -634,4 +607,3 @@ fn merge_insert_batch(
         Result::<()>::Ok(())
     })
 }
-

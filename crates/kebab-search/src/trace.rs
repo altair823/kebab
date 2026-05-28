@@ -2,9 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use kebab_core::{
-    SearchHit, SearchTrace, TraceCandidate, TraceFusionInput, TraceTiming,
-};
+use kebab_core::{SearchHit, SearchTrace, TraceCandidate, TraceFusionInput, TraceTiming};
 
 /// Build a `TraceCandidate` from a `SearchHit`. The score field reflects
 /// each side's score (lexical / vector / fusion) — caller selects which
@@ -34,10 +32,7 @@ pub enum ScoreKind {
 /// each side's rank captured. `fusion_score` is filled by the caller
 /// (RRF computes it during fusion, this helper just pre-builds the
 /// rank table — caller overwrites fusion_score in a second pass).
-pub fn build_fusion_input_skeleton(
-    lex: &[SearchHit],
-    vec: &[SearchHit],
-) -> Vec<TraceFusionInput> {
+pub fn build_fusion_input_skeleton(lex: &[SearchHit], vec: &[SearchHit]) -> Vec<TraceFusionInput> {
     let mut by_chunk: BTreeMap<String, TraceFusionInput> = BTreeMap::new();
     for h in lex {
         by_chunk

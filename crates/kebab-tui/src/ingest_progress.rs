@@ -110,9 +110,7 @@ fn apply_event(state: &mut IngestState, event: IngestEvent) {
             state.current_idx = idx;
             state.current_path = Some(path);
         }
-        IngestEvent::AssetFinished {
-            result, chunks, ..
-        } => {
+        IngestEvent::AssetFinished { result, chunks, .. } => {
             // Per-asset counter increments mirror the way
             // `kebab-app::ingest_with_config_progress` aggregates the
             // final report — kept in sync so the status bar's running
@@ -178,7 +176,9 @@ pub fn status_line(state: &IngestState) -> String {
         let elapsed = state.started_at.elapsed();
         let secs = elapsed.as_secs();
         if state.aborted {
-            let skipped_breakdown = kebab_app::ingest_progress::render_skipped_breakdown(&state.counts.skipped_by_extension);
+            let skipped_breakdown = kebab_app::ingest_progress::render_skipped_breakdown(
+                &state.counts.skipped_by_extension,
+            );
             return format!(
                 "✗ ingest aborted at {}/{} after {}s (new={} updated={} unchanged={} skipped={}{} errors={})",
                 state.counts.scanned.saturating_sub(state.counts.errors),
@@ -192,7 +192,9 @@ pub fn status_line(state: &IngestState) -> String {
                 state.counts.errors,
             );
         }
-        let skipped_breakdown = kebab_app::ingest_progress::render_skipped_breakdown(&state.counts.skipped_by_extension);
+        let skipped_breakdown = kebab_app::ingest_progress::render_skipped_breakdown(
+            &state.counts.skipped_by_extension,
+        );
         return format!(
             "✓ ingest: {} docs ({} new, {} updated, {} unchanged, {} skipped{}), {} chunks indexed in {}s",
             state.counts.scanned,
@@ -209,7 +211,8 @@ pub fn status_line(state: &IngestState) -> String {
         let secs = state.started_at.elapsed().as_secs();
         return format!("ingest: scanning… [{secs}s]");
     }
-    let pct = u64::from(state.current_idx).saturating_mul(100) / u64::from(state.counts.scanned.max(1));
+    let pct =
+        u64::from(state.current_idx).saturating_mul(100) / u64::from(state.counts.scanned.max(1));
     let elapsed = state.started_at.elapsed();
     let mm = elapsed.as_secs() / 60;
     let ss = elapsed.as_secs() % 60;
@@ -295,7 +298,12 @@ mod tests {
             chunks_indexed: 50,
             ..Default::default()
         };
-        apply_event(&mut s, IngestEvent::Completed { counts: final_counts.clone() });
+        apply_event(
+            &mut s,
+            IngestEvent::Completed {
+                counts: final_counts.clone(),
+            },
+        );
         assert_eq!(s.counts, final_counts);
         assert!(s.terminal_at.is_some());
         assert!(!s.aborted);
@@ -447,8 +455,7 @@ mod tests {
     #[test]
     fn status_line_aborted_includes_skipped_breakdown() {
         let mut s = fresh_state();
-        let skipped_by_extension =
-            std::collections::BTreeMap::from([("pdf".to_string(), 2u32)]);
+        let skipped_by_extension = std::collections::BTreeMap::from([("pdf".to_string(), 2u32)]);
         let counts = AggregateCounts {
             scanned: 5,
             skipped: 2,

@@ -4166,6 +4166,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "unicode-normalization",
+ "uuid",
  "wiremock",
 ]
 

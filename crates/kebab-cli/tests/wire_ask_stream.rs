@@ -41,8 +41,7 @@ fn relax_score_gate(cfg: &Path) {
 #[ignore = "requires real Ollama on 127.0.0.1:11434"]
 fn stream_emits_ndjson_events_on_stderr() {
     let dir = tempfile::tempdir().unwrap();
-    let (cfg, workspace, _data) =
-        common::write_config_with_llm_model(dir.path(), 30, "gemma4:e4b");
+    let (cfg, workspace, _data) = common::write_config_with_llm_model(dir.path(), 30, "gemma4:e4b");
     relax_score_gate(&cfg);
     fs::write(
         workspace.join("a.md"),
@@ -93,12 +92,8 @@ fn stream_emits_ndjson_events_on_stderr() {
     // stdout: last line is answer.v1 (backwards compat with the
     // non-streaming path — same wire shape, just emitted after the
     // ndjson event stream rather than instead of it).
-    let final_line = stdout
-        .lines()
-        .last()
-        .expect("stdout has at least one line");
-    let answer: Value =
-        serde_json::from_str(final_line).expect("stdout final line = answer.v1");
+    let final_line = stdout.lines().last().expect("stdout has at least one line");
+    let answer: Value = serde_json::from_str(final_line).expect("stdout final line = answer.v1");
     assert_eq!(answer["schema_version"], "answer.v1");
 }
 
@@ -109,8 +104,7 @@ fn non_stream_path_unchanged() {
     // emits a single `answer.v1` line on stdout — fb-33 must not
     // perturb the existing wire surface.
     let dir = tempfile::tempdir().unwrap();
-    let (cfg, workspace, _data) =
-        common::write_config_with_llm_model(dir.path(), 30, "gemma4:e4b");
+    let (cfg, workspace, _data) = common::write_config_with_llm_model(dir.path(), 30, "gemma4:e4b");
     relax_score_gate(&cfg);
     fs::write(
         workspace.join("a.md"),
@@ -140,8 +134,7 @@ fn stream_cancels_when_stderr_closes() {
     use std::process::{Command, Stdio};
 
     let dir = tempfile::tempdir().unwrap();
-    let (cfg, workspace, _data) =
-        common::write_config_with_llm_model(dir.path(), 30, "gemma4:e4b");
+    let (cfg, workspace, _data) = common::write_config_with_llm_model(dir.path(), 30, "gemma4:e4b");
     relax_score_gate(&cfg);
     fs::write(
         workspace.join("a.md"),
@@ -198,15 +191,10 @@ fn stream_cancels_when_stderr_closes() {
 #[ignore = "requires real Ollama on 127.0.0.1:11434"]
 fn stream_score_gate_refusal_emits_only_retrieval_done() {
     let dir = tempfile::tempdir().unwrap();
-    let (cfg, workspace, _data) =
-        common::write_config_with_llm_model(dir.path(), 30, "gemma4:e4b");
+    let (cfg, workspace, _data) = common::write_config_with_llm_model(dir.path(), 30, "gemma4:e4b");
     // Intentionally NO relax_score_gate — keep the default 0.30
     // so the thin-doc + unrelated-query combo trips refusal.
-    fs::write(
-        workspace.join("a.md"),
-        "# Title\n\nrust is a language.\n",
-    )
-    .unwrap();
+    fs::write(workspace.join("a.md"), "# Title\n\nrust is a language.\n").unwrap();
     common::ingest(&cfg, &workspace);
 
     let (stdout, stderr) =
@@ -230,12 +218,8 @@ fn stream_score_gate_refusal_emits_only_retrieval_done() {
     );
 
     // Stdout still has answer.v1 with grounded=false.
-    let final_line = stdout
-        .lines()
-        .last()
-        .expect("stdout has at least one line");
-    let answer: Value =
-        serde_json::from_str(final_line).expect("answer.v1");
+    let final_line = stdout.lines().last().expect("stdout has at least one line");
+    let answer: Value = serde_json::from_str(final_line).expect("answer.v1");
     assert_eq!(answer["schema_version"], "answer.v1");
     assert_eq!(answer["grounded"], false);
 }

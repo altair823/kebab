@@ -37,8 +37,8 @@ fn symlink_cycle_does_not_loop_or_crash() {
     // Symlink: root/notes → root  (a → a cycle through the link `notes`).
     symlink(root, root.join("notes")).unwrap();
 
-    let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-        .expect("connector init");
+    let conn =
+        FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).expect("connector init");
     let v = conn
         .scan(&SourceScope::default())
         .expect("scan must return, not loop");
@@ -78,12 +78,14 @@ fn dangling_symlink_pseudo_cycle_does_not_crash() {
     symlink(root.join("b"), root.join("a")).unwrap();
     symlink(root.join("a"), root.join("b")).unwrap();
 
-    let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-        .expect("connector init");
+    let conn =
+        FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).expect("connector init");
     // Even though a→b→a never resolves to a real directory (broken
     // pseudo-cycle of dangling symlinks), the scan must complete and
     // surface alpha.md.
-    let v = conn.scan(&SourceScope::default()).expect("scan must return");
+    let v = conn
+        .scan(&SourceScope::default())
+        .expect("scan must return");
     assert!(v.iter().any(|a| a.workspace_path.0 == "alpha.md"));
 }
 
@@ -113,13 +115,17 @@ fn two_step_directory_cycle_visited_set_breaks_loop() {
     symlink("../b", root.join("a/loop")).unwrap();
     symlink("../a", root.join("b/loop")).unwrap();
 
-    let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-        .expect("connector init");
+    let conn =
+        FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).expect("connector init");
 
     // Run scan twice — both must terminate AND produce identical
     // workspace_path lists (visited-set is deterministic per scan).
-    let v1 = conn.scan(&SourceScope::default()).expect("scan must return");
-    let v2 = conn.scan(&SourceScope::default()).expect("scan must return");
+    let v1 = conn
+        .scan(&SourceScope::default())
+        .expect("scan must return");
+    let v2 = conn
+        .scan(&SourceScope::default())
+        .expect("scan must return");
 
     let names1: Vec<String> = v1.iter().map(|a| a.workspace_path.0.clone()).collect();
     let names2: Vec<String> = v2.iter().map(|a| a.workspace_path.0.clone()).collect();
@@ -140,11 +146,13 @@ fn two_step_directory_cycle_visited_set_breaks_loop() {
     // paths depend on which side of the cycle the walker descended into
     // first; assert by basename to keep the check robust.
     assert!(
-        v1.iter().any(|a| a.workspace_path.0.ends_with("inside_a.md")),
+        v1.iter()
+            .any(|a| a.workspace_path.0.ends_with("inside_a.md")),
         "expected inside_a.md in scan output, got: {names1:?}"
     );
     assert!(
-        v1.iter().any(|a| a.workspace_path.0.ends_with("inside_b.md")),
+        v1.iter()
+            .any(|a| a.workspace_path.0.ends_with("inside_b.md")),
         "expected inside_b.md in scan output, got: {names1:?}"
     );
 

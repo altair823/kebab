@@ -8,8 +8,7 @@ use common::TestEnv;
 #[test]
 fn ingest_then_list_inspects_round_trip() {
     let env = TestEnv::lexical_only();
-    let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
 
     // The fixture has 3 markdown files; first ingest should label them
     // all as New.
@@ -27,17 +26,14 @@ fn ingest_then_list_inspects_round_trip() {
     }
 
     // list_docs returns the 3 docs.
-    let docs = kebab_app::list_docs_with_config(
-        env.config.clone(),
-        kebab_core::DocFilter::default(),
-    )
-    .unwrap();
+    let docs =
+        kebab_app::list_docs_with_config(env.config.clone(), kebab_core::DocFilter::default())
+            .unwrap();
     assert_eq!(docs.len(), 3, "docs: {docs:?}");
 
     // inspect_doc round-trips one of them.
     let any_doc_id = docs[0].doc_id.clone();
-    let canonical = kebab_app::inspect_doc_with_config(env.config.clone(), &any_doc_id)
-        .unwrap();
+    let canonical = kebab_app::inspect_doc_with_config(env.config.clone(), &any_doc_id).unwrap();
     assert_eq!(canonical.doc_id, any_doc_id);
     assert!(!canonical.blocks.is_empty(), "blocks empty");
 }
@@ -46,12 +42,10 @@ fn ingest_then_list_inspects_round_trip() {
 fn ingest_idempotent_on_second_run() {
     let env = TestEnv::lexical_only();
 
-    let r1 =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let r1 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
     assert_eq!(r1.new, 3);
 
-    let r2 =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let r2 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
     // Same files re-ingested — p9-fb-23 task 7 introduced the early-skip
     // path: when checksum + parser/chunker/embedding versions all match,
     // the second run reports `Unchanged` rather than `Updated`. Pre-p9-fb-23
@@ -63,19 +57,16 @@ fn ingest_idempotent_on_second_run() {
     assert_eq!(r2.unchanged, 3, "second run unchanged: {r2:?}");
 
     // list_docs still has 3 docs (no duplicates).
-    let docs = kebab_app::list_docs_with_config(
-        env.config.clone(),
-        kebab_core::DocFilter::default(),
-    )
-    .unwrap();
+    let docs =
+        kebab_app::list_docs_with_config(env.config.clone(), kebab_core::DocFilter::default())
+            .unwrap();
     assert_eq!(docs.len(), 3);
 }
 
 #[test]
 fn ingest_summary_only_drops_items() {
     let env = TestEnv::lexical_only();
-    let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
     assert_eq!(report.scanned, 3);
     assert!(report.items.is_none(), "summary-only should null items");
 }
@@ -87,12 +78,10 @@ fn ingest_records_ingest_runs_row_with_aggregate_counts() {
     // of every run. `summary_only=true` writes `items_json=NULL`; the
     // counts MUST still be present.
     let env = TestEnv::lexical_only();
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true)
-        .unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
     assert_eq!(report.scanned, 3);
 
-    let db_path = std::path::PathBuf::from(&env.config.storage.data_dir)
-        .join("kebab.sqlite");
+    let db_path = std::path::PathBuf::from(&env.config.storage.data_dir).join("kebab.sqlite");
     let conn = rusqlite::Connection::open(&db_path).expect("open kebab.sqlite");
     let (scanned, new_c, updated, skipped, errors, items_json): (
         i64,
@@ -141,25 +130,18 @@ fn ingest_provider_none_skips_lance() {
     // tree shape (no `<data_dir>/lancedb` directory, or no `*.lance`
     // tables under it).
     let env = TestEnv::lexical_only();
-    let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
     assert_eq!(report.errors, 0, "lexical-only run must not error");
     assert_eq!(report.new, 3);
 
-    let lance_dir = std::path::PathBuf::from(&env.config.storage.data_dir)
-        .join("lancedb");
+    let lance_dir = std::path::PathBuf::from(&env.config.storage.data_dir).join("lancedb");
     if lance_dir.exists() {
         // If the dir was created (e.g., by an earlier consumer touching
         // the path), it MUST contain no `.lance` tables.
         let mut had_lance_table = false;
         for entry in std::fs::read_dir(&lance_dir).expect("read lance_dir") {
             let entry = entry.unwrap();
-            if entry
-                .path()
-                .extension()
-                .and_then(|s| s.to_str())
-                == Some("lance")
-            {
+            if entry.path().extension().and_then(|s| s.to_str()) == Some("lance") {
                 had_lance_table = true;
                 break;
             }
@@ -189,8 +171,7 @@ fn list_docs_filters_by_tags_any() {
         tags_any: vec!["rust".to_string()],
         ..Default::default()
     };
-    let rust_docs =
-        kebab_app::list_docs_with_config(env.config.clone(), rust_filter).unwrap();
+    let rust_docs = kebab_app::list_docs_with_config(env.config.clone(), rust_filter).unwrap();
     // intro.md and notes/cargo.md both tag "rust".
     assert_eq!(rust_docs.len(), 2, "expected 2 rust docs: {rust_docs:?}");
 }
@@ -198,8 +179,9 @@ fn list_docs_filters_by_tags_any() {
 #[test]
 fn inspect_doc_not_found_returns_actionable_error() {
     let env = TestEnv::lexical_only();
-    let bogus =
-        kebab_core::DocumentId("0000000000000000000000000000000000000000000000000000000000000000".to_string());
+    let bogus = kebab_core::DocumentId(
+        "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+    );
     let err = kebab_app::inspect_doc_with_config(env.config.clone(), &bogus).unwrap_err();
     let msg = format!("{err:#}");
     assert!(
@@ -218,8 +200,7 @@ fn inspect_chunk_not_found_returns_actionable_error() {
     let bogus = kebab_core::ChunkId(
         "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
     );
-    let err = kebab_app::inspect_chunk_with_config(env.config.clone(), &bogus)
-        .unwrap_err();
+    let err = kebab_app::inspect_chunk_with_config(env.config.clone(), &bogus).unwrap_err();
     let msg = format!("{err:#}");
     assert!(msg.contains("not found"), "got: {msg}");
 }
@@ -251,22 +232,18 @@ fn ingest_with_config_opts_default_matches_legacy_behaviour() {
 #[test]
 fn ingest_stamps_chunker_version_on_document() {
     let env = TestEnv::lexical_only();
-    let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
     assert!(report.new >= 1, "expected at least one new doc: {report:?}");
     assert_eq!(report.errors, 0, "no errors expected: {report:?}");
 
-    let docs = kebab_app::list_docs_with_config(
-        env.config.clone(),
-        kebab_core::DocFilter::default(),
-    )
-    .unwrap();
+    let docs =
+        kebab_app::list_docs_with_config(env.config.clone(), kebab_core::DocFilter::default())
+            .unwrap();
     assert!(!docs.is_empty(), "no docs after ingest");
 
     for doc_entry in &docs {
         let canonical =
-            kebab_app::inspect_doc_with_config(env.config.clone(), &doc_entry.doc_id)
-                .unwrap();
+            kebab_app::inspect_doc_with_config(env.config.clone(), &doc_entry.doc_id).unwrap();
         assert!(
             canonical.last_chunker_version.is_some(),
             "last_chunker_version must be stamped for doc {}: got {:?}",

@@ -215,7 +215,10 @@ fn parse_one(raw: &Value) -> Result<(SearchQuery, SearchOpts), String> {
             .and_then(serde_json::Value::as_u64)
             .map(|n| n as usize),
         cursor: obj.get("cursor").and_then(|v| v.as_str()).map(String::from),
-        trace: obj.get("trace").and_then(serde_json::Value::as_bool).unwrap_or(false),
+        trace: obj
+            .get("trace")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
     };
 
     Ok((

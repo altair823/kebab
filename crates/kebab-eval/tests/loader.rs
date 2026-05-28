@@ -61,7 +61,10 @@ fn loads_multi_hop_golden_fixture() {
     let single = qs.iter().filter(|q| q.id.starts_with("mh-s-")).count();
     assert_eq!(cross_doc, 5, "expected 5 mh-c-* (cross-doc) questions");
     assert_eq!(intra_doc, 5, "expected 5 mh-i-* (intra-doc) questions");
-    assert_eq!(single, 5, "expected 5 mh-s-* (single-fact negative) questions");
+    assert_eq!(
+        single, 5,
+        "expected 5 mh-s-* (single-fact negative) questions"
+    );
 
     // Every question carries at least one `must_contain` so the
     // rule-based answer-correctness metric (P5-2) has a signal even

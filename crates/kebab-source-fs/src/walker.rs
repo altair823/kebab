@@ -141,7 +141,9 @@ fn build_builtin_matcher(root: &Path) -> Result<Override> {
                 .with_context(|| format!("builtin dir pattern: {dir_pat}"))?;
         }
     }
-    builder.build().context("failed to compile builtin override")
+    builder
+        .build()
+        .context("failed to compile builtin override")
 }
 
 /// Owned-string variant of `build_single_matcher` for caller-supplied
@@ -182,8 +184,13 @@ pub(crate) fn build_overrides(
     let gitignore_patterns = read_gitignore(root)?;
 
     // Per-source matchers (for attribution only).
-    let gitignore =
-        build_single_matcher(root, &gitignore_patterns.iter().map(std::string::String::as_str).collect::<Vec<_>>())?;
+    let gitignore = build_single_matcher(
+        root,
+        &gitignore_patterns
+            .iter()
+            .map(std::string::String::as_str)
+            .collect::<Vec<_>>(),
+    )?;
     let kebabignore = build_single_matcher_owned(root, kbignore_patterns)?;
     // Use the directory-aware builtin matcher so that `is_dir=true` checks on
     // directory entries (e.g., `node_modules/`) are attributed to builtin rather
@@ -445,7 +452,6 @@ pub(crate) fn walk_files_with_skips(
     Ok((accepted, skipped))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -463,13 +469,25 @@ mod tests {
     fn default_excludes_ds_store_and_resource_forks() {
         let dir = tempfile::tempdir().unwrap();
         let ov = build_overrides(dir.path(), &[], &[], &[]).unwrap();
-        assert!(ov.combined.matched(Path::new(".DS_Store"), false).is_ignore());
         assert!(
-            ov.combined.matched(Path::new("notes/.DS_Store"), false).is_ignore()
+            ov.combined
+                .matched(Path::new(".DS_Store"), false)
+                .is_ignore()
         );
-        assert!(ov.combined.matched(Path::new("._foo.md"), false).is_ignore());
         assert!(
-            ov.combined.matched(Path::new("notes/._sidecar"), false).is_ignore()
+            ov.combined
+                .matched(Path::new("notes/.DS_Store"), false)
+                .is_ignore()
+        );
+        assert!(
+            ov.combined
+                .matched(Path::new("._foo.md"), false)
+                .is_ignore()
+        );
+        assert!(
+            ov.combined
+                .matched(Path::new("notes/._sidecar"), false)
+                .is_ignore()
         );
     }
 
@@ -484,12 +502,21 @@ mod tests {
         )
         .unwrap();
         assert!(ov.combined.matched(Path::new("a.tmp"), false).is_ignore());
-        assert!(ov.combined.matched(Path::new("notes/x.tmp"), false).is_ignore());
         assert!(
-            ov.combined.matched(Path::new("node_modules/foo/bar.js"), false)
+            ov.combined
+                .matched(Path::new("notes/x.tmp"), false)
                 .is_ignore()
         );
-        assert!(!ov.combined.matched(Path::new("alpha.md"), false).is_ignore());
+        assert!(
+            ov.combined
+                .matched(Path::new("node_modules/foo/bar.js"), false)
+                .is_ignore()
+        );
+        assert!(
+            !ov.combined
+                .matched(Path::new("alpha.md"), false)
+                .is_ignore()
+        );
     }
 
     #[test]
@@ -505,7 +532,9 @@ mod tests {
         .unwrap();
         assert!(ov.combined.matched(Path::new("a.tmp"), false).is_ignore());
         assert!(
-            ov.combined.matched(Path::new("secret/key.md"), false).is_ignore()
+            ov.combined
+                .matched(Path::new("secret/key.md"), false)
+                .is_ignore()
         );
     }
 
@@ -543,10 +572,15 @@ mod tests {
         let overrides = build_overrides(root, &[], &[], &[]).unwrap();
         // Override::matched expects paths relative to the builder's root.
         let m_in = overrides.combined.matched(Path::new("src/main.rs"), false);
-        let m_out = overrides.combined.matched(Path::new("node_modules/foo/bar.js"), false);
+        let m_out = overrides
+            .combined
+            .matched(Path::new("node_modules/foo/bar.js"), false);
 
         assert!(!m_in.is_ignore(), "src/main.rs should NOT be ignored");
-        assert!(m_out.is_ignore(), "node_modules/foo/bar.js SHOULD be ignored");
+        assert!(
+            m_out.is_ignore(),
+            "node_modules/foo/bar.js SHOULD be ignored"
+        );
     }
 
     #[test]
@@ -594,9 +628,24 @@ mod tests {
         fs::write(root.join("dist/bundle.js"), "x").unwrap();
 
         let overrides = build_overrides(root, &[], &[], &[]).unwrap();
-        assert!(overrides.combined.matched(Path::new("a.log"), false).is_ignore());
-        assert!(overrides.combined.matched(Path::new("dist/bundle.js"), false).is_ignore());
-        assert!(!overrides.combined.matched(Path::new("src/main.rs"), false).is_ignore());
+        assert!(
+            overrides
+                .combined
+                .matched(Path::new("a.log"), false)
+                .is_ignore()
+        );
+        assert!(
+            overrides
+                .combined
+                .matched(Path::new("dist/bundle.js"), false)
+                .is_ignore()
+        );
+        assert!(
+            !overrides
+                .combined
+                .matched(Path::new("src/main.rs"), false)
+                .is_ignore()
+        );
     }
 
     #[test]
@@ -612,8 +661,18 @@ mod tests {
 
         // No .gitignore present — patterns from .gitignore should not affect overrides.
         let overrides = build_overrides(root, &[], &[], &[]).unwrap();
-        assert!(!overrides.combined.matched(Path::new("a.log"), false).is_ignore());
-        assert!(!overrides.combined.matched(Path::new("src/main.rs"), false).is_ignore());
+        assert!(
+            !overrides
+                .combined
+                .matched(Path::new("a.log"), false)
+                .is_ignore()
+        );
+        assert!(
+            !overrides
+                .combined
+                .matched(Path::new("src/main.rs"), false)
+                .is_ignore()
+        );
     }
 
     #[test]
@@ -627,7 +686,11 @@ mod tests {
         fs::write(root.join(".gitignore"), "!keep/\n").unwrap();
         // Just verify build_overrides doesn't error.
         let result = build_overrides(root, &[], &[], &[]);
-        assert!(result.is_ok(), "should not error on negation pattern: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "should not error on negation pattern: {:?}",
+            result.err()
+        );
     }
 
     // ── Skip attribution tests ────────────────────────────────────────────────
@@ -646,7 +709,11 @@ mod tests {
         let ov = build_overrides(root, &[], &[], &[]).unwrap();
         // node_modules/ dir itself
         let cat = classify_skip(Path::new("node_modules"), true, &ov);
-        assert_eq!(cat, SkipCategory::BuiltinBlacklist, "builtin must have priority");
+        assert_eq!(
+            cat,
+            SkipCategory::BuiltinBlacklist,
+            "builtin must have priority"
+        );
     }
 
     #[test]
@@ -707,8 +774,9 @@ mod tests {
             .filter(|e| e.category == SkipCategory::Gitignore)
             .collect();
         assert!(
-            gitignore_skipped.iter().any(|e| e.path.file_name()
-                .is_some_and(|n| n == "skipme.log")),
+            gitignore_skipped
+                .iter()
+                .any(|e| e.path.file_name().is_some_and(|n| n == "skipme.log")),
             "skipme.log should appear in gitignore_skipped; skipped: {:?}",
             skipped_entries.iter().map(|e| &e.path).collect::<Vec<_>>()
         );
@@ -746,8 +814,9 @@ mod tests {
             "node_modules/ should produce at least one BuiltinBlacklist skip"
         );
         assert!(
-            builtin_skipped.iter().any(|e| e.path.components()
-                .any(|c| c.as_os_str() == "node_modules")),
+            builtin_skipped
+                .iter()
+                .any(|e| e.path.components().any(|c| c.as_os_str() == "node_modules")),
             "skipped path should contain node_modules; got: {:?}",
             builtin_skipped.iter().map(|e| &e.path).collect::<Vec<_>>()
         );

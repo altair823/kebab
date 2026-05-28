@@ -17,8 +17,7 @@ use std::sync::atomic::AtomicBool;
 use common::TestEnv;
 
 fn ollama_endpoint() -> String {
-    std::env::var("KEBAB_PDF_OCR_ENDPOINT")
-        .unwrap_or_else(|_| "http://localhost:11434".to_string())
+    std::env::var("KEBAB_PDF_OCR_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".to_string())
 }
 
 fn make_ocr_env_real() -> TestEnv {
@@ -43,8 +42,8 @@ fn make_ocr_env_real() -> TestEnv {
 fn ingest_with_mock_ocr_yields_pdf_ocr_summary() {
     let env = make_ocr_env_real();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
-        .expect("ingest");
+    let report =
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).expect("ingest");
 
     assert!(report.new >= 1, "at least one PDF ingested: {report:?}");
 
@@ -72,15 +71,13 @@ fn ingest_with_mock_ocr_yields_pdf_ocr_summary() {
 fn ocr_text_indexed_and_searchable() {
     let env = make_ocr_env_real();
 
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
-        .expect("ingest");
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).expect("ingest");
 
     // Search for a Korean morpheme expected to appear in qwen2.5vl:3b OCR
     // output of the PoC ground-truth page. "다음" is a high-frequency token
     // in page1.txt truth file.
     let query = common::lexical_query("다음");
-    let hits =
-        kebab_app::search_with_config(env.config.clone(), query).expect("search");
+    let hits = kebab_app::search_with_config(env.config.clone(), query).expect("search");
 
     assert!(
         !hits.is_empty(),

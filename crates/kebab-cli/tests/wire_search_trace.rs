@@ -12,10 +12,8 @@ fn search_trace_json_includes_trace_block() {
     fs::write(workspace.join("doc1.md"), "# Title\n\nrust async hello\n").unwrap();
     common::ingest(&cfg, &workspace);
 
-    let (stdout, _stderr) = common::run_search_with_args(
-        &cfg,
-        &["--mode", "lexical", "--trace", "--json", "rust"],
-    );
+    let (stdout, _stderr) =
+        common::run_search_with_args(&cfg, &["--mode", "lexical", "--trace", "--json", "rust"]);
     let v: Value = serde_json::from_str(stdout.trim()).expect("valid JSON");
     assert_eq!(v["schema_version"], "search_response.v1");
     assert!(v["trace"].is_object(), "trace block present");
@@ -33,12 +31,13 @@ fn search_without_trace_omits_trace_field() {
     fs::write(workspace.join("doc1.md"), "# Title\n\nrust async hello\n").unwrap();
     common::ingest(&cfg, &workspace);
 
-    let (stdout, _stderr) = common::run_search_with_args(
-        &cfg,
-        &["--mode", "lexical", "--json", "rust"],
-    );
+    let (stdout, _stderr) =
+        common::run_search_with_args(&cfg, &["--mode", "lexical", "--json", "rust"]);
     let v: Value = serde_json::from_str(stdout.trim()).expect("valid JSON");
-    assert!(v.get("trace").is_none(), "trace field absent without --trace");
+    assert!(
+        v.get("trace").is_none(),
+        "trace field absent without --trace"
+    );
 }
 
 #[test]
@@ -48,10 +47,8 @@ fn search_trace_lexical_mode_vector_list_empty() {
     fs::write(workspace.join("doc1.md"), "# Title\n\nrust async hello\n").unwrap();
     common::ingest(&cfg, &workspace);
 
-    let (stdout, _stderr) = common::run_search_with_args(
-        &cfg,
-        &["--mode", "lexical", "--trace", "--json", "rust"],
-    );
+    let (stdout, _stderr) =
+        common::run_search_with_args(&cfg, &["--mode", "lexical", "--trace", "--json", "rust"]);
     let v: Value = serde_json::from_str(stdout.trim()).expect("valid JSON");
     assert_eq!(v["trace"]["vector"].as_array().unwrap().len(), 0);
     assert_eq!(v["trace"]["timing"]["vector_ms"], 0);

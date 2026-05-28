@@ -20,9 +20,9 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use kebab_core::{
-    ChunkId, ChunkerVersion, DocumentId, Embedder, EmbeddingInput, EmbeddingKind,
-    IndexVersion, RetrievalDetail, Retriever, ScoreKind, SearchHit, SearchMode, SearchQuery,
-    SourceSpan, VectorHit, VectorStore, WorkspacePath,
+    ChunkId, ChunkerVersion, DocumentId, Embedder, EmbeddingInput, EmbeddingKind, IndexVersion,
+    RetrievalDetail, Retriever, ScoreKind, SearchHit, SearchMode, SearchQuery, SourceSpan,
+    VectorHit, VectorStore, WorkspacePath,
 };
 use kebab_store_sqlite::SqliteStore;
 use rusqlite::params_from_iter;
@@ -68,7 +68,13 @@ impl VectorRetriever {
         index_version: IndexVersion,
     ) -> Self {
         let cfg = kebab_config::Config::defaults();
-        Self::with_settings(store, embed, sqlite, index_version, cfg.search.snippet_chars)
+        Self::with_settings(
+            store,
+            embed,
+            sqlite,
+            index_version,
+            cfg.search.snippet_chars,
+        )
     }
 
     /// Construct with explicit `snippet_chars`. Mirrors the lexical
@@ -145,8 +151,7 @@ impl Retriever for VectorRetriever {
         // 3. Hydrate metadata from SQLite for the candidate ids in
         //    one round-trip. Order is preserved by the caller via the
         //    HashMap lookup at hit-construction time.
-        let candidate_ids: Vec<&str> =
-            raw_hits.iter().map(|h| h.chunk_id.0.as_str()).collect();
+        let candidate_ids: Vec<&str> = raw_hits.iter().map(|h| h.chunk_id.0.as_str()).collect();
         let hydration = hydrate_chunks(&self.sqlite, &candidate_ids)
             .context("kb-search vector: hydrate chunk metadata")?;
 
@@ -201,10 +206,7 @@ struct ChunkMeta {
     updated_at: String,
 }
 
-fn hydrate_chunks(
-    sqlite: &SqliteStore,
-    chunk_ids: &[&str],
-) -> Result<HashMap<String, ChunkMeta>> {
+fn hydrate_chunks(sqlite: &SqliteStore, chunk_ids: &[&str]) -> Result<HashMap<String, ChunkMeta>> {
     if chunk_ids.is_empty() {
         return Ok(HashMap::new());
     }
@@ -259,8 +261,7 @@ fn hydrate_chunks(
         .context("kb-search vector: execute hydration query")?;
     let mut out: HashMap<String, ChunkMeta> = HashMap::with_capacity(unique.len());
     for row in rows {
-        let (chunk_id, meta) =
-            row.context("kb-search vector: read hydration row")?;
+        let (chunk_id, meta) = row.context("kb-search vector: read hydration row")?;
         out.insert(chunk_id, meta);
     }
     Ok(out)
@@ -279,9 +280,8 @@ fn build_hit(
     let source_spans: Vec<SourceSpan> = serde_json::from_str(&meta.source_spans_json)
         .context("kb-search vector: deserialize source_spans_json")?;
 
-    let workspace_path = WorkspacePath::new(meta.workspace_path.clone()).context(
-        "kb-search vector: documents.workspace_path violates WorkspacePath invariant",
-    )?;
+    let workspace_path = WorkspacePath::new(meta.workspace_path.clone())
+        .context("kb-search vector: documents.workspace_path violates WorkspacePath invariant")?;
     let citation = citation_from_first_span(
         &hit.chunk_id.0,
         workspace_path.clone(),

@@ -39,11 +39,7 @@ impl Chunker for CodeRustAstV1Chunker {
         hex[..POLICY_HASH_HEX_LEN].to_string()
     }
 
-    fn chunk(
-        &self,
-        doc: &CanonicalDocument,
-        policy: &ChunkPolicy,
-    ) -> anyhow::Result<Vec<Chunk>> {
+    fn chunk(&self, doc: &CanonicalDocument, policy: &ChunkPolicy) -> anyhow::Result<Vec<Chunk>> {
         for b in &doc.blocks {
             let c = match b {
                 Block::Code(c) => c,
@@ -68,9 +64,12 @@ impl Chunker for CodeRustAstV1Chunker {
                 _ => unreachable!("validated above"),
             };
             let (ls, le, symbol, lang) = match &cb.common.source_span {
-                SourceSpan::Code { line_start, line_end, symbol, lang } => {
-                    (*line_start, *line_end, symbol.clone(), lang.clone())
-                }
+                SourceSpan::Code {
+                    line_start,
+                    line_end,
+                    symbol,
+                    lang,
+                } => (*line_start, *line_end, symbol.clone(), lang.clone()),
                 _ => unreachable!("validated above"),
             };
             let block_ids: Vec<BlockId> = vec![cb.common.block_id.clone()];
@@ -84,8 +83,13 @@ impl Chunker for CodeRustAstV1Chunker {
                     lang: lang.clone(),
                 };
                 out.push(make_chunk(
-                    doc, &chunker_version, &block_ids, &base_policy_hash,
-                    None, span, cb.code.clone(),
+                    doc,
+                    &chunker_version,
+                    &block_ids,
+                    &base_policy_hash,
+                    None,
+                    span,
+                    cb.code.clone(),
                 ));
             } else {
                 let parts = split_oversize(&cb.code);
@@ -93,9 +97,7 @@ impl Chunker for CodeRustAstV1Chunker {
                 for (i, (off_start, off_end, text)) in parts.into_iter().enumerate() {
                     let part_ls = ls + off_start;
                     let part_le = ls + off_end;
-                    let part_sym = symbol
-                        .as_ref()
-                        .map(|s| format!("{s} [part {}/{n}]", i + 1));
+                    let part_sym = symbol.as_ref().map(|s| format!("{s} [part {}/{n}]", i + 1));
                     let span = SourceSpan::Code {
                         line_start: part_ls,
                         line_end: part_le,
@@ -103,8 +105,13 @@ impl Chunker for CodeRustAstV1Chunker {
                         lang: lang.clone(),
                     };
                     out.push(make_chunk(
-                        doc, &chunker_version, &block_ids, &base_policy_hash,
-                        Some(part_ls), span, text,
+                        doc,
+                        &chunker_version,
+                        &block_ids,
+                        &base_policy_hash,
+                        Some(part_ls),
+                        span,
+                        text,
                     ));
                 }
             }
@@ -183,9 +190,9 @@ fn split_oversize(code: &str) -> Vec<(u32, u32, String)> {
 mod tests {
     use super::*;
     use kebab_core::{
-        Block, CanonicalDocument, ChunkPolicy, Chunker, ChunkerVersion, CodeBlock, CommonBlock,
-        SourceSpan, id_for_block, id_for_doc, AssetId, Lang, Metadata, ParserVersion, Provenance,
-        SourceType, TrustLevel, WorkspacePath,
+        AssetId, Block, CanonicalDocument, ChunkPolicy, Chunker, ChunkerVersion, CodeBlock,
+        CommonBlock, Lang, Metadata, ParserVersion, Provenance, SourceSpan, SourceType, TrustLevel,
+        WorkspacePath, id_for_block, id_for_doc,
     };
     use time::OffsetDateTime;
 
@@ -206,39 +213,60 @@ mod tests {
                 };
                 let bid = id_for_block(&doc_id, "code", &[], i as u32, &span);
                 Block::Code(CodeBlock {
-                    common: CommonBlock { block_id: bid, heading_path: vec![], source_span: span },
+                    common: CommonBlock {
+                        block_id: bid,
+                        heading_path: vec![],
+                        source_span: span,
+                    },
                     lang: Some("rust".into()),
                     code: (*code).to_string(),
                 })
             })
             .collect();
         CanonicalDocument {
-            doc_id, source_asset_id: aid, workspace_path: wp, title: "a".into(),
-            lang: Lang("und".into()), blocks,
+            doc_id,
+            source_asset_id: aid,
+            workspace_path: wp,
+            title: "a".into(),
+            lang: Lang("und".into()),
+            blocks,
             metadata: Metadata {
-                aliases: vec![], tags: vec![],
+                aliases: vec![],
+                tags: vec![],
                 created_at: OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap(),
                 updated_at: OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap(),
-                source_type: SourceType::Note, trust_level: TrustLevel::Primary,
-                user_id_alias: None, user: Default::default(),
-                repo: Some("kebab".into()), git_branch: Some("main".into()),
-                git_commit: Some("0".repeat(40)), code_lang: Some("rust".into()),
+                source_type: SourceType::Note,
+                trust_level: TrustLevel::Primary,
+                user_id_alias: None,
+                user: Default::default(),
+                repo: Some("kebab".into()),
+                git_branch: Some("main".into()),
+                git_commit: Some("0".repeat(40)),
+                code_lang: Some("rust".into()),
             },
             provenance: Provenance { events: vec![] },
-            parser_version: pv, schema_version: 1, doc_version: 1,
-            last_chunker_version: None, last_embedding_version: None,
+            parser_version: pv,
+            schema_version: 1,
+            doc_version: 1,
+            last_chunker_version: None,
+            last_embedding_version: None,
         }
     }
     fn policy() -> ChunkPolicy {
-        ChunkPolicy { target_tokens: 500, overlap_tokens: 80,
+        ChunkPolicy {
+            target_tokens: 500,
+            overlap_tokens: 80,
             respect_markdown_headings: false,
-            chunker_version: ChunkerVersion(VERSION_LABEL.into()) }
+            chunker_version: ChunkerVersion(VERSION_LABEL.into()),
+        }
     }
 
     #[test]
     fn chunker_version_is_code_rust_ast_v1() {
-        assert_eq!(CodeRustAstV1Chunker.chunker_version(),
-            ChunkerVersion("code-rust-ast-v1".into()));
+        assert_eq!(
+            CodeRustAstV1Chunker.chunker_version(),
+            ChunkerVersion("code-rust-ast-v1".into())
+        );
     }
 
     #[test]
@@ -256,7 +284,12 @@ mod tests {
             assert_eq!(c.chunker_version.0, "code-rust-ast-v1");
         }
         match &chunks[0].source_spans[0] {
-            SourceSpan::Code { symbol, line_start, line_end, .. } => {
+            SourceSpan::Code {
+                symbol,
+                line_start,
+                line_end,
+                ..
+            } => {
                 assert_eq!(symbol.as_deref(), Some("parse"));
                 assert_eq!((*line_start, *line_end), (1, 3));
             }
@@ -266,22 +299,33 @@ mod tests {
 
     #[test]
     fn oversize_unit_splits_into_parts_with_unique_ids() {
-        let body = (0..500).map(|i| format!("    let x{i} = {i};")).collect::<Vec<_>>().join("\n");
+        let body = (0..500)
+            .map(|i| format!("    let x{i} = {i};"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let code = format!("pub fn big() {{\n{body}\n}}");
         let doc = code_doc(&[("big", 1, 502, &code)]);
         let chunks = CodeRustAstV1Chunker.chunk(&doc, &policy()).unwrap();
-        assert!(chunks.len() >= 2, "oversize unit must split, got {}", chunks.len());
+        assert!(
+            chunks.len() >= 2,
+            "oversize unit must split, got {}",
+            chunks.len()
+        );
         for c in &chunks {
             match &c.source_spans[0] {
                 SourceSpan::Code { symbol, .. } => {
-                    assert!(symbol.as_deref().unwrap().starts_with("big [part "),
-                        "part-numbered symbol, got {symbol:?}");
+                    assert!(
+                        symbol.as_deref().unwrap().starts_with("big [part "),
+                        "part-numbered symbol, got {symbol:?}"
+                    );
                 }
                 _ => unreachable!(),
             }
         }
         let mut ids: Vec<&str> = chunks.iter().map(|c| c.chunk_id.0.as_str()).collect();
-        let n = ids.len(); ids.sort_unstable(); ids.dedup();
+        let n = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
         assert_eq!(ids.len(), n, "chunk_ids unique across split parts");
     }
 
@@ -295,7 +339,8 @@ mod tests {
                 heading_path: vec![],
                 source_span: SourceSpan::Line { start: 1, end: 1 },
             },
-            text: "x".into(), inlines: vec![],
+            text: "x".into(),
+            inlines: vec![],
         })];
         let err = CodeRustAstV1Chunker.chunk(&doc, &policy()).unwrap_err();
         assert!(err.to_string().contains("CodeRustAstV1Chunker"));
@@ -304,11 +349,19 @@ mod tests {
     #[test]
     fn deterministic_chunk_ids_1000() {
         let doc = code_doc(&[("parse", 1, 2, "fn parse(){}\n}")]);
-        let base: Vec<String> = CodeRustAstV1Chunker.chunk(&doc, &policy())
-            .unwrap().into_iter().map(|c| c.chunk_id.0).collect();
+        let base: Vec<String> = CodeRustAstV1Chunker
+            .chunk(&doc, &policy())
+            .unwrap()
+            .into_iter()
+            .map(|c| c.chunk_id.0)
+            .collect();
         for _ in 0..1000 {
-            let again: Vec<String> = CodeRustAstV1Chunker.chunk(&doc, &policy())
-                .unwrap().into_iter().map(|c| c.chunk_id.0).collect();
+            let again: Vec<String> = CodeRustAstV1Chunker
+                .chunk(&doc, &policy())
+                .unwrap()
+                .into_iter()
+                .map(|c| c.chunk_id.0)
+                .collect();
             assert_eq!(again, base);
         }
     }
@@ -316,7 +369,9 @@ mod tests {
     #[test]
     fn policy_hash_matches_md_heading_v1() {
         let p = policy();
-        assert_eq!(CodeRustAstV1Chunker.policy_hash(&p),
-            crate::MdHeadingV1Chunker.policy_hash(&p));
+        assert_eq!(
+            CodeRustAstV1Chunker.policy_hash(&p),
+            crate::MdHeadingV1Chunker.policy_hash(&p)
+        );
     }
 }

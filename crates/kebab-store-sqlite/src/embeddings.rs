@@ -54,10 +54,7 @@ impl SqliteStore {
     /// All rows are written in a single transaction; if any row fails
     /// the entire batch is rolled back and the caller can retry without
     /// worrying about partial pending state.
-    pub fn put_embedding_records_pending(
-        &self,
-        rows: &[EmbeddingRecordRow],
-    ) -> Result<()> {
+    pub fn put_embedding_records_pending(&self, rows: &[EmbeddingRecordRow]) -> Result<()> {
         if rows.is_empty() {
             return Ok(());
         }
@@ -107,10 +104,7 @@ impl SqliteStore {
     /// WHERE embedding_id IN (?, ?, …)`) inside one transaction —
     /// avoids the per-row `execute()` round-trip the previous
     /// implementation paid.
-    pub fn mark_embedding_records_committed(
-        &self,
-        embedding_ids: &[String],
-    ) -> Result<()> {
+    pub fn mark_embedding_records_committed(&self, embedding_ids: &[String]) -> Result<()> {
         if embedding_ids.is_empty() {
             return Ok(());
         }
@@ -208,7 +202,11 @@ mod tests {
                 source_spans_json, token_estimate, chunker_version,
                 policy_hash, block_ids_json, created_at
              ) VALUES (?, ?, 'hi', '[]', NULL, '[]', 1, 'v1', 'hash', '[]', ?)",
-            params![chunk_id, "fedcba9876543210fedcba9876543210", "1970-01-01T00:00:00Z"],
+            params![
+                chunk_id,
+                "fedcba9876543210fedcba9876543210",
+                "1970-01-01T00:00:00Z"
+            ],
         )
         .unwrap();
     }

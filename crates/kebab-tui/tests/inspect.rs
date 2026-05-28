@@ -8,9 +8,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use kebab_config::Config;
 use kebab_core::{
     AssetId, Block, BlockId, CanonicalDocument, Chunk, ChunkId, ChunkerVersion, CommonBlock,
-    DocumentId, HeadingBlock, Inline, Lang, Metadata, ParserVersion, Provenance,
-    ProvenanceEvent, ProvenanceKind, SourceSpan, SourceType, TextBlock, TrustLevel,
-    WorkspacePath,
+    DocumentId, HeadingBlock, Inline, Lang, Metadata, ParserVersion, Provenance, ProvenanceEvent,
+    ProvenanceKind, SourceSpan, SourceType, TextBlock, TrustLevel, WorkspacePath,
 };
 use kebab_tui::{
     App, InspectState, InspectTarget, KeyOutcome, Pane, handle_key_inspect, render_inspect,
@@ -61,7 +60,10 @@ fn make_doc() -> CanonicalDocument {
         }),
     ];
     let mut user = serde_json::Map::new();
-    user.insert("custom_key".into(), serde_json::Value::String("custom_val".into()));
+    user.insert(
+        "custom_key".into(),
+        serde_json::Value::String("custom_val".into()),
+    );
 
     CanonicalDocument {
         doc_id,
@@ -141,10 +143,7 @@ fn esc_returns_to_recorded_pane() {
         let s = app.inspect.as_mut().unwrap();
         s.return_to = Pane::Search;
     }
-    let outcome = handle_key_inspect(
-        &mut app,
-        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-    );
+    let outcome = handle_key_inspect(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert_eq!(outcome, KeyOutcome::SwitchPane(Pane::Search));
 }
 
@@ -200,16 +199,10 @@ fn page_down_scrolls_by_ten_in_inspect() {
 fn page_up_rewinds_by_ten_saturating_in_inspect() {
     let mut app = fresh_app();
     app.inspect.as_mut().unwrap().scroll = 25;
-    handle_key_inspect(
-        &mut app,
-        KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
-    );
+    handle_key_inspect(&mut app, KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
     assert_eq!(app.inspect.as_ref().unwrap().scroll, 15);
     app.inspect.as_mut().unwrap().scroll = 3;
-    handle_key_inspect(
-        &mut app,
-        KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
-    );
+    handle_key_inspect(&mut app, KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
     assert_eq!(app.inspect.as_ref().unwrap().scroll, 0);
 }
 
@@ -273,7 +266,10 @@ fn doc_view_renders_header_and_metadata() {
         rendered.contains("custom_key") || rendered.contains("custom_val"),
         "user metadata pretty-printed"
     );
-    assert!(rendered.contains("provenance"), "provenance section visible");
+    assert!(
+        rendered.contains("provenance"),
+        "provenance section visible"
+    );
     assert!(rendered.contains("kb-source-fs"), "agent rendered");
     assert!(rendered.contains("blocks"), "blocks section visible");
     assert!(rendered.contains("Heading L1"), "block describe rendered");
@@ -319,10 +315,16 @@ fn chunk_view_renders_text_and_block_ids() {
         s.chunk = Some(make_chunk());
     }
     let rendered = render_to_string(&app, 100, 40);
-    assert!(rendered.contains("md-heading-v1"), "chunker_version rendered");
+    assert!(
+        rendered.contains("md-heading-v1"),
+        "chunker_version rendered"
+    );
     assert!(rendered.contains("Top / Sub"), "heading_path joined");
     assert!(rendered.contains("Line 1-5"), "source span described");
-    assert!(rendered.contains("chunk body line one"), "text body rendered");
+    assert!(
+        rendered.contains("chunk body line one"),
+        "text body rendered"
+    );
     assert!(
         rendered.contains("embeddings (2)"),
         "block_id count rendered inline on embeddings header"
@@ -343,8 +345,7 @@ fn inspect_doc_header_shows_stale_badge_when_threshold_exceeded() {
         s.target = Some(InspectTarget::Doc(DocumentId("d".repeat(32))));
         let mut doc = make_doc();
         // Backdate updated_at by 60 days so 60d > 30d threshold.
-        doc.metadata.updated_at =
-            OffsetDateTime::now_utc() - time::Duration::days(60);
+        doc.metadata.updated_at = OffsetDateTime::now_utc() - time::Duration::days(60);
         s.doc = Some(doc);
     }
     let rendered = render_to_string(&app, 100, 40);
@@ -372,8 +373,7 @@ fn inspect_doc_header_omits_stale_badge_when_fresh() {
         s.target = Some(InspectTarget::Doc(DocumentId("d".repeat(32))));
         let mut doc = make_doc();
         // 1 day old — under the 30d threshold.
-        doc.metadata.updated_at =
-            OffsetDateTime::now_utc() - time::Duration::days(1);
+        doc.metadata.updated_at = OffsetDateTime::now_utc() - time::Duration::days(1);
         s.doc = Some(doc);
     }
     let rendered = render_to_string(&app, 100, 40);
@@ -393,8 +393,7 @@ fn inspect_doc_header_omits_stale_badge_when_threshold_zero() {
         s.target = Some(InspectTarget::Doc(DocumentId("d".repeat(32))));
         let mut doc = make_doc();
         // Even a year-old doc must not get [STALE] when threshold = 0.
-        doc.metadata.updated_at =
-            OffsetDateTime::now_utc() - time::Duration::days(365);
+        doc.metadata.updated_at = OffsetDateTime::now_utc() - time::Duration::days(365);
         s.doc = Some(doc);
     }
     let rendered = render_to_string(&app, 100, 40);
@@ -410,10 +409,7 @@ fn no_inspect_state_returns_to_library() {
     config.storage.data_dir = "/tmp/kebab-tui-inspect-tests-noop".into();
     let mut app = App::new(config).unwrap();
     app.focus = Pane::Inspect;
-    let outcome = handle_key_inspect(
-        &mut app,
-        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-    );
+    let outcome = handle_key_inspect(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert_eq!(outcome, KeyOutcome::SwitchPane(Pane::Library));
 }
 

@@ -113,7 +113,14 @@ pub(crate) fn build_chunk(
         symbol: Some(symbol.to_string()),
         lang: Some(lang.to_string()),
     };
-    build_chunk_from_span(doc, chunker_version, base_policy_hash, text, span, split_key)
+    build_chunk_from_span(
+        doc,
+        chunker_version,
+        base_policy_hash,
+        text,
+        span,
+        split_key,
+    )
 }
 
 /// Like `build_chunk` but emits `symbol: None`. Used by Tier 3 (per spec §9.3).

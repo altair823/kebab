@@ -73,8 +73,12 @@ fn multi_hop_decide_stop_triggers_synthesize() {
     ]));
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
-    let pipeline =
-        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(
+        env.config.clone(),
+        retriever_dyn,
+        lm_dyn,
+        env.sqlite.clone(),
+    );
 
     let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
 
@@ -136,8 +140,12 @@ fn multi_hop_decide_continue_adds_more_chunks() {
     ]));
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
-    let pipeline =
-        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(
+        env.config.clone(),
+        retriever_dyn,
+        lm_dyn,
+        env.sqlite.clone(),
+    );
 
     let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
 
@@ -159,7 +167,11 @@ fn multi_hop_decide_continue_adds_more_chunks() {
     );
 
     let hops = answer.hops.expect("happy path stamps hops");
-    assert_eq!(hops.len(), 4, "[Decompose, Decide(continue), Decide(stop), Synthesize]");
+    assert_eq!(
+        hops.len(),
+        4,
+        "[Decompose, Decide(continue), Decide(stop), Synthesize]"
+    );
     assert_eq!(hops[0].kind, HopKind::Decompose);
     assert_eq!(hops[1].kind, HopKind::Decide);
     assert_eq!(hops[1].sub_queries, vec!["q2"], "iter 1 decide emits q2");
@@ -199,10 +211,7 @@ fn multi_hop_max_depth_force_stops() {
     // Only 2 LLM calls scripted — decompose + synthesize. If the
     // pipeline tries to call decide (a bug), ScriptedLm panics on
     // exhaustion and the test fails loudly with the call index.
-    let lm = Arc::new(ScriptedLm::new(vec![
-        r#"["q1"]"#,
-        "answer [#1]",
-    ]));
+    let lm = Arc::new(ScriptedLm::new(vec![r#"["q1"]"#, "answer [#1]"]));
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
     let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone());
@@ -218,7 +227,11 @@ fn multi_hop_max_depth_force_stops() {
     assert_eq!(retriever_handle.calls(), 2, "probe + 1 decompose retrieve");
 
     let hops = answer.hops.expect("happy path stamps hops");
-    assert_eq!(hops.len(), 3, "[Decompose, Decide(forced_stop), Synthesize]");
+    assert_eq!(
+        hops.len(),
+        3,
+        "[Decompose, Decide(forced_stop), Synthesize]"
+    );
     assert_eq!(hops[1].kind, HopKind::Decide);
     assert!(
         hops[1].forced_stop,
@@ -260,8 +273,12 @@ fn multi_hop_pool_chunks_dedup_by_chunk_id() {
     ]));
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
-    let pipeline =
-        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(
+        env.config.clone(),
+        retriever_dyn,
+        lm_dyn,
+        env.sqlite.clone(),
+    );
 
     let answer = pipeline.ask("q", multi_hop_opts()).unwrap();
 
@@ -277,11 +294,7 @@ fn multi_hop_pool_chunks_dedup_by_chunk_id() {
     );
     assert_eq!(answer.citations.len(), 1, "only one chunk cited as [#1]");
     assert_eq!(answer.citations[0].marker.as_deref(), Some("[1]"));
-    assert_eq!(
-        lm_handle.calls(),
-        3,
-        "decompose + decide + synthesize = 3"
-    );
+    assert_eq!(lm_handle.calls(), 3, "decompose + decide + synthesize = 3");
 
     let hops = answer.hops.expect("happy path stamps hops");
     assert_eq!(hops.len(), 3, "[Decompose, Decide, Synthesize]");
@@ -316,8 +329,12 @@ fn multi_hop_decide_parse_failure_falls_through_to_synthesize() {
     ]));
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
-    let pipeline =
-        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(
+        env.config.clone(),
+        retriever_dyn,
+        lm_dyn,
+        env.sqlite.clone(),
+    );
 
     let answer = pipeline.ask("q", multi_hop_opts()).unwrap();
 
@@ -337,7 +354,11 @@ fn multi_hop_decide_parse_failure_falls_through_to_synthesize() {
     );
 
     let hops = answer.hops.expect("happy path stamps hops");
-    assert_eq!(hops.len(), 3, "[Decompose, Decide(parse-fail→stop), Synthesize]");
+    assert_eq!(
+        hops.len(),
+        3,
+        "[Decompose, Decide(parse-fail→stop), Synthesize]"
+    );
     assert_eq!(hops[1].kind, HopKind::Decide);
     assert!(
         hops[1].sub_queries.is_empty(),
@@ -383,8 +404,12 @@ fn multi_hop_refuse_no_chunks_preserves_hops_trace() {
     let lm = Arc::new(ScriptedLm::new(vec![r#"["q1"]"#]));
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
-    let pipeline =
-        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(
+        env.config.clone(),
+        retriever_dyn,
+        lm_dyn,
+        env.sqlite.clone(),
+    );
 
     let answer = pipeline.ask("q", multi_hop_opts()).unwrap();
 
@@ -395,7 +420,11 @@ fn multi_hop_refuse_no_chunks_preserves_hops_trace() {
         2,
         "probe (passes) + 1 decompose-driven retrieve (empty)"
     );
-    assert_eq!(lm_handle.calls(), 1, "decompose only — decide skipped (empty pool), no synthesize");
+    assert_eq!(
+        lm_handle.calls(),
+        1,
+        "decompose only — decide skipped (empty pool), no synthesize"
+    );
 
     let hops = answer
         .hops
@@ -433,23 +462,44 @@ fn multi_hop_refuse_score_gate_preserves_hops_trace() {
     let (low_cid, low_did) = seed_low_score_chunk(&env);
     let high_cid = id32("c_high");
     let high_did = id32("d_high");
-    env.seed_chunk(&high_cid, &high_did, "notes/high.md", "high score body", &["High"]);
+    env.seed_chunk(
+        &high_cid,
+        &high_did,
+        "notes/high.md",
+        "high score body",
+        &["High"],
+    );
 
-    let probe_hits = vec![mk_hit(1, &high_cid, &high_did, "notes/high.md", 0.85, &["High"])];
-    let decompose_hits = vec![mk_hit(1, &low_cid, &low_did, "notes/low.md", 0.10, &["Low"])];
+    let probe_hits = vec![mk_hit(
+        1,
+        &high_cid,
+        &high_did,
+        "notes/high.md",
+        0.85,
+        &["High"],
+    )];
+    let decompose_hits = vec![mk_hit(
+        1,
+        &low_cid,
+        &low_did,
+        "notes/low.md",
+        0.10,
+        &["Low"],
+    )];
     let retriever = Arc::new(ScriptedRetriever::new(vec![probe_hits, decompose_hits]));
     let retriever_dyn: Arc<dyn Retriever> = retriever;
 
     // decompose + decide (pool not empty so decide fires) — synthesize
     // never runs because we refuse before pack_context.
-    let lm = Arc::new(ScriptedLm::new(vec![
-        r#"["q1"]"#,
-        r"[]",
-    ]));
+    let lm = Arc::new(ScriptedLm::new(vec![r#"["q1"]"#, r"[]"]));
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
-    let pipeline =
-        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(
+        env.config.clone(),
+        retriever_dyn,
+        lm_dyn,
+        env.sqlite.clone(),
+    );
 
     let answer = pipeline.ask("q", multi_hop_opts()).unwrap();
 
@@ -517,10 +567,16 @@ fn multi_hop_below_probe_gate_refuses_before_any_llm_call() {
     let lm = Arc::new(ScriptedLm::new(vec![]));
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
-    let pipeline =
-        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(
+        env.config.clone(),
+        retriever_dyn,
+        lm_dyn,
+        env.sqlite.clone(),
+    );
 
-    let answer = pipeline.ask("out-of-corpus query", multi_hop_opts()).unwrap();
+    let answer = pipeline
+        .ask("out-of-corpus query", multi_hop_opts())
+        .unwrap();
 
     assert!(!answer.grounded);
     assert_eq!(answer.refusal_reason, Some(RefusalReason::ScoreGate));
@@ -554,8 +610,12 @@ fn multi_hop_empty_probe_pool_refuses_before_any_llm_call() {
     let lm = Arc::new(ScriptedLm::new(vec![]));
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
-    let pipeline =
-        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(
+        env.config.clone(),
+        retriever_dyn,
+        lm_dyn,
+        env.sqlite.clone(),
+    );
 
     let answer = pipeline.ask("q", multi_hop_opts()).unwrap();
 
@@ -592,15 +652,15 @@ fn multi_hop_above_probe_gate_proceeds_to_decompose() {
     let retriever_handle = retriever.clone();
     let retriever_dyn: Arc<dyn Retriever> = retriever;
 
-    let lm = Arc::new(ScriptedLm::new(vec![
-        r#"["q1"]"#,
-        r"[]",
-        "answer [#1]",
-    ]));
+    let lm = Arc::new(ScriptedLm::new(vec![r#"["q1"]"#, r"[]", "answer [#1]"]));
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
-    let pipeline =
-        RagPipeline::new(env.config.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(
+        env.config.clone(),
+        retriever_dyn,
+        lm_dyn,
+        env.sqlite.clone(),
+    );
 
     let answer = pipeline.ask("valid query", multi_hop_opts()).unwrap();
 
@@ -666,9 +726,8 @@ fn multi_hop_nli_pass_keeps_grounded() {
     let verifier = MockNliVerifier::pass();
     let verifier_handle = verifier.clone();
     let verifier_dyn: Arc<dyn NliVerifier> = verifier;
-    let pipeline =
-        RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
-            .with_verifier(verifier_dyn);
+    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+        .with_verifier(verifier_dyn);
 
     let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
 
@@ -698,9 +757,8 @@ fn multi_hop_nli_fail_refuses() {
     let verifier = MockNliVerifier::fail();
     let verifier_handle = verifier.clone();
     let verifier_dyn: Arc<dyn NliVerifier> = verifier;
-    let pipeline =
-        RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
-            .with_verifier(verifier_dyn);
+    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+        .with_verifier(verifier_dyn);
 
     let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
 
@@ -732,8 +790,7 @@ fn multi_hop_nli_disabled_skip_verify() {
     let retriever_dyn: Arc<dyn Retriever> = retriever;
     let lm_dyn: Arc<dyn LanguageModel> = lm;
     // No `with_verifier` call — pipeline.verifier stays None.
-    let pipeline =
-        RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone());
 
     let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
 
@@ -756,9 +813,8 @@ fn multi_hop_nli_model_unavailable_refuses() {
     let verifier = MockNliVerifier::err();
     let verifier_handle = verifier.clone();
     let verifier_dyn: Arc<dyn NliVerifier> = verifier;
-    let pipeline =
-        RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
-            .with_verifier(verifier_dyn);
+    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+        .with_verifier(verifier_dyn);
 
     let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
 
@@ -767,7 +823,11 @@ fn multi_hop_nli_model_unavailable_refuses() {
         answer.refusal_reason,
         Some(RefusalReason::NliModelUnavailable)
     );
-    assert_eq!(verifier_handle.calls(), 1, "verifier was invoked once before failing");
+    assert_eq!(
+        verifier_handle.calls(),
+        1,
+        "verifier was invoked once before failing"
+    );
     assert!(
         answer.verification.is_none(),
         "NliModelUnavailable: can't summarize a verification that didn't happen"

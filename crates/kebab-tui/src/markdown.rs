@@ -203,19 +203,13 @@ pub fn render(text: &str, theme: &Theme) -> Vec<Line<'static>> {
                 // Render raw HTML as text — terminal can't display
                 // tags. Use Hint role so it visually distinguishes
                 // from user-written prose.
-                current.push(Span::styled(
-                    h.into_string(),
-                    theme.style(Role::Hint),
-                ));
+                current.push(Span::styled(h.into_string(), theme.style(Role::Hint)));
             }
             Event::InlineMath(s) | Event::DisplayMath(s) => {
                 // No LaTeX rendering in a terminal v1, but preserve
                 // the source so the answer's math still reaches the
                 // user as readable text instead of vanishing.
-                current.push(Span::styled(
-                    s.into_string(),
-                    theme.style(Role::Hint),
-                ));
+                current.push(Span::styled(s.into_string(), theme.style(Role::Hint)));
             }
             Event::FootnoteReference(label) => {
                 // Render as `[^label]` so the footnote anchor is
@@ -411,7 +405,10 @@ mod tests {
             .flat_map(|l| l.spans.iter())
             .filter(|s| s.style.add_modifier.contains(Modifier::ITALIC))
             .collect();
-        assert!(!italic_spans.is_empty(), "expected at least one ITALIC span");
+        assert!(
+            !italic_spans.is_empty(),
+            "expected at least one ITALIC span"
+        );
         let combined: String = italic_spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(combined, "hi");
     }
@@ -604,7 +601,10 @@ mod tests {
         let lines = render(md, &theme());
         let texts: Vec<String> = lines.iter().map(line_text).collect();
         let heading_idx = texts.iter().position(|t| t.contains("Goal")).unwrap();
-        let para_idx = texts.iter().position(|t| t.contains("Description")).unwrap();
+        let para_idx = texts
+            .iter()
+            .position(|t| t.contains("Description"))
+            .unwrap();
         let alpha_idx = texts.iter().position(|t| t.contains("alpha")).unwrap();
         let code_idx = texts.iter().position(|t| t.contains("let x = 1;")).unwrap();
         assert!(heading_idx < para_idx);

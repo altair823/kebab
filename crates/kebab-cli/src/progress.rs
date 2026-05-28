@@ -124,11 +124,9 @@ impl ProgressDisplay {
                     bar.set_length(u64::from(*total));
                     bar.set_position(0);
                     bar.set_style(
-                        ProgressStyle::with_template(
-                            "ingest [{bar:30}] {pos}/{len} {wide_msg}",
-                        )
-                        .unwrap()
-                        .progress_chars("=> "),
+                        ProgressStyle::with_template("ingest [{bar:30}] {pos}/{len} {wide_msg}")
+                            .unwrap()
+                            .progress_chars("=> "),
                     );
                     bar.set_message("");
                 }
@@ -170,11 +168,7 @@ impl ProgressDisplay {
                     let _ = writeln!(
                         err,
                         "ingest: complete (scanned={} new={} updated={} skipped={} errors={})",
-                        counts.scanned,
-                        counts.new,
-                        counts.updated,
-                        counts.skipped,
-                        counts.errors,
+                        counts.scanned, counts.new, counts.updated, counts.skipped, counts.errors,
                     );
                 }
             }
@@ -193,11 +187,7 @@ impl ProgressDisplay {
                     let _ = writeln!(
                         err,
                         "ingest: aborted (scanned={} new={} updated={} skipped={} errors={})",
-                        counts.scanned,
-                        counts.new,
-                        counts.updated,
-                        counts.skipped,
-                        counts.errors,
+                        counts.scanned, counts.new, counts.updated, counts.skipped, counts.errors,
                     );
                 }
             }
@@ -210,13 +200,26 @@ impl ProgressDisplay {
                     let _ = writeln!(err, "  📷 OCR page {page}...");
                 }
             }
-            IngestEvent::PdfOcrFinished { page, ms, chars, ocr_engine, skipped, .. } => {
+            IngestEvent::PdfOcrFinished {
+                page,
+                ms,
+                chars,
+                ocr_engine,
+                skipped,
+                ..
+            } => {
                 if !quiet {
                     let mut err = std::io::stderr().lock();
                     if *skipped {
-                        let _ = writeln!(err, "  ⊘ OCR page {page} skipped (no DCTDecode or engine fail, {ms}ms)");
+                        let _ = writeln!(
+                            err,
+                            "  ⊘ OCR page {page} skipped (no DCTDecode or engine fail, {ms}ms)"
+                        );
                     } else {
-                        let _ = writeln!(err, "  ✓ OCR page {page} ({chars} chars, {ms}ms via {ocr_engine})");
+                        let _ = writeln!(
+                            err,
+                            "  ✓ OCR page {page} ({chars} chars, {ms}ms via {ocr_engine})"
+                        );
                     }
                 }
             }
@@ -250,7 +253,10 @@ mod tests {
 
     #[test]
     fn from_flags_json_takes_priority_over_tty() {
-        assert_eq!(ProgressMode::from_flags(true, false, false), ProgressMode::Json);
+        assert_eq!(
+            ProgressMode::from_flags(true, false, false),
+            ProgressMode::Json
+        );
     }
 
     #[test]

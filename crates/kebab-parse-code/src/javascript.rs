@@ -293,7 +293,8 @@ fn build_blocks(
                         let inner_kind = inner.kind();
                         match inner_kind {
                             "function_declaration" | "class_declaration" => {
-                                let name_opt = name_text(&inner, src).map(std::string::ToString::to_string);
+                                let name_opt =
+                                    name_text(&inner, src).map(std::string::ToString::to_string);
                                 if let Some(name) = name_opt {
                                     glue.retain(|(_, gs, _)| *gs < outer_s);
                                     flush_glue(glue, units, mod_prefix, mod_path);
@@ -332,9 +333,9 @@ fn build_blocks(
                             | "function_declaration"
                             | "class"
                             | "class_declaration" => {
-                                let name_opt = name_text(&value, src).map(std::string::ToString::to_string);
-                                let leaf =
-                                    name_opt.as_deref().unwrap_or("default").to_string();
+                                let name_opt =
+                                    name_text(&value, src).map(std::string::ToString::to_string);
+                                let leaf = name_opt.as_deref().unwrap_or("default").to_string();
                                 glue.retain(|(_, gs, _)| *gs < outer_s);
                                 flush_glue(glue, units, mod_prefix, mod_path);
                                 let sym = join_symbol(mod_prefix, mod_path, &leaf);
@@ -383,7 +384,11 @@ fn build_blocks(
         let s = glue.iter().map(|(_, a, _)| *a).min().unwrap();
         let e = glue.iter().map(|(_, _, b)| *b).max().unwrap();
         let only_module = glue.iter().all(|(is_mod, _, _)| *is_mod == 1);
-        let label = if only_module { "<module>" } else { "<top-level>" };
+        let label = if only_module {
+            "<module>"
+        } else {
+            "<top-level>"
+        };
         units.push((join_symbol(mod_prefix, mod_path, label), s, e, false));
         glue.clear();
     }
@@ -442,9 +447,10 @@ mod tests {
     use kebab_core::{Block, MediaType, SourceSpan};
 
     fn extract_fixture(workspace_path: &str) -> kebab_core::CanonicalDocument {
-        let bytes = std::fs::read(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/sample.js"),
-        )
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/sample.js"
+        ))
         .unwrap();
         let asset = crate::rust::tests_support::fixed_code_asset(workspace_path, "javascript");
         let cfg = kebab_core::ExtractConfig::default();

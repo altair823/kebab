@@ -36,10 +36,16 @@ pub use frontmatter::{BodyHints, FrontmatterSpan, parse_frontmatter};
 // Spec §3.3 의 surface 보존 정책 — explicit (NOT glob) 으로 future addition leak 방지.
 pub use crate::normalize::{build_canonical_document, derive_title};
 pub use crate::types::{
+    ParsedAudioSegment,
     // 5 사용 type
-    ParsedBlock, ParsedBlockKind, ParsedPayload, Warning, WarningKind,
+    ParsedBlock,
+    ParsedBlockKind,
     // 3 forward-declared struct (보존 — spec §3.3 + §11.5 future surface)
-    ParsedImageRegion, ParsedPdfPage, ParsedAudioSegment,
+    ParsedImageRegion,
+    ParsedPayload,
+    ParsedPdfPage,
+    Warning,
+    WarningKind,
 };
 
 /// Parser-version label for Markdown files ingested through this crate.

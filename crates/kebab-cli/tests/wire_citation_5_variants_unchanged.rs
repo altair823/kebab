@@ -19,7 +19,10 @@ fn line_variant_serialization_unchanged() {
     assert_eq!(v["end"], 2);
     assert_eq!(v["section"], "§14");
     // Must not bleed Code-variant keys.
-    assert!(v.get("line_start").is_none(), "line_start must be absent: {v}");
+    assert!(
+        v.get("line_start").is_none(),
+        "line_start must be absent: {v}"
+    );
     assert!(v.get("symbol").is_none(), "symbol must be absent: {v}");
     assert!(v.get("code").is_none(), "code must be absent: {v}");
 }
@@ -48,7 +51,10 @@ fn page_variant_serialization_unchanged() {
     let v = serde_json::to_value(&c).unwrap();
     assert_eq!(v["kind"], "page");
     assert_eq!(v["page"], 13);
-    assert!(v.get("line_start").is_none(), "line_start must be absent: {v}");
+    assert!(
+        v.get("line_start").is_none(),
+        "line_start must be absent: {v}"
+    );
     assert!(v.get("symbol").is_none(), "symbol must be absent: {v}");
 }
 
@@ -67,7 +73,10 @@ fn region_variant_serialization_unchanged() {
     assert_eq!(v["y"], 20);
     assert_eq!(v["w"], 100);
     assert_eq!(v["h"], 200);
-    assert!(v.get("line_start").is_none(), "line_start must be absent: {v}");
+    assert!(
+        v.get("line_start").is_none(),
+        "line_start must be absent: {v}"
+    );
 }
 
 #[test]
@@ -79,7 +88,10 @@ fn caption_variant_serialization_unchanged() {
     let v = serde_json::to_value(&c).unwrap();
     assert_eq!(v["kind"], "caption");
     assert_eq!(v["model"], "qwen2.5-vl:7b");
-    assert!(v.get("line_start").is_none(), "line_start must be absent: {v}");
+    assert!(
+        v.get("line_start").is_none(),
+        "line_start must be absent: {v}"
+    );
 }
 
 #[test]
@@ -95,6 +107,9 @@ fn time_variant_serialization_unchanged() {
     assert_eq!(v["start_ms"], 1000);
     assert_eq!(v["end_ms"], 5000);
     assert_eq!(v["speaker"], "Alice");
-    assert!(v.get("line_start").is_none(), "line_start must be absent: {v}");
+    assert!(
+        v.get("line_start").is_none(),
+        "line_start must be absent: {v}"
+    );
     assert!(v.get("symbol").is_none(), "symbol must be absent: {v}");
 }

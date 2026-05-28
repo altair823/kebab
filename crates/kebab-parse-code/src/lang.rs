@@ -57,16 +57,25 @@ mod tests {
 
     #[test]
     fn module_path_for_python_strips_src_roots_and_extensions() {
-        assert_eq!(module_path_for_python("kebab_eval/metrics.py"),       "kebab_eval.metrics");
-        assert_eq!(module_path_for_python("kebab_eval/__init__.py"),      "kebab_eval");
-        assert_eq!(module_path_for_python("src/foo/bar.py"),              "foo.bar");
-        assert_eq!(module_path_for_python("crates/x/src/foo/bar.py"),     "foo.bar");
-        assert_eq!(module_path_for_python("a/b/c.pyi"),                   "a.b.c");
-        assert_eq!(module_path_for_python("standalone.py"),               "standalone");
-        assert_eq!(module_path_for_python("src/__init__.py"),             "");
+        assert_eq!(
+            module_path_for_python("kebab_eval/metrics.py"),
+            "kebab_eval.metrics"
+        );
+        assert_eq!(
+            module_path_for_python("kebab_eval/__init__.py"),
+            "kebab_eval"
+        );
+        assert_eq!(module_path_for_python("src/foo/bar.py"), "foo.bar");
+        assert_eq!(module_path_for_python("crates/x/src/foo/bar.py"), "foo.bar");
+        assert_eq!(module_path_for_python("a/b/c.pyi"), "a.b.c");
+        assert_eq!(module_path_for_python("standalone.py"), "standalone");
+        assert_eq!(module_path_for_python("src/__init__.py"), "");
         // `tests/` is NOT a stripped source-root — it is preserved as
         // part of the module path so test symbols stay namespaced.
-        assert_eq!(module_path_for_python("tests/test_foo.py"),           "tests.test_foo");
+        assert_eq!(
+            module_path_for_python("tests/test_foo.py"),
+            "tests.test_foo"
+        );
     }
 
     #[test]
@@ -75,8 +84,11 @@ mod tests {
             let p = format!("src/search/retriever/Retriever.{ext}");
             assert_eq!(module_path_for_tsjs(&p), "src/search/retriever/Retriever");
         }
-        assert_eq!(module_path_for_tsjs("foo.ts"),                 "foo");
-        assert_eq!(module_path_for_tsjs("a/b/c.ts"),               "a/b/c");
-        assert_eq!(module_path_for_tsjs("packages/x/src/Foo.ts"),  "packages/x/src/Foo");
+        assert_eq!(module_path_for_tsjs("foo.ts"), "foo");
+        assert_eq!(module_path_for_tsjs("a/b/c.ts"), "a/b/c");
+        assert_eq!(
+            module_path_for_tsjs("packages/x/src/Foo.ts"),
+            "packages/x/src/Foo"
+        );
     }
 }

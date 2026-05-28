@@ -23,12 +23,10 @@ fn search_json_emits_search_response_v1_wrapper() {
     fs::write(workspace.join("a.md"), "# T\n\napples are red.\n").unwrap();
     common::ingest(&cfg, &workspace);
 
-    let (stdout, _stderr) = common::run_search_with_args(
-        &cfg,
-        &["--json", "--mode", "lexical", "apples"],
-    );
-    let v: Value = serde_json::from_str(stdout.trim())
-        .unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
+    let (stdout, _stderr) =
+        common::run_search_with_args(&cfg, &["--json", "--mode", "lexical", "apples"]);
+    let v: Value =
+        serde_json::from_str(stdout.trim()).unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
     assert_eq!(v["schema_version"], "search_response.v1");
     assert!(v["hits"].is_array(), "hits must be array, got {v}");
     assert!(
@@ -67,8 +65,8 @@ fn search_json_truncates_with_max_tokens() {
         &cfg,
         &["--json", "--mode", "lexical", "--max-tokens", "30", "rust"],
     );
-    let v: Value = serde_json::from_str(stdout.trim())
-        .unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
+    let v: Value =
+        serde_json::from_str(stdout.trim()).unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
     assert_eq!(
         v["truncated"], true,
         "30-token cap must trip truncation: {v}"
@@ -88,10 +86,8 @@ fn search_json_cursor_paginates() {
     }
     common::ingest(&cfg, &workspace);
 
-    let (page1, _) = common::run_search_with_args(
-        &cfg,
-        &["--json", "--mode", "lexical", "--k", "2", "rust"],
-    );
+    let (page1, _) =
+        common::run_search_with_args(&cfg, &["--json", "--mode", "lexical", "--k", "2", "rust"]);
     let v1: Value = serde_json::from_str(page1.trim())
         .unwrap_or_else(|e| panic!("page1 not JSON: {page1:?}: {e}"));
     let cursor = v1["next_cursor"]
@@ -101,14 +97,7 @@ fn search_json_cursor_paginates() {
     let (page2, _) = common::run_search_with_args(
         &cfg,
         &[
-            "--json",
-            "--mode",
-            "lexical",
-            "--k",
-            "2",
-            "--cursor",
-            cursor,
-            "rust",
+            "--json", "--mode", "lexical", "--k", "2", "--cursor", cursor, "rust",
         ],
     );
     let v2: Value = serde_json::from_str(page2.trim())
@@ -118,23 +107,13 @@ fn search_json_cursor_paginates() {
         .as_array()
         .expect("page1 hits array")
         .iter()
-        .map(|h| {
-            h["chunk_id"]
-                .as_str()
-                .expect("chunk_id string")
-                .to_string()
-        })
+        .map(|h| h["chunk_id"].as_str().expect("chunk_id string").to_string())
         .collect();
     let p2_ids: Vec<String> = v2["hits"]
         .as_array()
         .expect("page2 hits array")
         .iter()
-        .map(|h| {
-            h["chunk_id"]
-                .as_str()
-                .expect("chunk_id string")
-                .to_string()
-        })
+        .map(|h| h["chunk_id"].as_str().expect("chunk_id string").to_string())
         .collect();
     assert!(
         !p2_ids.is_empty(),
@@ -161,10 +140,8 @@ fn search_stale_cursor_returns_error_v1_with_stale_cursor_code() {
     common::ingest(&cfg, &workspace);
 
     // Get a valid cursor first.
-    let (page1_stdout, _) = common::run_search_with_args(
-        &cfg,
-        &["--mode", "lexical", "--json", "--k", "1", "apples"],
-    );
+    let (page1_stdout, _) =
+        common::run_search_with_args(&cfg, &["--mode", "lexical", "--json", "--k", "1", "apples"]);
     let v1: Value = serde_json::from_str(page1_stdout.trim()).expect("json");
     let cursor = v1["next_cursor"]
         .as_str()
@@ -181,16 +158,8 @@ fn search_stale_cursor_returns_error_v1_with_stale_cursor_code() {
     let cfg_str = cfg.to_str().expect("utf8");
     let out = std::process::Command::new(exe)
         .args([
-            "--config",
-            cfg_str,
-            "--json",
-            "search",
-            "--mode",
-            "lexical",
-            "--json",
-            "--cursor",
-            &cursor,
-            "apples",
+            "--config", cfg_str, "--json", "search", "--mode", "lexical", "--json", "--cursor",
+            &cursor, "apples",
         ])
         .output()
         .expect("kebab search --cursor");
@@ -234,10 +203,8 @@ fn search_plain_emits_truncated_hint_to_stderr() {
     }
     common::ingest(&cfg, &workspace);
 
-    let (_stdout, stderr) = common::run_search_with_args(
-        &cfg,
-        &["--mode", "lexical", "--max-tokens", "30", "rust"],
-    );
+    let (_stdout, stderr) =
+        common::run_search_with_args(&cfg, &["--mode", "lexical", "--max-tokens", "30", "rust"]);
     assert!(
         stderr.contains("[truncated;"),
         "stderr must carry truncated hint: {stderr:?}"
@@ -254,10 +221,7 @@ fn search_plain_emits_short_query_hint_to_stderr() {
     let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
     common::ingest(&cfg, &workspace);
 
-    let (_stdout, stderr) = common::run_search_with_args(
-        &cfg,
-        &["--mode", "lexical", "ab"],
-    );
+    let (_stdout, stderr) = common::run_search_with_args(&cfg, &["--mode", "lexical", "ab"]);
     assert!(
         stderr.contains("[hint]"),
         "stderr must carry short-query hint: {stderr:?}"
@@ -278,18 +242,18 @@ fn search_json_emits_hint_field_for_short_query() {
     let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
     common::ingest(&cfg, &workspace);
 
-    let (stdout, _stderr) = common::run_search_with_args(
-        &cfg,
-        &["--json", "--mode", "lexical", "ab"],
-    );
-    let v: Value = serde_json::from_str(stdout.trim())
-        .unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
+    let (stdout, _stderr) =
+        common::run_search_with_args(&cfg, &["--json", "--mode", "lexical", "ab"]);
+    let v: Value =
+        serde_json::from_str(stdout.trim()).unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
     assert!(
         v["hits"].as_array().unwrap().is_empty(),
         "empty hits expected for short query in empty KB: {v}"
     );
     assert_eq!(
-        v["hint"].as_str().expect("hint field set on short empty result"),
+        v["hint"]
+            .as_str()
+            .expect("hint field set on short empty result"),
         "3자 이상 키워드 권장 (trigram tokenizer 제약)",
         "hint must carry the standard advisory: {v}"
     );
@@ -305,12 +269,10 @@ fn search_json_omits_hint_field_when_query_is_long_enough() {
     let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
     common::ingest(&cfg, &workspace);
 
-    let (stdout, _stderr) = common::run_search_with_args(
-        &cfg,
-        &["--json", "--mode", "lexical", "abc"],
-    );
-    let v: Value = serde_json::from_str(stdout.trim())
-        .unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
+    let (stdout, _stderr) =
+        common::run_search_with_args(&cfg, &["--json", "--mode", "lexical", "abc"]);
+    let v: Value =
+        serde_json::from_str(stdout.trim()).unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
     assert!(
         v.get("hint").is_none(),
         "hint must be absent for ≥3-char queries: {v}"

@@ -23,16 +23,10 @@ fn fresh_app(focus: Pane) -> App {
 fn f1_toggles_cheatsheet_visibility() {
     let mut app = fresh_app(Pane::Library);
     assert!(!app.cheatsheet_visible(), "starts hidden");
-    let consumed = cheatsheet_intercept(
-        &mut app,
-        KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE),
-    );
+    let consumed = cheatsheet_intercept(&mut app, KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE));
     assert!(consumed, "F1 must be consumed");
     assert!(app.cheatsheet_visible(), "F1 opens");
-    let consumed = cheatsheet_intercept(
-        &mut app,
-        KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE),
-    );
+    let consumed = cheatsheet_intercept(&mut app, KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE));
     assert!(consumed, "second F1 also consumed");
     assert!(!app.cheatsheet_visible(), "F1 closes when open");
 }
@@ -44,22 +38,13 @@ fn f1_toggles_cheatsheet_visibility() {
 fn esc_closes_cheatsheet_when_visible_otherwise_falls_through() {
     let mut app = fresh_app(Pane::Library);
     // Hidden → Esc falls through.
-    let consumed = cheatsheet_intercept(
-        &mut app,
-        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-    );
+    let consumed = cheatsheet_intercept(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(!consumed, "Esc with cheatsheet hidden must fall through");
 
     // Visible → Esc closes + consumed.
-    let _ = cheatsheet_intercept(
-        &mut app,
-        KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE),
-    );
+    let _ = cheatsheet_intercept(&mut app, KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE));
     assert!(app.cheatsheet_visible());
-    let consumed = cheatsheet_intercept(
-        &mut app,
-        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-    );
+    let consumed = cheatsheet_intercept(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(consumed, "Esc with cheatsheet visible must consume");
     assert!(!app.cheatsheet_visible());
 }
@@ -76,10 +61,7 @@ fn modifier_keys_do_not_toggle_cheatsheet() {
     assert!(!consumed);
     assert!(!app.cheatsheet_visible());
 
-    let consumed = cheatsheet_intercept(
-        &mut app,
-        KeyEvent::new(KeyCode::F(1), KeyModifiers::ALT),
-    );
+    let consumed = cheatsheet_intercept(&mut app, KeyEvent::new(KeyCode::F(1), KeyModifiers::ALT));
     assert!(!consumed);
     assert!(!app.cheatsheet_visible());
 }
@@ -90,10 +72,7 @@ fn modifier_keys_do_not_toggle_cheatsheet() {
 #[test]
 fn arbitrary_key_falls_through_when_cheatsheet_visible() {
     let mut app = fresh_app(Pane::Library);
-    let _ = cheatsheet_intercept(
-        &mut app,
-        KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE),
-    );
+    let _ = cheatsheet_intercept(&mut app, KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE));
     assert!(app.cheatsheet_visible());
     for key in [
         KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
@@ -116,10 +95,7 @@ fn cheatsheet_popup_contains_global_and_pane_sections() {
     let mut app = fresh_app(Pane::Search);
     app.focus = Pane::Search;
     // Force visible — we're testing the renderer, not the toggle.
-    let _ = cheatsheet_intercept(
-        &mut app,
-        KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE),
-    );
+    let _ = cheatsheet_intercept(&mut app, KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE));
     let backend = TestBackend::new(120, 40);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal
@@ -138,7 +114,10 @@ fn cheatsheet_popup_contains_global_and_pane_sections() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(rendered.contains("Global"), "Global section header present");
-    assert!(rendered.contains("Library"), "Library section header present");
+    assert!(
+        rendered.contains("Library"),
+        "Library section header present"
+    );
     assert!(rendered.contains("Search"), "Search section header present");
     assert!(rendered.contains("Ask"), "Ask section header present");
     assert!(rendered.contains("F1"), "F1 binding listed");
@@ -149,7 +128,9 @@ fn cheatsheet_popup_contains_global_and_pane_sections() {
     // the Inspect assertion when the body overflows; the rest of
     // the section-header asserts still cover the primary contract.
     if !rendered.contains("Inspect") {
-        eprintln!("[note] Inspect section overflowed popup body — known limitation per p9-fb-21 HOTFIXES");
+        eprintln!(
+            "[note] Inspect section overflowed popup body — known limitation per p9-fb-21 HOTFIXES"
+        );
     }
     // The "currently focused: <pane>" line lives at the bottom of
     // the popup; it might get clipped if the popup's content
@@ -158,6 +139,8 @@ fn cheatsheet_popup_contains_global_and_pane_sections() {
     // the primary contract.
     let has_focused = rendered.contains("focused");
     if !has_focused {
-        eprintln!("[note] 'focused' line absent — likely body overflowed popup height; sections still pinned");
+        eprintln!(
+            "[note] 'focused' line absent — likely body overflowed popup height; sections still pinned"
+        );
     }
 }

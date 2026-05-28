@@ -24,8 +24,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 /// inspectable in stored DB rows.
 fn write_red_png(root: &Path, name: &str) -> std::path::PathBuf {
     use image::{ImageBuffer, Rgb};
-    let img: ImageBuffer<Rgb<u8>, _> =
-        ImageBuffer::from_fn(100, 50, |_, _| Rgb([255, 0, 0]));
+    let img: ImageBuffer<Rgb<u8>, _> = ImageBuffer::from_fn(100, 50, |_, _| Rgb([255, 0, 0]));
     let path = root.join(name);
     img.save(&path).expect("write PNG fixture");
     path
@@ -80,7 +79,12 @@ async fn ingest_image_with_ocr_produces_chunk_containing_ocr_text() {
 
     // Counters: scanned should include the PNG; new ≥ 1 (markdown
     // fixtures from the workspace tree may also count).
-    assert!(report.scanned >= 1, "scanned={}, items={:?}", report.scanned, report.items);
+    assert!(
+        report.scanned >= 1,
+        "scanned={}, items={:?}",
+        report.scanned,
+        report.items
+    );
     assert_eq!(report.errors, 0, "no errors on lenient OCR path");
 
     // Locate the image doc in the report items.
@@ -94,7 +98,11 @@ async fn ingest_image_with_ocr_produces_chunk_containing_ocr_text() {
         kebab_core::IngestItemKind::New,
         "image asset must be classified New on first ingest"
     );
-    assert_eq!(img_item.chunk_count, Some(1), "image emits exactly one chunk");
+    assert_eq!(
+        img_item.chunk_count,
+        Some(1),
+        "image emits exactly one chunk"
+    );
 
     // Inspect the stored chunk text via kb-app's inspect_chunk facade.
     let doc_id = img_item.doc_id.clone().expect("image doc id");
@@ -117,10 +125,12 @@ async fn ingest_image_with_ocr_produces_chunk_containing_ocr_text() {
 
     // Sanity: the doc was actually persisted into SQLite (kb-app's
     // list_docs facade reads the same store the chunker writes to).
-    let summaries = kebab_app::list_docs_with_config(cfg, kebab_core::DocFilter::default())
-        .expect("list_docs");
+    let summaries =
+        kebab_app::list_docs_with_config(cfg, kebab_core::DocFilter::default()).expect("list_docs");
     assert!(
-        summaries.iter().any(|s| s.doc_path.0.ends_with("diagram.png")),
+        summaries
+            .iter()
+            .any(|s| s.doc_path.0.ends_with("diagram.png")),
         "image doc must appear in list_docs"
     );
 
@@ -171,8 +181,7 @@ async fn ingest_image_with_ocr_and_caption_populates_both_fields() {
         .iter()
         .find(|i| i.doc_path.0.ends_with("diagram.png"))
         .unwrap();
-    let doc = kebab_app::inspect_doc_with_config(cfg, img_item.doc_id.as_ref().unwrap())
-        .unwrap();
+    let doc = kebab_app::inspect_doc_with_config(cfg, img_item.doc_id.as_ref().unwrap()).unwrap();
     let block = match &doc.blocks[0] {
         kebab_core::Block::ImageRef(b) => b,
         _ => unreachable!(),
@@ -267,8 +276,7 @@ async fn image_indexed_with_filename_when_ocr_and_caption_disabled() {
     let cfg_clone = cfg.clone();
     let scope = env.scope();
     let report = spawn_blocking(move || {
-        kebab_app::ingest_with_config(cfg_clone, scope, false)
-            .expect("ingest with no OCR/caption")
+        kebab_app::ingest_with_config(cfg_clone, scope, false).expect("ingest with no OCR/caption")
     })
     .await
     .expect("task");
@@ -282,8 +290,7 @@ async fn image_indexed_with_filename_when_ocr_and_caption_disabled() {
         .find(|i| i.doc_path.0.ends_with("raw.png"))
         .unwrap();
     assert_eq!(img_item.chunk_count, Some(1), "image emits one chunk");
-    let doc = kebab_app::inspect_doc_with_config(cfg, img_item.doc_id.as_ref().unwrap())
-        .unwrap();
+    let doc = kebab_app::inspect_doc_with_config(cfg, img_item.doc_id.as_ref().unwrap()).unwrap();
     let block = match &doc.blocks[0] {
         kebab_core::Block::ImageRef(b) => b,
         _ => unreachable!(),
@@ -392,16 +399,12 @@ async fn re_ingest_image_produces_unchanged_with_same_doc_id() {
     let scope1 = scope.clone();
     let scope2 = scope.clone();
 
-    let r1 = spawn_blocking(move || {
-        kebab_app::ingest_with_config(cfg1, scope1, false).unwrap()
-    })
-    .await
-    .unwrap();
-    let r2 = spawn_blocking(move || {
-        kebab_app::ingest_with_config(cfg2, scope2, false).unwrap()
-    })
-    .await
-    .unwrap();
+    let r1 = spawn_blocking(move || kebab_app::ingest_with_config(cfg1, scope1, false).unwrap())
+        .await
+        .unwrap();
+    let r2 = spawn_blocking(move || kebab_app::ingest_with_config(cfg2, scope2, false).unwrap())
+        .await
+        .unwrap();
 
     let id1 = r1
         .items

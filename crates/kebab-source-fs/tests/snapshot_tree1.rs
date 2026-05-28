@@ -117,8 +117,7 @@ fn tree_1_snapshot_matches_baseline() {
             baseline_path().display()
         )
     });
-    let expected: Value = serde_json::from_str(&baseline_text)
-        .expect("baseline JSON must parse");
+    let expected: Value = serde_json::from_str(&baseline_text).expect("baseline JSON must parse");
 
     if actual != expected {
         let actual_pretty = serde_json::to_string_pretty(&actual).unwrap();

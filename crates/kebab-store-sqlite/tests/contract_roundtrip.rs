@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use kebab_chunk::MdHeadingV1Chunker;
 use kebab_core::{
-    AssetId, AssetStorage, Checksum, ChunkPolicy, ChunkerVersion, Chunker, DocumentStore,
+    AssetId, AssetStorage, Checksum, ChunkPolicy, Chunker, ChunkerVersion, DocumentStore,
     MediaType, ParserVersion, RawAsset, SourceUri, WorkspacePath,
 };
 use kebab_parse_md::{BodyHints, build_canonical_document, parse_blocks, parse_frontmatter};
@@ -58,8 +58,7 @@ fn document_and_chunks_round_trip_through_sqlite() {
         fs_mtime: asset.discovered_at,
         fallback_lang: Some("en".into()),
     };
-    let (mut metadata, _fm_span, _fm_warns) =
-        parse_frontmatter(&bytes, &hints).unwrap();
+    let (mut metadata, _fm_span, _fm_warns) = parse_frontmatter(&bytes, &hints).unwrap();
     let (parsed_blocks, parse_warns) = parse_blocks(&bytes, 1).unwrap();
 
     metadata.aliases.sort();
@@ -91,9 +90,7 @@ fn document_and_chunks_round_trip_through_sqlite() {
     store
         .put_blocks(&doc.doc_id, &doc.blocks)
         .expect("put_blocks");
-    store
-        .put_chunks(&doc.doc_id, &chunks)
-        .expect("put_chunks");
+    store.put_chunks(&doc.doc_id, &chunks).expect("put_chunks");
 
     // ── Read back ────────────────────────────────────────────────────
     let loaded = store

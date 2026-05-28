@@ -13,9 +13,9 @@ use std::path::PathBuf;
 
 use kebab_chunk::CodeJavaAstV1Chunker;
 use kebab_core::{
-    AssetId, Block, CanonicalDocument, ChunkPolicy, Chunker, ChunkerVersion, CodeBlock, CommonBlock,
-    Lang, Metadata, ParserVersion, Provenance, SourceSpan, SourceType, TrustLevel, WorkspacePath,
-    id_for_block, id_for_doc,
+    AssetId, Block, CanonicalDocument, ChunkPolicy, Chunker, ChunkerVersion, CodeBlock,
+    CommonBlock, Lang, Metadata, ParserVersion, Provenance, SourceSpan, SourceType, TrustLevel,
+    WorkspacePath, id_for_block, id_for_doc,
 };
 use serde_json::Value;
 use time::OffsetDateTime;

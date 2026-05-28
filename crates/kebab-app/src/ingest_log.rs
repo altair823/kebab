@@ -81,7 +81,9 @@ fn generate_run_id() -> String {
     use time::macros::format_description;
     let now = time::OffsetDateTime::now_utc();
     let ts = now
-        .format(format_description!("[year][month][day]T[hour][minute][second]Z"))
+        .format(format_description!(
+            "[year][month][day]T[hour][minute][second]Z"
+        ))
         .unwrap_or_else(|_| "19700101T000000Z".to_string());
     let uid = uuid::Uuid::now_v7().simple().to_string();
     let suffix = &uid[uid.len() - 8..];
@@ -211,8 +213,8 @@ pub(crate) fn percentiles(samples: &[u64]) -> (Option<u64>, Option<u64>, Option<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use kebab_config::LoggingCfg;
+    use tempfile::TempDir;
 
     #[test]
     fn generate_run_id_has_iso_prefix_and_8_hex_suffix() {
@@ -224,7 +226,10 @@ mod tests {
         assert!(prefix.contains('T'), "prefix should contain T: {prefix}");
         assert!(prefix.ends_with('Z'), "prefix should end with Z: {prefix}");
         assert_eq!(suffix.len(), 8, "suffix should be 8 chars: {suffix}");
-        assert!(suffix.chars().all(|c| c.is_ascii_hexdigit()), "suffix should be hex: {suffix}");
+        assert!(
+            suffix.chars().all(|c| c.is_ascii_hexdigit()),
+            "suffix should be hex: {suffix}"
+        );
     }
 
     #[test]
@@ -256,31 +261,43 @@ mod tests {
         let mut writer = IngestLogWriter::open(&cfg).unwrap().unwrap();
         let path = writer.path().to_path_buf();
 
-        writer.write_event(&LogEvent::Skip {
-            ts: now_ts(),
-            doc_path: "a.zip",
-            reason: "builtin_blacklist",
-            detail: Some(".zip extension"),
-        }).unwrap();
-        writer.write_event(&LogEvent::Error {
-            ts: now_ts(),
-            code: "ingest_fatal",
-            message: "something bad",
-        }).unwrap();
-        writer.write_event(&LogEvent::ParseError {
-            ts: now_ts(),
-            doc_path: "weird.pdf",
-            reason: "lopdf_error",
-            message: "unexpected EOF",
-        }).unwrap();
+        writer
+            .write_event(&LogEvent::Skip {
+                ts: now_ts(),
+                doc_path: "a.zip",
+                reason: "builtin_blacklist",
+                detail: Some(".zip extension"),
+            })
+            .unwrap();
+        writer
+            .write_event(&LogEvent::Error {
+                ts: now_ts(),
+                code: "ingest_fatal",
+                message: "something bad",
+            })
+            .unwrap();
+        writer
+            .write_event(&LogEvent::ParseError {
+                ts: now_ts(),
+                doc_path: "weird.pdf",
+                reason: "lopdf_error",
+                message: "unexpected EOF",
+            })
+            .unwrap();
         writer.flush().unwrap();
 
         let contents = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = contents.lines().collect();
         assert_eq!(lines.len(), 3, "expected 3 lines, got: {}", lines.len());
         for line in &lines {
-            assert!(line.starts_with('{'), "each line should be JSON object: {line}");
-            assert!(line.contains("\"kind\""), "each line should have 'kind': {line}");
+            assert!(
+                line.starts_with('{'),
+                "each line should be JSON object: {line}"
+            );
+            assert!(
+                line.contains("\"kind\""),
+                "each line should have 'kind': {line}"
+            );
         }
     }
 
@@ -293,14 +310,19 @@ mod tests {
         };
         let mut writer = IngestLogWriter::open(&cfg).unwrap().unwrap();
         let path = writer.path().to_path_buf();
-        writer.write_event(&LogEvent::Error {
-            ts: now_ts(),
-            code: "test",
-            message: "drop flush test",
-        }).unwrap();
+        writer
+            .write_event(&LogEvent::Error {
+                ts: now_ts(),
+                code: "test",
+                message: "drop flush test",
+            })
+            .unwrap();
         // Drop without explicit flush — Drop impl should flush BufWriter.
         drop(writer);
         let contents = std::fs::read_to_string(&path).unwrap();
-        assert!(contents.lines().count() >= 1, "file should have at least 1 line after drop");
+        assert!(
+            contents.lines().count() >= 1,
+            "file should have at least 1 line after drop"
+        );
     }
 }

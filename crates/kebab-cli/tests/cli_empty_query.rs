@@ -1,15 +1,18 @@
 //! Integration tests for Bug #14: empty or whitespace-only query must emit
 //! error.v1 code=invalid_input and exit nonzero (not silent 0-hit return).
 
-use std::process::Command;
 use serde_json::Value;
+use std::process::Command;
 
 fn kebab_bin() -> String {
     env!("CARGO_BIN_EXE_kebab").to_string()
 }
 
 fn parse_error_v1(stderr: &str) -> Value {
-    let last = stderr.lines().last().expect("expected error.v1 ndjson on stderr");
+    let last = stderr
+        .lines()
+        .last()
+        .expect("expected error.v1 ndjson on stderr");
     serde_json::from_str(last)
         .unwrap_or_else(|e| panic!("expected ndjson on stderr: {e}\nstderr={stderr}"))
 }

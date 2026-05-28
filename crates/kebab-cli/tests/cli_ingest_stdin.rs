@@ -73,13 +73,18 @@ max_context_tokens = 8000
             workspace = workspace.display(),
             data = data.display(),
         ),
-    ).unwrap();
+    )
+    .unwrap();
 
     let bin = env!("CARGO_BIN_EXE_kebab");
     let mut child = Command::new(bin)
         .args([
-            "--json", "--config", cfg_path.to_str().unwrap(),
-            "ingest-stdin", "--title", "X",
+            "--json",
+            "--config",
+            cfg_path.to_str().unwrap(),
+            "ingest-stdin",
+            "--title",
+            "X",
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -91,10 +96,17 @@ max_context_tokens = 8000
         stdin.write_all(b"## Body\n\nbody text.\n").unwrap();
     }
     let out = child.wait_with_output().unwrap();
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let stdout = String::from_utf8_lossy(&out.stdout);
     let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
-    assert_eq!(v.get("schema_version").and_then(|s| s.as_str()), Some("ingest_report.v1"));
+    assert_eq!(
+        v.get("schema_version").and_then(|s| s.as_str()),
+        Some("ingest_report.v1")
+    );
     assert_eq!(v.get("new").and_then(serde_json::Value::as_u64), Some(1));
 }

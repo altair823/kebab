@@ -83,7 +83,10 @@ mod tests {
     /// chunk boundary is invisible.
     #[test]
     fn streaming_matches_oneshot_over_buffer_boundary() {
-        let bytes: Vec<u8> = (0u8..=255u8).cycle().take(READ_BUFFER_BYTES * 3 + 17).collect();
+        let bytes: Vec<u8> = (0u8..=255u8)
+            .cycle()
+            .take(READ_BUFFER_BYTES * 3 + 17)
+            .collect();
         let (n, streamed) = hash_reader(&bytes[..]).unwrap();
         assert_eq!(n, bytes.len() as u64);
         let oneshot = blake3::hash(&bytes).to_hex().to_string();

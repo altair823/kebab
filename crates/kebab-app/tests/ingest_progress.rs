@@ -13,13 +13,9 @@ use kebab_core::IngestItemKind;
 fn run_with_progress() -> Vec<IngestEvent> {
     let env = TestEnv::lexical_only();
     let (tx, rx) = mpsc::channel::<IngestEvent>();
-    let report = kebab_app::ingest_with_config_progress(
-        env.config.clone(),
-        env.scope(),
-        false,
-        Some(tx),
-    )
-    .unwrap();
+    let report =
+        kebab_app::ingest_with_config_progress(env.config.clone(), env.scope(), false, Some(tx))
+            .unwrap();
     assert_eq!(report.scanned, 3);
     assert_eq!(report.new, 3);
 
@@ -116,13 +112,9 @@ fn ingest_with_config_progress_none_matches_ingest_with_config() {
     // `ingest_with_config_progress(..., None)` must produce identical
     // reports modulo wall-clock duration.
     let env = TestEnv::lexical_only();
-    let r_none = kebab_app::ingest_with_config_progress(
-        env.config.clone(),
-        env.scope(),
-        true,
-        None,
-    )
-    .unwrap();
+    let r_none =
+        kebab_app::ingest_with_config_progress(env.config.clone(), env.scope(), true, None)
+            .unwrap();
     assert_eq!(r_none.scanned, 3);
     assert_eq!(r_none.new, 3);
 }
@@ -134,13 +126,9 @@ fn dropped_receiver_does_not_panic_or_fail_ingest() {
     let env = TestEnv::lexical_only();
     let (tx, rx) = mpsc::channel::<IngestEvent>();
     drop(rx);
-    let report = kebab_app::ingest_with_config_progress(
-        env.config.clone(),
-        env.scope(),
-        true,
-        Some(tx),
-    )
-    .unwrap();
+    let report =
+        kebab_app::ingest_with_config_progress(env.config.clone(), env.scope(), true, Some(tx))
+            .unwrap();
     assert_eq!(report.scanned, 3);
 }
 
@@ -185,13 +173,8 @@ fn pdf_ocr_progress_emits_started_finished_events() {
     };
 
     let (tx, rx) = mpsc::channel::<IngestEvent>();
-    let _report = kebab_app::ingest_with_config_progress(
-        config,
-        scope,
-        false,
-        Some(tx),
-    )
-    .expect("ingest_with_config_progress");
+    let _report = kebab_app::ingest_with_config_progress(config, scope, false, Some(tx))
+        .expect("ingest_with_config_progress");
 
     let events: Vec<_> = rx.iter().collect();
 
@@ -204,7 +187,16 @@ fn pdf_ocr_progress_emits_started_finished_events() {
         .filter(|e| matches!(e, IngestEvent::PdfOcrFinished { .. }))
         .count();
 
-    assert!(started_count >= 1, "PdfOcrStarted 가 ≥ 1 emit 됨 (got {started_count})");
-    assert!(finished_count >= 1, "PdfOcrFinished 가 ≥ 1 emit 됨 (got {finished_count})");
-    assert_eq!(started_count, finished_count, "Started 와 Finished 의 count 일치");
+    assert!(
+        started_count >= 1,
+        "PdfOcrStarted 가 ≥ 1 emit 됨 (got {started_count})"
+    );
+    assert!(
+        finished_count >= 1,
+        "PdfOcrFinished 가 ≥ 1 emit 됨 (got {finished_count})"
+    );
+    assert_eq!(
+        started_count, finished_count,
+        "Started 와 Finished 의 count 일치"
+    );
 }

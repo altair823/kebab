@@ -112,6 +112,14 @@ async fn ingest_file_tool_idempotent_on_second_call() {
         other => panic!("expected text, got {other:?}"),
     };
     let v2: serde_json::Value = serde_json::from_str(text2).unwrap();
-    assert_eq!(v2.get("new").and_then(serde_json::Value::as_u64), Some(0), "{v2:?}");
-    assert_eq!(v2.get("unchanged").and_then(serde_json::Value::as_u64), Some(1), "{v2:?}");
+    assert_eq!(
+        v2.get("new").and_then(serde_json::Value::as_u64),
+        Some(0),
+        "{v2:?}"
+    );
+    assert_eq!(
+        v2.get("unchanged").and_then(serde_json::Value::as_u64),
+        Some(1),
+        "{v2:?}"
+    );
 }

@@ -5,7 +5,7 @@
 //! inject spurious keys into the existing markdown corpus wire shape.
 
 use kebab_core::{
-    Citation, ChunkId, ChunkerVersion, DocumentId, IndexVersion, RetrievalDetail, ScoreKind,
+    ChunkId, ChunkerVersion, Citation, DocumentId, IndexVersion, RetrievalDetail, ScoreKind,
     SearchHit, WorkspacePath,
 };
 

@@ -11,12 +11,10 @@
 use anyhow::{Context, Result};
 use lopdf::{Document, Object};
 
-pub fn extract_dctdecode_page_image(
-    pdf_doc: &Document,
-    page_num: u32,
-) -> Result<Option<Vec<u8>>> {
+pub fn extract_dctdecode_page_image(pdf_doc: &Document, page_num: u32) -> Result<Option<Vec<u8>>> {
     let pages = pdf_doc.get_pages();
-    let &page_oid = pages.get(&page_num)
+    let &page_oid = pages
+        .get(&page_num)
         .with_context(|| format!("page {page_num} not in get_pages()"))?;
 
     // page → /Resources → /XObject → traverse for first /Subtype /Image with /Filter == /DCTDecode.
@@ -27,12 +25,18 @@ pub fn extract_dctdecode_page_image(
         Some(Object::Reference(r)) => pdf_doc.get_dictionary(*r).ok().cloned(),
         _ => None,
     };
-    let resources = match resources { Some(r) => r, None => return Ok(None) };
+    let resources = match resources {
+        Some(r) => r,
+        None => return Ok(None),
+    };
 
     let xobject_obj = resources.get(b"XObject").ok();
     let xobject = match xobject_obj {
         Some(Object::Dictionary(d)) => d.clone(),
-        Some(Object::Reference(r)) => match pdf_doc.get_dictionary(*r) { Ok(d) => d.clone(), Err(_) => return Ok(None) },
+        Some(Object::Reference(r)) => match pdf_doc.get_dictionary(*r) {
+            Ok(d) => d.clone(),
+            Err(_) => return Ok(None),
+        },
         _ => return Ok(None),
     };
 
@@ -45,20 +49,31 @@ pub fn extract_dctdecode_page_image(
             Ok(Object::Stream(s)) => s.clone(),
             _ => continue,
         };
-        let subtype_is_image = stream.dict.get(b"Subtype")
+        let subtype_is_image = stream
+            .dict
+            .get(b"Subtype")
             .ok()
-            .and_then(|o| match o { Object::Name(n) => Some(n.as_slice()), _ => None })
+            .and_then(|o| match o {
+                Object::Name(n) => Some(n.as_slice()),
+                _ => None,
+            })
             .is_some_and(|n| n == b"Image");
-        if !subtype_is_image { continue; }
+        if !subtype_is_image {
+            continue;
+        }
 
         let filter_obj = stream.dict.get(b"Filter").ok();
         let is_dct_only = match filter_obj {
             Some(Object::Name(n)) => n.as_slice() == b"DCTDecode",
-            Some(Object::Array(arr)) => arr.len() == 1
-                && matches!(arr.first(), Some(Object::Name(n)) if n.as_slice() == b"DCTDecode"),
+            Some(Object::Array(arr)) => {
+                arr.len() == 1
+                    && matches!(arr.first(), Some(Object::Name(n)) if n.as_slice() == b"DCTDecode")
+            }
             _ => false,
         };
-        if !is_dct_only { continue; }
+        if !is_dct_only {
+            continue;
+        }
 
         // raw bytes — lopdf 의 stream.content 는 already-encoded (filter 적용
         // 후). DCTDecode 의 경우 raw JPEG bytes.

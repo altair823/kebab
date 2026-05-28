@@ -24,10 +24,8 @@ fn fetch_chunk_json_emits_fetch_result_v1() {
     common::ingest(&cfg, &workspace);
 
     // Find chunk_id via search.
-    let (search_stdout, _) = common::run_search_with_args(
-        &cfg,
-        &["--json", "--mode", "lexical", "--k", "1", "apples"],
-    );
+    let (search_stdout, _) =
+        common::run_search_with_args(&cfg, &["--json", "--mode", "lexical", "--k", "1", "apples"]);
     let search: Value = serde_json::from_str(search_stdout.trim())
         .unwrap_or_else(|e| panic!("search not JSON: {search_stdout:?}: {e}"));
     let chunk_id = search["hits"][0]["chunk_id"]
@@ -35,10 +33,7 @@ fn fetch_chunk_json_emits_fetch_result_v1() {
         .expect("chunk_id on first hit")
         .to_string();
 
-    let (stdout, _) = common::run_fetch_with_args(
-        &cfg,
-        &["--json", "chunk", &chunk_id],
-    );
+    let (stdout, _) = common::run_fetch_with_args(&cfg, &["--json", "chunk", &chunk_id]);
     let v: Value = serde_json::from_str(stdout.trim())
         .unwrap_or_else(|e| panic!("fetch not JSON: {stdout:?}: {e}"));
     assert_eq!(v["schema_version"], "fetch_result.v1");
@@ -59,10 +54,8 @@ fn fetch_doc_json_with_max_tokens_truncates() {
     common::ingest(&cfg, &workspace);
 
     // Find doc_id via search.
-    let (search_stdout, _) = common::run_search_with_args(
-        &cfg,
-        &["--json", "--mode", "lexical", "--k", "1", "Lorem"],
-    );
+    let (search_stdout, _) =
+        common::run_search_with_args(&cfg, &["--json", "--mode", "lexical", "--k", "1", "Lorem"]);
     let search: Value = serde_json::from_str(search_stdout.trim())
         .unwrap_or_else(|e| panic!("search not JSON: {search_stdout:?}: {e}"));
     let doc_id = search["hits"][0]["doc_id"]
@@ -70,10 +63,8 @@ fn fetch_doc_json_with_max_tokens_truncates() {
         .expect("doc_id on first hit")
         .to_string();
 
-    let (stdout, _) = common::run_fetch_with_args(
-        &cfg,
-        &["--json", "doc", &doc_id, "--max-tokens", "20"],
-    );
+    let (stdout, _) =
+        common::run_fetch_with_args(&cfg, &["--json", "doc", &doc_id, "--max-tokens", "20"]);
     let v: Value = serde_json::from_str(stdout.trim())
         .unwrap_or_else(|e| panic!("fetch not JSON: {stdout:?}: {e}"));
     assert_eq!(v["kind"], "doc");

@@ -26,10 +26,7 @@ use image::{ImageFormat, ImageReader};
 /// once: a cheap header sniff peeks at the format / dimensions before
 /// committing to a decode, so non-PNG passthrough and downscale share
 /// the same `decode → optionally resize → re-encode` tail.
-pub(crate) fn downscale_to_png(
-    bytes: &[u8],
-    max_long_edge: u32,
-) -> Result<(Vec<u8>, u32, u32)> {
+pub(crate) fn downscale_to_png(bytes: &[u8], max_long_edge: u32) -> Result<(Vec<u8>, u32, u32)> {
     let reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .context("reading image header")?;
@@ -73,8 +70,7 @@ pub(crate) fn downscale_to_png(
         } else {
             new_h = new_h.min(max_long_edge);
         }
-        let resized =
-            img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle);
+        let resized = img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle);
         (new_w, new_h, resized)
     };
 
@@ -97,8 +93,7 @@ mod tests {
     /// compresses aggressively so even 4001×3001 stays under a few
     /// kilobytes.
     fn solid_png(w: u32, h: u32) -> Vec<u8> {
-        let img: ImageBuffer<Rgb<u8>, _> =
-            ImageBuffer::from_pixel(w, h, Rgb([0, 0, 255]));
+        let img: ImageBuffer<Rgb<u8>, _> = ImageBuffer::from_pixel(w, h, Rgb([0, 0, 255]));
         let mut buf = Cursor::new(Vec::new());
         img.write_to(&mut buf, ImageFormat::Png)
             .expect("encoding solid PNG must not fail");
@@ -106,8 +101,7 @@ mod tests {
     }
 
     fn solid_jpeg(w: u32, h: u32) -> Vec<u8> {
-        let img: ImageBuffer<Rgb<u8>, _> =
-            ImageBuffer::from_pixel(w, h, Rgb([255, 255, 255]));
+        let img: ImageBuffer<Rgb<u8>, _> = ImageBuffer::from_pixel(w, h, Rgb([255, 255, 255]));
         let mut buf = Cursor::new(Vec::new());
         img.write_to(&mut buf, ImageFormat::Jpeg)
             .expect("encoding solid JPEG must not fail");
@@ -119,10 +113,12 @@ mod tests {
     #[test]
     fn png_within_cap_passes_through_zero_decode() {
         let bytes = solid_png(100, 50);
-        let (out, w, h) =
-            downscale_to_png(&bytes, 1024).expect("PNG passthrough must succeed");
+        let (out, w, h) = downscale_to_png(&bytes, 1024).expect("PNG passthrough must succeed");
         assert_eq!((w, h), (100, 50));
-        assert_eq!(out, bytes, "PNG passthrough must return source bytes verbatim");
+        assert_eq!(
+            out, bytes,
+            "PNG passthrough must return source bytes verbatim"
+        );
     }
 
     /// JPEG within budget gets re-encoded as PNG (the wire format)
@@ -130,8 +126,7 @@ mod tests {
     #[test]
     fn jpeg_within_cap_reencodes_as_png() {
         let bytes = solid_jpeg(100, 50);
-        let (out, w, h) =
-            downscale_to_png(&bytes, 1024).expect("JPEG re-encode must succeed");
+        let (out, w, h) = downscale_to_png(&bytes, 1024).expect("JPEG re-encode must succeed");
         assert_eq!((w, h), (100, 50));
         // Byte stream must now start with the PNG magic.
         assert_eq!(
@@ -147,8 +142,7 @@ mod tests {
     #[test]
     fn long_edge_clamped_strictly_to_max_for_irrational_scale() {
         let bytes = solid_png(4001, 3001);
-        let (_out, w, h) =
-            downscale_to_png(&bytes, 1601).expect("downscale must succeed");
+        let (_out, w, h) = downscale_to_png(&bytes, 1601).expect("downscale must succeed");
         let long = w.max(h);
         assert!(long <= 1601, "long edge must be ≤ max, got {long}");
     }
@@ -157,8 +151,7 @@ mod tests {
     #[test]
     fn aspect_ratio_preserved_within_rounding() {
         let bytes = solid_png(4000, 3000);
-        let (_out, w, h) =
-            downscale_to_png(&bytes, 1024).expect("downscale must succeed");
+        let (_out, w, h) = downscale_to_png(&bytes, 1024).expect("downscale must succeed");
         let ratio = w as f32 / h as f32;
         assert!(
             (ratio - 4.0 / 3.0).abs() < 0.02,

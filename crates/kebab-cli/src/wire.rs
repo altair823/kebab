@@ -114,10 +114,7 @@ pub fn wire_answer(a: &Answer) -> Value {
 /// The timestamp is added at emit time (caller fills `ts`), since the
 /// pipeline doesn't carry one in the in-process enum — mirrors the
 /// `wire_ingest_progress` pattern (§2 ingest_progress.v1).
-pub fn wire_answer_event(
-    ev: &kebab_app::StreamEvent,
-    ts: time::OffsetDateTime,
-) -> Value {
+pub fn wire_answer_event(ev: &kebab_app::StreamEvent, ts: time::OffsetDateTime) -> Value {
     let mut v = serde_json::to_value(ev).expect("StreamEvent serializes");
     let ts_str = ts
         .format(&time::format_description::well_known::Rfc3339)
@@ -161,9 +158,7 @@ pub fn wire_reset(r: &kebab_app::ResetReport) -> Value {
 /// wall-clock — the emit site is the only place that knows the moment
 /// of emission, so the timestamp is stamped here rather than carried
 /// on the event itself.
-pub fn wire_ingest_progress(
-    event: &kebab_app::IngestEvent,
-) -> anyhow::Result<Value> {
+pub fn wire_ingest_progress(event: &kebab_app::IngestEvent) -> anyhow::Result<Value> {
     let mut v = serde_json::to_value(event)?;
     if let Value::Object(ref mut map) = v {
         map.insert(
@@ -305,15 +300,15 @@ mod tests {
         let v = wire_search_response(&r);
         assert_eq!(schema_of(&v), Some("search_response.v1"));
         assert!(v.get("hits").and_then(|h| h.as_array()).is_some());
-        assert_eq!(
-            v.get("hits").and_then(|h| h.as_array()).unwrap().len(),
-            0
-        );
+        assert_eq!(v.get("hits").and_then(|h| h.as_array()).unwrap().len(), 0);
         assert_eq!(
             v.get("next_cursor").and_then(|c| c.as_str()),
             Some("opaque-cursor-abc")
         );
-        assert_eq!(v.get("truncated").and_then(serde_json::Value::as_bool), Some(true));
+        assert_eq!(
+            v.get("truncated").and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
     }
 
     #[test]
@@ -322,12 +317,21 @@ mod tests {
         let schema = SchemaV1 {
             schema_version: "schema.v1".to_string(),
             kebab_version: "0.2.1".to_string(),
-            wire: WireBlock { schemas: vec!["answer.v1".to_string()] },
+            wire: WireBlock {
+                schemas: vec!["answer.v1".to_string()],
+            },
             capabilities: Capabilities {
-                json_mode: true, ingest_progress: true, ingest_cancellation: true,
-                rag_multi_turn: true, search_cache: true, incremental_ingest: true,
-                streaming_ask: false, http_daemon: false, mcp_server: false,
-                single_file_ingest: false, bulk_search: true,
+                json_mode: true,
+                ingest_progress: true,
+                ingest_cancellation: true,
+                rag_multi_turn: true,
+                search_cache: true,
+                incremental_ingest: true,
+                streaming_ask: false,
+                http_daemon: false,
+                mcp_server: false,
+                single_file_ingest: false,
+                bulk_search: true,
             },
             models: Models {
                 parser_version: "x".to_string(),
@@ -340,7 +344,9 @@ mod tests {
                 corpus_revision: 7,
             },
             stats: Stats {
-                doc_count: 1, chunk_count: 2, asset_count: 1,
+                doc_count: 1,
+                chunk_count: 2,
+                asset_count: 1,
                 last_ingest_at: None,
                 media_breakdown: Default::default(),
                 lang_breakdown: Default::default(),
@@ -352,7 +358,10 @@ mod tests {
         };
         let v = wire_schema(&schema);
         assert_eq!(schema_of(&v), Some("schema.v1"));
-        assert_eq!(v.get("kebab_version").and_then(Value::as_str), Some("0.2.1"));
+        assert_eq!(
+            v.get("kebab_version").and_then(Value::as_str),
+            Some("0.2.1")
+        );
     }
 
     #[test]
@@ -367,7 +376,10 @@ mod tests {
         };
         let v = wire_error_v1(&err);
         assert_eq!(schema_of(&v), Some("error.v1"));
-        assert_eq!(v.get("code").and_then(Value::as_str), Some("config_invalid"));
+        assert_eq!(
+            v.get("code").and_then(Value::as_str),
+            Some("config_invalid")
+        );
     }
 
     #[test]
@@ -393,8 +405,10 @@ mod tests {
 
     #[test]
     fn search_response_with_trace_serializes_trace_field() {
-        use kebab_core::{SearchTrace, TraceCandidate, TraceFusionInput,
-                         TraceTiming, ChunkId, DocumentId, WorkspacePath};
+        use kebab_core::{
+            ChunkId, DocumentId, SearchTrace, TraceCandidate, TraceFusionInput, TraceTiming,
+            WorkspacePath,
+        };
         let r = kebab_app::SearchResponse {
             hits: vec![],
             next_cursor: None,
@@ -414,7 +428,12 @@ mod tests {
                     vector_rank: None,
                     fusion_score: 0.0,
                 }],
-                timing: TraceTiming { lexical_ms: 5, vector_ms: 0, fusion_ms: 1, total_ms: 7 },
+                timing: TraceTiming {
+                    lexical_ms: 5,
+                    vector_ms: 0,
+                    fusion_ms: 1,
+                    total_ms: 7,
+                },
             }),
             hint: None,
         };

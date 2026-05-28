@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::answer::{ModelRef, TokenUsage};
 use crate::asset::{RawAsset, WorkspacePath};
 use crate::chunk::Chunk;
 use crate::document::{Block, CanonicalDocument};
@@ -16,7 +17,6 @@ use crate::vector::{VectorHit, VectorRecord};
 use crate::versions::{
     ChunkerVersion, EmbeddingModelId, EmbeddingVersion, IndexVersion, ParserVersion,
 };
-use crate::answer::{ModelRef, TokenUsage};
 
 // ── Helper input types (§7.1) ─────────────────────────────────────────────
 
@@ -115,21 +115,13 @@ pub trait SourceConnector {
 pub trait Extractor: Send + Sync {
     fn supports(&self, media_type: &MediaType) -> bool;
     fn parser_version(&self) -> ParserVersion;
-    fn extract(
-        &self,
-        ctx: &ExtractContext<'_>,
-        bytes: &[u8],
-    ) -> anyhow::Result<CanonicalDocument>;
+    fn extract(&self, ctx: &ExtractContext<'_>, bytes: &[u8]) -> anyhow::Result<CanonicalDocument>;
 }
 
 pub trait Chunker: Send + Sync {
     fn chunker_version(&self) -> ChunkerVersion;
     fn policy_hash(&self, policy: &ChunkPolicy) -> String;
-    fn chunk(
-        &self,
-        doc: &CanonicalDocument,
-        policy: &ChunkPolicy,
-    ) -> anyhow::Result<Vec<Chunk>>;
+    fn chunk(&self, doc: &CanonicalDocument, policy: &ChunkPolicy) -> anyhow::Result<Vec<Chunk>>;
 }
 
 pub trait Embedder: Send + Sync {
@@ -178,10 +170,8 @@ pub trait DocumentStore {
     /// `assets.workspace_path` is "last-registered path" — it
     /// flip-flops on every ingest. Prefer `get_asset` (by asset_id)
     /// when you have a `CanonicalDocument.source_asset_id`.
-    fn get_asset_by_workspace_path(
-        &self,
-        path: &WorkspacePath,
-    ) -> anyhow::Result<Option<RawAsset>>;
+    fn get_asset_by_workspace_path(&self, path: &WorkspacePath)
+    -> anyhow::Result<Option<RawAsset>>;
 
     /// Look up a document row by its workspace path. Used by the
     /// document-centric skip path in `try_skip_unchanged` to avoid the
@@ -238,12 +228,7 @@ pub trait VectorStore {
 pub trait JobRepo {
     fn create(&self, kind: JobKind, payload: Value) -> anyhow::Result<JobId>;
     fn update_progress(&self, id: &JobId, progress: Value) -> anyhow::Result<()>;
-    fn finish(
-        &self,
-        id: &JobId,
-        status: JobStatus,
-        error: Option<&str>,
-    ) -> anyhow::Result<()>;
+    fn finish(&self, id: &JobId, status: JobStatus, error: Option<&str>) -> anyhow::Result<()>;
     fn list(&self, filter: &JobFilter) -> anyhow::Result<Vec<JobRow>>;
 }
 

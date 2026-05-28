@@ -46,9 +46,8 @@ use kebab_core::{
 use kebab_embed_local::FastembedEmbedder;
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_parse_code::{
-    CAstExtractor, CppAstExtractor, GoAstExtractor, JavaAstExtractor,
-    JavascriptAstExtractor, KotlinAstExtractor, PythonAstExtractor, RustAstExtractor,
-    TypescriptAstExtractor,
+    CAstExtractor, CppAstExtractor, GoAstExtractor, JavaAstExtractor, JavascriptAstExtractor,
+    KotlinAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor,
 };
 use kebab_parse_image::ImageExtractor;
 use kebab_parse_pdf::PdfTextExtractor;
@@ -242,15 +241,15 @@ impl App {
         // kebab-nli construction. Failure (`?`) surfaces as a user-
         // facing error at App boot — never a panic in the pipeline's
         // `expect("verifier must be Some when nli_threshold > 0.0")`.
-        let pipeline_verifier: Option<Arc<dyn kebab_nli::NliVerifier>> =
-            if config.rag.nli_threshold > 0.0 {
-                let v = kebab_nli::OnnxNliVerifier::new(&config).context(
-                    "kebab-app: construct OnnxNliVerifier (config.rag.nli_threshold > 0)",
-                )?;
-                Some(Arc::new(v))
-            } else {
-                None
-            };
+        let pipeline_verifier: Option<Arc<dyn kebab_nli::NliVerifier>> = if config.rag.nli_threshold
+            > 0.0
+        {
+            let v = kebab_nli::OnnxNliVerifier::new(&config)
+                .context("kebab-app: construct OnnxNliVerifier (config.rag.nli_threshold > 0)")?;
+            Some(Arc::new(v))
+        } else {
+            None
+        };
         Ok(Self {
             config,
             sqlite: Arc::new(sqlite),
@@ -350,7 +349,9 @@ impl App {
         // so other in-flight searches can use the cache concurrently.
         drop(guard);
         let hits = self.search_uncached(query)?;
-        let mut guard = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.put(key, hits.clone());
         Ok(hits)
     }
@@ -430,11 +431,7 @@ impl App {
     ///
     /// `SearchResponse.next_cursor` and `truncated` are independent
     /// signals — see `SearchResponse` doc for details.
-    pub fn search_with_opts(
-        &self,
-        query: SearchQuery,
-        opts: SearchOpts,
-    ) -> Result<SearchResponse> {
+    pub fn search_with_opts(&self, query: SearchQuery, opts: SearchOpts) -> Result<SearchResponse> {
         use crate::cursor;
 
         let corpus_revision = self.sqlite.corpus_revision().to_string();
@@ -519,8 +516,7 @@ impl App {
             // Apply offset + k_effective truncation (mirrors non-trace path).
             let drop_n = offset.min(traced_hits.len());
             traced_hits.drain(..drop_n);
-            let mut hits: Vec<SearchHit> =
-                traced_hits.into_iter().take(k_effective).collect();
+            let mut hits: Vec<SearchHit> = traced_hits.into_iter().take(k_effective).collect();
 
             // Snippet truncation if opts.snippet_chars set (mirror non-trace path).
             if opts.snippet_chars.is_some() {
@@ -551,8 +547,7 @@ impl App {
         // Skip offset.
         let drop_n = offset.min(all_hits.len());
         all_hits.drain(..drop_n);
-        let mut hits: Vec<SearchHit> =
-            all_hits.into_iter().take(k_effective).collect();
+        let mut hits: Vec<SearchHit> = all_hits.into_iter().take(k_effective).collect();
 
         // Apply snippet_chars override if shorter than what the
         // retriever returned (retriever already honored
@@ -573,15 +568,11 @@ impl App {
             // Step 1: shorten snippets progressively to a 60-char floor.
             const SNIPPET_FLOOR: usize = 60;
             let mut current_snippet_cap = snippet_chars;
-            while estimate_chars(&hits) > max_chars
-                && current_snippet_cap > SNIPPET_FLOOR
-            {
-                current_snippet_cap =
-                    (current_snippet_cap / 2).max(SNIPPET_FLOOR);
+            while estimate_chars(&hits) > max_chars && current_snippet_cap > SNIPPET_FLOOR {
+                current_snippet_cap = (current_snippet_cap / 2).max(SNIPPET_FLOOR);
                 for h in &mut hits {
                     if h.snippet.chars().count() > current_snippet_cap {
-                        h.snippet =
-                            trim_to_chars(&h.snippet, current_snippet_cap);
+                        h.snippet = trim_to_chars(&h.snippet, current_snippet_cap);
                         truncated = true;
                     }
                 }
@@ -651,8 +642,7 @@ impl App {
         retriever: Arc<dyn Retriever>,
         llm: Arc<dyn LanguageModel>,
     ) -> RagPipeline {
-        let pipeline =
-            RagPipeline::new(self.config.clone(), retriever, llm, self.sqlite.clone());
+        let pipeline = RagPipeline::new(self.config.clone(), retriever, llm, self.sqlite.clone());
         match &self.pipeline_verifier {
             Some(v) => pipeline.with_verifier(v.clone()),
             None => pipeline,
@@ -723,12 +713,7 @@ impl App {
     /// returns; on persistence error, the answer is still returned
     /// (don't lose the user's compute) but the error is logged so
     /// the operator notices.
-    pub fn ask_with_session(
-        &self,
-        session_id: &str,
-        query: &str,
-        opts: AskOpts,
-    ) -> Result<Answer> {
+    pub fn ask_with_session(&self, session_id: &str, query: &str, opts: AskOpts) -> Result<Answer> {
         use kebab_core::traits::{ChatSessionRepo, ChatSessionRow, ChatTurnRow};
         use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -766,13 +751,8 @@ impl App {
         let retriever = self.build_retriever(opts.mode)?;
         let llm = self.llm()?;
         let pipeline = self.build_pipeline(retriever, llm);
-        let answer = pipeline.ask_with_history(
-            query,
-            history,
-            session_id.to_string(),
-            next_index,
-            opts,
-        )?;
+        let answer =
+            pipeline.ask_with_history(query, history, session_id.to_string(), next_index, opts)?;
 
         // Auto-create the session header on first use. Title from
         // the first question (≤40 chars after trim).
@@ -813,7 +793,8 @@ impl App {
             turn_index: next_index,
             question: query.to_string(),
             answer: answer.answer.clone(),
-            citations_json: serde_json::to_string(&answer.citations).unwrap_or_else(|_| "[]".to_string()),
+            citations_json: serde_json::to_string(&answer.citations)
+                .unwrap_or_else(|_| "[]".to_string()),
             created_at: now_unix,
         };
         if let Err(e) = self.sqlite.append_turn(&turn_row) {
@@ -848,8 +829,7 @@ impl App {
             return Ok(Some(e.clone()));
         }
         let emb: Arc<dyn Embedder + Send + Sync> = Arc::new(
-            FastembedEmbedder::new(&self.config)
-                .context("kb-app: load FastembedEmbedder")?,
+            FastembedEmbedder::new(&self.config).context("kb-app: load FastembedEmbedder")?,
         );
         // `set` returns Err if another thread won the race; in that case
         // the loser still returns the (now-cached) winner via `get()`.
@@ -925,7 +905,9 @@ impl App {
     /// clear` admin command). No-op when the cache is disabled.
     pub fn clear_search_cache(&self) {
         if let Some(cache) = self.search_cache.as_ref() {
-            let mut guard = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut guard = cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             guard.clear();
         }
     }
@@ -946,8 +928,8 @@ impl App {
     /// git tree) correctly keep `repo: None` — `Metadata.repo` is already
     /// `None` for those, so the assignment is a no-op.
     fn backfill_repo(&self, hits: &mut [SearchHit]) {
-        use std::collections::HashMap;
         use kebab_core::DocumentId;
+        use std::collections::HashMap;
 
         // doc_id → Option<String> where None means "not found / no repo"
         let mut cache: HashMap<DocumentId, Option<String>> = HashMap::new();
@@ -956,26 +938,24 @@ impl App {
             if hit.repo.is_some() {
                 continue;
             }
-            let repo_val = cache
-                .entry(hit.doc_id.clone())
-                .or_insert_with(|| {
-                    // Deliberately non-aborting: a failed store lookup for
-                    // one hit must not abort the whole search response. Log
-                    // the error so it's observable rather than silently
-                    // dropped (review #140 round 1).
-                    match self.sqlite.get_document(&hit.doc_id) {
-                        Ok(opt) => opt.and_then(|doc| doc.metadata.repo),
-                        Err(e) => {
-                            tracing::warn!(
-                                target: "kebab-app",
-                                doc_id = %hit.doc_id,
-                                error = %e,
-                                "backfill_repo: get_document failed; leaving hit.repo = None"
-                            );
-                            None
-                        }
+            let repo_val = cache.entry(hit.doc_id.clone()).or_insert_with(|| {
+                // Deliberately non-aborting: a failed store lookup for
+                // one hit must not abort the whole search response. Log
+                // the error so it's observable rather than silently
+                // dropped (review #140 round 1).
+                match self.sqlite.get_document(&hit.doc_id) {
+                    Ok(opt) => opt.and_then(|doc| doc.metadata.repo),
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "kebab-app",
+                            doc_id = %hit.doc_id,
+                            error = %e,
+                            "backfill_repo: get_document failed; leaving hit.repo = None"
+                        );
+                        None
                     }
-                });
+                }
+            });
             if let Some(r) = repo_val {
                 hit.repo = Some(r.clone());
             }
@@ -986,10 +966,7 @@ impl App {
     /// "switch to --mode lexical" error when embeddings are disabled.
     fn require_embeddings(
         &self,
-    ) -> Result<(
-        Arc<dyn Embedder + Send + Sync>,
-        Arc<LanceVectorStore>,
-    )> {
+    ) -> Result<(Arc<dyn Embedder + Send + Sync>, Arc<LanceVectorStore>)> {
         let emb = self.embedder()?.ok_or_else(|| {
             anyhow!(
                 "embeddings disabled (config.models.embedding.provider == \"none\" \
@@ -1278,8 +1255,8 @@ mod tests_extractor_dispatch {
             MediaType::Code("kotlin".into()),
             MediaType::Code("c".into()),
             MediaType::Code("cpp".into()),
-            MediaType::Code("yaml".into()),  // registry NOT cover
-            MediaType::Code("shell".into()), // registry NOT cover
+            MediaType::Code("yaml".into()),   // registry NOT cover
+            MediaType::Code("shell".into()),  // registry NOT cover
             MediaType::Audio(AudioType::Wav), // registry NOT cover
         ];
         for sample in &samples {

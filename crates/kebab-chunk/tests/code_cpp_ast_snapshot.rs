@@ -15,9 +15,9 @@ use std::path::PathBuf;
 
 use kebab_chunk::CodeCppAstV1Chunker;
 use kebab_core::{
-    AssetId, Block, CanonicalDocument, ChunkPolicy, Chunker, ChunkerVersion, CodeBlock, CommonBlock,
-    Lang, Metadata, ParserVersion, Provenance, SourceSpan, SourceType, TrustLevel, WorkspacePath,
-    id_for_block, id_for_doc,
+    AssetId, Block, CanonicalDocument, ChunkPolicy, Chunker, ChunkerVersion, CodeBlock,
+    CommonBlock, Lang, Metadata, ParserVersion, Provenance, SourceSpan, SourceType, TrustLevel,
+    WorkspacePath, id_for_block, id_for_doc,
 };
 use kebab_parse_code::CppAstExtractor;
 use serde_json::Value;
@@ -171,7 +171,9 @@ fn extract_cpp_fixture() -> CanonicalDocument {
         workspace_root: &root,
         config: &cfg,
     };
-    CppAstExtractor::new().extract(&ctx, src.as_bytes()).unwrap()
+    CppAstExtractor::new()
+        .extract(&ctx, src.as_bytes())
+        .unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -261,43 +263,61 @@ fn code_cpp_ast_extractor_snapshot() {
     let doc = extract_cpp_fixture();
 
     // Verify the extractor emits all expected named units.
-    let block_syms: Vec<Option<String>> = doc.blocks.iter().filter_map(|b| match b {
-        Block::Code(c) => match &c.common.source_span {
-            SourceSpan::Code { symbol, .. } => Some(symbol.clone()),
+    let block_syms: Vec<Option<String>> = doc
+        .blocks
+        .iter()
+        .filter_map(|b| match b {
+            Block::Code(c) => match &c.common.source_span {
+                SourceSpan::Code { symbol, .. } => Some(symbol.clone()),
+                _ => None,
+            },
             _ => None,
-        },
-        _ => None,
-    }).collect();
+        })
+        .collect();
 
     // Must include namespace-qualified class and its methods
     assert!(
-        block_syms.iter().any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker")),
+        block_syms
+            .iter()
+            .any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker")),
         "class unit missing: {block_syms:?}"
     );
     assert!(
-        block_syms.iter().any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker::MdHeadingV1Chunker")),
+        block_syms
+            .iter()
+            .any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker::MdHeadingV1Chunker")),
         "ctor unit missing: {block_syms:?}"
     );
     assert!(
-        block_syms.iter().any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker::~MdHeadingV1Chunker")),
+        block_syms
+            .iter()
+            .any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker::~MdHeadingV1Chunker")),
         "dtor unit missing: {block_syms:?}"
     );
     assert!(
-        block_syms.iter().any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker::chunk_doc")),
+        block_syms
+            .iter()
+            .any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker::chunk_doc")),
         "chunk_doc unit missing: {block_syms:?}"
     );
     assert!(
-        block_syms.iter().any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker::operator()")),
+        block_syms
+            .iter()
+            .any(|s| s.as_deref() == Some("kebab::chunk::MdHeadingV1Chunker::operator()")),
         "operator() unit missing: {block_syms:?}"
     );
     // Template function (inside kebab::chunk namespace in the fixture)
     assert!(
-        block_syms.iter().any(|s| s.as_deref() == Some("kebab::chunk::identity")),
+        block_syms
+            .iter()
+            .any(|s| s.as_deref() == Some("kebab::chunk::identity")),
         "identity template fn unit missing: {block_syms:?}"
     );
     // Free function in outer namespace
     assert!(
-        block_syms.iter().any(|s| s.as_deref() == Some("kebab::global_helper")),
+        block_syms
+            .iter()
+            .any(|s| s.as_deref() == Some("kebab::global_helper")),
         "global_helper unit missing: {block_syms:?}"
     );
     // Global main
@@ -312,14 +332,23 @@ fn code_cpp_ast_extractor_snapshot() {
 fn code_cpp_ast_extractor_chunks_deterministic() {
     let doc1 = extract_cpp_fixture();
     let doc2 = extract_cpp_fixture();
-    assert_eq!(doc1.blocks, doc2.blocks, "extractor output non-deterministic");
+    assert_eq!(
+        doc1.blocks, doc2.blocks,
+        "extractor output non-deterministic"
+    );
 
     let policy = fixed_policy();
     let chunks1 = CodeCppAstV1Chunker.chunk(&doc1, &policy).unwrap();
     let chunks2 = CodeCppAstV1Chunker.chunk(&doc2, &policy).unwrap();
     assert_eq!(
-        chunks1.iter().map(|c| c.chunk_id.0.clone()).collect::<Vec<_>>(),
-        chunks2.iter().map(|c| c.chunk_id.0.clone()).collect::<Vec<_>>(),
+        chunks1
+            .iter()
+            .map(|c| c.chunk_id.0.clone())
+            .collect::<Vec<_>>(),
+        chunks2
+            .iter()
+            .map(|c| c.chunk_id.0.clone())
+            .collect::<Vec<_>>(),
         "chunker output non-deterministic"
     );
 }

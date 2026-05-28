@@ -27,7 +27,10 @@ fn search_with_opts_no_budget_matches_search() {
 
     assert_eq!(resp.hits.len(), baseline.len());
     assert!(!resp.truncated);
-    assert!(resp.next_cursor.is_none(), "k=5 against 1 doc → no next page");
+    assert!(
+        resp.next_cursor.is_none(),
+        "k=5 against 1 doc → no next page"
+    );
 }
 
 #[test]
@@ -62,7 +65,11 @@ fn budget_truncates_snippets_when_below_threshold() {
 fn cursor_paginates_to_next_page() {
     let env = common::TestEnv::new();
     for i in 0..6 {
-        common::ingest_md(&env, &format!("d{i}.md"), &format!("# T{i}\n\nrust topic {i}\n"));
+        common::ingest_md(
+            &env,
+            &format!("d{i}.md"),
+            &format!("# T{i}\n\nrust topic {i}\n"),
+        );
     }
     let app = env.app();
 
@@ -88,7 +95,10 @@ fn cursor_paginates_to_next_page() {
         page1.hits.iter().map(|h| h.chunk_id.0.clone()).collect();
     let p2_ids: std::collections::HashSet<_> =
         page2.hits.iter().map(|h| h.chunk_id.0.clone()).collect();
-    assert!(p1_ids.is_disjoint(&p2_ids), "page 2 must not repeat page 1 hits");
+    assert!(
+        p1_ids.is_disjoint(&p2_ids),
+        "page 2 must not repeat page 1 hits"
+    );
 }
 
 #[test]

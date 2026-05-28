@@ -29,19 +29,19 @@ mod terminal;
 mod theme;
 pub mod trace_popup;
 
-pub use input::{InputBuffer, display_width, place_cursor_x, truncate_to_display_width};
-pub use theme::{Palette, Role, Theme};
 pub use app::{
-    App, AskState, IngestState, InspectState, InspectTarget, KeyOutcome, LibraryState, Mode,
-    Pane, SearchState, SearchWorkerMessage, TERMINAL_LINE_HOLD_SECS,
+    App, AskState, IngestState, InspectState, InspectTarget, KeyOutcome, LibraryState, Mode, Pane,
+    SearchState, SearchWorkerMessage, TERMINAL_LINE_HOLD_SECS,
 };
 pub use ask::{handle_key_ask, render_ask};
 pub use error_popup::{ErrorOverlay, render_error_overlay};
 pub use ingest_progress::{
     cancel_running_ingest, drain_progress, ready_to_clear, start_ingest, status_line,
 };
+pub use input::{InputBuffer, display_width, place_cursor_x, truncate_to_display_width};
 pub use inspect::{enter_inspect, handle_key_inspect, render_inspect};
 pub use library::{handle_key_library, render_library};
+pub use theme::{Palette, Role, Theme};
 // `editor::with_external_program` and `search::jump_to_citation`
 // stay `pub(crate)` — they take the internal `TuiTerminal` handle,
 // which is intentionally module-private (its `Drop` lifecycle is the
@@ -53,8 +53,8 @@ pub use search::{build_jump_command, handle_key_search, render_search};
 // without spawning the real thread (they inject a
 // `SearchWorkerMessage` directly via a channel they construct in
 // the test) and can pin the in-flight-skip invariant of debounce.
-pub use search::poll_worker as poll_search_worker;
 pub use search::debounce_due as search_debounce_due;
+pub use search::poll_worker as poll_search_worker;
 // p9-fb-12: expose the global mode-toggle intercept so integration
 // tests can pin the i/Esc behavior without standing up the full
 // run loop.

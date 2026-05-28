@@ -152,7 +152,10 @@ fn score_long_en_hypothesis_returns_err_without_pipeline_truncation() {
     let premise = "short premise";
     let hypothesis = "lorem ipsum ".repeat(500); // ~6 000 chars / >>512 tokens
     let result = v.score(premise, &hypothesis);
-    assert!(result.is_err(), "long hypothesis should err under OnlyFirst");
+    assert!(
+        result.is_err(),
+        "long hypothesis should err under OnlyFirst"
+    );
     let msg = result.err().unwrap().to_string();
     assert!(
         msg.contains("Truncation error") || msg.contains("too short to respect"),

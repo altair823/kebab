@@ -29,12 +29,14 @@ fn ingest_stdin_writes_frontmatter_and_reports_new() {
         "## Body content\n\nMore.",
         "Article X",
         Some("https://example.com/x"),
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(report.new, 1, "{report:?}");
 
     // _external/ contains exactly one .md file with frontmatter.
     let ext_dir = std::path::PathBuf::from(&cfg.workspace.root).join("_external");
-    let entries: Vec<_> = fs::read_dir(&ext_dir).unwrap()
+    let entries: Vec<_> = fs::read_dir(&ext_dir)
+        .unwrap()
         .filter_map(std::result::Result::ok)
         .collect();
     assert_eq!(entries.len(), 1);
@@ -50,16 +52,13 @@ fn ingest_stdin_without_source_uri() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = fresh_cfg(dir.path());
 
-    let report = kebab_app::ingest_stdin_with_config(
-        cfg.clone(),
-        "## Body",
-        "Title",
-        None,
-    ).unwrap();
+    let report =
+        kebab_app::ingest_stdin_with_config(cfg.clone(), "## Body", "Title", None).unwrap();
     assert_eq!(report.new, 1);
 
     let ext_dir = std::path::PathBuf::from(&cfg.workspace.root).join("_external");
-    let entries: Vec<_> = fs::read_dir(&ext_dir).unwrap()
+    let entries: Vec<_> = fs::read_dir(&ext_dir)
+        .unwrap()
         .filter_map(std::result::Result::ok)
         .collect();
     let content = fs::read_to_string(entries[0].path()).unwrap();

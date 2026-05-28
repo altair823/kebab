@@ -49,9 +49,7 @@ pub fn handle(state: &KebabAppState, input: FetchInput) -> CallToolResult {
             _ => return invalid_input("kind=span requires doc_id, line_start, line_end"),
         },
         other => {
-            return invalid_input(&format!(
-                "unknown kind '{other}'; expected chunk|doc|span"
-            ));
+            return invalid_input(&format!("unknown kind '{other}'; expected chunk|doc|span"));
         }
     };
 

@@ -235,7 +235,9 @@ mod tests {
                 href: "h".into(),
             },
             Inline::Strong {
-                children: vec![Inline::Text { text: "bold".into() }],
+                children: vec![Inline::Text {
+                    text: "bold".into(),
+                }],
             },
             Inline::Emph {
                 children: vec![Inline::Text { text: "em".into() }],

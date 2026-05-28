@@ -124,9 +124,19 @@ fn dimension_mismatch_errors_and_writes_nothing() {
 
     // First populate a 4-D table with one row so it exists on disk.
     let r0 = make_record(0, 0, dir(0), "first", &[], MODEL);
-    env.seed_chunk(&r0.chunk_id.0, &r0.doc_id.0, "notes/0.md", "en", &[], "primary");
+    env.seed_chunk(
+        &r0.chunk_id.0,
+        &r0.doc_id.0,
+        "notes/0.md",
+        "en",
+        &[],
+        "primary",
+    );
     env.vector.upsert(&[r0]).unwrap();
-    assert_eq!(env.vector.ensure_table(&model, 4).unwrap(), env.vector.ensure_table(&model, 4).unwrap());
+    assert_eq!(
+        env.vector.ensure_table(&model, 4).unwrap(),
+        env.vector.ensure_table(&model, 4).unwrap()
+    );
 
     // Now manually open the same table_name path and try to upsert
     // an 8-D vector through `upsert` — the table name function bakes
@@ -138,14 +148,20 @@ fn dimension_mismatch_errors_and_writes_nothing() {
     // Pretend this is a 4-D vector for table-name purposes; the
     // build_batch then enforces that vector.len() == dim and bails.
     bad.dimensions = 4;
-    env.seed_chunk(&bad.chunk_id.0, &bad.doc_id.0, "notes/1.md", "en", &[], "primary");
+    env.seed_chunk(
+        &bad.chunk_id.0,
+        &bad.doc_id.0,
+        "notes/1.md",
+        "en",
+        &[],
+        "primary",
+    );
 
     let bad_chunk = bad.chunk_id.0.clone();
     let err = env.vector.upsert(&[bad]).unwrap_err();
     let msg = format!("{err:#}");
     assert!(
-        msg.to_lowercase().contains("dim")
-            || msg.contains("does not match table dim"),
+        msg.to_lowercase().contains("dim") || msg.contains("does not match table dim"),
         "unexpected error message: {msg}"
     );
 
@@ -161,7 +177,10 @@ fn dimension_mismatch_errors_and_writes_nothing() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(committed, 0, "bad record reached committed state despite dim mismatch");
+    assert_eq!(
+        committed, 0,
+        "bad record reached committed state despite dim mismatch"
+    );
 }
 
 #[test]
@@ -221,9 +240,7 @@ fn model_isolation_two_models_two_directories() {
 
     // Same chunk_id, different model — should land in a separate table.
     let mut r2 = make_record(0xaa, 0xaa, dir(0), "alpha", &[], "model-B");
-    r2.embedding_id = kebab_core::EmbeddingId(
-        "ee01ee01ee01ee01ee01ee01ee01ee01".to_string(),
-    );
+    r2.embedding_id = kebab_core::EmbeddingId("ee01ee01ee01ee01ee01ee01ee01ee01".to_string());
     env.vector.upsert(&[r2]).unwrap();
 
     // Two on-disk Lance directories, distinguished by table name.
@@ -233,14 +250,8 @@ fn model_isolation_two_models_two_directories() {
         .filter_map(Result::ok)
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
-    let a_count = entries
-        .iter()
-        .filter(|e| e.contains("model-A"))
-        .count();
-    let b_count = entries
-        .iter()
-        .filter(|e| e.contains("model-B"))
-        .count();
+    let a_count = entries.iter().filter(|e| e.contains("model-A")).count();
+    let b_count = entries.iter().filter(|e| e.contains("model-B")).count();
     assert!(a_count >= 1, "model-A table missing: {entries:?}");
     assert!(b_count >= 1, "model-B table missing: {entries:?}");
 
@@ -351,7 +362,10 @@ fn upsert_retry_promotes_pending_to_committed() {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-        assert_eq!(status, "pending", "row should be at status=pending after phase-1-only");
+        assert_eq!(
+            status, "pending",
+            "row should be at status=pending after phase-1-only"
+        );
         assert_eq!(committed, 0);
     }
 

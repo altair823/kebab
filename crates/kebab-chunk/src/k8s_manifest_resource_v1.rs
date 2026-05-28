@@ -8,7 +8,7 @@
 
 use crate::tier2_shared::{policy_hash, push_chunks_with_oversize};
 use anyhow::Result;
-use kebab_core::{Block, CanonicalDocument, Chunk, ChunkPolicy, ChunkerVersion, Chunker};
+use kebab_core::{Block, CanonicalDocument, Chunk, ChunkPolicy, Chunker, ChunkerVersion};
 
 pub const VERSION_LABEL: &str = "k8s-manifest-resource-v1";
 
@@ -49,19 +49,14 @@ impl Chunker for K8sManifestResourceV1Chunker {
                 .get("apiVersion")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let kind = mapping
-                .get("kind")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let kind = mapping.get("kind").and_then(|v| v.as_str()).unwrap_or("");
 
             // Skip non-k8s documents.
             if api.is_empty() || kind.is_empty() {
                 continue;
             }
 
-            let metadata = mapping
-                .get("metadata")
-                .and_then(|v| v.as_mapping());
+            let metadata = mapping.get("metadata").and_then(|v| v.as_mapping());
             let name = metadata
                 .and_then(|m| m.get("name"))
                 .and_then(|v| v.as_str())
@@ -118,10 +113,7 @@ fn split_yaml_documents(text: &str) -> Vec<YamlSlice<'_>> {
         .enumerate()
         .filter_map(|(i, l)| {
             let trimmed = l.trim_end();
-            if trimmed == "---"
-                || trimmed.starts_with("--- ")
-                || trimmed.starts_with("---\t")
-            {
+            if trimmed == "---" || trimmed.starts_with("--- ") || trimmed.starts_with("---\t") {
                 Some(i)
             } else {
                 None

@@ -14,7 +14,8 @@ use common::TestEnv;
 fn require_avx_or_panic() {
     #[cfg(target_arch = "x86_64")]
     {
-        assert!(std::is_x86_feature_detected!("avx"), 
+        assert!(
+            std::is_x86_feature_detected!("avx"),
             "kb-app vector integration test requires AVX-capable hardware; \
              host CPU lacks AVX. Run on an AVX-capable machine."
         );
@@ -28,8 +29,7 @@ fn ingest_then_hybrid_search_returns_hits() {
     require_avx_or_panic();
 
     let env = TestEnv::with_embeddings();
-    let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
     assert_eq!(report.errors, 0, "no per-file errors: {report:?}");
     assert_eq!(report.new, 3);
 
@@ -55,8 +55,7 @@ fn ingest_then_vector_search_carries_embedding_model() {
     require_avx_or_panic();
 
     let env = TestEnv::with_embeddings();
-    let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
     assert_eq!(report.errors, 0, "no per-file errors: {report:?}");
     assert_eq!(report.new, 3);
 
