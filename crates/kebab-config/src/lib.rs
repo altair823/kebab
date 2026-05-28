@@ -64,6 +64,11 @@ pub struct Config {
     /// built-in defaults (OCR disabled — opt-in for scanned PDF KB).
     #[serde(default = "PdfCfg::defaults")]
     pub pdf: PdfCfg,
+    /// v0.20.x ingest log surface. `#[serde(default)]` so pre-v0.20
+    /// config files without a `[logging]` section load with built-in
+    /// defaults (enabled=true, dir=~/.local/state/kebab/logs).
+    #[serde(default)]
+    pub logging: LoggingCfg,
     /// p9-fb-05: directory of the on-disk config file this `Config`
     /// was loaded from, if any. Populated by `Config::from_file` /
     /// `Config::load` — never serialized (`#[serde(skip)]`). Used by
@@ -423,6 +428,36 @@ impl Default for PdfCfg {
     fn default() -> Self { Self::defaults() }
 }
 
+/// v0.20.x ingest log surface: structured ndjson log written per ingest run.
+/// `#[serde(default)]` on Config.logging ensures pre-v0.20 config files load cleanly.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LoggingCfg {
+    /// Write structured ndjson log for each ingest run. Default `true`.
+    /// Set `false` to suppress log file creation entirely (AC-6).
+    #[serde(default = "default_ingest_log_enabled")]
+    pub ingest_log_enabled: bool,
+
+    /// Directory for per-run log files. Default `{state_dir}/logs`.
+    /// `{state_dir}` expands to the XDG state dir (e.g. `~/.local/state/kebab`).
+    /// Log file accumulation is user-managed — no rotation policy (spec §6 R-1).
+    #[serde(default = "default_ingest_log_dir")]
+    pub ingest_log_dir: PathBuf,
+}
+
+fn default_ingest_log_enabled() -> bool { true }
+fn default_ingest_log_dir() -> PathBuf {
+    PathBuf::from("{state_dir}/logs")
+}
+
+impl Default for LoggingCfg {
+    fn default() -> Self {
+        Self {
+            ingest_log_enabled: default_ingest_log_enabled(),
+            ingest_log_dir: default_ingest_log_dir(),
+        }
+    }
+}
+
 /// v0.20.0 sub-item 1: scanned PDF OCR via Ollama vision LLM. Default
 /// disabled — opt-in because OCR adds ~45-100s per scanned page on CPU
 /// (qwen2.5vl:3b, remote). Enable for book / paper scan KB.
@@ -649,6 +684,7 @@ impl Config {
             ui: UiCfg::defaults(),
             ingest: IngestCfg::default(),
             pdf: PdfCfg::defaults(),
+            logging: LoggingCfg::default(),
             // p9-fb-05: defaults are not loaded from disk, so no
             // source_dir. Relative `workspace.root` (rare with
             // defaults) falls back to caller `cwd` via the
