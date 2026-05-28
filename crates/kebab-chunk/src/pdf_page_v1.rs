@@ -170,6 +170,7 @@ impl Chunker for PdfPageV1Chunker {
                     chunk_id,
                     doc_id: DocumentId(doc.doc_id.0.clone()),
                     block_ids,
+                    tokenized_korean_text: crate::tokenize_korean_morphological(&slice),
                     text: slice,
                     heading_path: Vec::new(),
                     source_spans: vec![span],

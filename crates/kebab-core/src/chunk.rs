@@ -23,4 +23,9 @@ pub struct Chunk {
     pub token_estimate: usize,
     pub chunker_version: ChunkerVersion,
     pub policy_hash: String,
+    /// 한국어 형태소 분해된 token 시퀀스 (공백 join). lindera ko-dic
+    /// 으로 chunker 가 pre-fill. None 시 raw text 만 FTS5 index.
+    /// Bug #8 (한국어 2자 query) 해결을 위한 V009 cascade.
+    #[serde(default)]
+    pub tokenized_korean_text: Option<String>,
 }

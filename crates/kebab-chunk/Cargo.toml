@@ -14,6 +14,8 @@ blake3                     = { workspace = true }
 anyhow                     = { workspace = true }
 tracing                    = { workspace = true }
 serde_yaml                 = { workspace = true }
+lindera        = { workspace = true, features = ["embed-ko-dic"] }
+lindera-ko-dic = { workspace = true, features = ["embed-ko-dic"] }
 
 [dev-dependencies]
 # kb-parse-md / kb-parse-code are dev-only — used by the snapshot integration

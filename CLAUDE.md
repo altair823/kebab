@@ -86,6 +86,61 @@ Release 절차:
 
 **bump 시점 = release 시점 같은 commit**. 즉 commit `chore: bump version 0.x → 0.y` 직후 같은 commit 에 tag. v0.1.0 (`2319206`) 처럼 bump 없이 tag 만 찍는 패턴은 후속 release 가 대상 commit 을 헷갈리게 함 — pre-release snapshot 은 SHA reference 로 충분.
 
+## Dogfood trigger
+
+도그푸딩 = 새 binary 를 실제 KB / 실제 query 로 돌려보고 user-visible 동작이 spec 의 의도와 일치하는지 확인하는 종단 검증. unit / integration test 가 못 잡는 회귀 (UX 어색함, performance regression, 의외의 token 처리, embedding drift, RAG hallucination) 를 catch 함. PR 머지 전 또는 머지 직후 release notes 작성 전에 실시.
+
+### 도그푸딩이 필요한 시점
+
+다음 트리거 중 하나라도 hit 시 도그푸딩 필수. **모두 release-level 또는 user-visible behavior 변경 임**.
+
+**Schema / migration**:
+- 신규 V00X migration (예: V007 trigram, V008 OCR mirror, V009 morphological) — `corpus_revision` cascade + auto-backfill 정책의 사용자 경험 확인.
+- frozen design contract 변경 (`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md` §X 갱신) — verbatim CI diff-check 외의 user-visible side effect 확인.
+
+**Wire schema / CLI surface**:
+- 신규 `--json` 필드, exit code 변경, 또는 schema major bump (v1 → v2) — agent / external integration 의 호환성 검증.
+- `kebab` 의 subcommand 또는 flag 추가/삭제/rename — agent skill / muscle memory 영향.
+
+**Search / RAG behavior**:
+- FTS5 tokenizer / chunker / embedder 모델 / RAG prompt template 변경 — 같은 query 의 hit ordering, snippet, RAG citation 패턴이 자연스럽게 변화하는지.
+- score gate, RRF fusion ratio, NLI threshold 같은 ranking 파라미터 default 변경.
+
+**Performance**:
+- ingest / search / ask latency 의 의도된 변화 (예: lindera tokenize, OCR 추가, multi-hop RAG) — actual wall-clock 측정 + release notes 에 명시.
+- 대용량 KB (수천 doc / 만 chunk) 의 first-boot eager backfill 시간이 사용자 hang 인지에 영향 안 가는지.
+
+**Language / locale**:
+- 한국어 / 일본어 / 중국어 lexical 동작 변경 (V007 trigram, V009 morphological, future N-gram).
+- 영어 substring 매칭 같은 ad-hoc 부산물의 회귀.
+
+**File / asset surface**:
+- 신규 source 형식 (PDF OCR, audio, video) — extractor / chunker 의 실제 corpus 동작.
+- `.kebabignore` / `_external/` 같은 workspace 정책 변경.
+
+**Release-level**: 위 트리거 중 하나가 hit 되어 `Cargo.toml` workspace `version` bump 가 필요하면, **bump commit 이전에 도그푸딩 evidence 가 HOTFIXES + release notes 에 명시** 되어 있어야 함. evidence 없는 release 는 사용자가 "왜 bump 했는지" 추적 불가.
+
+### 도그푸딩 데이터 보관소
+
+모든 ad-hoc 도그푸딩 데이터 (`config.toml` + corpus + `kb/`) 는 `/build/cache/dogfood/` 한 곳에 누적 보관:
+
+- `/build/cache/dogfood/README.md` — 사용 패턴 + 디렉토리 구조 + 신규 시나리오 시작 절차.
+- `/build/cache/dogfood/v<X.Y.Z>-<tag>/` — release/scenario 별 격리된 KB.
+- `/build/cache/dogfood/_logs/` — 누적 실행 로그 (ndjson + stderr + summary).
+
+새 도그푸딩 시작 시 기존 디렉토리의 `config.toml` 을 template 으로 sed-replace 한 새 디렉토리 생성. `/tmp/kebab-smoke/` 또는 `/tmp/kebab-*` 임시 위치 신규 사용 금지 — 루트 디스크 압박 + 누적 추적 어려움.
+
+### 도그푸딩 결과 기록
+
+도그푸딩 evidence 는 두 곳에 cascade:
+
+1. **`tasks/HOTFIXES.md` 의 dated entry** — 시나리오 별 hit count 표 + snippet evidence + known limitation. 미래에 spec drift 의심 시 git history 외 immediate reference 가 됨.
+2. **`docs/release-notes/v<X.Y.Z>-draft.md`** (또는 gitea release body) — 사용자 도그푸딩 영향에 영향이 가는 surface 변경을 4 단락 (변경 사실 / trade-off / mitigation / upgrade 절차) 으로 풀어서 설명. evidence link.
+
+도그푸딩 단계에서 *발견된 bug* (spec 과 실제 동작의 mismatch, performance regression, UX 어색함) 는 즉시 fix → re-dogfood. fix 가 별 PR 으로 빠지면 머지 후 HOTFIXES 에 dated entry. 
+
+DOGFOOD scenario catalog (§1~§13) 는 `docs/DOGFOOD.md`. 신규 release 마다 §관련 section 의 scenario list 갱신 + 신규 scenario 추가.
+
 ## Naming + paths
 
 - Crate prefix: `kebab-` (kebab-case package, `kebab_` snake_case in Rust modules).

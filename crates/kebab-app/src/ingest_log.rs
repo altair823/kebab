@@ -232,13 +232,12 @@ pub(crate) fn cleanup_old_logs(
     retention_days: u32,
 ) -> anyhow::Result<()> {
     let mut entries: Vec<_> = std::fs::read_dir(log_dir)?
-        .filter_map(|e| e.ok())
+        .filter_map(Result::ok)
         .filter(|e| {
             e.path()
                 .file_name()
                 .and_then(|n| n.to_str())
-                .map(|s| s.starts_with("ingest-") && s.ends_with(".ndjson"))
-                .unwrap_or(false)
+                .is_some_and(|s| s.starts_with("ingest-") && s.ends_with(".ndjson"))
         })
         .collect();
 
@@ -247,7 +246,7 @@ pub(crate) fn cleanup_old_logs(
 
     let cutoff = SystemTime::now()
         .checked_sub(std::time::Duration::from_secs(
-            retention_days as u64 * 86400,
+            u64::from(retention_days) * 86400,
         ))
         .unwrap_or(SystemTime::UNIX_EPOCH);
 
@@ -412,7 +411,7 @@ mod tests {
         cleanup_old_logs(dir, 3, 90).unwrap();
         let remaining: Vec<_> = std::fs::read_dir(dir)
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(Result::ok)
             .collect();
         assert_eq!(remaining.len(), 3, "expected 3 files after cleanup");
     }
@@ -436,7 +435,7 @@ mod tests {
         cleanup_old_logs(dir, 10, 30).unwrap();
         let remaining: Vec<_> = std::fs::read_dir(dir)
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(Result::ok)
             .collect();
         assert_eq!(
             remaining.len(),

@@ -18,7 +18,8 @@
       }
     ],
     "text": "#include <string>\n#include <vector>\n\nnamespace kebab {",
-    "token_estimate": 18
+    "token_estimate": 18,
+    "tokenized_korean_text": "# include < string > # include < vector > namespace kebab {"
   },
   {
     "block_ids": [
@@ -39,7 +40,8 @@
       }
     ],
     "text": "class MdHeadingV1Chunker {\npublic:\n    MdHeadingV1Chunker() = default;\n    ~MdHeadingV1Chunker() = default;\n\n    std::string chunk_doc(const std::string& doc) {\n        return doc;\n    }\n\n    int operator()(int x) const {\n        return x * 2;\n    }\n\nprivate:\n    int counter_ = 0;\n};",
-    "token_estimate": 95
+    "token_estimate": 95,
+    "tokenized_korean_text": "class MdHeadingV 1 Chunker { public : MdHeadingV 1 Chunker ( ) = default ; ~ MdHeadingV 1 Chunker ( ) = default ; std : : string chunk _ doc ( const std : : string & doc ) { return doc ; } int operator ( ) ( int x ) const { return x * 2 ; } private : int counter _ = 0 ; };"
   },
   {
     "block_ids": [
@@ -60,7 +62,8 @@
       }
     ],
     "text": "template <typename T>\nT identity(T value) {\n    return value;\n}",
-    "token_estimate": 21
+    "token_estimate": 21,
+    "tokenized_korean_text": "template < typename T > T identity ( T value ) { return value ; }"
   },
   {
     "block_ids": [
@@ -81,7 +84,8 @@
       }
     ],
     "text": "void global_helper() {\n    // free function in kebab namespace\n}",
-    "token_estimate": 22
+    "token_estimate": 22,
+    "tokenized_korean_text": "void global _ helper ( ) { / / free function in kebab namespace }"
   },
   {
     "block_ids": [
@@ -102,6 +106,7 @@
       }
     ],
     "text": "int main() {\n    kebab::chunk::MdHeadingV1Chunker c;\n    return 0;\n}",
-    "token_estimate": 23
+    "token_estimate": 23,
+    "tokenized_korean_text": "int main ( ) { kebab : : chunk : : MdHeadingV 1 Chunker c ; return 0 ; }"
   }
 ]

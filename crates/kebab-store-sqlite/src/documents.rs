@@ -105,8 +105,9 @@ impl kebab_core::DocumentStore for SqliteStore {
                 "INSERT INTO chunks (
                     chunk_id, doc_id, text, heading_path_json,
                     section_label, source_spans_json, token_estimate,
-                    chunker_version, policy_hash, block_ids_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    chunker_version, policy_hash, block_ids_json, created_at,
+                    tokenized_korean_text
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .map_err(StoreError::from)?;
         for chunk in chunks {
@@ -134,6 +135,7 @@ impl kebab_core::DocumentStore for SqliteStore {
                 chunk.policy_hash,
                 block_ids,
                 now,
+                chunk.tokenized_korean_text.as_deref(),
             ])
             .map_err(StoreError::from)?;
         }
@@ -221,7 +223,7 @@ impl kebab_core::DocumentStore for SqliteStore {
                 "SELECT
                     chunk_id, doc_id, text, heading_path_json,
                     source_spans_json, token_estimate, chunker_version,
-                    policy_hash, block_ids_json
+                    policy_hash, block_ids_json, tokenized_korean_text
                 FROM chunks WHERE chunk_id = ?",
                 params![id.0],
                 chunk_row_from_sql,
@@ -247,6 +249,7 @@ impl kebab_core::DocumentStore for SqliteStore {
             token_estimate: row.token_estimate as usize,
             chunker_version: kebab_core::ChunkerVersion(row.chunker_version),
             policy_hash: row.policy_hash,
+            tokenized_korean_text: row.tokenized_korean_text,
         }))
     }
 
@@ -557,6 +560,7 @@ struct ChunkRow {
     chunker_version: String,
     policy_hash: String,
     block_ids_json: String,
+    tokenized_korean_text: Option<String>,
 }
 
 fn chunk_row_from_sql(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChunkRow> {
@@ -570,6 +574,7 @@ fn chunk_row_from_sql(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChunkRow> {
         chunker_version: row.get(6)?,
         policy_hash: row.get(7)?,
         block_ids_json: row.get(8)?,
+        tokenized_korean_text: row.get(9)?,
     })
 }
 

@@ -18,7 +18,8 @@
       }
     ],
     "text": "#include <stdio.h>\n#include <stdlib.h>\n\n#define MAX_BUF 4096\n\ntypedef enum {\n    OK = 0,\n    ERR_PARSE,\n    ERR_IO,\n} status_t;\n\ntypedef struct {\n    int id;\n    char name[64];\n    status_t status;\n} record_t;\n\nstatic int counter = 0;",
-    "token_estimate": 78
+    "token_estimate": 78,
+    "tokenized_korean_text": "# include < stdio . h > # include < stdlib . h > # define MAX _ BUF 4096 typedef enum { OK = 0 , ERR _ PARSE , ERR _ IO , } status _ t ; typedef struct { int id ; char name [ 64 ]; status _ t status ; } record _ t ; static int counter = 0 ;"
   },
   {
     "block_ids": [
@@ -39,7 +40,8 @@
       }
     ],
     "text": "int parse_record(const char *line, record_t *out) {\n    if (line == NULL || out == NULL) return ERR_PARSE;\n    return OK;\n}",
-    "token_estimate": 41
+    "token_estimate": 41,
+    "tokenized_korean_text": "int parse _ record ( const char * line , record _ t * out ) { if ( line == NULL || out == NULL ) return ERR _ PARSE ; return OK ; }"
   },
   {
     "block_ids": [
@@ -60,7 +62,8 @@
       }
     ],
     "text": "void print_record(const record_t *r) {\n    printf(\"[%d] %s (status=%d)\\n\", r->id, r->name, r->status);\n}",
-    "token_estimate": 35
+    "token_estimate": 35,
+    "tokenized_korean_text": "void print _ record ( const record _ t * r ) { printf (\"[% d ] % s ( status =% d )\\ n \", r -> id , r -> name , r -> status ); }"
   },
   {
     "block_ids": [
@@ -81,6 +84,7 @@
       }
     ],
     "text": "int main(void) {\n    record_t r = { .id = 1, .name = \"foo\", .status = OK };\n    print_record(&r);\n    return 0;\n}",
-    "token_estimate": 38
+    "token_estimate": 38,
+    "tokenized_korean_text": "int main ( void ) { record _ t r = { . id = 1 , . name = \" foo \", . status = OK }; print _ record (& r ); return 0 ; }"
   }
 ]

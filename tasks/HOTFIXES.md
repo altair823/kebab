@@ -14,6 +14,131 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-28 — Bug #8 한국어 2자 query 해소 (V009 morphological tokenizer)
+
+**Discovered**: 도그푸딩 round 3/4 (2026-05-28). '한국' / '서울' 0-hit 반복.
+
+**Symptom**: V007 trigram tokenizer 의 ≥3-char minimum 한계.
+
+**Root cause**: trigram 의 bucket 미존재. unicode61 기반 단순 3-gram 분해로는 2-char 한국어 단어를 충분히 커버 못함.
+
+**Fix**: V009 migration + lindera-ko-dic 형태소분석기 + tokenized_korean_text column + first-boot eager backfill. branch `feat/korean-morphological-tokenizer` (17 commit).
+- `migrations/V009__fts_korean_morphological.sql` — `tokenized_korean_text` column ADD + chunks_fts (trigram → unicode61) + CASE expression triggers + corpus_revision bump.
+- `crates/kebab-chunk/src/lib.rs::tokenize_korean_morphological` — lindera ko-dic 형태소 분석 helper (OnceLock 캐시 + None fallback).
+- `crates/kebab-store-sqlite/src/store.rs::backfill_tokenized_korean_text` — 1000-row batch transaction + idempotent backfill (tokenize closure 주입으로 dependency-inversion).
+- `crates/kebab-app/src/app.rs::App::open_with_config` — first-boot hook 에서 backfill 호출 (실패 시 warn log + App open 계속).
+- `crates/kebab-search/src/lexical.rs::build_match_string` — `MIN_QUERY_CHARS` 3 → 2 로 낮춰 2자 한국어 query 통과 허용 (V007 시절 doc-comment 의 trigram 가정 갱신).
+
+**Amends**: design §5.5 (FTS5 한국어 지원으로 갱신), §9 (index_version cascade — `fts5-v009-korean-morphological` suffix), HOTFIXES 2026-05-24 trigram entry (한국어 2자 query 미해결 footnote 해소).
+
+**Deviation from spec**: spec 의 lindera crate 이름 예상값과 실제 crates.io 등록명 불일치:
+- spec §6.1 예상: `lindera-dict-ko-dic`
+- 실제 v3.x: `lindera-ko-dic` (crates.io 표준 이름, 한국 형태소분석 dictionary).
+
+**Deferred**: `cargo-deny` 정식 도입 (workspace deny.toml 스캔 + CI gate) 은 별 P9 follow-up 으로 분리. 본 PR 은 `cargo tree --depth 2` 의 SPDX 수동 검증 (lindera/ko-dic 모두 MIT/Apache-2.0 compatible).
+
+**Path A regression noted**: V007 trigram 의 영어 substring 매칭 (token → tokenizer hit) 은 V009 lindera 전환으로 (lindera-ko-dic 은 한국어 only) 영어는 V002 (whole-token only) 로 회귀. Hybrid/vector 검색이 영어 carry, user impact 미미. spec §3 Non-Goals 의 설계 선택 확인 (lexical-only 기능 제약 허용).
+
+**User impact**: 
+- `kebab search "한국"` / `kebab search "서울"` 등 2-char 한국어 단어가 이제 hit.
+- hybrid/vector 모드에서 한국어 검색은 이미 정상 (embedding 의존), lexical 개선으로 RRF 점수 향상.
+- `kebab.sqlite` 크기 증가 (형태소 tokenizer 비용, 도그푸딩 KB 기준 +5-10% 또는 수십 MB).
+
+**Dogfood verification (2026-05-28)** — 2-file Korean wiki fixture (`korea-overview.md` + `korea-compound.md`, DOGFOOD.md §2.1bis reference corpus 참조) 로 fresh KB 색인 + 검증:
+
+| Scenario | Query | Hits | Status |
+|---|---|---|---|
+| §2.1.a Korean 2-char | `'한국'` | 4 | ✅ |
+| §2.1.a Korean 2-char | `'서울'` | 2 | ✅ |
+| §2.1.b Korean 3-char | `'지하철'` | 2 | ✅ |
+| §2.1.b Compound noun | `'한국어'` | 1 | ✅ |
+| §2.1.b Compound noun | `'한국문화'` | 1 | ✅ |
+| §2.1.b Compound noun | `'서울특별시'` | 1 | ✅ (ko-dic morpheme decomposition evidence — `서울특별시` → `[서울, 특별시]`) |
+| §2.1.d 1-char filter | `'키'` | 0 | ✅ (MIN_QUERY_CHARS=2) |
+| §2.1.f raw FTS5 mode | `"'한국'"` | 4 | ✅ |
+| §2.1.g FTS5 phrase | `'"서울 의"'` | 2 | ✅ |
+| §2.2 Vector | `'한국 문화 와 전통'` (k=3) | 3 | ✅ |
+| §2.3 Hybrid | `'한국'` (k=3) | 3 | ✅ |
+| §1 Ingest idempotent | re-ingest | 0 new/updated | ✅ |
+| §6 Wire schema | `kebab schema --json` | `kebab_version=0.20.1`, `schema_version=schema.v1` | ✅ |
+| §9 Doctor | `kebab doctor --json` | `ok=true` | ✅ |
+
+**Snippet evidence** (lindera 분해 확인):
+- `'한국'` query → "한국 은 동아시아 의 반 도 국가 다 . 한국 어 는 한반도 의 주요 언어 다" (조사 `은`, `의` 분리).
+- `'서울'` query → "서울특별시 와 부산광역시" — ko-dic 의 compound `서울특별시` → `[서울, 특별시]` 자동 분해.
+
+**Known limitation (Option α acceptance)**:
+- 사용자 KnowledgeBase 같은 영어/code 위주 KB 에서는 한국어 token 자체 부재로 lexical 0-hit 자연 (vector/hybrid mode 로 우회).
+- ko-dic 이 compound noun (`한국정부`, `대한민국` 등) 을 단일 token 으로 저장하는 경우 그 chunk 의 `'한국'` 단독 query 는 hit X.
+- N-gram supplement (Option β, sub-token 추가 emit) 은 v0.21.x P9 follow-up.
+
+**V007 → V009 upgrade simulation (2026-05-28)** — whitespace-less Korean fixture (`/build/cache/tmp/v0.20.1-v007strict/corpus/no-space.md` 의 `한국문화는오래되었다한국문화의역사는깊다...`) 로 backfill mechanism 검증:
+
+1. v0.20.1 ingest → chunks 의 tokenized_korean_text 자동 populated.
+2. python sqlite3 으로 V007-like state 시뮬레이션 (`UPDATE chunks SET tokenized_korean_text = NULL` + chunks_fts 재구성 raw text only).
+3. `App::open_with_config` 재호출 → first-boot hook 의 `backfill_tokenized_korean_text` 자동 발화 → lindera 분해 결과 UPDATE → chunks_au trigger 로 chunks_fts 자동 재-index.
+4. Verify post-backfill: tokenized_korean_text 의 populated 값이 `한국 문화 는 오래 되 었 다 한국 문화 의 역사 는 깊 다 . 서울 특별시 는 한국 의 수도 이 며 지하철...` (lindera morpheme + 조사 boundary 분리).
+
+**의외 발견**: FTS5 의 default `unicode61` tokenizer 가 CJK 문자 시퀀스를 별 codepoint 단위로 처리해, raw text 만 indexed 된 상태에서도 일부 한국어 query (예: `'한국'`) 가 hit. lindera 의 marginal benefit 은 corpus 의 morpheme 경계 정확도에 따라 변화. 자세한 unicode61 의 CJK tokenization 정책 = SQLite docs 의 `categories=L*` default + ICU optional extension 참고. spec §4 design choice 의 추가 evidence — V009 의 영어 회귀가 사용자 가치 가장 큰 user-facing 변화로 남고, 한국어 측 benefit 은 corpus 와 ko-dic 정책 의존이라 case-by-case.
+
+**N-gram supplement (Option β) 도입 (2026-05-28, post-PR review enhancement)**:
+
+spec §6.2 의 Option β (sub-token 추가 emit) 가 follow-up 으로 deferred 였지만, dogfood 의 ko-dic compound noun 정책 (`대한민국`, `한국정부` 등 단일 token) limitation 을 즉시 해소하기 위해 v0.20.1 의 implementation 에 포함:
+
+- `kebab-chunk::tokenize_korean_morphological` 에 한글 morpheme (`is_hangul` filter) 의 sliding window 2-gram 추가 emit. 길이 ≥ 3자 morpheme 만 대상 (이미 ≤ 2자 morpheme 은 그대로 사용).
+- 영어 / 숫자 / 혼합 token 은 supplement X (`is_hangul` 의 `chars().all()` filter — false positive 회피).
+
+**Verification (fresh dogfood corpus + re-ingest)** — `/build/cache/tmp/v0.20.1-ngram/corpus/extra.md` (대한민국, 한국정부, 주민등록번호 포함):
+
+| Query | Hits | Mechanism |
+|---|---|---|
+| `'대한'` | 1 | `대한민국` morpheme 의 window `[대한, 한민, 민국]` |
+| `'한민'` | 1 | 동일 |
+| `'민국'` | 1 | 동일 |
+| `'특별'` | 2 | `서울특별시` → `[서울, 특별시]` + `특별시` 의 window `[특별, 별시]` |
+| `'주민'` | 1 | `주민등록번호` morpheme window |
+| `'등록'` | 1 | 동일 |
+| `'tokenizer'` (영어) | 0 | corpus 에 없음, 영어는 supplement 안 함 |
+
+**Trade-off**:
+- DB size: 한국어 compound noun 비례 +20-30% (`tokenized_korean_text` column 의 token 수 증가).
+- Ingest latency: marginal (sliding window 는 단순 vector loop, lindera tokenize 의 ~5-10% overhead).
+- False positive risk: 일부 (예: `'한민'` query 가 `'대한민국'` 도 hit). 작은 risk, user 가 raw FTS5 mode 또는 longer query 로 우회 가능.
+
+**Released as part of v0.20.1**. spec Appendix B 의 prior-knowledge limitation 이 supplement 으로 해소. spec §6.2 의 Option β 결정을 v0.21.x 에서 v0.20.1 implementation 으로 promote (HOTFIXES → spec 갱신 cascade — design §5.5 변경 외에 §6.2 본문은 보존, supplement 동작 만 implementation detail 로 추가).
+
+**Large-scale dogfood verification (2026-05-28, KnowledgeBase + N-gram)** — 사용자 실제 `/home/altair823/KnowledgeBase/` (1781 markdown, 9050 chunk) 를 N-gram supplement 포함 binary 로 backfill 재실행:
+
+- **Backfill duration**: 9050 chunk × lindera tokenize + N-gram + UPDATE + chunks_au trigger = **26.6 초** (real-time wall clock, OnceLock 캐시 + 1000-row batch transaction). ~3 ms/chunk amortized.
+- **Storage delta**: `kebab.sqlite` 크기 변화는 영어/code 위주 corpus 라 minimal (N-gram supplement 가 한글 morpheme 만 emit).
+- **Query evidence (KnowledgeBase, post-backfill)**:
+
+| Query | Pre-backfill hits | Post-backfill hits | Mechanism |
+|---|---|---|---|
+| `'한국'` | 0 | **10** ✅ | N-gram supplement 의 `'한국어'` → `[한국, 국어]` window. KB 의 `testdata/coding-md-corpus/*/...md` 의 "문서를 한국어로 다시 정리하기" pattern 에서 hit. |
+| `'한국어'` | 5 | 10 | morpheme + N-gram 양쪽 매칭으로 hit count 증가 (raw `한국어` token + N-gram supplement) |
+| `'서울'` | 0 | 0 | KB corpus 에 단어 자체 부재 (data limitation, V009 limitation X) |
+| `'지하철'` | 0 | 0 | 동일 |
+| `'token'` (영어) | 10 | 10 | KB 의 OAuth/JWT docs — whole-token 매칭. supplement 미적용. |
+| `'tokenizer'` | 0 | 0 | KB 에 부재 |
+| `'pipeline'` | 10 | 10 | data ingest pipeline docs |
+| `'config'` | 10 | 10 | config-related docs |
+
+**핵심 결론**: Bug #8 의 **functional closure 검증** — V007 trigram 의 `'한국'` 0 hit limitation 이 V009 + N-gram supplement 로 **10 hit** 으로 개선. 다른 한국어 query 의 0-hit 는 corpus 의 단어 자체 부재 (KB 가 React/Cargo/MD docs 위주). 실제 한국어 content 가 더 많은 KB (예: 한국 정부 docs, K-wiki) 에서는 더 큰 benefit 기대.
+
+**Snippet evidence (ko-dic 분해 + N-gram window)**:
+```
+testdata/coding-md-corpus/security/security-310-item.md
+  → "¶ 문서 를 한국어 한국 국어 로 다시 정리 하 기"
+testdata/coding-md-corpus/rust/rust-020-functions.md
+  → "Functions 문서 를 한국어 한국 국어 로 다시 정리 하 기"
+```
+
+`한국어` morpheme + sliding window `한국` + `국어` 가 동시에 chunks_fts 에 indexed — `'한국'` query 가 morpheme 분해 결과의 부분 token 으로 hit.
+- README + SKILL.md + HANDOFF.md 세 문서 반영.
+
+Cross-link: `migrations/V009__fts_korean_morphological.sql`, `crates/kebab-search/src/lexical.rs`, design §5.5 / §9, `docs/superpowers/specs/2026-05-28-v0.20.x-korean-morphological-tokenizer-spec.md`.
+
 ## 2026-05-28 — PDF OCR `request_timeout_secs` default 60s → 180s (Bug #11 follow-up)
 
 **Discovered**: v0.20.0 final dogfood (2026-05-28), round 3 fresh KB ingest.

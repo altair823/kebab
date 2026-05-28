@@ -19,9 +19,9 @@
     "indexed_at": "2024-01-01T00:00:00Z",
     "rank": 1,
     "retrieval": {
-      "fusion_score": 1.4615362715630908e-6,
+      "fusion_score": 1.4490997273242101e-6,
       "lexical_rank": 1,
-      "lexical_score": 1.4615362715630908e-6,
+      "lexical_score": 1.4490997273242101e-6,
       "method": "lexical",
       "vector_rank": null,
       "vector_score": null
@@ -51,9 +51,9 @@
     "indexed_at": "2024-01-01T00:00:00Z",
     "rank": 2,
     "retrieval": {
-      "fusion_score": 9.207039965986041e-7,
+      "fusion_score": 9.641424867368187e-7,
       "lexical_rank": 2,
-      "lexical_score": 9.207039965986041e-7,
+      "lexical_score": 9.641424867368187e-7,
       "method": "lexical",
       "vector_rank": null,
       "vector_score": null

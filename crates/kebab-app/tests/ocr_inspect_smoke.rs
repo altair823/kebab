@@ -15,14 +15,14 @@ fn seed_ocr_events(env: &TestEnv, store: &SqliteStore) {
         store
             .record_pdf_ocr_event(
                 "run-aaa",
-                &format!("2026-05-28T0{}:00:00Z", i),
+                &format!("2026-05-28T0{i}:00:00Z"),
                 Some("doc-abc"),
                 "path/scanned.pdf",
                 i + 1,
                 Some(50_000),
                 Some(200),
                 Some(150),
-                100 + (i as u64) * 20,
+                100 + u64::from(i) * 20,
                 42,
                 true,
                 None,

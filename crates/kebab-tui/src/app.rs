@@ -153,12 +153,6 @@ pub struct SearchState {
     /// `Ctrl-L`); the previous draft kept one for "symmetry" but
     /// it was dead code.
     pub worker_rx: Option<std::sync::mpsc::Receiver<SearchWorkerMessage>>,
-    /// v0.17.0 A5 Step 5: advisory text shown when the last completed
-    /// search returned no hits and the (trimmed) query is shorter than
-    /// the FTS5 trigram tokenizer's 3-char minimum. `None` whenever
-    /// the input changes (so a stale hint never overlaps a fresh
-    /// typing session) or the next search returns ≥1 hit.
-    pub short_query_hint: Option<String>,
 }
 
 /// p9-fb-08: payload posted by the search worker on completion.
@@ -185,7 +179,6 @@ impl Default for SearchState {
             preview: None,
             generation: 0,
             worker_rx: None,
-            short_query_hint: None,
         }
     }
 }

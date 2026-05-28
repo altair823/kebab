@@ -89,5 +89,11 @@ lopdf                = { workspace = true }
 # reqwest::Error (private constructor) — built from a connect-refused call.
 reqwest      = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 
+[features]
+# Marker feature — spec §6.3 Option A (단순): lindera 는 kebab-chunk 가 default dep 으로 소유.
+# disable path 없음; 이 feature 는 spec §6.3 명시를 honor 하는 role 만.
+default = ["fts_korean_morphological"]
+fts_korean_morphological = []
+
 [lints]
 workspace = true

@@ -30,7 +30,7 @@ edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/altair823/kebab"
-version       = "0.20.0"   # v0.20.0 sub-item 1 (scanned PDF OCR via qwen2.5vl:3b) — CLAUDE.md §Release 사용자 도그푸딩 트리거
+version       = "0.20.1"   # v0.20.1 — V009 한국어 morphological tokenizer (Bug #8) + logging r2 — CLAUDE.md §Release 도그푸딩 + design §5.5 변경 트리거
 
 # pre-v0.18 workspace-wide cleanup: enable clippy::pedantic group with
 # intentional allow-list. The allowed lints are either cosmetic (doc style),
@@ -203,6 +203,10 @@ ort          = { version = "=2.0.0-rc.9", default-features = false, features = [
 tokenizers   = { version = "0.21", default-features = false, features = ["onig"] }
 hf-hub       = { version = "0.4", default-features = false, features = ["ureq", "rustls-tls"] }
 ndarray      = "0.16"
+# Korean morphological tokenizer (FTS v0.20.x, §6.1). lindera-ko-dic bundles
+# the KO-DIC dictionary as an embedded blob via the embed-ko-dic feature.
+lindera        = "3"
+lindera-ko-dic = "3"
 
 # Disk-footprint trim for dev / test builds. Codegen, opt-level, and
 # behavior are unchanged — only DWARF debug info is reduced (line

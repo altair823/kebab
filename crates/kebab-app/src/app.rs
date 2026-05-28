@@ -89,29 +89,6 @@ pub struct SearchResponse {
     pub hint: Option<String>,
 }
 
-/// v0.17.0 A5 Step 4b: decide whether to attach a "3자 이상 키워드 권장"
-/// hint to a `SearchResponse`. Fires only when the result set is empty
-/// *and* the trimmed query is shorter than the trigram tokenizer can
-/// resolve. Raw FTS5 mode (`'...'`) opts out — the user explicitly
-/// invoked FTS5 syntax. Identical condition powers the CLI stderr line
-/// and (separately) the TUI status bar.
-pub fn short_query_hint(query_text: &str, hits_empty: bool) -> Option<String> {
-    if !hits_empty {
-        return None;
-    }
-    let trimmed = query_text.trim();
-    let bytes = trimmed.as_bytes();
-    // Raw single-quote mode: user opted into FTS5 syntax, no advisory.
-    if bytes.len() >= 2 && bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\'' {
-        return None;
-    }
-    if trimmed.chars().count() < 3 {
-        Some("3자 이상 키워드 권장 (trigram tokenizer 제약)".to_string())
-    } else {
-        None
-    }
-}
-
 /// Facade state — see module docs for lifetime rules.
 ///
 /// The struct is public so long-lived callers (kb-eval, the future P9
@@ -212,6 +189,34 @@ impl App {
         sqlite
             .run_migrations()
             .context("kb-app: run SqliteStore migrations")?;
+        // V009 의 tokenized_korean_text column 의 first-boot eager backfill.
+        // 신규 ingest 의 chunks_ai trigger 가 이미 채우므로 NULL row 가 없으면 즉시 0 반환 (idempotent).
+        // V007 → V009 업그레이드 시 KB 크기 비례 (~10000 chunk 당 ~30-60s).
+        let backfill_count = sqlite
+            .backfill_tokenized_korean_text(
+                |done, total| {
+                    if total > 0 && done % 500 == 0 {
+                        tracing::info!(
+                            target: "kebab-app",
+                            "korean tokenizer backfill: {done}/{total}"
+                        );
+                    }
+                },
+                kebab_chunk::tokenize_korean_morphological,
+            )
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    target: "kebab-app",
+                    "korean tokenizer backfill failed: {e}"
+                );
+                0
+            });
+        if backfill_count > 0 {
+            tracing::info!(
+                target: "kebab-app",
+                "korean tokenizer backfill complete: {backfill_count} chunks updated"
+            );
+        }
         // p9-fb-19: build the LRU cache from config. Capacity 0 →
         // `None` (cache disabled — every search hits the retrievers).
         let search_cache = NonZeroUsize::new(config.search.cache_capacity)
@@ -529,7 +534,7 @@ impl App {
 
             // Trace path skips the budget loop. Caller will inspect
             // `hits.len()` and `trace.timing` rather than paginate.
-            let hint = short_query_hint(&query.text, hits.is_empty());
+            let hint: Option<String> = None;
             return Ok(SearchResponse {
                 hits,
                 next_cursor: None,
@@ -613,7 +618,7 @@ impl App {
             None
         };
 
-        let hint = short_query_hint(&query.text, hits.is_empty());
+        let hint: Option<String> = None;
         Ok(SearchResponse {
             hits,
             next_cursor,
@@ -988,8 +993,16 @@ impl App {
 /// the active config. This token surfaces in `SearchHit.index_version`
 /// and on snapshot tests; including the chunker version pins it to
 /// the chunking policy in effect.
+///
+/// V009 (2026-05-28): FTS5 tokenizer 가 trigram → unicode61 + 한국어
+/// 형태소 분해 column 로 갱신됨. `fts5-v009-korean-morphological`
+/// suffix 가 V007 baseline 과 구별되어 eval runner 의 config
+/// snapshot 및 search cache 무효화에 picks up 된다.
 fn lexical_index_version(config: &kebab_config::Config) -> IndexVersion {
-    IndexVersion(format!("lex:{}", config.chunking.chunker_version))
+    IndexVersion(format!(
+        "lex:{}:fts5-v009-korean-morphological",
+        config.chunking.chunker_version
+    ))
 }
 
 /// p9-fb-37: stand-in for the vector retriever in the trace path when
@@ -1177,7 +1190,7 @@ impl App {
                 .context("prepare ms query")?;
             stmt.query_map([], |r| r.get::<_, u64>(0))
                 .context("query ms")?
-                .filter_map(|r| r.ok())
+                .filter_map(Result::ok)
                 .collect()
         };
         let (p50_ms, p90_ms, p99_ms, max_ms) = percentiles(&samples);
@@ -1191,7 +1204,7 @@ impl App {
             let rows = stmt
                 .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
                 .context("query engine")?;
-            for row in rows.filter_map(|r| r.ok()) {
+            for row in rows.filter_map(Result::ok) {
                 by_engine.insert(row.0, row.1);
             }
         }
@@ -1219,7 +1232,7 @@ impl App {
                 })
             })
             .context("query by_doc")?
-            .filter_map(|r| r.ok())
+            .filter_map(Result::ok)
             .collect()
         };
 
@@ -1276,7 +1289,7 @@ impl App {
                 })
             })
             .context("query failures by doc_id")?
-            .filter_map(|r| r.ok())
+            .filter_map(Result::ok)
             .collect()
         } else {
             let mut stmt = conn
@@ -1298,7 +1311,7 @@ impl App {
                 })
             })
             .context("query failures corpus-wide")?
-            .filter_map(|r| r.ok())
+            .filter_map(Result::ok)
             .collect()
         };
         Ok(OcrFailuresV1 {

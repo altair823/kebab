@@ -109,7 +109,10 @@ fn first_ingest_bumps_corpus_revision() {
     let env = TestEnv::lexical_only();
     let store_before = kebab_store_sqlite::SqliteStore::open(&env.config).unwrap();
     store_before.run_migrations().unwrap();
-    assert_eq!(store_before.corpus_revision(), 0, "fresh store seeds 0");
+    // V004 seeds 0; V009 migration bumps to 1 to invalidate any pre-V009
+    // LRU cache (spec §5.2). Baseline before ingest = post-migration value.
+    let baseline = store_before.corpus_revision();
+    assert_eq!(baseline, 1, "fresh store post-V009 baseline = 1");
 
     let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
     assert!(
@@ -119,8 +122,8 @@ fn first_ingest_bumps_corpus_revision() {
 
     let store_after = kebab_store_sqlite::SqliteStore::open(&env.config).unwrap();
     assert!(
-        store_after.corpus_revision() >= 1,
-        "ingest commit must bump corpus_revision (got {})",
+        store_after.corpus_revision() > baseline,
+        "ingest commit must bump corpus_revision past baseline {baseline} (got {})",
         store_after.corpus_revision(),
     );
 }

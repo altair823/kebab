@@ -191,8 +191,7 @@ where
                     note: Some(note),
                 });
                 let (image_width, image_height) = extract_image_dimensions(&page_image_bytes)
-                    .map(|(w, h)| (Some(w), Some(h)))
-                    .unwrap_or((None, None));
+                    .map_or((None, None), |(w, h)| (Some(w), Some(h)));
                 emit_progress(PdfOcrProgress::Finished {
                     page: page_num,
                     ms: start.elapsed().as_millis() as u64,
@@ -272,8 +271,7 @@ where
         });
 
         let (image_width, image_height) = extract_image_dimensions(&page_image_bytes)
-            .map(|(w, h)| (Some(w), Some(h)))
-            .unwrap_or((None, None));
+            .map_or((None, None), |(w, h)| (Some(w), Some(h)));
         emit_progress(PdfOcrProgress::Finished {
             page: page_num,
             ms: elapsed_ms,

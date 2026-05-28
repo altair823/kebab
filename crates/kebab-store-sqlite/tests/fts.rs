@@ -13,6 +13,7 @@
 //! that bypasses the `SqliteStore` mutex; that's fine because each test
 //! gets its own tempdir and no concurrent mutator is in flight.
 
+use kebab_chunk::tokenize_korean_morphological;
 use kebab_store_sqlite::{SqliteStore, rebuild_chunks_fts};
 use rusqlite::Connection;
 
@@ -368,19 +369,20 @@ fn extract_design_5_5_fts_block() -> String {
     fts_slice[..last_end + "END;".len()].to_string()
 }
 
-/// Extract the §5.5 verbatim block from the V007 migration (replaced V002
-/// 's unicode61 tokenizer with trigram — V002 stays in place for
-/// historical cold-upgrade replay but V007 is now the source of truth),
-/// between the `── §5.5 verbatim block ──` anchor markers V007 carries.
+/// Extract the §5.5 verbatim block from the V009 migration (V009 replaces
+/// V007 's trigram tokenizer with unicode61 + CASE expression triggers for
+/// Korean morphological tokenization — V007 stays in place for historical
+/// cold-upgrade replay but V009 is now the source of truth),
+/// between the `── §5.5 verbatim block ──` anchor markers V009 carries.
 fn extract_migration_5_5_verbatim_block() -> String {
-    let migration = include_str!("../../../migrations/V007__fts_trigram.sql");
+    let migration = include_str!("../../../migrations/V009__fts_korean_morphological.sql");
     // The opening anchor line ends with `── §5.5 verbatim block ─...`.
     let open_marker = "§5.5 verbatim block";
     let close_marker = "End §5.5 verbatim block";
 
     let open_idx = migration
         .find(open_marker)
-        .expect("V007 must carry the `§5.5 verbatim block` opening anchor");
+        .expect("V009 must carry the `§5.5 verbatim block` opening anchor");
     let after_open_line = open_idx
         + migration[open_idx..]
             .find('\n')
@@ -389,7 +391,7 @@ fn extract_migration_5_5_verbatim_block() -> String {
 
     let close_idx = migration[after_open_line..]
         .find(close_marker)
-        .expect("V007 must carry the `End §5.5 verbatim block` closing anchor")
+        .expect("V009 must carry the `End §5.5 verbatim block` closing anchor")
         + after_open_line;
     // Walk back from the close marker to the start of its comment line.
     let close_line_start = migration[..close_idx].rfind('\n').map_or(0, |n| n + 1);
@@ -397,14 +399,15 @@ fn extract_migration_5_5_verbatim_block() -> String {
     migration[after_open_line..close_line_start].to_string()
 }
 
-/// CI diff guard: the §5.5 block in `migrations/V007__fts_trigram.sql`
-/// must match the design doc verbatim (whitespace-normalized). V007
-/// replaced V002 's unicode61 tokenizer with trigram (2026-05-23).
-/// V002 stays in place for historical replay of cold-upgrade paths
-/// but is no longer compared against the design doc — V007 is now
+/// CI diff guard: the §5.5 block in `migrations/V009__fts_korean_morphological.sql`
+/// must match the design doc verbatim (whitespace-normalized). V009
+/// replaced V007 's trigram tokenizer with unicode61 + CASE expression
+/// triggers for Korean morphological tokenization (2026-05-28).
+/// V007 stays in place for historical replay of cold-upgrade paths
+/// but is no longer compared against the design doc — V009 is now
 /// the source of truth.
 #[test]
-fn fts_v007_matches_design_section_5_5_verbatim() {
+fn fts_v009_matches_design_section_5_5_verbatim() {
     let design = extract_design_5_5_fts_block();
     let migration_block = extract_migration_5_5_verbatim_block();
 
@@ -427,10 +430,87 @@ fn fts_v007_matches_design_section_5_5_verbatim() {
     let migration_n = normalize_ws(&migration_block);
     assert_eq!(
         design_n, migration_n,
-        "V007__fts_trigram.sql §5.5 block must match design doc §5.5 verbatim \
+        "V009__fts_korean_morphological.sql §5.5 block must match design doc §5.5 verbatim \
          (whitespace-normalized). If you intentionally changed one, \
          update the other in the same commit."
     );
+}
+
+// ── 5b. V009 corpus_revision bump ────────────────────────────────────
+
+/// V009 migration 이 corpus_revision kv 를 bump 하는지 검증.
+/// SqliteStore::open + run_migrations 후 corpus_revision 이 ≥ 1 이어야 함.
+/// (V004 seed = '0', V009 UPDATE = CAST(CAST('0' AS INTEGER) + 1 AS TEXT) = '1').
+#[test]
+fn v009_bumps_corpus_revision() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config()).unwrap();
+    store.run_migrations().unwrap();
+    let rev = store.corpus_revision();
+    assert!(
+        rev >= 1,
+        "corpus_revision must be ≥ 1 after V009 migration \
+         (V004 seeds 0, V009 bumps to ≥ 1); got {rev}"
+    );
+}
+
+// ── 5c. backfill_tokenized_korean_text ───────────────────────────────
+
+#[test]
+fn backfill_tokenized_korean_text_populates_nullable_rows() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config()).unwrap();
+    store.run_migrations().unwrap();
+
+    // chunks 에 한국어 row 두 개 INSERT (tokenized_korean_text 는 chunks_ai trigger
+    // 가 채우지만, 여기서는 raw_conn_no_fk 로 직접 INSERT 하므로 NULL 로 남음).
+    let conn = raw_conn_no_fk(&env);
+    insert_chunk(
+        &conn,
+        &"a".repeat(32),
+        &"d".repeat(32),
+        "[]",
+        "한국 문화는 오래되었다",
+    );
+    insert_chunk(
+        &conn,
+        &"b".repeat(32),
+        &"d".repeat(32),
+        "[]",
+        "서울특별시는 한국의 수도",
+    );
+    let null_count_before: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM chunks WHERE tokenized_korean_text IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(null_count_before, 2);
+    drop(conn);
+
+    // backfill 호출 → lindera 가 두 row 모두 분해 성공 → 2 반환.
+    let processed = store
+        .backfill_tokenized_korean_text(|_, _| {}, tokenize_korean_morphological)
+        .unwrap();
+    assert_eq!(processed, 2, "both rows should be populated by lindera");
+
+    let conn = raw_conn_no_fk(&env);
+    let null_count_after: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM chunks WHERE tokenized_korean_text IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(null_count_after, 0);
+
+    // idempotency: 두 번째 호출 → 0 (모든 row 가 이미 채워져 있음).
+    drop(conn);
+    let processed_again = store
+        .backfill_tokenized_korean_text(|_, _| {}, tokenize_korean_morphological)
+        .unwrap();
+    assert_eq!(processed_again, 0);
 }
 
 // ── 6. WAL cleanup: drop store before tempdir reaps WAL/SHM ──────────
@@ -476,16 +556,24 @@ fn fts_store_drop_releases_wal_files() {
     }
 }
 
-// ── 7. Trigram tokenizer behavior (V007) — Korean + English ──────────
+// ── 7. Tokenizer behavior (V009 unicode61 + Korean morpheme column) ───
+//
+// V007 의 trigram-specific substring 매칭 test 들은 V009 로 obsolete:
+// - English substring (`token` → `tokenizer` hit) 는 unicode61 의 whole-token
+//   매칭으로 회귀 — spec §3 Non-Goals 의 Path A 명시.
+// - Korean substring (`발생한` → `발생한다` hit) 도 동일하게 whole-token only.
+//
+// V009 의 신규 검증은 S7 (plan §2 Step 7) 에서 추가되는
+// `fts_v009_korean_morphological_2char_query_hits` + `fts_v009_english_whole_token_only`
+// 가 담당한다. 2자 query 0-hit 의 pinned 동작 (`fts_trigram_korean_short_query_zero_hit_pinned`)
+// 은 V009 의 형태소 분해가 hit 시키므로 의도된 회귀 — S7 의 신규 test 가 새 baseline 을 핀.
 
-/// V007 의 trigram tokenizer 가 한국어 3자 이상 연속 substring 을
-/// 매칭하는지. Codex round 1/2 가 sqlite 3.45.1 로 검증한 동작을 pin:
-/// - raw query 가 3자 이상 공백 없는 substring 인 경우 hit.
-/// - raw query 가 공백을 포함하면 FTS5 가 토큰 경계로 분리 →
-///   양 토큰이 3자 미만이면 0-hit.
-/// - quoted phrase ("..." 안에 공백 포함) 는 통째로 substring 매칭.
+/// V009 의 unicode61 + morpheme column 환경에서 단일 토큰 매칭이 정상
+/// 동작하는지 sanity check. 형태소 사전이 없어도 chunks_fts 의
+/// `tokenize='unicode61'` 만으로도 space-separated 한국어 token (chunk text
+/// 의 raw 공백 split) 은 매칭되어야 한다.
 #[test]
-fn fts_trigram_korean_3char_substring_hits() {
+fn fts_v009_unicode61_space_separated_korean_token_hits() {
     let env = common::TestEnv::new();
     let store = SqliteStore::open(&env.config()).unwrap();
     store.run_migrations().unwrap();
@@ -499,67 +587,51 @@ fn fts_trigram_korean_3char_substring_hits() {
         "해시 충돌은 키와 값을 매핑할 때 발생한다",
     );
 
-    // raw 3+ chars 공백 없는 연속 substring → hit.
-    assert_eq!(
-        count_match(&conn, "충돌은"),
-        1,
-        "raw 3-char 공백 없는 substring '충돌은' must hit"
-    );
+    // unicode61 이 공백으로 분리한 token 은 그대로 매칭.
+    assert_eq!(count_match(&conn, "충돌은"), 1, "whole-token '충돌은' hit");
+    assert_eq!(count_match(&conn, "해시"), 1, "whole-token '해시' hit");
+    // substring (token 의 부분 문자열) 은 V009 unicode61 에서 0-hit.
     assert_eq!(
         count_match(&conn, "발생한"),
-        1,
-        "raw 3-char 공백 없는 substring '발생한' must hit"
-    );
-
-    // quoted phrase (공백 포함) → substring 매칭으로 hit.
-    assert_eq!(
-        count_match(&conn, "\"해시 충돌\""),
-        1,
-        "quoted whole phrase '해시 충돌' (5 chars including space)"
-    );
-    assert_eq!(
-        count_match(&conn, "\"시 충\""),
-        1,
-        "quoted phrase '시 충' across the space boundary"
-    );
-
-    // raw with no whitespace but substring not present in source → 0-hit.
-    assert_eq!(
-        count_match(&conn, "해시충"),
         0,
-        "원문에 공백 없는 '해시충' trigram 이 없으므로 0-hit"
+        "substring '발생한' of '발생한다' 0-hit"
     );
 }
 
-/// V007 trigram 의 핵심 제약: 3 Unicode chars 미만 query 는 색인 단위가
-/// 없어 항상 0-hit. design §3.4 + 사용자 결정 (lexical core 정상 0-hit,
-/// CLI/TUI wrapper 가 안내 메시지 출력). 회귀 감지 — trigram 구조 변경
-/// 또는 다른 tokenizer 도입 시 이 test 가 먼저 fail 한다.
+// ── 8. V009 morphological tokenizer behavior ──────────────────────────
+
+/// V009 의 핵심 가치: 한국어 2자 query 가 hit. 형태소 분해된
+/// tokenized_korean_text column 이 chunks_fts 에 indexed.
 #[test]
-fn fts_trigram_korean_short_query_zero_hit_pinned() {
+fn fts_v009_korean_morphological_2char_query_hits() {
     let env = common::TestEnv::new();
     let store = SqliteStore::open(&env.config()).unwrap();
     store.run_migrations().unwrap();
 
     let conn = raw_conn_no_fk(&env);
-    insert_chunk(
-        &conn,
-        &"k".repeat(32),
-        &"d".repeat(32),
-        "[]",
-        "해시 충돌은 키와 값을 매핑할 때 발생한다",
-    );
+    let text = "한국 문화는 오래되었다";
+    let tokenized = tokenize_korean_morphological(text);
+    conn.execute(
+        "INSERT INTO chunks (
+            chunk_id, doc_id, text, heading_path_json, section_label,
+            source_spans_json, token_estimate, chunker_version,
+            policy_hash, block_ids_json, created_at,
+            tokenized_korean_text
+        ) VALUES (?, ?, ?, '[]', NULL, '[]', 0, 'v1', 'h', '[]', '2024-01-01T00:00:00Z', ?)",
+        rusqlite::params![&"k".repeat(32), &"d".repeat(32), text, tokenized,],
+    )
+    .expect("insert chunk with tokenized_korean_text");
 
-    // 2자 한국어 query — 도그푸딩에서 보고된 핵심 케이스 ('충돌'/'값').
-    assert_eq!(count_match(&conn, "충돌"), 0, "2-char Korean query");
-    // 1자 한국어 query.
-    assert_eq!(count_match(&conn, "키"), 0, "1-char Korean query");
+    assert!(
+        count_match(&conn, "한국") >= 1,
+        "2-char Korean morpheme '한국' must hit when tokenized column is populated"
+    );
 }
 
-/// V007 trigram 은 영어에도 substring 매칭으로 동작 — recall ↑, 단어
-/// 경계 정밀도 ↓. design §3.4 의 동작 변경을 명시적으로 핀.
+/// V009 의 Path A 회귀 확인: 영어 substring 매칭이 사라짐
+/// (unicode61 의 whole-token only 동작).
 #[test]
-fn fts_trigram_english_substring_hits() {
+fn fts_v009_english_whole_token_only() {
     let env = common::TestEnv::new();
     let store = SqliteStore::open(&env.config()).unwrap();
     store.run_migrations().unwrap();
@@ -573,13 +645,14 @@ fn fts_trigram_english_substring_hits() {
         "the tokenizer normalizes whitespace before matching",
     );
 
-    // trigram substring — 'token' hits inside 'tokenizer'.
     assert_eq!(
         count_match(&conn, "token"),
-        1,
-        "substring of 'tokenizer' — trigram recall"
+        0,
+        "V009 unicode61: 'token' is substring of 'tokenizer', should NOT hit"
     );
-    assert_eq!(count_match(&conn, "izer"), 1, "substring of 'tokenizer'");
-    // 3-char-minimum applies to English too.
-    assert_eq!(count_match(&conn, "to"), 0, "2-char English query");
+    assert_eq!(
+        count_match(&conn, "tokenizer"),
+        1,
+        "V009 unicode61: whole-token 'tokenizer' must hit"
+    );
 }

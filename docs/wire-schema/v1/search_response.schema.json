@@ -32,7 +32,7 @@
     },
     "hint": {
       "type": "string",
-      "description": "v0.17.0 A5 Step 4b: advisory string set when the empty hit list is likely due to a query shorter than the FTS5 trigram tokenizer's 3-char minimum. Field is omitted when no advisory applies. Raw FTS5 mode ('...') opts out. MCP / agent consumers should surface this so users understand the empty result rather than retrying the same short query."
+      "description": "Reserved for advisory strings on `search_response.v1`. v0.17.0 (V007 trigram) 시절 3자 미만 query 안내용 helper 였으나, v0.20.1 (V009 morphological tokenizer) 에서 한국어 2자 query 가 hit 가능해져 helper 가 제거됨 (`short_query_hint` retired). 본 field 는 forward-compat 차원에서 schema 에 보존되어 항상 omit. 향후 advisory 가 다시 필요해지면 동일 shape 으로 reuse 가능."
     }
   }
 }

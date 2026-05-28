@@ -30,7 +30,8 @@
       }
     ],
     "text": "Alpha\n\nAlpha intro paragraph one. This first paragraph in the alpha section gives a brief overview of what is to follow and serves as the lead-in for the subsequent material covered under the alpha heading.\n\nAlpha intro paragraph two. The second paragraph extends the discussion with additional sentences, padding out the paragraph so that paragraph-level chunk splitting actually has multiple candidates to consider when deciding where to slice the content stream.",
-    "token_estimate": 155
+    "token_estimate": 155,
+    "tokenized_korean_text": "Alpha Alpha intro paragraph one . This first paragraph in the alpha section gives a brief overview of what is to follow and serves as the lead - in for the subsequent material covered under the alpha heading . Alpha intro paragraph two . The second paragraph extends the discussion with additional sentences , padding out the paragraph so that paragraph - level chunk splitting actually has multiple candidates to consider when deciding where to slice the content stream ."
   },
   {
     "block_ids": [
@@ -58,7 +59,8 @@
       }
     ],
     "text": "Alpha Sub\n\nSome prose under the alpha sub-heading. The nested heading should still be respected as a chunk boundary distinct from the parent alpha heading.",
-    "token_estimate": 52
+    "token_estimate": 52,
+    "tokenized_korean_text": "Alpha Sub Some prose under the alpha sub - heading . The nested heading should still be respected as a chunk boundary distinct from the parent alpha heading ."
   },
   {
     "block_ids": [
@@ -80,7 +82,8 @@
       }
     ],
     "text": "// A code block long enough to easily clear any reasonable target_tokens\n// so the never-split-code-block rule is exercised by this fixture. The\n// rest of the function body is intentional filler: line after line of\n// content that, were the chunker permitted to split it, would exceed\n// the target threshold and force a break in the middle of the snippet.\nfn long_code_example_one() {\n    let mut numbers = Vec::new();\n    for i in 0..10 {\n        numbers.push(i * 2);\n    }\n    let mut total = 0_i64;\n    for n in &numbers {\n        total += *n as i64;\n    }\n    println!(\"total = {total}\");\n}\n\nfn long_code_example_two() {\n    let words = [\"alpha\", \"beta\", \"gamma\", \"delta\", \"epsilon\"];\n    for w in words.iter() {\n        if w.starts_with('a') {\n            println!(\"starts with a: {w}\");\n        } else if w.starts_with('b') {\n            println!(\"starts with b: {w}\");\n        } else if w.starts_with('g') {\n            println!(\"starts with g: {w}\");\n        } else {\n            println!(\"other: {w}\");\n        }\n    }\n}\n\nfn long_code_example_three() {\n    let mut buf = String::new();\n    for ch in \"lorem ipsum dolor sit amet\".chars() {\n        if ch.is_ascii_alphabetic() {\n            buf.push(ch.to_ascii_uppercase());\n        }\n    }\n    println!(\"buf = {buf}\");\n}",
-    "token_estimate": 427
+    "token_estimate": 427,
+    "tokenized_korean_text": "/ / A code block long enough to easily clear any reasonable target _ tokens / / so the never - split - code - block rule is exercised by this fixture . The / / rest of the function body is intentional filler : line after line of / / content that , were the chunker permitted to split it , would exceed / / the target threshold and force a break in the middle of the snippet . fn long _ code _ example _ one ( ) { let mut numbers = Vec : : new (); for i in 0 .. 10 { numbers . push ( i * 2 ); } let mut total = 0 _ i 64 ; for n in & numbers { total += * n as i 64 ; } println !(\" total = { total }\"); } fn long _ code _ example _ two ( ) { let words = [\" alpha \", \" beta \", \" gamma \", \" delta \", \" epsilon \"]; for w in words . iter ( ) { if w . starts _ with (' a ') { println !(\" starts with a : { w }\"); } else if w . starts _ with (' b ') { println !(\" starts with b : { w }\"); } else if w . starts _ with (' g ') { println !(\" starts with g : { w }\"); } else { println !(\" other : { w }\"); } } } fn long _ code _ example _ three ( ) { let mut buf = String : : new (); for ch in \" lorem ipsum dolor sit amet \". chars ( ) { if ch . is _ ascii _ alphabetic ( ) { buf . push ( ch . to _ ascii _ uppercase ()); } } println !(\" buf = { buf }\"); }"
   },
   {
     "block_ids": [
@@ -107,7 +110,8 @@
       }
     ],
     "text": "Beta\n\nBeta paragraph one. The beta section opens with an introductory paragraph that sets up the table appearing further down.",
-    "token_estimate": 42
+    "token_estimate": 42,
+    "tokenized_korean_text": "Beta Beta paragraph one . The beta section opens with an introductory paragraph that sets up the table appearing further down ."
   },
   {
     "block_ids": [
@@ -128,7 +132,8 @@
       }
     ],
     "text": "name | kind | note\none | small | first row\ntwo | medium | second row\nthree | large | third row\nfour | huge | fourth row",
-    "token_estimate": 40
+    "token_estimate": 40,
+    "tokenized_korean_text": "name | kind | note one | small | first row two | medium | second row three | large | third row four | huge | fourth row"
   },
   {
     "block_ids": [
@@ -149,7 +154,8 @@
       }
     ],
     "text": "Beta closing paragraph. After the table we have one more paragraph of prose that anchors the end of the beta section before we move on to gamma.",
-    "token_estimate": 48
+    "token_estimate": 48,
+    "tokenized_korean_text": "Beta closing paragraph . After the table we have one more paragraph of prose that anchors the end of the beta section before we move on to gamma ."
   },
   {
     "block_ids": [
@@ -182,7 +188,8 @@
       }
     ],
     "text": "Gamma\n\nGamma paragraph one. The gamma section is intentionally long to exercise the paragraph-level split with overlap rule when chunking under a single heading without any nested sub-headings to break things up further.\n\nGamma paragraph two. We continue accumulating prose so that the running token estimator climbs steadily and eventually trips the target_tokens threshold, forcing the chunker to emit a chunk and seed the next chunk with overlap from the prior tail.",
-    "token_estimate": 157
+    "token_estimate": 157,
+    "tokenized_korean_text": "Gamma Gamma paragraph one . The gamma section is intentionally long to exercise the paragraph - level split with overlap rule when chunking under a single heading without any nested sub - headings to break things up further . Gamma paragraph two . We continue accumulating prose so that the running token estimator climbs steadily and eventually trips the target _ tokens threshold , forcing the chunker to emit a chunk and seed the next chunk with overlap from the prior tail ."
   },
   {
     "block_ids": [
@@ -209,6 +216,7 @@
       }
     ],
     "text": "Gamma paragraph two. We continue accumulating prose so that the running token estimator climbs steadily and eventually trips the target_tokens threshold, forcing the chunker to emit a chunk and seed the next chunk with overlap from the prior tail.\n\nGamma paragraph three. Yet another paragraph under the gamma heading, padded with words to ensure the byte count clears the threshold and the splitting behaviour shows up unambiguously in the snapshot output.",
-    "token_estimate": 153
+    "token_estimate": 153,
+    "tokenized_korean_text": "Gamma paragraph two . We continue accumulating prose so that the running token estimator climbs steadily and eventually trips the target _ tokens threshold , forcing the chunker to emit a chunk and seed the next chunk with overlap from the prior tail . Gamma paragraph three . Yet another paragraph under the gamma heading , padded with words to ensure the byte count clears the threshold and the splitting behaviour shows up unambiguously in the snapshot output ."
   }
 ]

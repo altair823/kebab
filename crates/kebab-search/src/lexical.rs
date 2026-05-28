@@ -157,23 +157,27 @@ impl Retriever for LexicalRetriever {
 ///
 /// v0.17.0 — trigram-aware redesign (see design §5.5 + plan
 /// `docs/superpowers/plans/2026-05-22-korean-trigram-tokenizer.md`
-/// Task A5). The FTS5 tokenizer is `trigram` so any term shorter than
-/// three Unicode chars has no index entry and would zero out an AND
-/// branch. Korean compounds typically split into 2-char eojeols (e.g.
-/// `해시 충돌`), so a naive token AND drops the dominant usage pattern.
+/// Task A5). Originally the FTS5 tokenizer was `trigram` so any term
+/// shorter than three Unicode chars had no index entry and would zero
+/// out an AND branch. Korean compounds typically split into 2-char
+/// eojeols (e.g. `해시 충돌`), so a naive token AND drops the dominant
+/// usage pattern.
+///
+/// V009 (2026-05-28): FTS5 tokenizer 가 trigram → unicode61 + 한국어
+/// 형태소 분해 column 로 갱신됨. unicode61 은 trigram 과 달리 최소
+/// token 길이 제한이 없어 2자 한국어 morpheme query ('한국', '서울')
+/// 가 `tokenized_korean_text` column 경유로 hit 가능. MIN_QUERY_CHARS
+/// 를 2 로 낮춰 2자 query 를 통과시킨다 (1자 단독은 여전히 필터).
+/// multi-token Korean query 의 OR-combine 분기는 redundant 하나 보존
+/// (future 확장성).
 ///
 /// post-v0.17.1 dogfood — `text` column filter (closure of HOTFIXES
 /// 2026-05-24 `heading_path_json` 노이즈). The `chunks_fts` virtual
 /// table indexes both `heading_path` (the JSON-serialized
-/// `chunks.heading_path_json` per V002/V007 triggers) and `text`. Under
-/// the trigram tokenizer the JSON punctuation (`[`, `"`, `,`) plus the
-/// path segments (`app`, `src`, …) become indexable 3-grams, so a
-/// query can hit a chunk purely because its file's heading JSON shares
-/// a path segment with the query — false positives that have no body
-/// relevance. The default match expression therefore scopes to the
-/// `text` column. The `heading_path` column stays indexed (V007 / §5.5
-/// verbatim block is preserved) so a user who *wants* heading matching
-/// can opt in via raw mode (`'heading_path : foo'`).
+/// `chunks.heading_path_json` per V002/V007 triggers) and `text`. The
+/// default match expression therefore scopes to the `text` column. The
+/// `heading_path` column stays indexed so a user who *wants* heading
+/// matching can opt in via raw mode (`'heading_path : foo'`).
 ///
 /// Rules:
 ///
@@ -185,18 +189,17 @@ impl Retriever for LexicalRetriever {
 ///
 /// - Otherwise build up to two MATCH candidates:
 ///   1. **whole-phrase**: the entire trimmed input wrapped as one FTS5
-///      string literal, *only* if it has ≥3 Unicode chars. FTS5 treats
+///      string literal, *only* if it has ≥2 Unicode chars. FTS5 treats
 ///      a quoted string with spaces as a phrase match.
 ///   2. **token AND**: whitespace-split tokens, kept only when each has
-///      ≥3 Unicode chars (shorter ones are dropped — they would zero
-///      out the AND under trigram).
+///      ≥2 Unicode chars (1-char tokens are dropped).
 ///
 /// - Combine: `(whole) OR (token_and)` when both exist *and differ*;
 ///   either alone when only one exists; `None` when neither exists
 ///   (caller short-circuits to `Ok(vec![])`, avoiding an FTS5 syntax
 ///   error from an empty MATCH).
 ///
-/// - A single-token long query (`러스트`, `foo`) yields `whole == token_and`
+/// - A single-token query (`러스트`, `한국`, `foo`) yields `whole == token_and`
 ///   → return the bare quoted form so the OR doesn't duplicate.
 ///
 /// - Finally wrap the combined expression in `text : (<expr>)` so the
@@ -215,15 +218,18 @@ fn build_match_string(text: &str) -> Option<String> {
         return Some(inner_trim.to_string());
     }
 
-    const MIN_TRIGRAM_CHARS: usize = 3;
+    // V009 unicode61: minimum query token length is 2 Unicode chars.
+    // (V007 trigram required ≥3; unicode61 has no built-in minimum but
+    // single-char queries are too broad to be useful.)
+    const MIN_QUERY_CHARS: usize = 2;
 
     let whole_candidate: Option<String> =
-        (trimmed.chars().count() >= MIN_TRIGRAM_CHARS).then(|| escape_fts5_token(trimmed));
+        (trimmed.chars().count() >= MIN_QUERY_CHARS).then(|| escape_fts5_token(trimmed));
 
     let token_and_candidate: Option<String> = {
         let toks: Vec<String> = trimmed
             .split_whitespace()
-            .filter(|t| t.chars().count() >= MIN_TRIGRAM_CHARS)
+            .filter(|t| t.chars().count() >= MIN_QUERY_CHARS)
             .map(escape_fts5_token)
             .collect();
         (!toks.is_empty()).then(|| toks.join(" "))
@@ -648,25 +654,26 @@ mod tests {
 
     // ── v0.17.0 trigram-aware redesign coverage ──────────────────────────
 
-    /// 2-char Korean query (`충돌`) yields neither a whole-phrase nor a
-    /// token-AND candidate → `None`. Caller short-circuits to an empty
-    /// hit list rather than executing an FTS5 syntax error on `""` MATCH.
+    /// V009 unicode61: 1-char query yields None (too broad); 2-char Korean
+    /// query now passes the MIN_QUERY_CHARS=2 filter and returns a valid
+    /// match expression.
     #[test]
     fn build_match_string_short_korean_returns_none() {
-        assert!(build_match_string("충돌").is_none());
+        // 1-char queries remain filtered (too broad).
         assert!(build_match_string("키").is_none());
-        assert!(build_match_string(" 충돌 ").is_none());
+        assert!(build_match_string("나").is_none());
+        // 2-char Korean queries now produce a valid expression (V009 unicode61).
+        assert_eq!(build_match_string("충돌").unwrap(), r#"text : ("충돌")"#);
+        assert_eq!(build_match_string(" 충돌 ").unwrap(), r#"text : ("충돌")"#);
     }
 
-    /// `해시 충돌` — both tokens are 2 chars (dropped from the AND), but
-    /// the whole-phrase candidate (`"해시 충돌"`, 5 chars total) survives.
-    /// This is the dominant Korean usage pattern targeted by A5.
-    /// The whole-phrase candidate is then wrapped in the `text : (...)`
-    /// column filter.
+    /// V009 unicode61: `해시 충돌` — both tokens are 2 chars and now pass
+    /// MIN_QUERY_CHARS=2. Both whole-phrase and token-AND candidates exist
+    /// and differ → OR-combined inside `text : (...)`.
     #[test]
     fn build_match_string_whole_phrase_only_when_all_tokens_short() {
         let s = build_match_string("해시 충돌").unwrap();
-        assert_eq!(s, r#"text : ("해시 충돌")"#);
+        assert_eq!(s, r#"text : (("해시 충돌") OR ("해시" "충돌"))"#);
     }
 
     /// Single long token: whole-phrase and token-AND candidates collapse
