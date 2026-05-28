@@ -988,6 +988,64 @@ impl SqliteStore {
         }
         Ok(out)
     }
+
+    // ── v0.20.x r2 Enhancement 2: pdf_ocr_events ─────────────────────────
+
+    /// Insert one OCR sample row into `pdf_ocr_events` (V008 migration).
+    /// Follows the existing `Mutex<Connection>` lock pattern (F2).
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_pdf_ocr_event(
+        &self,
+        run_id: &str,
+        ts: &str,
+        doc_id: Option<&str>,
+        doc_path: &str,
+        page: u32,
+        image_byte_size: Option<u64>,
+        image_width: Option<u32>,
+        image_height: Option<u32>,
+        ms: u64,
+        chars: u32,
+        success: bool,
+        reason: Option<&str>,
+        ocr_engine: &str,
+    ) -> anyhow::Result<()> {
+        let conn = self.conn.lock().expect("sqlite lock poisoned");
+        conn.execute(
+            "INSERT INTO pdf_ocr_events
+             (run_id, ts, doc_id, doc_path, page,
+              image_byte_size, image_width, image_height,
+              ms, chars, success, reason, ocr_engine)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rusqlite::params![
+                run_id, ts, doc_id, doc_path, page,
+                image_byte_size, image_width, image_height,
+                ms, chars,
+                if success { 1i32 } else { 0i32 },
+                reason, ocr_engine
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Delete rows from `pdf_ocr_events` older than `retention_days`.
+    /// Returns the number of deleted rows.
+    /// Cutoff is computed as `now_utc - retention_days`; a value of 0
+    /// means "delete everything older than now" (i.e. all past rows).
+    pub fn prune_pdf_ocr_events(&self, retention_days: u32) -> anyhow::Result<u64> {
+        use time::format_description::well_known::Rfc3339;
+        let cutoff = time::OffsetDateTime::now_utc()
+            - time::Duration::days(retention_days as i64);
+        let cutoff_ts = cutoff
+            .format(&Rfc3339)
+            .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
+        let conn = self.conn.lock().expect("sqlite lock poisoned");
+        let n = conn.execute(
+            "DELETE FROM pdf_ocr_events WHERE ts < ?",
+            rusqlite::params![cutoff_ts],
+        )?;
+        Ok(n as u64)
+    }
 }
 
 /// Apply the design §5 / task-spec pragmas. Called once per connection.
