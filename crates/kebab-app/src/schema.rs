@@ -116,6 +116,9 @@ const WIRE_SCHEMAS: &[&str] = &[
     "error.v1",
     "bulk_search_item.v1",
     "bulk_search_response.v1",
+    // v0.20.x r2 Enhancement 3: OCR statistics + failures introspection.
+    "ocr_stats.v1",
+    "ocr_failures.v1",
 ];
 
 /// Build a [`SchemaV1`] introspection report for the given config.

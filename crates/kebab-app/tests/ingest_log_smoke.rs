@@ -28,6 +28,7 @@ fn minimal_config(workspace: &std::path::Path, log_dir: &std::path::Path) -> Con
     cfg.logging = LoggingCfg {
         ingest_log_enabled: true,
         ingest_log_dir: log_dir.to_path_buf(),
+        ..Default::default()
     };
     cfg
 }
@@ -138,6 +139,7 @@ fn ingest_log_disabled_emits_no_file() {
     cfg.logging = LoggingCfg {
         ingest_log_enabled: false,
         ingest_log_dir: log_dir.clone(),
+        ..Default::default()
     };
 
     let scope = SourceScope {

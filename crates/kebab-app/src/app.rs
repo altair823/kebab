@@ -1093,6 +1093,223 @@ fn backfill_code_lang(hits: &mut [SearchHit]) {
     }
 }
 
+// ── v0.20.x r2 Enhancement 3: OCR stats + failures inspect ──────────────
+
+/// Wire type for `kebab inspect ocr-stats --json` (`ocr_stats.v1`).
+#[derive(serde::Serialize)]
+pub struct OcrStatsV1 {
+    pub schema_version: &'static str,
+    pub total_events: u64,
+    pub total_runs: u64,
+    pub success_count: u64,
+    pub failure_count: u64,
+    pub success_rate: f64,
+    pub p50_ms: Option<u64>,
+    pub p90_ms: Option<u64>,
+    pub p99_ms: Option<u64>,
+    pub max_ms: Option<u64>,
+    pub by_engine: std::collections::BTreeMap<String, u64>,
+    pub by_doc: Vec<OcrStatsByDoc>,
+}
+
+/// Per-doc breakdown row inside `OcrStatsV1`.
+#[derive(serde::Serialize)]
+pub struct OcrStatsByDoc {
+    pub doc_id: String,
+    pub failure_count: u64,
+    pub success_count: u64,
+    pub p90_ms: Option<u64>,
+}
+
+/// Wire type for `kebab inspect ocr-failures --json` (`ocr_failures.v1`).
+#[derive(serde::Serialize)]
+pub struct OcrFailuresV1 {
+    pub schema_version: &'static str,
+    pub doc_id: Option<String>,
+    pub failure_count: u64,
+    pub failures: Vec<OcrFailureRow>,
+}
+
+/// Single failure row inside `OcrFailuresV1`.
+#[derive(serde::Serialize)]
+pub struct OcrFailureRow {
+    pub ts: String,
+    pub page: u32,
+    pub ms: u64,
+    pub reason: String,
+    pub image_byte_size: Option<u64>,
+}
+
+impl App {
+    /// Corpus-wide OCR statistics from the `pdf_ocr_events` SQLite mirror.
+    pub fn inspect_ocr_stats(&self) -> Result<OcrStatsV1> {
+        self.inspect_ocr_stats_with_config(&self.config)
+    }
+
+    #[doc(hidden)]
+    pub fn inspect_ocr_stats_with_config(&self, _cfg: &kebab_config::Config) -> Result<OcrStatsV1> {
+        use crate::ingest_log::percentiles;
+        let conn = self.sqlite.read_conn();
+
+        // 1. Aggregate counters
+        let (total_events, success_count, failure_count, total_runs): (u64, u64, u64, u64) = conn
+            .query_row(
+                "SELECT COUNT(*), \
+                        SUM(CASE WHEN success=1 THEN 1 ELSE 0 END), \
+                        SUM(CASE WHEN success=0 THEN 1 ELSE 0 END), \
+                        COUNT(DISTINCT run_id) \
+                   FROM pdf_ocr_events",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap_or((0, 0, 0, 0));
+
+        let success_rate = if total_events == 0 {
+            0.0
+        } else {
+            success_count as f64 / total_events as f64
+        };
+
+        // 2. Latency percentiles from successful events
+        let samples: Vec<u64> = {
+            let mut stmt = conn
+                .prepare("SELECT ms FROM pdf_ocr_events WHERE success=1 ORDER BY ms")
+                .context("prepare ms query")?;
+            stmt.query_map([], |r| r.get::<_, u64>(0))
+                .context("query ms")?
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+        let (p50_ms, p90_ms, p99_ms, max_ms) = percentiles(&samples);
+
+        // 3. Engine breakdown
+        let mut by_engine = std::collections::BTreeMap::new();
+        {
+            let mut stmt = conn
+                .prepare("SELECT ocr_engine, COUNT(*) FROM pdf_ocr_events GROUP BY ocr_engine")
+                .context("prepare engine query")?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
+                .context("query engine")?;
+            for row in rows.filter_map(|r| r.ok()) {
+                by_engine.insert(row.0, row.1);
+            }
+        }
+
+        // 4. Top-10 docs by failure count
+        let by_doc: Vec<OcrStatsByDoc> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT doc_id, \
+                            SUM(CASE WHEN success=0 THEN 1 ELSE 0 END), \
+                            SUM(CASE WHEN success=1 THEN 1 ELSE 0 END) \
+                       FROM pdf_ocr_events \
+                      WHERE doc_id IS NOT NULL \
+                      GROUP BY doc_id \
+                      ORDER BY 2 DESC \
+                      LIMIT 10",
+                )
+                .context("prepare by_doc query")?;
+            stmt.query_map([], |r| {
+                Ok(OcrStatsByDoc {
+                    doc_id: r.get(0)?,
+                    failure_count: r.get(1)?,
+                    success_count: r.get(2)?,
+                    p90_ms: None, // per-doc p90 deferred (open question #3)
+                })
+            })
+            .context("query by_doc")?
+            .filter_map(|r| r.ok())
+            .collect()
+        };
+
+        Ok(OcrStatsV1 {
+            schema_version: "ocr_stats.v1",
+            total_events,
+            total_runs,
+            success_count,
+            failure_count,
+            success_rate,
+            p50_ms,
+            p90_ms,
+            p99_ms,
+            max_ms,
+            by_engine,
+            by_doc,
+        })
+    }
+
+    /// Recent OCR failure rows, optionally filtered by `doc_id`.
+    pub fn inspect_ocr_failures(
+        &self,
+        doc_id: Option<&str>,
+        limit: usize,
+    ) -> Result<OcrFailuresV1> {
+        self.inspect_ocr_failures_with_config(&self.config, doc_id, limit)
+    }
+
+    #[doc(hidden)]
+    pub fn inspect_ocr_failures_with_config(
+        &self,
+        _cfg: &kebab_config::Config,
+        doc_id: Option<&str>,
+        limit: usize,
+    ) -> Result<OcrFailuresV1> {
+        let conn = self.sqlite.read_conn();
+        let failures: Vec<OcrFailureRow> = if let Some(did) = doc_id {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT ts, page, ms, COALESCE(reason,'unknown'), image_byte_size \
+                       FROM pdf_ocr_events \
+                      WHERE success=0 AND doc_id=? \
+                      ORDER BY ts DESC \
+                      LIMIT ?",
+                )
+                .context("prepare failures by doc_id")?;
+            stmt.query_map(rusqlite::params![did, limit as i64], |r| {
+                Ok(OcrFailureRow {
+                    ts: r.get(0)?,
+                    page: r.get(1)?,
+                    ms: r.get(2)?,
+                    reason: r.get(3)?,
+                    image_byte_size: r.get(4)?,
+                })
+            })
+            .context("query failures by doc_id")?
+            .filter_map(|r| r.ok())
+            .collect()
+        } else {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT ts, page, ms, COALESCE(reason,'unknown'), image_byte_size \
+                       FROM pdf_ocr_events \
+                      WHERE success=0 \
+                      ORDER BY ts DESC \
+                      LIMIT ?",
+                )
+                .context("prepare failures corpus-wide")?;
+            stmt.query_map(rusqlite::params![limit as i64], |r| {
+                Ok(OcrFailureRow {
+                    ts: r.get(0)?,
+                    page: r.get(1)?,
+                    ms: r.get(2)?,
+                    reason: r.get(3)?,
+                    image_byte_size: r.get(4)?,
+                })
+            })
+            .context("query failures corpus-wide")?
+            .filter_map(|r| r.ok())
+            .collect()
+        };
+        Ok(OcrFailuresV1 {
+            schema_version: "ocr_failures.v1",
+            doc_id: doc_id.map(String::from),
+            failure_count: failures.len() as u64,
+            failures,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -22,6 +22,18 @@ use lopdf::Document as LopdfDocument;
 use time::OffsetDateTime;
 use tracing::warn;
 
+/// Extract width/height from a JPEG (or any image format) byte slice.
+/// Returns `None` on corrupt / unsupported data — callers fall back to
+/// `(None, None)` so OCR results remain valid (R-4 mitigation).
+fn extract_image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    use image::ImageReader;
+    ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()
+}
+
 /// Per-page OCR knobs threaded through [`apply_ocr_to_pdf_pages`].
 /// Mirrors the `[pdf.ocr]` config block (spec §4.5); the facade
 /// (`kebab_app::ingest_one_pdf_asset`) fills these from
@@ -178,14 +190,17 @@ where
                     kind: ProvenanceKind::Warning,
                     note: Some(note),
                 });
+                let (image_width, image_height) = extract_image_dimensions(&page_image_bytes)
+                    .map(|(w, h)| (Some(w), Some(h)))
+                    .unwrap_or((None, None));
                 emit_progress(PdfOcrProgress::Finished {
                     page: page_num,
                     ms: start.elapsed().as_millis() as u64,
                     chars: 0,
                     skipped: true,
                     image_byte_size: Some(page_image_bytes.len() as u64),
-                    image_width: None,
-                    image_height: None,
+                    image_width,
+                    image_height,
                     failure_reason: Some("ocr_error".to_string()),
                 });
                 continue;
@@ -256,14 +271,17 @@ where
             )),
         });
 
+        let (image_width, image_height) = extract_image_dimensions(&page_image_bytes)
+            .map(|(w, h)| (Some(w), Some(h)))
+            .unwrap_or((None, None));
         emit_progress(PdfOcrProgress::Finished {
             page: page_num,
             ms: elapsed_ms,
             chars: chars_ocr,
             skipped: false,
             image_byte_size: Some(page_image_bytes.len() as u64),
-            image_width: None,
-            image_height: None,
+            image_width,
+            image_height,
             failure_reason: None,
         });
     }
@@ -320,4 +338,27 @@ pub enum PdfOcrProgress {
         /// Values: "timeout" | "ocr_error" | "network_error" | None (success).
         failure_reason: Option<String>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_image_dimensions_valid_jpeg() {
+        let img = image::RgbImage::new(16, 12);
+        let mut bytes = Vec::new();
+        image::DynamicImage::from(img)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Jpeg,
+            )
+            .expect("encode jpeg");
+        assert_eq!(extract_image_dimensions(&bytes), Some((16, 12)));
+    }
+
+    #[test]
+    fn extract_image_dimensions_corrupt_returns_none() {
+        assert_eq!(extract_image_dimensions(b"not a jpeg"), None);
+    }
 }

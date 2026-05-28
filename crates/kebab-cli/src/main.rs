@@ -358,6 +358,17 @@ enum InspectWhat {
     Doc { id: String },
     /// Inspect a single chunk by ID.
     Chunk { id: String },
+    /// Corpus-wide OCR statistics (total events, latency percentiles, engine breakdown).
+    OcrStats,
+    /// Recent OCR failures, optionally filtered by document ID.
+    OcrFailures {
+        /// Filter failures to a single document UUID.
+        #[arg(long)]
+        doc_id: Option<String>,
+        /// Maximum number of failure rows to return.
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -689,6 +700,21 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     "{}",
                     serde_json::to_string(&wire::wire_chunk_inspection(&chunk))?
                 );
+                Ok(())
+            }
+            InspectWhat::OcrStats => {
+                let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+                let app = kebab_app::App::open_with_config(cfg.clone())?;
+                let stats = app.inspect_ocr_stats_with_config(&cfg)?;
+                println!("{}", serde_json::to_string(&stats)?);
+                Ok(())
+            }
+            InspectWhat::OcrFailures { doc_id, limit } => {
+                let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+                let app = kebab_app::App::open_with_config(cfg.clone())?;
+                let failures =
+                    app.inspect_ocr_failures_with_config(&cfg, doc_id.as_deref(), *limit)?;
+                println!("{}", serde_json::to_string(&failures)?);
                 Ok(())
             }
         },

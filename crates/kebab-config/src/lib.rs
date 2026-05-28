@@ -443,9 +443,19 @@ pub struct LoggingCfg {
 
     /// Directory for per-run log files. Default `{state_dir}/logs`.
     /// `{state_dir}` expands to the XDG state dir (e.g. `~/.local/state/kebab`).
-    /// Log file accumulation is user-managed — no rotation policy (spec §6 R-1).
     #[serde(default = "default_ingest_log_dir")]
     pub ingest_log_dir: PathBuf,
+
+    /// v0.20.x r2 Enhancement 4: keep the most recent N ingest log files.
+    /// Older files (beyond this count) are deleted at ingest start.
+    /// Default 100. AC-9: #[serde(default)] ensures backward compat.
+    #[serde(default = "default_keep_recent_runs")]
+    pub keep_recent_runs: u32,
+
+    /// v0.20.x r2 Enhancement 4: delete log files older than N days.
+    /// Also applied to `pdf_ocr_events` SQLite rows. Default 30.
+    #[serde(default = "default_retention_days")]
+    pub retention_days: u32,
 }
 
 fn default_ingest_log_enabled() -> bool {
@@ -454,12 +464,20 @@ fn default_ingest_log_enabled() -> bool {
 fn default_ingest_log_dir() -> PathBuf {
     PathBuf::from("{state_dir}/logs")
 }
+fn default_keep_recent_runs() -> u32 {
+    100
+}
+fn default_retention_days() -> u32 {
+    30
+}
 
 impl Default for LoggingCfg {
     fn default() -> Self {
         Self {
             ingest_log_enabled: default_ingest_log_enabled(),
             ingest_log_dir: default_ingest_log_dir(),
+            keep_recent_runs: default_keep_recent_runs(),
+            retention_days: default_retention_days(),
         }
     }
 }

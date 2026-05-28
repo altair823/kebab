@@ -149,6 +149,12 @@ skip_generated_header = true
 max_file_bytes = 262144
 max_file_lines = 5000
 extra_skip_globs = []                # 사용자 추가 skip 패턴 (gitignore syntax)
+
+[logging]
+ingest_log_enabled = true
+ingest_log_dir = "{state_dir}/logs"
+keep_recent_runs = 100               # v0.20.x r2: 최근 N 개 run log 파일 보존
+retention_days = 30                  # v0.20.x r2: N일 이상 된 log / OCR 이벤트 자동 삭제
 ```
 
 `KEBAB_*` 환경변수로 override 가능 (`KEBAB_MODELS_LLM_MODEL=gemma4:26b kebab …` 등). 자세한 키 목록은 `crates/kebab-config/src/lib.rs` 의 `apply_env` 매치 암. `KEBAB_READONLY=1` — write-path 비활성화 (CI 안전망). `KEBAB_PROGRESS=plain` — non-TTY 환경에서 진행 상황을 plain 한 줄씩 stderr 출력 (spinner 대신).
