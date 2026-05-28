@@ -993,8 +993,16 @@ impl App {
 /// the active config. This token surfaces in `SearchHit.index_version`
 /// and on snapshot tests; including the chunker version pins it to
 /// the chunking policy in effect.
+///
+/// V009 (2026-05-28): FTS5 tokenizer 가 trigram → unicode61 + 한국어
+/// 형태소 분해 column 로 갱신됨. `fts5-v009-korean-morphological`
+/// suffix 가 V007 baseline 과 구별되어 eval runner 의 config
+/// snapshot 및 search cache 무효화에 picks up 된다.
 fn lexical_index_version(config: &kebab_config::Config) -> IndexVersion {
-    IndexVersion(format!("lex:{}", config.chunking.chunker_version))
+    IndexVersion(format!(
+        "lex:{}:fts5-v009-korean-morphological",
+        config.chunking.chunker_version
+    ))
 }
 
 /// p9-fb-37: stand-in for the vector retriever in the trace path when
