@@ -122,13 +122,15 @@ Release 절차:
 
 ### 도그푸딩 데이터 보관소
 
-모든 ad-hoc 도그푸딩 데이터 (`config.toml` + corpus + `kb/`) 는 `/build/cache/dogfood/` 한 곳에 누적 보관:
+모든 도그푸딩 source 문서 + KB state + 로그는 `/build/dogfood/` 한 디렉토리에 누적 보관한다. **분류는 문서 의미 / 종류 / 형식 기준만** — kebab version, 생성 시점, scenario name 같은 prefix 금지 (`v0.20.1-dogfood/`, `dogfood-v018/` 같은 디렉토리 신설 X). 자세한 layout 은 `/build/dogfood/README.md` 참조.
 
-- `/build/cache/dogfood/README.md` — 사용 패턴 + 디렉토리 구조 + 신규 시나리오 시작 절차.
-- `/build/cache/dogfood/v<X.Y.Z>-<tag>/` — release/scenario 별 격리된 KB.
-- `/build/cache/dogfood/_logs/` — 누적 실행 로그 (ndjson + stderr + summary).
+- `/build/dogfood/corpus/` — source 문서 (read-only). format 별 분류 (`markdown/`, `code/`, `html/`, `images/`, `pdf/`, `manifest/`, `resources/`) + 각 format 내 category 별 (예: `markdown/{korean,english,bilingual,tech-docs,coding-md-corpus,topics,notes,edge-cases}`, `code/{rust,python,...}`). 새 fixture 는 적절한 category subdir 에 추가.
+- `/build/dogfood/kb/` — 도그푸딩 run 의 KB 출력 (SQLite + LanceDB + assets + models). 매 run 마다 reset 가능. 별 KB 디렉토리 신설 X.
+- `/build/dogfood/logs/` — 누적 실행 로그 (ndjson + stderr + summary).
+- `/build/dogfood/config.toml` — canonical 도그푸딩 config (없으면 `kebab init` 후 path override).
+- `/build/dogfood/_archive/` — regeneratable stale state (이전 run 의 sqlite/lancedb, XDG snapshot). 디스크 압박 시 wipe 가능.
 
-새 도그푸딩 시작 시 기존 디렉토리의 `config.toml` 을 template 으로 sed-replace 한 새 디렉토리 생성. `/tmp/kebab-smoke/` 또는 `/tmp/kebab-*` 임시 위치 신규 사용 금지 — 루트 디스크 압박 + 누적 추적 어려움.
+`/tmp/kebab-smoke/`, `/tmp/kebab-*`, `/build/cache/dogfood*`, `/home/altair823/KnowledgeBase`, `~/.config/kebab/`, `~/.local/share/kebab/`, `~/.local/state/kebab/` 같은 위치 신규 사용 금지 — 모두 `/build/dogfood/` 로 일관. ad-hoc fixture 가 필요하면 `corpus/<format>/<category>/` 에 추가.
 
 ### 도그푸딩 결과 기록
 
