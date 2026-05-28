@@ -36,6 +36,10 @@ kebab-parse-image = { path = "../kebab-parse-image" }
 # resulting `CanonicalDocument` through `kebab-chunk::PdfPageV1Chunker`.
 kebab-parse-pdf = { path = "../kebab-parse-pdf" }
 lopdf            = { workspace = true }
+# Enhancement 1 (v0.20.x r2): JPEG dimension decode in pdf_ocr_apply.rs.
+# jpeg feature added explicitly (F3 closure-r1) rather than relying on
+# feature unification via kebab-parse-image.
+image            = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # p10-1A-2: Rust AST extractor lives here. App threads it into the
 # per-asset dispatch (see `ingest_one_asset` Code branch) and runs the
 # resulting `CanonicalDocument` through `kebab-chunk::CodeRustAstV1Chunker`.
@@ -72,7 +76,7 @@ tempfile             = { workspace = true }
 # the kb-app code under test stays sync.
 wiremock             = { workspace = true }
 tokio                = { workspace = true, features = ["rt-multi-thread"] }
-image                = { version = "0.25", default-features = false, features = ["png"] }
+image                = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # P7-3 PDF integration tests build in-memory PDF fixtures via the same
 # lopdf builder pattern `kebab-parse-pdf::tests::common` uses; pinned
 # to the same major (0.32) so byte output is identical between the two
