@@ -47,3 +47,45 @@ pub use k8s_manifest_resource_v1::K8sManifestResourceV1Chunker;
 pub use manifest_file_v1::ManifestFileV1Chunker;
 pub use md_heading_v1::MdHeadingV1Chunker;
 pub use pdf_page_v1::PdfPageV1Chunker;
+
+// ── Korean morphological tokenizer ───────────────────────────────────────────
+
+use lindera::dictionary::{load_embedded_dictionary, DictionaryKind};
+use lindera::mode::Mode;
+use lindera::segmenter::Segmenter;
+use lindera::tokenizer::Tokenizer;
+
+static KOREAN_TOKENIZER: std::sync::OnceLock<Option<Tokenizer>> = std::sync::OnceLock::new();
+
+/// 한국어 chunk text 를 lindera ko-dic 으로 형태소 분해해 공백 join 한 결과를 반환.
+/// chunker 들이 `Chunk.tokenized_korean_text` pre-fill 에 사용.
+/// 분석 실패 시 None — 호출자는 NULL fallback 처리.
+/// Tokenizer 는 OnceLock 으로 1회 초기화; dict load 실패 시 영구 None.
+pub fn tokenize_korean_morphological(text: &str) -> Option<String> {
+    if text.trim().is_empty() {
+        return None;
+    }
+    let tokenizer = KOREAN_TOKENIZER.get_or_init(|| {
+        let dict = match load_embedded_dictionary(DictionaryKind::KoDic) {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!(target: "kebab-chunk", "tokenize_korean_morphological: dict load failed: {e}");
+                return None;
+            }
+        };
+        let segmenter = Segmenter::new(Mode::Normal, dict, None);
+        Some(Tokenizer::new(segmenter))
+    });
+    let tokenizer = tokenizer.as_ref()?;
+    let tokens = tokenizer.tokenize(text).ok()?;
+    let joined = tokens
+        .iter()
+        .map(|t| t.surface.as_ref())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if joined.is_empty() {
+        None
+    } else {
+        Some(joined)
+    }
+}

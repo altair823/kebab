@@ -145,6 +145,7 @@ fn make_chunk(
         chunk_id,
         doc_id: DocumentId(doc.doc_id.0.clone()),
         block_ids: block_ids.to_vec(),
+        tokenized_korean_text: None,
         text,
         heading_path: Vec::new(),
         source_spans: vec![span],

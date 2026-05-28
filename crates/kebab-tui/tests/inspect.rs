@@ -113,6 +113,7 @@ fn make_chunk() -> Chunk {
         token_estimate: 12,
         chunker_version: ChunkerVersion("md-heading-v1".into()),
         policy_hash: "deadbeefdeadbeef".into(),
+        tokenized_korean_text: None,
     }
 }
 

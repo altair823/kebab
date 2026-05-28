@@ -5392,6 +5392,7 @@ dependencies = [
  "daachorse",
  "kanaria",
  "lindera-dictionary",
+ "lindera-ko-dic",
  "log",
  "once_cell",
  "percent-encoding",
