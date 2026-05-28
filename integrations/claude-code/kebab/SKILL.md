@@ -145,7 +145,7 @@ Claude Code spawns `kebab mcp` at session start; the process stays alive across 
 - Pagination: `search_response.v1.next_cursor` is opaque base64 — pass back as `--cursor` (CLI) or `cursor` (MCP) for the next page. `null` means no more hits. `corpus_revision` mismatch returns `error.v1.code = stale_cursor` — re-issue search to obtain a fresh cursor.
 - `search_response.v1.truncated = true` means budget forced snippet shortening or k reduction. Independent of `next_cursor`: widen `max_tokens` for fuller snippets, follow `next_cursor` for more hits, or both.
 - `ask`'s `citations[]` mirrors `search_hit.v1` minus retrieval internals — same `doc_path` / `citation` shape.
-- Schema reference lives in the kebab repo at `docs/wire-schema/v1/*.schema.json` if a field is unclear.
+- Schema reference lives in the kebab repo at `docs/wire-schema/v1/*.schema.json` if a field is unclear. v0.20.x additive minor: `ingest_progress.v1` `pdf_ocr_finished` events carry 4 optional new fields (`image_byte_size`, `image_width`, `image_height`, `failure_reason`) — absent on pre-v0.20 events (backward compat).
 - `search_hit.v1` and `answer.v1.citations[]` carry `indexed_at` (RFC3339) + `stale` (bool). When `stale == true`, the source doc hasn't been re-processed since `config.search.stale_threshold_days`. Surface this caveat to the user when summarizing — the cited snapshot may not reflect current reality.
 
 ## Capability discovery

@@ -1869,6 +1869,10 @@ fn ingest_one_pdf_asset(
                                 ms,
                                 chars,
                                 skipped,
+                                image_byte_size,
+                                image_width,
+                                image_height,
+                                failure_reason,
                             } => {
                                 if let Some(sender) = progress {
                                     let _ = sender.send(
@@ -1878,6 +1882,10 @@ fn ingest_one_pdf_asset(
                                             chars,
                                             ocr_engine: engine.engine_name().to_string(),
                                             skipped,
+                                            image_byte_size,
+                                            image_width,
+                                            image_height,
+                                            failure_reason: failure_reason.clone(),
                                         },
                                     );
                                 }

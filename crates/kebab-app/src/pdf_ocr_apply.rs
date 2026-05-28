@@ -147,6 +147,10 @@ where
                 ms: 0,
                 chars: 0,
                 skipped: true,
+                image_byte_size: None,
+                image_width: None,
+                image_height: None,
+                failure_reason: None,
             });
             continue;
         };
@@ -175,6 +179,10 @@ where
                     ms: start.elapsed().as_millis() as u64,
                     chars: 0,
                     skipped: true,
+                    image_byte_size: Some(page_image_bytes.len() as u64),
+                    image_width: None,
+                    image_height: None,
+                    failure_reason: Some("ocr_error".to_string()),
                 });
                 continue;
             }
@@ -249,6 +257,10 @@ where
             ms: elapsed_ms,
             chars: chars_ocr,
             skipped: false,
+            image_byte_size: Some(page_image_bytes.len() as u64),
+            image_width: None,
+            image_height: None,
+            failure_reason: None,
         });
     }
 
@@ -291,5 +303,14 @@ pub enum PdfOcrProgress {
         /// `true` = DCTDecode 부재 또는 OCR engine 실패 로 skip.
         /// `false` = 정상 OCR 완료.
         skipped: bool,
+        /// v0.20.x ingest log: raster image byte size (additive, optional).
+        image_byte_size: Option<u64>,
+        /// v0.20.x ingest log: raster image width in pixels (additive, optional).
+        image_width: Option<u32>,
+        /// v0.20.x ingest log: raster image height in pixels (additive, optional).
+        image_height: Option<u32>,
+        /// v0.20.x ingest log: failure reason string when OCR failed (additive, optional).
+        /// Values: "timeout" | "ocr_error" | "network_error" | None (success).
+        failure_reason: Option<String>,
     },
 }

@@ -210,7 +210,7 @@ impl ProgressDisplay {
                     let _ = writeln!(err, "  📷 OCR page {page}...");
                 }
             }
-            IngestEvent::PdfOcrFinished { page, ms, chars, ocr_engine, skipped } => {
+            IngestEvent::PdfOcrFinished { page, ms, chars, ocr_engine, skipped, .. } => {
                 if !quiet {
                     let mut err = std::io::stderr().lock();
                     if *skipped {

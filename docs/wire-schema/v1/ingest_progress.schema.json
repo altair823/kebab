@@ -40,6 +40,10 @@
     "page":         { "type": "integer", "minimum": 1, "description": "pdf_ocr_started / pdf_ocr_finished: 1-based PDF page number under OCR." },
     "ocr_engine":   { "type": "string", "description": "pdf_ocr_finished: engine_name (e.g. 'ollama-vision')." },
     "skipped":      { "type": "boolean", "description": "pdf_ocr_finished: true 일 시 OCR 미수행 (DCTDecode 부재 또는 engine 실패). chars=0 만으로는 skip 과 0-char result 구분 불가." },
+    "image_byte_size": { "type": "integer", "minimum": 0, "description": "pdf_ocr_finished (optional, v0.20.x): raster image byte size." },
+    "image_width":     { "type": "integer", "minimum": 0, "description": "pdf_ocr_finished (optional, v0.20.x): raster image width px." },
+    "image_height":    { "type": "integer", "minimum": 0, "description": "pdf_ocr_finished (optional, v0.20.x): raster image height px." },
+    "failure_reason":  { "type": "string", "description": "pdf_ocr_finished (optional, v0.20.x): OCR failure reason. Present iff skipped=true due to engine error. Values: timeout | ocr_error | network_error | other." },
     "counts":       {
       "type": "object",
       "description": "completed / aborted: aggregate counters at the moment the run ended (mirrors fields on `ingest_report.v1`).",

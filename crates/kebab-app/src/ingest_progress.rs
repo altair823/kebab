@@ -99,6 +99,18 @@ pub enum IngestEvent {
         chars: u32,
         ocr_engine: String,
         skipped: bool,
+        /// v0.20.x ingest log: raster image byte size (additive minor, optional).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        image_byte_size: Option<u64>,
+        /// v0.20.x ingest log: raster image width in pixels (additive minor, optional).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        image_width: Option<u32>,
+        /// v0.20.x ingest log: raster image height in pixels (additive minor, optional).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        image_height: Option<u32>,
+        /// v0.20.x ingest log: OCR failure reason (additive minor, optional).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        failure_reason: Option<String>,
     },
 }
 
