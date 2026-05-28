@@ -368,19 +368,20 @@ fn extract_design_5_5_fts_block() -> String {
     fts_slice[..last_end + "END;".len()].to_string()
 }
 
-/// Extract the §5.5 verbatim block from the V007 migration (replaced V002
-/// 's unicode61 tokenizer with trigram — V002 stays in place for
-/// historical cold-upgrade replay but V007 is now the source of truth),
-/// between the `── §5.5 verbatim block ──` anchor markers V007 carries.
+/// Extract the §5.5 verbatim block from the V009 migration (V009 replaces
+/// V007 's trigram tokenizer with unicode61 + CASE expression triggers for
+/// Korean morphological tokenization — V007 stays in place for historical
+/// cold-upgrade replay but V009 is now the source of truth),
+/// between the `── §5.5 verbatim block ──` anchor markers V009 carries.
 fn extract_migration_5_5_verbatim_block() -> String {
-    let migration = include_str!("../../../migrations/V007__fts_trigram.sql");
+    let migration = include_str!("../../../migrations/V009__fts_korean_morphological.sql");
     // The opening anchor line ends with `── §5.5 verbatim block ─...`.
     let open_marker = "§5.5 verbatim block";
     let close_marker = "End §5.5 verbatim block";
 
     let open_idx = migration
         .find(open_marker)
-        .expect("V007 must carry the `§5.5 verbatim block` opening anchor");
+        .expect("V009 must carry the `§5.5 verbatim block` opening anchor");
     let after_open_line = open_idx
         + migration[open_idx..]
             .find('\n')
@@ -389,7 +390,7 @@ fn extract_migration_5_5_verbatim_block() -> String {
 
     let close_idx = migration[after_open_line..]
         .find(close_marker)
-        .expect("V007 must carry the `End §5.5 verbatim block` closing anchor")
+        .expect("V009 must carry the `End §5.5 verbatim block` closing anchor")
         + after_open_line;
     // Walk back from the close marker to the start of its comment line.
     let close_line_start = migration[..close_idx].rfind('\n').map_or(0, |n| n + 1);
@@ -397,14 +398,15 @@ fn extract_migration_5_5_verbatim_block() -> String {
     migration[after_open_line..close_line_start].to_string()
 }
 
-/// CI diff guard: the §5.5 block in `migrations/V007__fts_trigram.sql`
-/// must match the design doc verbatim (whitespace-normalized). V007
-/// replaced V002 's unicode61 tokenizer with trigram (2026-05-23).
-/// V002 stays in place for historical replay of cold-upgrade paths
-/// but is no longer compared against the design doc — V007 is now
+/// CI diff guard: the §5.5 block in `migrations/V009__fts_korean_morphological.sql`
+/// must match the design doc verbatim (whitespace-normalized). V009
+/// replaced V007 's trigram tokenizer with unicode61 + CASE expression
+/// triggers for Korean morphological tokenization (2026-05-28).
+/// V007 stays in place for historical replay of cold-upgrade paths
+/// but is no longer compared against the design doc — V009 is now
 /// the source of truth.
 #[test]
-fn fts_v007_matches_design_section_5_5_verbatim() {
+fn fts_v009_matches_design_section_5_5_verbatim() {
     let design = extract_design_5_5_fts_block();
     let migration_block = extract_migration_5_5_verbatim_block();
 
@@ -427,9 +429,27 @@ fn fts_v007_matches_design_section_5_5_verbatim() {
     let migration_n = normalize_ws(&migration_block);
     assert_eq!(
         design_n, migration_n,
-        "V007__fts_trigram.sql §5.5 block must match design doc §5.5 verbatim \
+        "V009__fts_korean_morphological.sql §5.5 block must match design doc §5.5 verbatim \
          (whitespace-normalized). If you intentionally changed one, \
          update the other in the same commit."
+    );
+}
+
+// ── 5b. V009 corpus_revision bump ────────────────────────────────────
+
+/// V009 migration 이 corpus_revision kv 를 bump 하는지 검증.
+/// SqliteStore::open + run_migrations 후 corpus_revision 이 ≥ 1 이어야 함.
+/// (V004 seed = '0', V009 UPDATE = CAST(CAST('0' AS INTEGER) + 1 AS TEXT) = '1').
+#[test]
+fn v009_bumps_corpus_revision() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config()).unwrap();
+    store.run_migrations().unwrap();
+    let rev = store.corpus_revision();
+    assert!(
+        rev >= 1,
+        "corpus_revision must be ≥ 1 after V009 migration \
+         (V004 seeds 0, V009 bumps to ≥ 1); got {rev}"
     );
 }
 

@@ -1062,15 +1062,15 @@ CREATE INDEX idx_blocks_doc_id ON blocks(doc_id);
 
 ### 5.5 Chunks + FTS5
 
-Tokenizer = `trigram` (V007, 2026-05-23). 한국어 어절(조사·어미가 붙은 단위)이
-unicode61 에서 단일 토큰화돼 lexical 부분 매칭이 불가능했던 문제를 해소
-(2자 미만 한국어 query 는 trigram 구조상 여전히 0-hit — 단일 토큰 측면에서는
-회귀 아님, multi-token query 는 `lexical.rs::build_match_string()` 가 whole-phrase
-후보 OR 결합으로 매칭). trade-off: 영어 lexical 도 substring 매칭으로 이동
-(recall↑, 단어 경계 정밀도↓), BM25 raw score 분포 변경 (RRF rank 기반 hybrid
-는 영향 미미), SQLite 파일 크기 ~2-10× 증가. 자세한 내용 = `tasks/HOTFIXES.md`
-(2026-05-22) + `docs/superpowers/specs/2026-05-22-korean-trigram-tokenizer-design.md`.
-`chunks_fts` 는 일반 FTS5 shadow table 이며 contentless 가 아님 (V002 / V007
+Tokenizer = `unicode61` (V009, 2026-05-28). V007 trigram 의 한국어 2자 query
+0-hit 한계 (Bug #8) 를 해소하기 위해 한국어 형태소 분석 기반 접근법 채택.
+`chunks` 테이블에 `tokenized_korean_text TEXT` 컬럼 추가 — ingest 경로가
+lindera ko-dic 형태소 분석 결과(공백 구분 형태소 sequence)를 pre-fill.
+chunks_ai/chunks_au trigger 가 `tokenized_korean_text || ' ' || text` 를
+FTS5 에 색인 (CASE expression: NULL 이면 raw text 만). '한국', '서울' 같은
+2자 단어도 형태소 경계 일치 시 hit 가능. 영어 substring 매칭은 V002 수준
+(whole-token only) 으로 회귀 — 자세한 내용 = `tasks/HOTFIXES.md` (2026-05-28).
+`chunks_fts` 는 일반 FTS5 shadow table 이며 contentless 가 아님 (V002 / V009
 DDL 에 `content=''` 없음).
 
 ```sql
@@ -1085,7 +1085,8 @@ CREATE TABLE chunks (
   chunker_version   TEXT NOT NULL,
   policy_hash       TEXT NOT NULL,
   block_ids_json    TEXT NOT NULL,
-  created_at        TEXT NOT NULL
+  created_at        TEXT NOT NULL,
+  tokenized_korean_text TEXT
 );
 CREATE INDEX idx_chunks_doc_id          ON chunks(doc_id);
 CREATE INDEX idx_chunks_chunker_version ON chunks(chunker_version);
@@ -1095,12 +1096,16 @@ CREATE VIRTUAL TABLE chunks_fts USING fts5(
   doc_id       UNINDEXED,
   heading_path,
   text,
-  tokenize = 'trigram'
+  tokenize = 'unicode61'
 );
 
 CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
   INSERT INTO chunks_fts(chunk_id, doc_id, heading_path, text)
-  VALUES (new.chunk_id, new.doc_id, new.heading_path_json, new.text);
+  VALUES (new.chunk_id, new.doc_id, new.heading_path_json,
+          CASE WHEN new.tokenized_korean_text IS NOT NULL
+               THEN new.tokenized_korean_text || ' ' || new.text
+               ELSE new.text
+          END);
 END;
 CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
   DELETE FROM chunks_fts WHERE chunk_id = old.chunk_id;
@@ -1108,7 +1113,11 @@ END;
 CREATE TRIGGER chunks_au AFTER UPDATE ON chunks BEGIN
   DELETE FROM chunks_fts WHERE chunk_id = old.chunk_id;
   INSERT INTO chunks_fts(chunk_id, doc_id, heading_path, text)
-  VALUES (new.chunk_id, new.doc_id, new.heading_path_json, new.text);
+  VALUES (new.chunk_id, new.doc_id, new.heading_path_json,
+          CASE WHEN new.tokenized_korean_text IS NOT NULL
+               THEN new.tokenized_korean_text || ' ' || new.text
+               ELSE new.text
+          END);
 END;
 ```
 
