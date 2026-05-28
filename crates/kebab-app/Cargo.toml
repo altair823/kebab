@@ -67,6 +67,8 @@ unicode-normalization = "0.1"
 ignore               = "0.4"
 # p9-fb-34: opaque pagination cursor encodes payload as base64.
 base64               = { workspace = true }
+# Enhancement 3 (v0.20.x r2): direct SQL queries for inspect_ocr_stats/failures.
+rusqlite             = { workspace = true }
 
 [dev-dependencies]
 rusqlite             = { workspace = true }

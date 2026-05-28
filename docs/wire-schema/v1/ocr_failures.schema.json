@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ocr_failures.v1",
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "ocr_failures.v1" },
+    "doc_id": { "type": ["string", "null"] },
+    "failure_count": { "type": "integer" },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ts": { "type": "string" },
+          "page": { "type": "integer" },
+          "ms": { "type": "integer" },
+          "reason": { "type": "string" },
+          "image_byte_size": { "type": ["integer", "null"] }
+        }
+      }
+    }
+  },
+  "required": ["schema_version", "failure_count", "failures"]
+}

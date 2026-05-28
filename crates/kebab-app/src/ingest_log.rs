@@ -181,7 +181,7 @@ impl IngestSummary {
         ocr_ms_samples: &[u64],
         duration_ms: u64,
     ) -> Self {
-        let (p50, p90, max) = percentiles(ocr_ms_samples);
+        let (p50, p90, _p99, max) = percentiles(ocr_ms_samples);
         Self {
             kind: "summary".to_string(),
             ts,
@@ -200,18 +200,22 @@ impl IngestSummary {
 }
 
 /// Simple percentile extraction on a sorted copy of `samples`.
-/// Returns `(p50, p90, max)`. All `None` when samples is empty.
-pub(crate) fn percentiles(samples: &[u64]) -> (Option<u64>, Option<u64>, Option<u64>) {
+/// Returns `(p50, p90, p99, max)`. All `None` when samples is empty.
+/// p99 surfaces via `inspect ocr-stats`; `IngestSummary` uses p50/p90/max only.
+pub(crate) fn percentiles(
+    samples: &[u64],
+) -> (Option<u64>, Option<u64>, Option<u64>, Option<u64>) {
     if samples.is_empty() {
-        return (None, None, None);
+        return (None, None, None, None);
     }
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
     let n = sorted.len();
-    let p50 = sorted[n * 50 / 100];
-    let p90 = sorted[n * 90 / 100];
+    let p50 = sorted[(n.saturating_sub(1) * 50) / 100];
+    let p90 = sorted[(n.saturating_sub(1) * 90) / 100];
+    let p99 = sorted[(n.saturating_sub(1) * 99) / 100];
     let max = *sorted.last().unwrap();
-    (Some(p50), Some(p90), Some(max))
+    (Some(p50), Some(p90), Some(p99), Some(max))
 }
 
 #[cfg(test)]
