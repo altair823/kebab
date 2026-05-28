@@ -14,7 +14,24 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
-## 2026-05-27 — PDF OCR `request_timeout_secs` default 600s → 60s (Bug #11)
+## 2026-05-28 — PDF OCR `request_timeout_secs` default 60s → 180s (Bug #11 follow-up)
+
+**Discovered**: v0.20.0 final dogfood (2026-05-28), round 3 fresh KB ingest.
+
+**Symptom**: 60s default 가 metro-korea.pdf 의 page 8/9/13 (dense Korean text + Identity-H CID font) 의 OCR 을 강제 timeout. round 2 (600s default) 의 page 8/13 (2 page) → round 3 (60s) 의 page 8/9/13 (3 page) — **1 page 더 timeout** + 본문 indexed 손실 증가. 사용자 perspective: cost 절약 vs coverage trade-off 가 60s 에선 coverage 쪽으로 너무 깎임.
+
+**Decision**: **conservative starting point 180s 로 재조정** + dogfood evidence 기반 sweet spot 점진적 축소 정책. 180s 가 600s 의 1/3 cost cap (page 당 max 3분) 보장 + dense page coverage 회복.
+
+**Fix** (HOTFIXES 2026-05-28 follow-up, branch `feat/pdf-scanned-ocr`):
+- `crates/kebab-config/src/lib.rs::default_pdf_ocr_request_timeout_secs() = 180`.
+- Doc-comment 보강 — "180s starting point + sweet spot 점진적 축소" 명시.
+- Unit test rename `pdf_ocr_request_timeout_default_is_60s` → `_is_180s` + assertion 180.
+- `crates/kebab-config/tests/pdf_ocr.rs` 의 `assert_eq!(...request_timeout_secs, 60)` → `180`.
+- User override path 보존 — `config.toml [pdf.ocr] request_timeout_secs = N` 로 늘리/줄이기 가능 (이미 `#[serde(default)]` field, 변경 0).
+
+**Future tuning policy**: 향후 dogfood 마다 OCR 평균 ms 분포 측정 후 (예: 90th percentile + buffer) default 점진적 축소. 60s 같은 짧은 default 로 직접 jump 안 함.
+
+## 2026-05-27 — PDF OCR `request_timeout_secs` default 600s → 60s (Bug #11, superseded by 2026-05-28 follow-up)
 
 **Discovered**: v0.20.0 final dogfood (2026-05-27), metro-korea.pdf 의 page 8 + 13.
 
@@ -23,7 +40,7 @@ git history.
 **Root cause**: `default_pdf_ocr_request_timeout_secs() = 600` (spec `2026-05-27-pdf-scanned-ocr-spec.md` line 1000 + OQ-1 line 1628 의 "CPU 환경 105s 의 5x 여유" 가정). 실측 cloud GPU Ollama 의 per-page throughput 는 6-32s — 600s 까지 가야 timeout 이라면 Ollama 다운 상태가 사실상 확실. 600s 가 fail-fast 신호로 작동 안 함.
 
 **Fix** (v0.20.0 bugfix3 round 3, branch `feat/pdf-scanned-ocr`):
-- `crates/kebab-config/src/lib.rs` `default_pdf_ocr_request_timeout_secs() = 60`.
+- `crates/kebab-config/src/lib.rs` `default_pdf_ocr_request_timeout_secs() = 60` (2026-05-28 entry 에서 180 으로 재조정).
 - Doc-comment 보강 — 6-32s 정상 throughput, 60s 초과는 Ollama 다운 / 매우 dense·고해상도 page 신호.
 - User override path 보존 — `config.toml [pdf.ocr] request_timeout_secs = N` 로 늘릴 수 있음.
 

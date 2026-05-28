@@ -484,14 +484,19 @@ impl PdfOcrCfg {
 }
 
 /// PDF OCR per-page request timeout 의 기본값.
-/// 6-32s 가 정상 throughput; 60s 초과는 Ollama 다운 / 매우 dense·고해상도 page 의 신호.
+/// 6-32s 가 정상 throughput; 180s 초과는 Ollama 다운 / 매우 dense·고해상도 page 의 신호.
 /// `config.toml` 의 `[pdf.ocr] request_timeout_secs = N` 로 override.
 ///
 /// HOTFIXES 2026-05-27 (Bug #11): metro-korea.pdf dogfood 에서 page 8/13 모두
 /// 기존 600s default 까지 완전 timeout (`chars: 0, skipped: true` × 20분 cost) →
-/// 60s 로 하향. parent spec §1000 / §1628 OQ-1 ("CPU 환경 105s 의 5x 여유") 가
+/// 우선 60s 로 하향. parent spec §1000 / §1628 OQ-1 ("CPU 환경 105s 의 5x 여유") 가
 /// 가정한 "page 당 평균 105s" 보다 실측 cloud GPU Ollama 가 6-32s 로 훨씬 빠름.
-fn default_pdf_ocr_request_timeout_secs() -> u64 { 60 }
+///
+/// HOTFIXES 2026-05-28 (Bug #11 follow-up): 60s 는 dense Korean page (특히
+/// metro-korea.pdf page 8/9/13) 의 OCR 을 강제 timeout 시켜 본문 indexed 손실.
+/// **conservative starting point 180s 로 재조정** + dogfood evidence 기반 sweet spot
+/// 점진적 축소 정책. user 가 `[pdf.ocr] request_timeout_secs = N` 으로 직접 tune.
+fn default_pdf_ocr_request_timeout_secs() -> u64 { 180 }
 fn default_pdf_ocr_valid_ratio() -> f32 { 0.5 }
 fn default_pdf_ocr_min_char_count() -> u32 { 20 }
 fn default_pdf_ocr_lang_hint() -> Option<String> { Some("kor".to_string()) }
@@ -1853,12 +1858,13 @@ mod fb27_tests {
     }
 
     #[test]
-    fn pdf_ocr_request_timeout_default_is_60s() {
-        // Bug #11 (dogfood 2026-05-27): default 600s → 60s.
+    fn pdf_ocr_request_timeout_default_is_180s() {
+        // Bug #11 (dogfood 2026-05-27 + follow-up 2026-05-28):
+        // default 600s → 60s → 180s (sweet spot 점진적 축소 정책).
         let cfg = PdfOcrCfg::defaults();
         assert_eq!(
-            cfg.request_timeout_secs, 60,
-            "pdf.ocr.request_timeout_secs default must be 60s (Bug #11, HOTFIXES 2026-05-27)"
+            cfg.request_timeout_secs, 180,
+            "pdf.ocr.request_timeout_secs default must be 180s (Bug #11, HOTFIXES 2026-05-28)"
         );
     }
 }

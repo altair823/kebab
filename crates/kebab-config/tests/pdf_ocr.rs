@@ -52,7 +52,7 @@ fn pdf_ocr_defaults_off_with_qwen_3b() {
     assert!(cfg.pdf.ocr.endpoint.is_none());
     assert_eq!(cfg.pdf.ocr.languages, vec!["eng".to_string(), "kor".to_string()]);
     assert_eq!(cfg.pdf.ocr.max_pixels, 2048);
-    assert_eq!(cfg.pdf.ocr.request_timeout_secs, 60); // Bug #11: default 600 → 60
+    assert_eq!(cfg.pdf.ocr.request_timeout_secs, 180); // Bug #11: 600 → 60 → 180 (HOTFIXES 2026-05-28)
     assert!((cfg.pdf.ocr.valid_ratio_threshold - 0.5).abs() < 1e-6);
     assert_eq!(cfg.pdf.ocr.min_char_count, 20);
     assert_eq!(cfg.pdf.ocr.lang_hint.as_deref(), Some("kor"));
