@@ -116,6 +116,10 @@ pub(crate) fn now_ts() -> String {
 pub enum LogEvent<'a> {
     Ocr {
         ts: String,
+        /// v0.20.x r2: additive field — doc_id for dual-write SQLite correlation.
+        /// Round 1 ndjson logs deserialize with doc_id=None (Serde Option default).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        doc_id: Option<&'a str>,
         doc_path: &'a str,
         page: u32,
         image_byte_size: Option<u64>,

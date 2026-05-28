@@ -1933,6 +1933,13 @@ fn ingest_one_pdf_asset(
                     let pages_for_ocr = ocr_pages_cnt.clone();
                     let failures_for_ocr = ocr_failures_cnt.clone();
                     let doc_path_for_log = asset.workspace_path.0.clone();
+                    // v0.20.x r2 Step 3: pre-capture for dual-write (F1 + G1 resolution).
+                    let doc_id_for_log: String = canonical.doc_id.0.clone();
+                    let store_for_ocr = Arc::clone(&app.sqlite);
+                    let run_id_for_log: String = lw_for_ocr
+                        .as_ref()
+                        .and_then(|lw| lw.lock().ok().map(|w| w.run_id().to_string()))
+                        .unwrap_or_default();
 
                     let summary = crate::pdf_ocr_apply::apply_ocr_to_pdf_pages(
                         &mut canonical,
@@ -1974,10 +1981,12 @@ fn ingest_one_pdf_asset(
                                 }
                                 // v0.20.x Hook 2: write OCR event to log writer.
                                 let success = !skipped && failure_reason.is_none();
+                                let ts_for_event = crate::ingest_log::now_ts();
                                 if let Some(ref lw) = lw_for_ocr {
                                     if let Ok(mut w) = lw.lock() {
                                         let _ = w.write_event(&crate::ingest_log::LogEvent::Ocr {
-                                            ts: crate::ingest_log::now_ts(),
+                                            ts: ts_for_event.clone(),
+                                            doc_id: Some(&doc_id_for_log),
                                             doc_path: &doc_path_for_log,
                                             page,
                                             image_byte_size,
@@ -1990,6 +1999,27 @@ fn ingest_one_pdf_asset(
                                             ocr_engine: engine.engine_name(),
                                         });
                                     }
+                                }
+                                // v0.20.x r2: SQLite dual-write (non-critical — R-1).
+                                if let Err(e) = store_for_ocr.record_pdf_ocr_event(
+                                    &run_id_for_log,
+                                    &ts_for_event,
+                                    Some(&doc_id_for_log),
+                                    &doc_path_for_log,
+                                    page,
+                                    image_byte_size,
+                                    image_width,
+                                    image_height,
+                                    ms,
+                                    chars,
+                                    success,
+                                    failure_reason.as_deref(),
+                                    engine.engine_name(),
+                                ) {
+                                    tracing::warn!(
+                                        target: "kebab-app",
+                                        "sqlite ocr event insert failed: {e}"
+                                    );
                                 }
                                 if let Ok(mut p) = pages_for_ocr.lock() {
                                     *p += 1;
