@@ -14,6 +14,37 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-28 — Bug #8 한국어 2자 query 해소 (V009 morphological tokenizer)
+
+**Discovered**: 도그푸딩 round 3/4 (2026-05-28). '한국' / '서울' 0-hit 반복.
+
+**Symptom**: V007 trigram tokenizer 의 ≥3-char minimum 한계.
+
+**Root cause**: trigram 의 bucket 미존재. unicode61 기반 단순 3-gram 분해로는 2-char 한국어 단어를 충분히 커버 못함.
+
+**Fix**: V009 migration + lindera-ko-dic 형태소분석기 + tokenized_korean_text column + first-boot eager backfill. branch `feat/korean-morphological-tokenizer` (8 commit + 5 follow-up).
+- `migrations/V009__fts_korean_morphological.sql` — FTS5 tokenize 함수 + tokenized_korean_text column 신설.
+- `crates/kebab-search/src/lexical.rs` — lindera integration + 한국어 쿼리 prefix matching 재설계.
+- `crates/kebab-app/src/ingest.rs` — first-boot V009 trigger + eager backfill.
+
+**Amends**: design §5.5 (FTS5 한국어 지원으로 갱신), §9 (index_version cascade — `fts5-v009-korean-morphological` suffix), HOTFIXES 2026-05-24 trigram entry (한국어 2자 query 미해결 footnote 해소).
+
+**Deviation from spec**: spec 의 lindera crate 이름 예상값과 실제 crates.io 등록명 불일치:
+- spec §6.1 예상: `lindera-dict-ko-dic`
+- 실제 v3.x: `lindera-ko-dic` (crates.io 표준 이름, 한국 형태소분석 dictionary).
+
+**Deferred**: `cargo-deny` 정식 도입 (workspace deny.toml 스캔 + CI gate) 은 별 P9 follow-up 으로 분리. 본 PR 은 `cargo tree --depth 2` 의 SPDX 수동 검증 (lindera/ko-dic 모두 MIT/Apache-2.0 compatible).
+
+**Path A regression noted**: V007 trigram 의 영어 substring 매칭 (token → tokenizer hit) 은 V009 lindera 전환으로 (lindera-ko-dic 은 한국어 only) 영어는 V002 (whole-token only) 로 회귀. Hybrid/vector 검색이 영어 carry, user impact 미미. spec §3 Non-Goals 의 설계 선택 확인 (lexical-only 기능 제약 허용).
+
+**User impact**: 
+- `kebab search "한국"` / `kebab search "서울"` 등 2-char 한국어 단어가 이제 hit.
+- hybrid/vector 모드에서 한국어 검색은 이미 정상 (embedding 의존), lexical 개선으로 RRF 점수 향상.
+- `kebab.sqlite` 크기 증가 (형태소 tokenizer 비용, 도그푸딩 KB 기준 +5-10% 또는 수십 MB).
+- README + SKILL.md + HANDOFF.md 세 문서 반영.
+
+Cross-link: `migrations/V009__fts_korean_morphological.sql`, `crates/kebab-search/src/lexical.rs`, design §5.5 / §9, `docs/superpowers/specs/2026-05-28-v0.20.x-korean-morphological-tokenizer-spec.md`.
+
 ## 2026-05-28 — PDF OCR `request_timeout_secs` default 60s → 180s (Bug #11 follow-up)
 
 **Discovered**: v0.20.0 final dogfood (2026-05-28), round 3 fresh KB ingest.

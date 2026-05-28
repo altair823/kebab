@@ -13,10 +13,11 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 | 언어 | Rust 2024 (resolver=3, edition 2024) |
 | repo | Cargo workspace (single repo, 함수 호출 기반 모듈러 모놀리스) |
 | 원본 저장 | filesystem + blake3 content-addressable copy (대용량은 reference + checksum) |
-| metadata | SQLite + FTS5 (lexical search) |
+| metadata | SQLite + FTS5 (lexical search + v0.20.1 한국어 형태소 tokenizer via lindera-ko-dic) |
 | vector | LanceDB (embedded, model 별 분리 table) |
 | Markdown parser | `pulldown-cmark` |
-| embedding | `fastembed-rs` (`multilingual-e5-small`, 384d) |
+| embedding | `fastembed-rs` (`multilingual-e5-large`, 1024d, v0.18.0부터 default 업그레이드) |
+| 한국어 형태소분석 | `lindera-ko-dic` (FTS5 외부 tokenizer, v0.20.1) — 2자 이상 한국어 query 지원 |
 | LLM | Ollama HTTP (default `gemma4:e4b` ─ OCR / caption 와 family 통일. 사용자가 더 큰 variant `gemma4:26b` 등으로 override 가능) |
 | 음성 ASR | `whisper.cpp` (via `whisper-rs`) — P8 보류, 시스템 dep brainstorm 후 |
 | OCR (image) | Ollama vision LM (default `gemma4:e4b`) — `OcrEngine` trait 으로 Tesseract / Apple Vision 등 future swap (HOTFIXES P6-2) |
@@ -126,7 +127,7 @@ flowchart TB
 
 UI → store/llm/parse 직접 의존 금지. 모든 user-facing 진입은 `kebab-app` facade 만 통한다 (frozen 설계 §8). `kebab-cli` 가 `--config <path>` flag 를 honor 하려면 `kebab_app::*_with_config(cfg, …)` companion 을 통해 Config 을 명시적으로 thread 하는 패턴 — 자세한 이유는 [tasks/HOTFIXES.md](../tasks/HOTFIXES.md) 의 `--config` 항목.
 
-`kebab-parse-code` 의 외부 tree-sitter grammar crate 의존: P10-1A-2 에서 `tree-sitter-rust` 추가, P10-1B 에서 `tree-sitter-python` / `tree-sitter-typescript` / `tree-sitter-javascript` 추가, P10-1C-Go 에서 `tree-sitter-go` 추가, P10-1C-JK 에서 `tree-sitter-java` / `tree-sitter-kotlin-ng` 추가, P10-1D 에서 `tree-sitter-c` / `tree-sitter-cpp` 추가. 모두 `kebab-parse-code` 에만 격리 (facade 룰 — UI crate / chunker 가 직접 import 금지). Kotlin 은 `tree-sitter-kotlin-ng` 사용 (bare `tree-sitter-kotlin` 은 tree-sitter 0.21–0.23 에 고착 — 사용 불가). v0.18.0+ 부터 `kebab-source-fs` 는 자체 `code_meta` 모듈 (lang detect + skip helpers + BUILTIN_BLACKLIST) 을 보유, kebab-parse-code 와 분리 (refactor 2026-05-26). v0.19.0 부터 `kebab-parse-md` 가 `kebab-parse-types` (parser intermediate types) + `kebab-normalize` (CanonicalDocument lift) 두 crate 를 흡수 — 24 → 22 crates, design §3.7b 재작성 (HOTFIXES 2026-05-26).
+`kebab-parse-code` 의 외부 tree-sitter grammar crate 의존: P10-1A-2 에서 `tree-sitter-rust` 추가, P10-1B 에서 `tree-sitter-python` / `tree-sitter-typescript` / `tree-sitter-javascript` 추가, P10-1C-Go 에서 `tree-sitter-go` 추가, P10-1C-JK 에서 `tree-sitter-java` / `tree-sitter-kotlin-ng` 추가, P10-1D 에서 `tree-sitter-c` / `tree-sitter-cpp` 추가. 모두 `kebab-parse-code` 에만 격리 (facade 룰 — UI crate / chunker 가 직접 import 금지). Kotlin 은 `tree-sitter-kotlin-ng` 사용 (bare `tree-sitter-kotlin` 은 tree-sitter 0.21–0.23 에 고착 — 사용 불가). v0.18.0+ 부터 `kebab-source-fs` 는 자체 `code_meta` 모듈 (lang detect + skip helpers + BUILTIN_BLACKLIST) 을 보유, kebab-parse-code 와 분리 (refactor 2026-05-26). v0.19.0 부터 `kebab-parse-md` 가 `kebab-parse-types` (parser intermediate types) + `kebab-normalize` (CanonicalDocument lift) 두 crate 를 흡수 — 24 → 22 crates, design §3.7b 재작성 (HOTFIXES 2026-05-26). v0.20.1 부터 `kebab-search` 가 `lindera-ko-dic` 를 의존해 한국어 FTS5 형태소 tokenizer 지원 — V009 migration 으로 2자 이상 한국어 query 매칭 (Bug #8 closure).
 
 ## 디렉토리 구조
 

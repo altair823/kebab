@@ -102,11 +102,10 @@ P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 
 PR #189 (2026-05-28 머지, commit `09333d0`) 으로 PDF scanned OCR (qwen2.5vl:3b vision LLM) + 4 round bugfix (#2/#3/#4/#6/#7/#9/#10/#11/#13/#14) + ingest log feature 가 main 으로 진입. 다음 작업 순서 = **C → B → A → G**.
 
-- **C — 한국어 morphological tokenizer (Bug #8 follow-up)** ⏳ 다음 우선.
-  - V007 trigram 의 ≥3 char query 제약 (HOTFIXES `2026-05-22`) — '한국' 같은 2-char 한국어 query 0 hit. 본격 사용자 search experience 의 가장 큰 surface.
-  - 가능한 path: jieba-rs / koma / komoran 같은 morphological tokenizer 도입 → FTS5 의 external content + custom tokenize. 또는 `tokenize='unicode61'` + 별 token table 의 dual-index.
-  - scope: search index 재빌드 cascade (corpus_revision bump) + 기존 V007 trigram 보존 (backward-compat) 여부 결정. 별 sub-item.
-  - 별 sub-item: spec/plan/executor cycle.
+- **C — 한국어 morphological tokenizer (Bug #8 follow-up)** ✅ **v0.20.1 머지 완료**.
+  - V007 trigram 의 ≥3 char query 제약 (HOTFIXES `2026-05-22`) — '한국' 같은 2-char 한국어 query 0 hit → V009 migration + lindera-ko-dic tokenizer + tokenized_korean_text column + first-boot eager backfill 으로 해소. branch `feat/korean-morphological-tokenizer` (8 commit + 5 follow-up).
+  - scope: search index 재빌드 cascade (corpus_revision bump) + V007 trigram 보존 (backward-compat).
+  - 사용자 surface: `kebab search` 의 한국어 2자 query ('한국', '서울') 매칭. README + SKILL + release notes 반영.
 
 - **B — OCR dense page coverage** ⏳ C 다음.
   - metro-korea.pdf page 8/13 timeout (180s, dense newspaper article). vision LLM 의 output token 과대 → 정상 timeout.
@@ -124,6 +123,7 @@ PR #189 (2026-05-28 머지, commit `09333d0`) 으로 PDF scanned OCR (qwen2.5vl:
 - **G — v0.20.1 patch release + release notes** ⏳ A 머지 후 (또는 C/B 시점에 따라 조기 cut).
   - CLAUDE.md release 룰 — sub-item 1 base + bugfix1-4 + log feature + logging r2 누적 → minor surface 변경 다수 + wire schema additive minor + config 신규 → **v0.20.1 patch bump + release notes**.
   - 핵심 surface (사용자 도그푸딩 가이드 형식):
+    - **한국어 2자 query 지원** (`kebab search` 에서 '한국', '서울' 같은 2자 단어 매칭 — V009 morphological tokenizer). 
     - OCR timeout default 180s (HOTFIXES 2026-05-28).
     - `[logging]` config section (default enabled) + `{state_dir}/logs/ingest-{run_id}.ndjson` 자동 생성.
     - `[logging] keep_recent_runs` (100) + `retention_days` (30) — OR-on-stale cleanup.
