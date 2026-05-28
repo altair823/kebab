@@ -98,6 +98,54 @@ P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 - **fb-41 multi-hop reasoning** — ⏳ 미구현, XL, eval 인프라 선행 + brainstorm 필요.
 - **Rust symbol path retrofit** — Rust `code-rust-ast-v1` symbol 이 file-scope-only (1B+ 는 module prefix). `code-rust-ast-v2` bump + Rust corpus re-ingest 비용 → 사용자 명시 요청까지 보류. HOTFIXES `2026-05-20`.
 
+### v0.20.0 sub-item 1 (PDF scanned OCR) 머지 후 priorities (2026-05-28, 사용자 결정)
+
+PR #189 (2026-05-28 머지, commit `09333d0`) 으로 PDF scanned OCR (qwen2.5vl:3b vision LLM) + 4 round bugfix (#2/#3/#4/#6/#7/#9/#10/#11/#13/#14) + ingest log feature 가 main 으로 진입. 다음 작업 순서 = **C → B → A → G**.
+
+- **C — 한국어 morphological tokenizer (Bug #8 follow-up)** ⏳ 다음 우선.
+  - V007 trigram 의 ≥3 char query 제약 (HOTFIXES `2026-05-22`) — '한국' 같은 2-char 한국어 query 0 hit. 본격 사용자 search experience 의 가장 큰 surface.
+  - 가능한 path: jieba-rs / koma / komoran 같은 morphological tokenizer 도입 → FTS5 의 external content + custom tokenize. 또는 `tokenize='unicode61'` + 별 token table 의 dual-index.
+  - scope: search index 재빌드 cascade (corpus_revision bump) + 기존 V007 trigram 보존 (backward-compat) 여부 결정. 별 sub-item.
+  - 별 sub-item: spec/plan/executor cycle.
+
+- **B — OCR dense page coverage** ⏳ C 다음.
+  - metro-korea.pdf page 8/13 timeout (180s, dense newspaper article). vision LLM 의 output token 과대 → 정상 timeout.
+  - 가능한 path: (a) per-page `max_pixels` 동적 조정 (high-resolution page 만 축소), (b) column-level sub-region OCR (newspaper layout 분할 후 OCR call 분리), (c) model upgrade (qwen2.5vl:7b — Ollama 모델 변경 + max_pixels trade-off), (d) OCR timeout 점진 축소 (180s → 120s → 90s) — round 마다 p90 측정 후.
+  - mojibake.pdf `pdf_ocr_pages: 0` (round 1 부터 동일) — text-detect path fallback 강화 검토.
+  - 별 sub-item.
+
+- **A — v0.20 의 deferred sub-items (frozen design contract)** ⏳ B 다음.
+  - **sub-item 2** — Multi-region image dispatch (`OcrText.regions` bbox 분리) — image OCR + PDF column-aware OCR.
+  - **sub-item 3** — PDF normalize integration (`ParsedPdfPage` production caller + `build_canonical_document_from_pdf_pages` + cross-page reference graph).
+  - **TODO #4** — Per-page image / table extraction (PDF figure / table extract).
+  - **TODO #5** — Enricher trait 도입 — OCR + caption 의 `Extractor` trait 통합 (post-extract enrichment 의 generalization).
+  - 각 sub-item 별 spec/plan/executor cycle.
+
+- **G — v0.20.1 patch release + release notes** ⏳ A 머지 후 (또는 C/B 시점에 따라 조기 cut).
+  - CLAUDE.md release 룰 — sub-item 1 base + bugfix1-4 + log feature 누적 → minor surface 변경 다수 + wire schema additive minor + config 신규 → **v0.20.1 patch bump + release notes**.
+  - 핵심 surface (사용자 도그푸딩 가이드 형식):
+    - OCR timeout default 180s (HOTFIXES 2026-05-28).
+    - `[logging]` config section (default enabled) + `{state_dir}/logs/ingest-{run_id}.ndjson` 자동 생성.
+    - `ingest_progress.v1.pdf_ocr_finished` 의 4 추가 field (image_byte_size, image_width, image_height, failure_reason).
+    - `schema.v1.models` 의 `active_parsers` + `active_chunkers` (additive minor).
+    - CLI `--media code` first-class, empty query → `invalid_input`, `--config` missing → `config_not_found` + exit 2.
+    - capabilities.streaming_ask + single_file_ingest 가 true (이전 false 거짓 정정).
+  - bump 작업: workspace `Cargo.toml` version → 0.20.1, tag, gitea-release.
+
+### v0.20 후속 bug catalog (non-blocking known)
+
+본 PR #189 dogfood 에서 **falsified** 또는 **design constraint** 로 분류 — fix 안 함:
+- Bug #8 (V007 trigram 2-char query 한계) → 위 C 항목.
+- Bug #12 (Code block wire `.code` field, `.text` 가 아닌 jq fallback artifact) — falsified.
+- ask 한국어 query phrasing-sensitive refusal — RAG corner case / NLI gate behavior. 별도 brainstorm.
+
+### Logging feature future enhancements (v0.20 sub-item 1 의 ingest log 의 후속, low priority)
+
+- `image_width` + `image_height` capture (현재 null — pdf_ocr_apply caller 의 raster decode dimension).
+- SQLite mirror (per-OCR-call historical table) — 점진적 sweet-spot 분석에 강력.
+- CLI query — `kebab inspect ocr-stats --json` / `kebab inspect ocr-failures --doc-id <id>`.
+- log retention / rotation policy (daily 또는 max-files limit).
+
 ### P9 dogfooding 백로그 (fb-26 ~ fb-42) — release 분할
 
 2026-05-06 도그푸딩 누적 피드백 + "AI agent 가 kebab 을 쓰게 한다" 궁극 목표용 surface 확장. cascade 영향 / 분량 고려해 한 minor 에 묶지 않고 분할.
