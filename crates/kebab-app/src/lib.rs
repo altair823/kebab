@@ -34,7 +34,7 @@
 //! still allowing the cross-crate calls.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
@@ -297,6 +297,24 @@ pub fn ingest_with_config_opts(
 
     let app = App::open_with_config(config)?;
 
+    // v0.20.x Hook 1: init per-run log writer (None when disabled or on open failure).
+    let log_writer: Option<Arc<Mutex<crate::ingest_log::IngestLogWriter>>> =
+        match crate::ingest_log::IngestLogWriter::open(&app.config.logging) {
+            Ok(Some(w)) => Some(Arc::new(Mutex::new(w))),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!(
+                    target: "kebab-app",
+                    error = %e,
+                    "ingest_log: failed to open log file; logging disabled for this run"
+                );
+                None
+            }
+        };
+    let ocr_ms_samples: Arc<Mutex<Vec<u64>>> = Arc::new(Mutex::new(Vec::new()));
+    let ocr_pages_cnt: Arc<Mutex<u32>> = Arc::new(Mutex::new(0u32));
+    let ocr_failures_cnt: Arc<Mutex<u32>> = Arc::new(Mutex::new(0u32));
+
     // Walk the workspace.
     crate::ingest_progress::emit(
         progress,
@@ -315,6 +333,20 @@ pub fn ingest_with_config_opts(
             total: u32::try_from(assets.len()).unwrap_or(u32::MAX),
         },
     );
+
+    // v0.20.x Hook 4: emit skip events from scan into log writer.
+    if let Some(ref lw) = log_writer {
+        for ev in &fs_skips.events {
+            if let Ok(mut w) = lw.lock() {
+                let _ = w.write_event(&crate::ingest_log::LogEvent::Skip {
+                    ts: crate::ingest_log::now_ts(),
+                    doc_path: &ev.doc_path,
+                    reason: ev.reason,
+                    detail: ev.detail.as_deref(),
+                });
+            }
+        }
+    }
 
     // Embedder + vector store: build once at the top so the cold-start
     // cost is paid once even when the workspace has 1000 markdown files.
@@ -477,6 +509,10 @@ pub fn ingest_with_config_opts(
             pdf_ocr_engine.as_ref(),
             progress,
             opts.cancel.as_ref(),
+            log_writer.clone(),
+            ocr_ms_samples.clone(),
+            ocr_pages_cnt.clone(),
+            ocr_failures_cnt.clone(),
         );
 
         let item = match item {
@@ -488,6 +524,16 @@ pub fn ingest_with_config_opts(
                     error = %e,
                     "kb-app::ingest: per-file fatal"
                 );
+                // v0.20.x Hook 3: write per-asset error to log writer.
+                if let Some(ref lw) = log_writer {
+                    if let Ok(mut w) = lw.lock() {
+                        let _ = w.write_event(&crate::ingest_log::LogEvent::Error {
+                            ts: crate::ingest_log::now_ts(),
+                            code: "ingest_asset_error",
+                            message: &format!("{e:#}"),
+                        });
+                    }
+                }
                 // Note: `error_count += 1` happens below in the
                 // `match item.kind { Error => ... }` arm — incrementing
                 // here too would double-count (a regression first
@@ -711,6 +757,29 @@ pub fn ingest_with_config_opts(
                 error = %e,
                 "bump_corpus_revision failed; cache may serve stale results until process restart"
             ),
+        }
+    }
+
+    // v0.20.x Hook 1 exit: write summary record + flush log writer.
+    if let Some(ref lw) = log_writer {
+        if let Ok(mut w) = lw.lock() {
+            let run_id = w.run_id().to_string();
+            let ms_samples = ocr_ms_samples.lock().map(|v| v.clone()).unwrap_or_default();
+            let pages = ocr_pages_cnt.lock().map(|v| *v).unwrap_or(0);
+            let failures = ocr_failures_cnt.lock().map(|v| *v).unwrap_or(0);
+            let summary = crate::ingest_log::IngestSummary::new(
+                crate::ingest_log::now_ts(),
+                run_id,
+                scanned_count,
+                new_count,
+                error_count,
+                pages,
+                failures,
+                &ms_samples,
+                started_instant.elapsed().as_millis() as u64,
+            );
+            let _ = w.write_summary(&summary);
+            let _ = w.flush();
         }
     }
 
@@ -1002,6 +1071,10 @@ fn ingest_one_asset(
     pdf_ocr_engine: Option<&OllamaVisionOcr>,
     progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
     cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    log_writer: Option<Arc<Mutex<crate::ingest_log::IngestLogWriter>>>,
+    ocr_ms_samples: Arc<Mutex<Vec<u64>>>,
+    ocr_pages_cnt: Arc<Mutex<u32>>,
+    ocr_failures_cnt: Arc<Mutex<u32>>,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     tracing::debug!(
         target: "kebab-app::ingest",
@@ -1040,6 +1113,10 @@ fn ingest_one_asset(
                 pdf_ocr_engine,
                 progress,
                 cancel,
+                log_writer,
+                ocr_ms_samples,
+                ocr_pages_cnt,
+                ocr_failures_cnt,
             );
         }
         // p10-1A-2 / 1B: code ingest dispatch. p10-2: Tier 2 langs added. p10-3: shell added. p10-1D: c/cpp added.
@@ -1780,6 +1857,10 @@ fn ingest_one_pdf_asset(
     pdf_ocr_engine: Option<&OllamaVisionOcr>,
     progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
     cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    log_writer: Option<Arc<Mutex<crate::ingest_log::IngestLogWriter>>>,
+    ocr_ms_samples: Arc<Mutex<Vec<u64>>>,
+    ocr_pages_cnt: Arc<Mutex<u32>>,
+    ocr_failures_cnt: Arc<Mutex<u32>>,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     let path = match &asset.source_uri {
         SourceUri::File(p) => p.clone(),
@@ -1849,6 +1930,13 @@ fn ingest_one_pdf_asset(
                         lang_hint: app.config.pdf.ocr.lang_hint.clone().map(kebab_core::Lang),
                         cancel: cancel.cloned(),
                     };
+                    // v0.20.x Hook 2: pre-clone Arcs for capture by OCR closure.
+                    let lw_for_ocr = log_writer.clone();
+                    let samples_for_ocr = ocr_ms_samples.clone();
+                    let pages_for_ocr = ocr_pages_cnt.clone();
+                    let failures_for_ocr = ocr_failures_cnt.clone();
+                    let doc_path_for_log = asset.workspace_path.0.clone();
+
                     let summary = crate::pdf_ocr_apply::apply_ocr_to_pdf_pages(
                         &mut canonical,
                         engine,
@@ -1872,7 +1960,7 @@ fn ingest_one_pdf_asset(
                                 image_byte_size,
                                 image_width,
                                 image_height,
-                                failure_reason,
+                                ref failure_reason,
                             } => {
                                 if let Some(sender) = progress {
                                     let _ = sender.send(
@@ -1888,6 +1976,31 @@ fn ingest_one_pdf_asset(
                                             failure_reason: failure_reason.clone(),
                                         },
                                     );
+                                }
+                                // v0.20.x Hook 2: write OCR event to log writer.
+                                let success = !skipped && failure_reason.is_none();
+                                if let Some(ref lw) = lw_for_ocr {
+                                    if let Ok(mut w) = lw.lock() {
+                                        let _ = w.write_event(&crate::ingest_log::LogEvent::Ocr {
+                                            ts: crate::ingest_log::now_ts(),
+                                            doc_path: &doc_path_for_log,
+                                            page,
+                                            image_byte_size,
+                                            image_width,
+                                            image_height,
+                                            ms,
+                                            chars,
+                                            success,
+                                            reason: failure_reason.as_deref(),
+                                            ocr_engine: engine.engine_name(),
+                                        });
+                                    }
+                                }
+                                if let Ok(mut p) = pages_for_ocr.lock() { *p += 1; }
+                                if success {
+                                    if let Ok(mut s) = samples_for_ocr.lock() { s.push(ms); }
+                                } else if let Ok(mut f) = failures_for_ocr.lock() {
+                                    *f += 1;
                                 }
                             }
                         },

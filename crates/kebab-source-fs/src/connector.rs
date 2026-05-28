@@ -108,6 +108,8 @@ impl FsSourceConnector {
         // Accumulate per-category skip counts and sample paths.
         let mut fs_skips = FsScanSkips::default();
         for entry in &skipped_entries {
+            let rel_path = entry.path.strip_prefix(&root).unwrap_or(&entry.path);
+            let doc_path = rel_path.to_string_lossy().replace('\\', "/");
             match entry.category {
                 SkipCategory::BuiltinBlacklist => {
                     fs_skips.skipped_builtin_blacklist =
@@ -117,6 +119,14 @@ impl FsSourceConnector {
                         &entry.path,
                         &root,
                     );
+                    let ext = entry.path.extension()
+                        .map(|e| format!(".{}", e.to_string_lossy()))
+                        .unwrap_or_default();
+                    fs_skips.events.push(FsSkipEvent {
+                        doc_path,
+                        reason: "builtin_blacklist",
+                        detail: if ext.is_empty() { None } else { Some(ext) },
+                    });
                 }
                 SkipCategory::Gitignore => {
                     fs_skips.skipped_gitignore =
@@ -126,11 +136,21 @@ impl FsSourceConnector {
                         &entry.path,
                         &root,
                     );
+                    fs_skips.events.push(FsSkipEvent {
+                        doc_path,
+                        reason: "gitignore",
+                        detail: None,
+                    });
                 }
                 SkipCategory::Kebabignore => {
                     fs_skips.skipped_kebabignore =
                         fs_skips.skipped_kebabignore.saturating_add(1);
                     // kebabignore intentionally NOT in skip_examples per spec §5.5.
+                    fs_skips.events.push(FsSkipEvent {
+                        doc_path,
+                        reason: "kebabignore",
+                        detail: None,
+                    });
                 }
                 SkipCategory::Other => {
                     // DEFAULT_EXCLUDES or config.workspace.exclude — no dedicated
@@ -162,6 +182,11 @@ impl FsSourceConnector {
                     path = %rel_path.display(),
                     "skip: generated-file marker detected"
                 );
+                fs_skips.events.push(FsSkipEvent {
+                    doc_path: rel_path.to_string_lossy().replace('\\', "/"),
+                    reason: "generated",
+                    detail: None,
+                });
                 continue;
             }
 
@@ -189,6 +214,11 @@ impl FsSourceConnector {
                     max_lines = self.max_file_lines,
                     "skip: code file exceeds size cap"
                 );
+                fs_skips.events.push(FsSkipEvent {
+                    doc_path: rel_path.to_string_lossy().replace('\\', "/"),
+                    reason: "size_exceeded",
+                    detail: None,
+                });
                 continue;
             }
 
@@ -218,6 +248,16 @@ pub struct FsScanSkips {
     /// Sample paths per spec §5.5 (≤ 5 per category). Paths are
     /// workspace-relative POSIX strings when available, absolute otherwise.
     pub skip_examples: SkipExamples,
+    /// v0.20.x ingest log: per-file skip events for structured log writing.
+    pub events: Vec<FsSkipEvent>,
+}
+
+/// A single per-file skip event for structured ingest log (v0.20.x).
+#[derive(Debug)]
+pub struct FsSkipEvent {
+    pub doc_path: String,
+    pub reason: &'static str,
+    pub detail: Option<String>,
 }
 
 /// Push a path into a sample vec (cap = 5) as a workspace-relative POSIX
