@@ -187,9 +187,8 @@ fn korean_morphological_mixed_english_korean_query() {
         hits.iter().map(|h| &h.doc_path.0).collect::<Vec<_>>()
     );
 
-    let hits =
-        kebab_app::search_with_config(env.config.clone(), common::lexical_query("최적화"))
-            .expect("search 최적화");
+    let hits = kebab_app::search_with_config(env.config.clone(), common::lexical_query("최적화"))
+        .expect("search 최적화");
     assert!(
         !hits.is_empty(),
         "'최적화' Korean morpheme must hit; got {:?}",

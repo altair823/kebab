@@ -517,7 +517,9 @@ impl SqliteStore {
                 )
                 .map_err(StoreError::from)?;
             let iter = stmt
-                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
                 .map_err(StoreError::from)?;
             let mut out = Vec::new();
             for r in iter {
@@ -1100,7 +1102,8 @@ impl SqliteStore {
     /// means "delete everything older than now" (i.e. all past rows).
     pub fn prune_pdf_ocr_events(&self, retention_days: u32) -> anyhow::Result<u64> {
         use time::format_description::well_known::Rfc3339;
-        let cutoff = time::OffsetDateTime::now_utc() - time::Duration::days(i64::from(retention_days));
+        let cutoff =
+            time::OffsetDateTime::now_utc() - time::Duration::days(i64::from(retention_days));
         let cutoff_ts = cutoff
             .format(&Rfc3339)
             .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());

@@ -465,8 +465,20 @@ fn backfill_tokenized_korean_text_populates_nullable_rows() {
     // chunks 에 한국어 row 두 개 INSERT (tokenized_korean_text 는 chunks_ai trigger
     // 가 채우지만, 여기서는 raw_conn_no_fk 로 직접 INSERT 하므로 NULL 로 남음).
     let conn = raw_conn_no_fk(&env);
-    insert_chunk(&conn, &"a".repeat(32), &"d".repeat(32), "[]", "한국 문화는 오래되었다");
-    insert_chunk(&conn, &"b".repeat(32), &"d".repeat(32), "[]", "서울특별시는 한국의 수도");
+    insert_chunk(
+        &conn,
+        &"a".repeat(32),
+        &"d".repeat(32),
+        "[]",
+        "한국 문화는 오래되었다",
+    );
+    insert_chunk(
+        &conn,
+        &"b".repeat(32),
+        &"d".repeat(32),
+        "[]",
+        "서울특별시는 한국의 수도",
+    );
     let null_count_before: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM chunks WHERE tokenized_korean_text IS NULL",
@@ -579,7 +591,11 @@ fn fts_v009_unicode61_space_separated_korean_token_hits() {
     assert_eq!(count_match(&conn, "충돌은"), 1, "whole-token '충돌은' hit");
     assert_eq!(count_match(&conn, "해시"), 1, "whole-token '해시' hit");
     // substring (token 의 부분 문자열) 은 V009 unicode61 에서 0-hit.
-    assert_eq!(count_match(&conn, "발생한"), 0, "substring '발생한' of '발생한다' 0-hit");
+    assert_eq!(
+        count_match(&conn, "발생한"),
+        0,
+        "substring '발생한' of '발생한다' 0-hit"
+    );
 }
 
 // ── 8. V009 morphological tokenizer behavior ──────────────────────────
@@ -602,12 +618,7 @@ fn fts_v009_korean_morphological_2char_query_hits() {
             policy_hash, block_ids_json, created_at,
             tokenized_korean_text
         ) VALUES (?, ?, ?, '[]', NULL, '[]', 0, 'v1', 'h', '[]', '2024-01-01T00:00:00Z', ?)",
-        rusqlite::params![
-            &"k".repeat(32),
-            &"d".repeat(32),
-            text,
-            tokenized,
-        ],
+        rusqlite::params![&"k".repeat(32), &"d".repeat(32), text, tokenized,],
     )
     .expect("insert chunk with tokenized_korean_text");
 

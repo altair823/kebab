@@ -50,7 +50,7 @@ pub use pdf_page_v1::PdfPageV1Chunker;
 
 // ── Korean morphological tokenizer ───────────────────────────────────────────
 
-use lindera::dictionary::{load_embedded_dictionary, DictionaryKind};
+use lindera::dictionary::{DictionaryKind, load_embedded_dictionary};
 use lindera::mode::Mode;
 use lindera::segmenter::Segmenter;
 use lindera::tokenizer::Tokenizer;

@@ -663,14 +663,8 @@ mod tests {
         assert!(build_match_string("키").is_none());
         assert!(build_match_string("나").is_none());
         // 2-char Korean queries now produce a valid expression (V009 unicode61).
-        assert_eq!(
-            build_match_string("충돌").unwrap(),
-            r#"text : ("충돌")"#
-        );
-        assert_eq!(
-            build_match_string(" 충돌 ").unwrap(),
-            r#"text : ("충돌")"#
-        );
+        assert_eq!(build_match_string("충돌").unwrap(), r#"text : ("충돌")"#);
+        assert_eq!(build_match_string(" 충돌 ").unwrap(), r#"text : ("충돌")"#);
     }
 
     /// V009 unicode61: `해시 충돌` — both tokens are 2 chars and now pass
