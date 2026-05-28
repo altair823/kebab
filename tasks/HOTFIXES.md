@@ -71,6 +71,41 @@ git history.
 - 사용자 KnowledgeBase 같은 영어/code 위주 KB 에서는 한국어 token 자체 부재로 lexical 0-hit 자연 (vector/hybrid mode 로 우회).
 - ko-dic 이 compound noun (`한국정부`, `대한민국` 등) 을 단일 token 으로 저장하는 경우 그 chunk 의 `'한국'` 단독 query 는 hit X.
 - N-gram supplement (Option β, sub-token 추가 emit) 은 v0.21.x P9 follow-up.
+
+**V007 → V009 upgrade simulation (2026-05-28)** — whitespace-less Korean fixture (`/build/cache/tmp/v0.20.1-v007strict/corpus/no-space.md` 의 `한국문화는오래되었다한국문화의역사는깊다...`) 로 backfill mechanism 검증:
+
+1. v0.20.1 ingest → chunks 의 tokenized_korean_text 자동 populated.
+2. python sqlite3 으로 V007-like state 시뮬레이션 (`UPDATE chunks SET tokenized_korean_text = NULL` + chunks_fts 재구성 raw text only).
+3. `App::open_with_config` 재호출 → first-boot hook 의 `backfill_tokenized_korean_text` 자동 발화 → lindera 분해 결과 UPDATE → chunks_au trigger 로 chunks_fts 자동 재-index.
+4. Verify post-backfill: tokenized_korean_text 의 populated 값이 `한국 문화 는 오래 되 었 다 한국 문화 의 역사 는 깊 다 . 서울 특별시 는 한국 의 수도 이 며 지하철...` (lindera morpheme + 조사 boundary 분리).
+
+**의외 발견**: FTS5 의 default `unicode61` tokenizer 가 CJK 문자 시퀀스를 별 codepoint 단위로 처리해, raw text 만 indexed 된 상태에서도 일부 한국어 query (예: `'한국'`) 가 hit. lindera 의 marginal benefit 은 corpus 의 morpheme 경계 정확도에 따라 변화. 자세한 unicode61 의 CJK tokenization 정책 = SQLite docs 의 `categories=L*` default + ICU optional extension 참고. spec §4 design choice 의 추가 evidence — V009 의 영어 회귀가 사용자 가치 가장 큰 user-facing 변화로 남고, 한국어 측 benefit 은 corpus 와 ko-dic 정책 의존이라 case-by-case.
+
+**N-gram supplement (Option β) 도입 (2026-05-28, post-PR review enhancement)**:
+
+spec §6.2 의 Option β (sub-token 추가 emit) 가 follow-up 으로 deferred 였지만, dogfood 의 ko-dic compound noun 정책 (`대한민국`, `한국정부` 등 단일 token) limitation 을 즉시 해소하기 위해 v0.20.1 의 implementation 에 포함:
+
+- `kebab-chunk::tokenize_korean_morphological` 에 한글 morpheme (`is_hangul` filter) 의 sliding window 2-gram 추가 emit. 길이 ≥ 3자 morpheme 만 대상 (이미 ≤ 2자 morpheme 은 그대로 사용).
+- 영어 / 숫자 / 혼합 token 은 supplement X (`is_hangul` 의 `chars().all()` filter — false positive 회피).
+
+**Verification (fresh dogfood corpus + re-ingest)** — `/build/cache/tmp/v0.20.1-ngram/corpus/extra.md` (대한민국, 한국정부, 주민등록번호 포함):
+
+| Query | Hits | Mechanism |
+|---|---|---|
+| `'대한'` | 1 | `대한민국` morpheme 의 window `[대한, 한민, 민국]` |
+| `'한민'` | 1 | 동일 |
+| `'민국'` | 1 | 동일 |
+| `'특별'` | 2 | `서울특별시` → `[서울, 특별시]` + `특별시` 의 window `[특별, 별시]` |
+| `'주민'` | 1 | `주민등록번호` morpheme window |
+| `'등록'` | 1 | 동일 |
+| `'tokenizer'` (영어) | 0 | corpus 에 없음, 영어는 supplement 안 함 |
+
+**Trade-off**:
+- DB size: 한국어 compound noun 비례 +20-30% (`tokenized_korean_text` column 의 token 수 증가).
+- Ingest latency: marginal (sliding window 는 단순 vector loop, lindera tokenize 의 ~5-10% overhead).
+- False positive risk: 일부 (예: `'한민'` query 가 `'대한민국'` 도 hit). 작은 risk, user 가 raw FTS5 mode 또는 longer query 로 우회 가능.
+
+**Released as part of v0.20.1**. spec Appendix B 의 prior-knowledge limitation 이 supplement 으로 해소. spec §6.2 의 Option β 결정을 v0.21.x 에서 v0.20.1 implementation 으로 promote (HOTFIXES → spec 갱신 cascade — design §5.5 변경 외에 §6.2 본문은 보존, supplement 동작 만 implementation detail 로 추가).
 - README + SKILL.md + HANDOFF.md 세 문서 반영.
 
 Cross-link: `migrations/V009__fts_korean_morphological.sql`, `crates/kebab-search/src/lexical.rs`, design §5.5 / §9, `docs/superpowers/specs/2026-05-28-v0.20.x-korean-morphological-tokenizer-spec.md`.
