@@ -443,6 +443,15 @@ echo -e "query 1\nquery 2\nquery 3" | "$RELEASE_BIN" search --bulk --json
 - 3.1.b out-of-corpus question (grounded=false + refusal).
 - 3.1.c hallucination check (paraphrase test, fb-41).
 
+### §3.6 응답 언어 자동 매칭 (v0.20.2 Todo #1)
+
+```bash
+"$RELEASE_BIN" ask --config "$DOGFOOD/config.toml" "What is the tokenizer?" --hide-citations  # 영어 응답 기대
+"$RELEASE_BIN" ask --config "$DOGFOOD/config.toml" "토크나이저가 뭐야?" --hide-citations        # 한국어 응답 기대
+```
+
+기대: query 언어 = response 언어 (`prompt_template_version = "rag-v3"` default). 큰따옴표 직접 인용은 원문 언어 보존. citation `[#번호]` 유지. 한국어 corpus 를 영어로 물으면 LLM 이 근거를 영어로 번역해 답함 (trade-off). `rag-v2` / `rag-v1` 로 pin 하면 legacy (질문 언어 무시) 동작.
+
 ### §3.2 Streaming ask (v0.17.1)
 
 ```bash
