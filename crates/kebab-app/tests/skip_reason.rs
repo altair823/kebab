@@ -13,11 +13,7 @@ fn unsupported_extension_skip_carries_warning_and_is_aggregated() {
     std::fs::write(workspace_root.join("legacy.docx"), b"unsupported").unwrap();
     std::fs::write(workspace_root.join("Makefile"), b"unsupported").unwrap();
 
-    let report = kebab_app::ingest_with_config(
-        env.config.clone(),
-        env.scope(),
-        false,
-    ).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
 
     let items = report.items.as_ref().expect("items array populated");
     let docx_item = items
@@ -39,5 +35,8 @@ fn unsupported_extension_skip_carries_warning_and_is_aggregated() {
         vec!["unsupported media type: <no-ext>".to_string()],
     );
     assert_eq!(report.skipped_by_extension.get("docx").copied(), Some(1));
-    assert_eq!(report.skipped_by_extension.get("<no-ext>").copied(), Some(1));
+    assert_eq!(
+        report.skipped_by_extension.get("<no-ext>").copied(),
+        Some(1)
+    );
 }

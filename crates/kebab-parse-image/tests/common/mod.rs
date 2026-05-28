@@ -47,8 +47,7 @@ pub fn no_exif_png() -> Vec<u8> {
 /// adapter's downscale path. Solid-colour PNGs compress aggressively, so
 /// the on-disk size stays well under 1 MB despite the large dimensions.
 pub fn large_blue_4000x3000_png() -> Vec<u8> {
-    let img: ImageBuffer<Rgb<u8>, _> =
-        ImageBuffer::from_fn(4000, 3000, |_, _| Rgb([0, 0, 255]));
+    let img: ImageBuffer<Rgb<u8>, _> = ImageBuffer::from_fn(4000, 3000, |_, _| Rgb([0, 0, 255]));
     let mut buf = Cursor::new(Vec::new());
     img.write_to(&mut buf, image::ImageFormat::Png)
         .expect("encoding 4000x3000 PNG must not fail");
@@ -72,9 +71,7 @@ pub fn hello_world_png() -> anyhow::Result<Vec<u8>> {
         ImageBuffer::from_fn(400, 100, |_, _| Rgb([255, 255, 255]));
     let font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
     let font_bytes = std::fs::read(font_path).with_context(|| {
-        format!(
-            "{font_path} not found — only the opt-in OCR integration fixture needs this font"
-        )
+        format!("{font_path} not found — only the opt-in OCR integration fixture needs this font")
     })?;
     let font = FontRef::try_from_slice(&font_bytes).context("DejaVu font parses")?;
     let scaled = font.as_scaled(40.0);
@@ -211,7 +208,10 @@ fn build_exif_blob_gps(flavor: GpsFlavor) -> Vec<u8> {
         tag: Tag::GPSLatitude,
         ifd_num: In::PRIMARY,
         value: Value::Rational(vec![
-            Rational { num: lat_deg, denom: 1 },
+            Rational {
+                num: lat_deg,
+                denom: 1,
+            },
             Rational { num: 30, denom: 1 },
             Rational { num: 0, denom: 1 },
         ]),
@@ -225,7 +225,10 @@ fn build_exif_blob_gps(flavor: GpsFlavor) -> Vec<u8> {
         tag: Tag::GPSLongitude,
         ifd_num: In::PRIMARY,
         value: Value::Rational(vec![
-            Rational { num: lon_deg, denom: 1 },
+            Rational {
+                num: lon_deg,
+                denom: 1,
+            },
             Rational { num: 0, denom: 1 },
             Rational { num: 0, denom: 1 },
         ]),
@@ -328,4 +331,3 @@ pub fn strip_dynamic_at(json: &mut serde_json::Value) {
         }
     }
 }
-

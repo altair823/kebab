@@ -5,10 +5,9 @@
 use std::path::PathBuf;
 
 use kebab_core::{
-    AssetId, AssetStorage, Block, CanonicalDocument, Checksum, Chunk, ChunkerVersion,
-    CommonBlock, DocumentId, DocumentStore, HeadingBlock, Lang, MediaType, Metadata,
-    ParserVersion, Provenance, RawAsset, SourceSpan, SourceType, SourceUri, TextBlock,
-    TrustLevel, WorkspacePath,
+    AssetId, AssetStorage, Block, CanonicalDocument, Checksum, Chunk, ChunkerVersion, CommonBlock,
+    DocumentId, DocumentStore, HeadingBlock, Lang, MediaType, Metadata, ParserVersion, Provenance,
+    RawAsset, SourceSpan, SourceType, SourceUri, TextBlock, TrustLevel, WorkspacePath,
 };
 use kebab_store_sqlite::SqliteStore;
 use time::OffsetDateTime;
@@ -66,7 +65,7 @@ fn make_doc() -> CanonicalDocument {
             block_id: kebab_core::BlockId("c".repeat(32)),
             heading_path: vec!["Title".into()],
             source_span: span,
-            },
+        },
         text: "body".into(),
         inlines: vec![],
     });
@@ -138,8 +137,7 @@ fn put_document_idempotent_bumps_doc_version() {
 
     // Tags were re-derived: still exactly the two original tags.
     let tags: Vec<String> = env.with_conn(|c| {
-        let mut stmt =
-            c.prepare("SELECT tag FROM document_tags WHERE doc_id = ? ORDER BY tag")?;
+        let mut stmt = c.prepare("SELECT tag FROM document_tags WHERE doc_id = ? ORDER BY tag")?;
         let rows = stmt.query_map([&doc.doc_id.0], |r| r.get::<_, String>(0))?;
         rows.collect::<rusqlite::Result<Vec<String>>>()
     });
@@ -158,7 +156,9 @@ fn put_blocks_and_put_chunks_replace_not_duplicate() {
     store.put_document(&doc).unwrap();
 
     store.put_blocks(&doc.doc_id, &doc.blocks).unwrap();
-    store.put_chunks(&doc.doc_id, &make_chunks(&doc.doc_id)).unwrap();
+    store
+        .put_chunks(&doc.doc_id, &make_chunks(&doc.doc_id))
+        .unwrap();
 
     let (b1, ch1): (i64, i64) = env.with_conn(|c| {
         Ok((
@@ -179,7 +179,9 @@ fn put_blocks_and_put_chunks_replace_not_duplicate() {
 
     // Re-put same data → counts unchanged (DELETE-then-INSERT).
     store.put_blocks(&doc.doc_id, &doc.blocks).unwrap();
-    store.put_chunks(&doc.doc_id, &make_chunks(&doc.doc_id)).unwrap();
+    store
+        .put_chunks(&doc.doc_id, &make_chunks(&doc.doc_id))
+        .unwrap();
     let (b2, ch2): (i64, i64) = env.with_conn(|c| {
         Ok((
             c.query_row(
@@ -214,9 +216,8 @@ fn put_blocks_transactional_rollback_on_fk_violation() {
     store.put_document(&doc).unwrap();
     // Establish a baseline row in `blocks`.
     store.put_blocks(&doc.doc_id, &doc.blocks).unwrap();
-    let baseline: i64 = env.with_conn(|c| {
-        c.query_row("SELECT COUNT(*) FROM blocks", [], |r| r.get(0))
-    });
+    let baseline: i64 =
+        env.with_conn(|c| c.query_row("SELECT COUNT(*) FROM blocks", [], |r| r.get(0)));
     assert_eq!(baseline, 2);
 
     // Now ask put_blocks to write to a doc_id that does NOT exist.
@@ -237,9 +238,8 @@ fn put_blocks_transactional_rollback_on_fk_violation() {
     let res = store.put_blocks(&phantom, &phantom_blocks);
     assert!(res.is_err(), "FK violation must surface as Err");
 
-    let after: i64 = env.with_conn(|c| {
-        c.query_row("SELECT COUNT(*) FROM blocks", [], |r| r.get(0))
-    });
+    let after: i64 =
+        env.with_conn(|c| c.query_row("SELECT COUNT(*) FROM blocks", [], |r| r.get(0)));
     assert_eq!(
         after, baseline,
         "transaction must roll back; blocks count must be unchanged"

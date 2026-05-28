@@ -70,11 +70,7 @@ fn long_en_synth_answer_truncated_before_nli_call() {
     // Synthesize answer ~6000 chars (lorem ipsum, 12 chars × 500 reps),
     // citation marker appended after so `grounded_unaware` 통과.
     let long_answer = format!("{} [#1]", "lorem ipsum ".repeat(500));
-    let lm = Arc::new(ScriptedLm::new(vec![
-        r#"["q1"]"#,
-        r"[]",
-        &long_answer,
-    ]));
+    let lm = Arc::new(ScriptedLm::new(vec![r#"["q1"]"#, r"[]", &long_answer]));
     let lm_dyn: Arc<dyn LanguageModel> = lm;
 
     let verifier = SpyNliVerifier::new(
@@ -140,11 +136,7 @@ fn long_kr_synth_answer_retries_with_smaller_budget() {
     // ~2500-char KR-sim answer (한국어 6 chars × 416 reps ≈ 2496 chars)
     // + citation marker.
     let kr_long_answer = format!("{} [#1]", "한국어 본문 ".repeat(416));
-    let lm = Arc::new(ScriptedLm::new(vec![
-        r#"["q1"]"#,
-        r"[]",
-        &kr_long_answer,
-    ]));
+    let lm = Arc::new(ScriptedLm::new(vec![r#"["q1"]"#, r"[]", &kr_long_answer]));
     let lm_dyn: Arc<dyn LanguageModel> = lm;
 
     let token_count_call_count = Arc::new(Mutex::new(0_usize));

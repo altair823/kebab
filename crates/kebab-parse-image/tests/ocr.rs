@@ -8,8 +8,7 @@ mod common;
 
 use kebab_config::Config;
 use kebab_core::{
-    AssetId, BlockId, CommonBlock, ImageRefBlock, Lang, ProvenanceEvent, ProvenanceKind,
-    SourceSpan,
+    AssetId, BlockId, CommonBlock, ImageRefBlock, Lang, ProvenanceEvent, ProvenanceKind, SourceSpan,
 };
 use kebab_parse_image::{OcrEngine, OllamaVisionOcr, apply_ocr};
 use serde_json::json;
@@ -82,7 +81,11 @@ async fn ocr_recognize_decodes_response_into_ocr_text() {
     assert_eq!(text.joined, "Hello World 2026");
     assert_eq!(text.engine, "ollama-vision");
     assert!(text.engine_version.starts_with("ollama/gemma4:e4b"));
-    assert_eq!(text.regions.len(), 1, "non-empty joined → exactly one region");
+    assert_eq!(
+        text.regions.len(),
+        1,
+        "non-empty joined → exactly one region"
+    );
     assert_eq!(text.regions[0].text, "Hello World 2026");
     assert!((text.regions[0].confidence - 1.0).abs() < 1e-6);
     // Region bbox covers prepared image dimensions (100×50 < max_pixels
@@ -183,23 +186,22 @@ async fn apply_ocr_sets_block_ocr_and_appends_provenance() {
     let bytes = red_100x50_png();
     let cfg = cfg_for_endpoint(&server.uri());
 
-    let (block, events) =
-        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-            let engine = OllamaVisionOcr::new(&cfg)?;
-            let mut block = empty_image_block();
-            let mut events: Vec<ProvenanceEvent> = Vec::new();
-            apply_ocr(
-                &engine,
-                &bytes,
-                &mut block,
-                Some(&Lang("ko".to_string())),
-                &mut events,
-            )?;
-            Ok((block, events))
-        })
-        .await
-        .expect("blocking task panicked")
-        .expect("apply_ocr must succeed");
+    let (block, events) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+        let engine = OllamaVisionOcr::new(&cfg)?;
+        let mut block = empty_image_block();
+        let mut events: Vec<ProvenanceEvent> = Vec::new();
+        apply_ocr(
+            &engine,
+            &bytes,
+            &mut block,
+            Some(&Lang("ko".to_string())),
+            &mut events,
+        )?;
+        Ok((block, events))
+    })
+    .await
+    .expect("blocking task panicked")
+    .expect("apply_ocr must succeed");
 
     let ocr = block.ocr.as_ref().expect("ocr Some after apply_ocr");
     assert_eq!(ocr.joined, "안녕 2026");
@@ -287,8 +289,7 @@ async fn ocr_downscales_large_image_before_sending() {
     // Pull the request body, parse JSON, base64-decode the image, and
     // verify the long edge is at most max_pixels (1024).
     let raw = captured.lock().unwrap().clone().expect("request captured");
-    let value: serde_json::Value =
-        serde_json::from_slice(&raw).expect("request body is JSON");
+    let value: serde_json::Value = serde_json::from_slice(&raw).expect("request body is JSON");
     let imgs = value
         .get("images")
         .and_then(|v| v.as_array())
@@ -322,8 +323,7 @@ async fn ocr_downscales_large_image_before_sending() {
 #[test]
 fn from_parts_clamps_max_pixels_into_legal_range() {
     // Below MIN_LONG_EDGE — bumped up to the floor.
-    let too_small =
-        OllamaVisionOcr::from_parts("http://x", "m", vec![], 10, 300).unwrap();
+    let too_small = OllamaVisionOcr::from_parts("http://x", "m", vec![], 10, 300).unwrap();
     assert_eq!(
         too_small.max_pixels(),
         256,
@@ -331,8 +331,7 @@ fn from_parts_clamps_max_pixels_into_legal_range() {
     );
 
     // Above MAX_LONG_EDGE — capped at the ceiling.
-    let too_big =
-        OllamaVisionOcr::from_parts("http://x", "m", vec![], 99_999, 300).unwrap();
+    let too_big = OllamaVisionOcr::from_parts("http://x", "m", vec![], 99_999, 300).unwrap();
     assert_eq!(
         too_big.max_pixels(),
         4096,
@@ -340,8 +339,7 @@ fn from_parts_clamps_max_pixels_into_legal_range() {
     );
 
     // Inside the legal range — pass through untouched.
-    let in_range =
-        OllamaVisionOcr::from_parts("http://x", "m", vec![], 1024, 300).unwrap();
+    let in_range = OllamaVisionOcr::from_parts("http://x", "m", vec![], 1024, 300).unwrap();
     assert_eq!(in_range.max_pixels(), 1024);
 }
 
@@ -364,8 +362,7 @@ fn from_parts_clamps_max_pixels_into_legal_range() {
 async fn ocr_integration_real_ollama_transcribes_text() {
     let endpoint = std::env::var("KEBAB_IMAGE_OCR_ENDPOINT")
         .unwrap_or_else(|_| "http://192.168.0.47:11434".to_string());
-    let model =
-        std::env::var("KEBAB_IMAGE_OCR_MODEL").unwrap_or_else(|_| "gemma4:e4b".to_string());
+    let model = std::env::var("KEBAB_IMAGE_OCR_MODEL").unwrap_or_else(|_| "gemma4:e4b".to_string());
 
     // Generate a fixture with known text. If the DejaVu font is
     // missing from this dev box, skip rather than crash.

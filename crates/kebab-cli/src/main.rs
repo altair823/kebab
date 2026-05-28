@@ -156,7 +156,7 @@ enum Cmd {
 
         /// p9-fb-36: filter by `assets.media_type` kind. Comma-separated.
         /// Aliases: `md` → `markdown`. Other accepted: `markdown`, `pdf`,
-        /// `image`, `audio`, `other`. Unknown values match nothing.
+        /// `image`, `audio`, `code`, `other`. Unknown values match nothing.
         #[arg(long, value_delimiter = ',')]
         media: Vec<String>,
 
@@ -179,7 +179,12 @@ enum Cmd {
         /// canonical).  Repeatable or comma-separated.
         /// Examples: `rust`, `python`, `typescript`.
         /// Unknown values produce empty hits.
-        #[arg(long = "code-lang", value_name = "LANG", num_args = 1, value_delimiter = ',')]
+        #[arg(
+            long = "code-lang",
+            value_name = "LANG",
+            num_args = 1,
+            value_delimiter = ','
+        )]
         code_lang: Vec<String>,
 
         /// p9-fb-37: emit pre-fusion lexical / vector / RRF candidate
@@ -464,7 +469,9 @@ fn parse_bool_env(s: &str) -> Result<bool, String> {
     match s.to_ascii_lowercase().as_str() {
         "1" | "true" | "yes" | "on" => Ok(true),
         "0" | "false" | "no" | "off" => Ok(false),
-        other => Err(format!("expected 1/0/true/false/yes/no/on/off, got {other:?}")),
+        other => Err(format!(
+            "expected 1/0/true/false/yes/no/on/off, got {other:?}"
+        )),
     }
 }
 
@@ -551,8 +558,14 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     "created  {}",
                     kebab_config::Config::xdg_config_path().display()
                 );
-                println!("created  {}", kebab_config::Config::xdg_data_dir().display());
-                println!("created  {}", kebab_config::Config::xdg_state_dir().display());
+                println!(
+                    "created  {}",
+                    kebab_config::Config::xdg_data_dir().display()
+                );
+                println!(
+                    "created  {}",
+                    kebab_config::Config::xdg_state_dir().display()
+                );
                 println!("hint     edit the config above, then `kebab ingest`");
             }
             Ok(())
@@ -565,7 +578,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
         } => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
             let scope = kebab_core::SourceScope {
-                root: root.clone().unwrap_or_else(|| PathBuf::from(&cfg.workspace.root)),
+                root: root
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from(&cfg.workspace.root)),
                 exclude: cfg.workspace.exclude.clone(),
                 ..Default::default()
             };
@@ -580,9 +595,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 .unwrap_or(false);
             let mode = progress::ProgressMode::from_flags(cli.json, cli.quiet, plain_env);
             let (tx, rx) = std::sync::mpsc::channel::<kebab_app::IngestEvent>();
-            let display_handle = std::thread::spawn(move || {
-                progress::ProgressDisplay::new(mode).run(rx)
-            });
+            let display_handle =
+                std::thread::spawn(move || progress::ProgressDisplay::new(mode).run(rx));
 
             // p9-fb-04: register a Ctrl-C handler that flips the same
             // AtomicBool the facade polls at each step boundary. The
@@ -614,7 +628,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             if cli.json {
                 println!("{}", serde_json::to_string(&wire::wire_ingest(&report))?);
             } else {
-                let skipped_breakdown = kebab_app::render_skipped_breakdown(&report.skipped_by_extension);
+                let skipped_breakdown =
+                    kebab_app::render_skipped_breakdown(&report.skipped_by_extension);
                 let purged_suffix = if report.purged_deleted_files > 0 {
                     format!("  purged {}", report.purged_deleted_files)
                 } else {
@@ -640,7 +655,10 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 let cfg = kebab_config::Config::load(cli.config.as_deref())?;
                 let docs = kebab_app::list_docs_with_config(cfg, kebab_core::DocFilter::default())?;
                 if cli.json {
-                    println!("{}", serde_json::to_string(&wire::wire_doc_summaries(&docs))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string(&wire::wire_doc_summaries(&docs))?
+                    );
                 } else {
                     for d in &docs {
                         println!("{}\t{}", d.doc_id, d.doc_path.0);
@@ -667,7 +685,10 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 let cfg = kebab_config::Config::load(cli.config.as_deref())?;
                 let chunk_id: kebab_core::ChunkId = id.parse()?;
                 let chunk = kebab_app::inspect_chunk_with_config(cfg, &chunk_id)?;
-                println!("{}", serde_json::to_string(&wire::wire_chunk_inspection(&chunk))?);
+                println!(
+                    "{}",
+                    serde_json::to_string(&wire::wire_chunk_inspection(&chunk))?
+                );
                 Ok(())
             }
         },
@@ -708,7 +729,10 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             };
             let result = kebab_app::fetch_with_config(cfg, query, opts)?;
             if cli.json {
-                println!("{}", serde_json::to_string(&wire::wire_fetch_result(&result))?);
+                println!(
+                    "{}",
+                    serde_json::to_string(&wire::wire_fetch_result(&result))?
+                );
             } else {
                 render_fetch_plain(&result);
             }
@@ -752,30 +776,21 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     if line.trim().is_empty() {
                         continue;
                     }
-                    let v: serde_json::Value =
-                        serde_json::from_str(&line).map_err(|e| {
-                            anyhow::Error::new(kebab_app::StructuredError(
-                                kebab_app::ErrorV1 {
-                                    schema_version: kebab_app::ERROR_V1_ID
-                                        .to_string(),
-                                    code: "config_invalid".to_string(),
-                                    message: format!(
-                                        "stdin ndjson line {} parse error: {e}",
-                                        lineno + 1
-                                    ),
-                                    details: serde_json::Value::Null,
-                                    hint: Some(
-                                        "each line must be a JSON object with at least `query`"
-                                            .to_string(),
-                                    ),
-                                },
-                            ))
-                        })?;
+                    let v: serde_json::Value = serde_json::from_str(&line).map_err(|e| {
+                        anyhow::Error::new(kebab_app::StructuredError(kebab_app::ErrorV1 {
+                            schema_version: kebab_app::ERROR_V1_ID.to_string(),
+                            code: "config_invalid".to_string(),
+                            message: format!("stdin ndjson line {} parse error: {e}", lineno + 1),
+                            details: serde_json::Value::Null,
+                            hint: Some(
+                                "each line must be a JSON object with at least `query`".to_string(),
+                            ),
+                        }))
+                    })?;
                     raw_items.push(v);
                 }
 
-                let (items, summary) =
-                    kebab_app::bulk_search_with_config(cfg, raw_items)?;
+                let (items, summary) = kebab_app::bulk_search_with_config(cfg, raw_items)?;
 
                 if cli.json {
                     let mut stdout = std::io::stdout().lock();
@@ -799,11 +814,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                         if let Some(err) = &item.error {
                             writeln!(stdout, "error: {err}")?;
                         } else if let Some(resp) = &item.response {
-                            writeln!(
-                                stdout,
-                                "{}",
-                                serde_json::to_string_pretty(resp)?
-                            )?;
+                            writeln!(stdout, "{}", serde_json::to_string_pretty(resp)?)?;
                         }
                         writeln!(stdout)?;
                     }
@@ -819,6 +830,17 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
 
             // p9-fb-42: bulk mode requires no query; single-query mode requires query.
             let query_text = match query.as_ref() {
+                Some(q) if q.trim().is_empty() => {
+                    return Err(anyhow::Error::new(kebab_app::StructuredError(
+                        kebab_app::ErrorV1 {
+                            schema_version: kebab_app::ERROR_V1_ID.to_string(),
+                            code: "invalid_input".to_string(),
+                            message: "query is empty; provide a non-empty search term or use --bulk".into(),
+                            details: serde_json::Value::Null,
+                            hint: Some("e.g. `kebab search 'rust async'` or `kebab search --bulk < queries.ndjson`".into()),
+                        },
+                    )));
+                }
                 Some(q) => q.clone(),
                 None => {
                     return Err(anyhow::anyhow!("query is required unless --bulk is set"));
@@ -832,8 +854,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     other => other.to_string(),
                 }
             }
-            let media_norm: Vec<String> =
-                media.iter().map(|s| normalize_media_alias(s)).collect();
+            let media_norm: Vec<String> = media.iter().map(|s| normalize_media_alias(s)).collect();
 
             // p9-fb-36: parse --ingested-after as RFC3339; structured error on failure.
             let ingested_after_parsed: Option<time::OffsetDateTime> =
@@ -845,8 +866,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                         ) {
                             Ok(ts) => Some(ts),
                             Err(e) => {
-                                return Err(anyhow::Error::new(
-                                    kebab_app::StructuredError(kebab_app::ErrorV1 {
+                                return Err(anyhow::Error::new(kebab_app::StructuredError(
+                                    kebab_app::ErrorV1 {
                                         schema_version: kebab_app::ERROR_V1_ID.to_string(),
                                         code: "config_invalid".to_string(),
                                         message: format!(
@@ -856,8 +877,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                                         hint: Some(
                                             "expected format like 2026-04-01T00:00:00Z".to_string(),
                                         ),
-                                    }),
-                                ));
+                                    },
+                                )));
                             }
                         }
                     }
@@ -932,11 +953,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     };
                     println!(
                         "{:>2}. {:.4}  {}{}{}",
-                        h.rank,
-                        h.retrieval.fusion_score,
-                        stale_tag,
-                        h.doc_path.0,
-                        heading,
+                        h.rank, h.retrieval.fusion_score, stale_tag, h.doc_path.0, heading,
                     );
                 }
                 // p9-fb-34: truncation hint goes to stderr so it
@@ -958,15 +975,33 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     if let Some(t) = &resp.trace {
                         eprintln!();
                         eprintln!("Trace:");
-                        eprintln!("  lexical ({} hits, {}ms):", t.lexical.len(), t.timing.lexical_ms);
+                        eprintln!(
+                            "  lexical ({} hits, {}ms):",
+                            t.lexical.len(),
+                            t.timing.lexical_ms
+                        );
                         for c in t.lexical.iter().take(3) {
-                            eprintln!("    rank={} score={:.4} chunk={}", c.rank, c.score, c.chunk_id.0);
+                            eprintln!(
+                                "    rank={} score={:.4} chunk={}",
+                                c.rank, c.score, c.chunk_id.0
+                            );
                         }
-                        eprintln!("  vector ({} hits, {}ms):", t.vector.len(), t.timing.vector_ms);
+                        eprintln!(
+                            "  vector ({} hits, {}ms):",
+                            t.vector.len(),
+                            t.timing.vector_ms
+                        );
                         for c in t.vector.iter().take(3) {
-                            eprintln!("    rank={} score={:.4} chunk={}", c.rank, c.score, c.chunk_id.0);
+                            eprintln!(
+                                "    rank={} score={:.4} chunk={}",
+                                c.rank, c.score, c.chunk_id.0
+                            );
                         }
-                        eprintln!("  fusion ({} inputs, {}ms)", t.rrf_inputs.len(), t.timing.fusion_ms);
+                        eprintln!(
+                            "  fusion ({} inputs, {}ms)",
+                            t.rrf_inputs.len(),
+                            t.timing.fusion_ms
+                        );
                         eprintln!("  total: {}ms", t.timing.total_ms);
                     }
                 }
@@ -988,6 +1023,17 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             multi_hop,
         } => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+            if query.trim().is_empty() {
+                return Err(anyhow::Error::new(kebab_app::StructuredError(
+                    kebab_app::ErrorV1 {
+                        schema_version: kebab_app::ERROR_V1_ID.to_string(),
+                        code: "invalid_input".to_string(),
+                        message: "query is empty; provide a non-empty prompt".into(),
+                        details: serde_json::Value::Null,
+                        hint: Some("e.g. `kebab ask \"explain this code\"`".into()),
+                    },
+                )));
+            }
             if *stream {
                 // p9-fb-33: streaming branch. Background thread runs
                 // ask_with_config (which calls into the rag pipeline);
@@ -1017,16 +1063,12 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 let cfg2 = cfg.clone();
                 let q = query.clone();
                 let session2 = session.clone();
-                let handle = std::thread::spawn(
-                    move || -> anyhow::Result<kebab_core::Answer> {
-                        match session2.as_deref() {
-                            Some(sid) => kebab_app::ask_with_session_with_config(
-                                cfg2, sid, &q, opts,
-                            ),
-                            None => kebab_app::ask_with_config(cfg2, &q, opts),
-                        }
-                    },
-                );
+                let handle = std::thread::spawn(move || -> anyhow::Result<kebab_core::Answer> {
+                    match session2.as_deref() {
+                        Some(sid) => kebab_app::ask_with_session_with_config(cfg2, sid, &q, opts),
+                        None => kebab_app::ask_with_config(cfg2, &q, opts),
+                    }
+                });
 
                 // Drain receiver, write ndjson to stderr until
                 // completion or BrokenPipe.
@@ -1302,9 +1344,18 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     println!("{}", serde_json::to_string_pretty(&agg)?);
                 } else {
                     println!("run_id: {run_id}");
-                    println!("queries: {} ({} failed)", agg.total_queries, agg.failed_queries);
-                    println!("hit@1:   {:.4}", agg.hit_at_k.get(&1).copied().unwrap_or(0.0));
-                    println!("hit@5:   {:.4}", agg.hit_at_k.get(&5).copied().unwrap_or(0.0));
+                    println!(
+                        "queries: {} ({} failed)",
+                        agg.total_queries, agg.failed_queries
+                    );
+                    println!(
+                        "hit@1:   {:.4}",
+                        agg.hit_at_k.get(&1).copied().unwrap_or(0.0)
+                    );
+                    println!(
+                        "hit@5:   {:.4}",
+                        agg.hit_at_k.get(&5).copied().unwrap_or(0.0)
+                    );
                     println!("MRR:     {:.4}", agg.mrr);
                 }
                 Ok(())
@@ -1354,8 +1405,12 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             } else {
                 println!(
                     "ingest-file: scanned={} new={} updated={} unchanged={} skipped={} errors={}",
-                    report.scanned, report.new, report.updated,
-                    report.unchanged, report.skipped, report.errors
+                    report.scanned,
+                    report.new,
+                    report.updated,
+                    report.unchanged,
+                    report.skipped,
+                    report.errors
                 );
             }
             Ok(())
@@ -1368,20 +1423,20 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 .read_to_string(&mut body)
                 .context("kebab ingest-stdin: read stdin")?;
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
-            let report = kebab_app::ingest_stdin_with_config(
-                cfg,
-                &body,
-                title,
-                source_uri.as_deref(),
-            )?;
+            let report =
+                kebab_app::ingest_stdin_with_config(cfg, &body, title, source_uri.as_deref())?;
             if cli.json {
                 let v = wire::wire_ingest(&report);
                 println!("{}", serde_json::to_string(&v)?);
             } else {
                 println!(
                     "ingest-stdin: scanned={} new={} updated={} unchanged={} skipped={} errors={}",
-                    report.scanned, report.new, report.updated,
-                    report.unchanged, report.skipped, report.errors
+                    report.scanned,
+                    report.new,
+                    report.updated,
+                    report.unchanged,
+                    report.skipped,
+                    report.errors
                 );
             }
             Ok(())
@@ -1410,10 +1465,7 @@ fn render_ask_plain_citations(
     writeln!(w)?;
     writeln!(w, "근거:")?;
     for (idx, c) in ans.citations.iter().enumerate() {
-        let marker = c
-            .marker
-            .clone()
-            .unwrap_or_else(|| format!("{}", idx + 1));
+        let marker = c.marker.clone().unwrap_or_else(|| format!("{}", idx + 1));
         // p9-fb-32: `[stale]` prefix on the URI for citations whose
         // `stale: true`. Yellow on TTY, plain otherwise — mirrors the
         // search-plain renderer in `Cmd::Search`.
@@ -1474,7 +1526,10 @@ fn print_schema_text(s: &kebab_app::SchemaV1) {
     println!("  parser_version          {}", s.models.parser_version);
     println!("  chunker_version         {}", s.models.chunker_version);
     println!("  embedding_version       {}", s.models.embedding_version);
-    println!("  prompt_template_version {}", s.models.prompt_template_version);
+    println!(
+        "  prompt_template_version {}",
+        s.models.prompt_template_version
+    );
     println!("  index_version           {}", s.models.index_version);
     println!("  corpus_revision         {}", s.models.corpus_revision);
     println!();
@@ -1523,9 +1578,7 @@ fn confirm_destructive(
 /// Confirm prompt for `--orphans-only`: shows the orphan count + a
 /// sample of up to 5 paths so the user knows what will be purged before
 /// committing. No filesystem paths are removed — only store records.
-fn confirm_orphans_only(
-    orphan_paths: &[kebab_core::WorkspacePath],
-) -> anyhow::Result<bool> {
+fn confirm_orphans_only(orphan_paths: &[kebab_core::WorkspacePath]) -> anyhow::Result<bool> {
     use std::io::Write;
     let n = orphan_paths.len();
     let mut out = std::io::stderr().lock();
@@ -1538,11 +1591,7 @@ fn confirm_orphans_only(
         return Ok(true);
     }
 
-    let sample: Vec<&str> = orphan_paths
-        .iter()
-        .take(5)
-        .map(|p| p.0.as_str())
-        .collect();
+    let sample: Vec<&str> = orphan_paths.iter().take(5).map(|p| p.0.as_str()).collect();
     let sample_str = sample.join(", ");
     let ellipsis = if n > 5 { ", …" } else { "" };
 
@@ -1571,19 +1620,28 @@ fn render_fetch_plain(r: &kebab_core::FetchResult) {
             if !r.context_before.is_empty() {
                 println!("\n=== before ===");
                 for c in &r.context_before {
-                    let heading = c.heading_path.last().map_or("", std::string::String::as_str);
+                    let heading = c
+                        .heading_path
+                        .last()
+                        .map_or("", std::string::String::as_str);
                     println!("[{} § {}]\n{}\n", c.chunk_id.0, heading, c.text);
                 }
             }
             if let Some(c) = &r.chunk {
                 println!("\n=== target ===");
-                let heading = c.heading_path.last().map_or("", std::string::String::as_str);
+                let heading = c
+                    .heading_path
+                    .last()
+                    .map_or("", std::string::String::as_str);
                 println!("[{} § {}]\n{}\n", c.chunk_id.0, heading, c.text);
             }
             if !r.context_after.is_empty() {
                 println!("\n=== after ===");
                 for c in &r.context_after {
-                    let heading = c.heading_path.last().map_or("", std::string::String::as_str);
+                    let heading = c
+                        .heading_path
+                        .last()
+                        .map_or("", std::string::String::as_str);
                     println!("[{} § {}]\n{}\n", c.chunk_id.0, heading, c.text);
                 }
             }
@@ -1615,8 +1673,8 @@ mod tests {
     //! against a synthetic `Answer` instead.
     use super::*;
     use kebab_core::{
-        Answer, AnswerCitation, AnswerRetrievalSummary, Citation, ModelRef,
-        PromptTemplateVersion, SearchMode, TokenUsage, TraceId, WorkspacePath,
+        Answer, AnswerCitation, AnswerRetrievalSummary, Citation, ModelRef, PromptTemplateVersion,
+        SearchMode, TokenUsage, TraceId, WorkspacePath,
     };
     use time::OffsetDateTime;
 
@@ -1712,4 +1770,3 @@ mod tests {
         );
     }
 }
-

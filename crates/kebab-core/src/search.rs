@@ -317,7 +317,10 @@ mod tests {
 
     #[test]
     fn search_filters_serialize_with_serde_default_compat() {
-        let old: SearchFilters = serde_json::from_str(r#"{"tags_any":[],"lang":null,"path_glob":null,"trust_min":null}"#).unwrap();
+        let old: SearchFilters = serde_json::from_str(
+            r#"{"tags_any":[],"lang":null,"path_glob":null,"trust_min":null}"#,
+        )
+        .unwrap();
         assert!(old.media.is_empty());
         assert!(old.ingested_after.is_none());
         assert!(old.doc_id.is_none());
@@ -349,10 +352,7 @@ mod tests {
         };
         let v = serde_json::to_value(&t).unwrap();
         assert_eq!(v["timing"]["lexical_ms"], 12);
-        assert_eq!(
-            v["lexical"][0]["score"].as_f64().unwrap() as f32,
-            0.42_f32
-        );
+        assert_eq!(v["lexical"][0]["score"].as_f64().unwrap() as f32, 0.42_f32);
         let back: SearchTrace = serde_json::from_value(v).unwrap();
         assert_eq!(back, t);
     }
@@ -490,7 +490,10 @@ mod tests {
         };
         let v = serde_json::to_value(&hit).unwrap();
         assert!(v.get("repo").is_none(), "repo should be omitted when None");
-        assert!(v.get("code_lang").is_none(), "code_lang should be omitted when None");
+        assert!(
+            v.get("code_lang").is_none(),
+            "code_lang should be omitted when None"
+        );
     }
 
     #[test]

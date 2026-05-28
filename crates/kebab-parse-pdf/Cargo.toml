@@ -5,7 +5,7 @@ edition       = { workspace = true }
 rust-version  = { workspace = true }
 license       = { workspace = true }
 repository    = { workspace = true }
-description   = "Text PDF extractor (per-page text + page citation) for the kebab pipeline (P7-1)"
+description   = "Text PDF extractor + scanned-page image extract helpers for the kebab pipeline (P7-1 + v0.20.0 sub-item 1)"
 
 [dependencies]
 kebab-core   = { path = "../kebab-core" }
@@ -20,10 +20,13 @@ tracing      = { workspace = true }
 # crates (pom, postscript, type1-encoding-parser, …) buy us nothing
 # at v1 (we don't call its whole-doc API), and the future scanned-PDF
 # OCR fallback can re-add it when it actually needs it.
-lopdf        = "0.32"
+lopdf        = { workspace = true }
 
 [dev-dependencies]
-blake3       = { workspace = true }
+anyhow            = { workspace = true }
+blake3            = { workspace = true }
+kebab-parse-image = { path = "../kebab-parse-image" }
+strsim            = "0.11"
 
 [lints]
 workspace = true

@@ -31,7 +31,11 @@ fn setup() -> (tempfile::TempDir, KebabHandler) {
         "# Alpha\n\nThis document mentions kebab and bread.",
     )
     .unwrap();
-    let scope = SourceScope { root: workspace_root.clone(), include: vec![], exclude: vec![] };
+    let scope = SourceScope {
+        root: workspace_root.clone(),
+        include: vec![],
+        exclude: vec![],
+    };
     let _ = kebab_app::ingest_with_config(config.clone(), scope, false).unwrap();
     let state = KebabAppState::new(config, None);
     let handler = KebabHandler::new(state);
@@ -39,7 +43,10 @@ fn setup() -> (tempfile::TempDir, KebabHandler) {
 }
 
 fn extract_json(result: &rmcp::model::CallToolResult) -> serde_json::Value {
-    assert!(!result.is_error.unwrap_or(false), "expected isError=false, got {result:?}");
+    assert!(
+        !result.is_error.unwrap_or(false),
+        "expected isError=false, got {result:?}"
+    );
     let content = result.content.first().expect("at least one content item");
     let text = match &content.raw {
         RawContent::Text(t) => &t.text,
@@ -89,7 +96,7 @@ async fn bulk_search_invalid_item_field_continues_with_per_item_error() {
     let input = kebab_mcp::tools::bulk_search::BulkSearchInput {
         queries: vec![
             json!({"query": "kebab", "mode": "lexical"}),
-            json!({"query": "bread", "mode": "bogus"}),  // invalid mode
+            json!({"query": "bread", "mode": "bogus"}), // invalid mode
         ],
     };
     let result = kebab_mcp::tools::bulk_search::handle(handler.state(), input);
@@ -117,5 +124,8 @@ async fn bulk_search_over_cap_returns_tool_error() {
         RawContent::Text(t) => &t.text,
         other => panic!("expected Text content, got {other:?}"),
     };
-    assert!(text.contains("max 100"), "expected 'max 100' in error: {text}");
+    assert!(
+        text.contains("max 100"),
+        "expected 'max 100' in error: {text}"
+    );
 }

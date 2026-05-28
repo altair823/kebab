@@ -21,11 +21,16 @@ fn second_ingest_of_unchanged_corpus_marks_all_unchanged() {
     // First ingest — populates the DB. Use the legacy entry so the
     // assertions cover the "previously ingested" set without needing
     // IngestOpts::default() to behave identically.
-    let first =
-        ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let first = ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
     assert_eq!(first.errors, 0, "first ingest must not error: {first:?}");
-    assert!(first.new >= 1, "first ingest must create new docs: {first:?}");
-    assert_eq!(first.unchanged, 0, "first ingest cannot have unchanged: {first:?}");
+    assert!(
+        first.new >= 1,
+        "first ingest must create new docs: {first:?}"
+    );
+    assert_eq!(
+        first.unchanged, 0,
+        "first ingest cannot have unchanged: {first:?}"
+    );
 
     let scanned = first.scanned;
 
@@ -38,9 +43,15 @@ fn second_ingest_of_unchanged_corpus_marks_all_unchanged() {
         IngestOpts::default(),
     )
     .unwrap();
-    assert_eq!(second.scanned, scanned, "second scanned matches first: {second:?}");
+    assert_eq!(
+        second.scanned, scanned,
+        "second scanned matches first: {second:?}"
+    );
     assert_eq!(second.new, 0, "no new docs on re-ingest: {second:?}");
-    assert_eq!(second.updated, 0, "nothing should be marked updated: {second:?}");
+    assert_eq!(
+        second.updated, 0,
+        "nothing should be marked updated: {second:?}"
+    );
     assert_eq!(
         second.unchanged, scanned,
         "every doc must be Unchanged: {second:?}"
@@ -52,10 +63,12 @@ fn second_ingest_of_unchanged_corpus_marks_all_unchanged() {
 fn force_reingest_bypasses_skip() {
     let env = TestEnv::lexical_only();
 
-    let first =
-        ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let first = ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
     assert_eq!(first.errors, 0, "first ingest must not error: {first:?}");
-    assert!(first.new >= 1, "first ingest must create new docs: {first:?}");
+    assert!(
+        first.new >= 1,
+        "first ingest must create new docs: {first:?}"
+    );
     let scanned = first.scanned;
 
     let second = ingest_with_config_opts(

@@ -73,7 +73,10 @@ fn check_unique_ids(queries: &[GoldenQuery]) -> Result<()> {
 /// Read every doc_id / chunk_id referenced by `queries` and confirm
 /// SQLite has rows for them. Builds a sorted, deduplicated error
 /// message listing every missing ID.
-pub(crate) fn validate_against_db(queries: &[GoldenQuery], cfg: &kebab_config::Config) -> Result<()> {
+pub(crate) fn validate_against_db(
+    queries: &[GoldenQuery],
+    cfg: &kebab_config::Config,
+) -> Result<()> {
     // Short-circuit when there is nothing to validate — saves opening
     // SQLite for golden sets that omit expected_*_ids entirely.
     let needs_check = queries

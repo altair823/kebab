@@ -16,10 +16,8 @@ fn lexical_mode_hits_carry_bm25_score_kind() {
     doc_with_term(&workspace);
     common::ingest(&cfg, &workspace);
 
-    let (stdout, _stderr) = common::run_search_with_args(
-        &cfg,
-        &["--mode", "lexical", "--json", "rust"],
-    );
+    let (stdout, _stderr) =
+        common::run_search_with_args(&cfg, &["--mode", "lexical", "--json", "rust"]);
     let v: Value = serde_json::from_str(stdout.trim()).expect("valid JSON");
     let hits = v["hits"].as_array().expect("hits array");
     assert!(!hits.is_empty(), "expected at least 1 hit");
@@ -40,10 +38,8 @@ fn old_wire_reader_compat_score_kind_optional_field() {
     doc_with_term(&workspace);
     common::ingest(&cfg, &workspace);
 
-    let (stdout, _stderr) = common::run_search_with_args(
-        &cfg,
-        &["--mode", "lexical", "--json", "rust"],
-    );
+    let (stdout, _stderr) =
+        common::run_search_with_args(&cfg, &["--mode", "lexical", "--json", "rust"]);
     let v: Value = serde_json::from_str(stdout.trim()).unwrap();
     let hit = &v["hits"][0];
     assert!(hit.get("score_kind").is_some(), "score_kind always emitted");

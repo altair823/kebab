@@ -37,14 +37,16 @@ impl SqliteStore {
             .created_at
             .format(&time::format_description::well_known::Rfc3339)
             .context("format answer.created_at")?;
-        let citations_json = serde_json::to_string(&answer.citations)
-            .context("serialize answer.citations")?;
+        let citations_json =
+            serde_json::to_string(&answer.citations).context("serialize answer.citations")?;
         let refusal_label: Option<&'static str> =
             answer.refusal_reason.as_ref().map(refusal_reason_label);
         let mode_label = search_mode_label(&answer.retrieval.mode);
         let embedding_id: Option<&str> = answer.embedding.as_ref().map(|m| m.id.as_str());
-        let embedding_dim: Option<i64> =
-            answer.embedding.as_ref().and_then(|m| m.dimensions.map(|d| d as i64));
+        let embedding_dim: Option<i64> = answer
+            .embedding
+            .as_ref()
+            .and_then(|m| m.dimensions.map(|d| d as i64));
 
         let conn = self.lock_conn();
         conn.execute(

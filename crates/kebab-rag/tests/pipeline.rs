@@ -10,9 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use common::{MockRetriever, RagEnv, id32, mk_hit, mk_hit_with_indexed_at};
-use kebab_core::{
-    FinishReason, LanguageModel, Retriever, SearchMode, TokenChunk, TokenUsage,
-};
+use kebab_core::{FinishReason, LanguageModel, Retriever, SearchMode, TokenChunk, TokenUsage};
 use kebab_llm::MockLanguageModel;
 use kebab_rag::{AskOpts, RagPipeline, RefusalReason, StreamEvent};
 
@@ -115,7 +113,11 @@ fn top_below_gate_refuses_score_gate_without_llm_call() {
     let answer = pipeline.ask("q", default_opts()).unwrap();
     assert_eq!(answer.refusal_reason, Some(RefusalReason::ScoreGate));
     assert!(!answer.grounded);
-    assert_eq!(answer.citations.len(), 2, "all near-miss candidates surfaced");
+    assert_eq!(
+        answer.citations.len(),
+        2,
+        "all near-miss candidates surfaced"
+    );
     for c in &answer.citations {
         assert!(c.marker.is_none(), "ScoreGate citations have no marker");
     }
@@ -132,7 +134,13 @@ fn grounded_happy_path_marker_one() {
     let env = RagEnv::new();
     let cid = id32("c1");
     let did = id32("d1");
-    env.seed_chunk(&cid, &did, "notes/a.md", "Rust is a systems language.", &["Intro"]);
+    env.seed_chunk(
+        &cid,
+        &did,
+        "notes/a.md",
+        "Rust is a systems language.",
+        &["Intro"],
+    );
     let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let canned = "Rust is a systems language. [#1]";
@@ -240,8 +248,21 @@ fn packing_stops_before_budget_overflow() {
     for i in 0..3_u32 {
         let cid = id32(&format!("c{i}"));
         let did = id32(&format!("d{i}"));
-        env.seed_chunk(&cid, &did, &format!("notes/a{i}.md"), &huge_text, &["Intro"]);
-        hits.push(mk_hit(i + 1, &cid, &did, &format!("notes/a{i}.md"), 0.9, &["Intro"]));
+        env.seed_chunk(
+            &cid,
+            &did,
+            &format!("notes/a{i}.md"),
+            &huge_text,
+            &["Intro"],
+        );
+        hits.push(mk_hit(
+            i + 1,
+            &cid,
+            &did,
+            &format!("notes/a{i}.md"),
+            0.9,
+            &["Intro"],
+        ));
     }
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("ok [#1]"));
@@ -456,7 +477,13 @@ fn grounded_citations_inherit_indexed_at_and_stale_from_hit() {
     let now = time::OffsetDateTime::now_utc();
     let sixty_days_ago = now - time::Duration::days(60);
     let hits = vec![mk_hit_with_indexed_at(
-        1, &cid, &did, "notes/a.md", 0.85, &["Intro"], sixty_days_ago,
+        1,
+        &cid,
+        &did,
+        "notes/a.md",
+        0.85,
+        &["Intro"],
+        sixty_days_ago,
     )];
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("apples are fruit. [#1]"));
@@ -489,7 +516,13 @@ fn grounded_citations_not_stale_for_fresh_hit() {
     let now = time::OffsetDateTime::now_utc();
     let one_day_ago = now - time::Duration::days(1);
     let hits = vec![mk_hit_with_indexed_at(
-        1, &cid, &did, "notes/a.md", 0.85, &["Intro"], one_day_ago,
+        1,
+        &cid,
+        &did,
+        "notes/a.md",
+        0.85,
+        &["Intro"],
+        one_day_ago,
     )];
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("apples are fruit. [#1]"));
@@ -513,7 +546,13 @@ fn answer_json_serializes_with_expected_keys() {
     let env = RagEnv::new();
     let cid = id32("c1");
     let did = id32("d1");
-    env.seed_chunk(&cid, &did, "notes/a.md", "Rust is a systems language.", &["Intro"]);
+    env.seed_chunk(
+        &cid,
+        &did,
+        "notes/a.md",
+        "Rust is a systems language.",
+        &["Intro"],
+    );
     let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("Rust is. [#1]"));
@@ -521,7 +560,12 @@ fn answer_json_serializes_with_expected_keys() {
     let answer = pipeline.ask("what", default_opts()).unwrap();
     let v: serde_json::Value = serde_json::to_value(&answer).unwrap();
     // Stable top-level key set per `answer.v1` (§2.3).
-    let keys: Vec<&str> = v.as_object().unwrap().keys().map(std::string::String::as_str).collect();
+    let keys: Vec<&str> = v
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(std::string::String::as_str)
+        .collect();
     for needed in [
         "answer",
         "citations",
@@ -614,7 +658,13 @@ fn ask_with_multi_hop_false_keeps_single_pass_path() {
     let env = RagEnv::new();
     let cid = id32("c1");
     let did = id32("d1");
-    env.seed_chunk(&cid, &did, "notes/a.md", "Rust is a systems language.", &["Intro"]);
+    env.seed_chunk(
+        &cid,
+        &did,
+        "notes/a.md",
+        "Rust is a systems language.",
+        &["Intro"],
+    );
     let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("Rust is. [#1]"));

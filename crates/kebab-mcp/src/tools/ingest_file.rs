@@ -24,8 +24,9 @@ pub fn handle(state: &KebabAppState, input: IngestFileInput) -> CallToolResult {
         Ok(report) => match serde_json::to_value(&report) {
             Ok(mut v) => {
                 if let serde_json::Value::Object(ref mut map) = v {
-                    map.entry("schema_version".to_string())
-                        .or_insert_with(|| serde_json::Value::String("ingest_report.v1".to_string()));
+                    map.entry("schema_version".to_string()).or_insert_with(|| {
+                        serde_json::Value::String("ingest_report.v1".to_string())
+                    });
                 }
                 match serde_json::to_string(&v) {
                     Ok(json) => to_tool_success(json),

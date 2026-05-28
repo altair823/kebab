@@ -25,10 +25,10 @@
 //! ModelCaption stubs), §9.1 (image extraction policy / OCR vs caption
 //! provenance), §9 (versioning).
 
+pub mod caption;
 mod dims;
 mod exif_extract;
 mod image_prep;
-pub mod caption;
 pub mod ocr;
 
 pub use caption::{apply_caption, caption_image};
@@ -37,8 +37,8 @@ pub use ocr::{OcrEngine, OllamaVisionOcr, apply_ocr};
 use anyhow::{Context, Result};
 use kebab_core::{
     Block, CanonicalDocument, CommonBlock, Extractor, ImageRefBlock, Lang, MediaType, Metadata,
-    ParserVersion, Provenance, ProvenanceEvent, ProvenanceKind, SourceSpan, SourceType,
-    TrustLevel, id_for_block, id_for_doc,
+    ParserVersion, Provenance, ProvenanceEvent, ProvenanceKind, SourceSpan, SourceType, TrustLevel,
+    id_for_block, id_for_doc,
 };
 use serde_json::{Map, Value};
 use time::OffsetDateTime;
@@ -102,7 +102,11 @@ impl Extractor for ImageExtractor {
         let exif_map = exif_extract::extract_whitelisted(bytes);
 
         let (span, dims_value, dim_warning) = match &dim_outcome {
-            dims::DimOutcome::Ok { width, height, format } => {
+            dims::DimOutcome::Ok {
+                width,
+                height,
+                format,
+            } => {
                 let mut dims = Map::new();
                 dims.insert("w".into(), Value::Number((*width).into()));
                 dims.insert("h".into(), Value::Number((*height).into()));

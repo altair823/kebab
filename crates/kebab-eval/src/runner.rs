@@ -251,10 +251,7 @@ fn write_per_query_jsonl(
     // workspace-default does); resolve it before threading it into the
     // `{data_dir}` substitution of `runs_dir`.
     let resolved_data_dir = expand_path(&cfg.storage.data_dir, "");
-    let runs_dir = expand_path(
-        &cfg.storage.runs_dir,
-        &resolved_data_dir.to_string_lossy(),
-    );
+    let runs_dir = expand_path(&cfg.storage.runs_dir, &resolved_data_dir.to_string_lossy());
     let run_dir = runs_dir.join(run_id);
     std::fs::create_dir_all(&run_dir)
         .with_context(|| format!("create run dir {}", run_dir.display()))?;

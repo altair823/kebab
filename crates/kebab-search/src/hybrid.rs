@@ -25,7 +25,7 @@ use kebab_core::{
     IndexVersion, RetrievalDetail, Retriever, SearchHit, SearchMode, SearchQuery, SearchTrace,
 };
 
-use crate::trace::{build_fusion_input_skeleton, candidates_from_hits, ScoreKind, TraceBuilder};
+use crate::trace::{ScoreKind, TraceBuilder, build_fusion_input_skeleton, candidates_from_hits};
 
 /// Default `k_rrf` if `kb-config::SearchCfg::rrf_k` is misconfigured.
 /// Matches §6.4's documented default (60).
@@ -147,7 +147,11 @@ impl Retriever for HybridRetriever {
 
 impl HybridRetriever {
     fn fuse(&self, query: &SearchQuery) -> Result<Vec<SearchHit>> {
-        let target_k = if query.k == 0 { self.default_k } else { query.k };
+        let target_k = if query.k == 0 {
+            self.default_k
+        } else {
+            query.k
+        };
         let fanout_k = target_k.saturating_mul(HYBRID_FANOUT_MULTIPLIER);
         let lex_query = SearchQuery {
             k: fanout_k,
@@ -291,9 +295,11 @@ impl HybridRetriever {
             // one retriever, RRF sums a single term so `fusion_score`
             // already equals that side's normalized score, making the
             // fallback harmless.
-            let lex_score = lex_index
-                .get(&s.chunk_id)
-                .map(|(_, h)| h.retrieval.lexical_score.unwrap_or(h.retrieval.fusion_score));
+            let lex_score = lex_index.get(&s.chunk_id).map(|(_, h)| {
+                h.retrieval
+                    .lexical_score
+                    .unwrap_or(h.retrieval.fusion_score)
+            });
             let vec_score = vec_index
                 .get(&s.chunk_id)
                 .map(|(_, h)| h.retrieval.vector_score.unwrap_or(h.retrieval.fusion_score));
@@ -331,7 +337,11 @@ impl HybridRetriever {
         query: &SearchQuery,
     ) -> anyhow::Result<(Vec<SearchHit>, SearchTrace)> {
         let start_total = Instant::now();
-        let target_k = if query.k == 0 { self.default_k } else { query.k };
+        let target_k = if query.k == 0 {
+            self.default_k
+        } else {
+            query.k
+        };
         let fanout_k = target_k.saturating_mul(HYBRID_FANOUT_MULTIPLIER);
         let fanout_query = SearchQuery {
             k: fanout_k,
@@ -425,8 +435,8 @@ fn parse_fusion(name: &str, k_rrf: u32) -> FusionPolicy {
 mod tests {
     use super::*;
     use kebab_core::{
-        ChunkId, ChunkerVersion, Citation, DocumentId, IndexVersion, SearchFilters,
-        SearchHit, SearchMode, WorkspacePath,
+        ChunkId, ChunkerVersion, Citation, DocumentId, IndexVersion, SearchFilters, SearchHit,
+        SearchMode, WorkspacePath,
     };
     use std::sync::Mutex;
 
@@ -466,12 +476,7 @@ mod tests {
     /// because the hybrid logic only reads `chunk_id`, `rank`,
     /// `retrieval.{lexical,vector}_score`, and (transitively) the rest
     /// when building the fused output.
-    fn mk_hit(
-        chunk_id: &str,
-        rank: u32,
-        method: SearchMode,
-        score: f32,
-    ) -> SearchHit {
+    fn mk_hit(chunk_id: &str, rank: u32, method: SearchMode, score: f32) -> SearchHit {
         let cid = ChunkId(chunk_id.to_string());
         let did = DocumentId(format!("d-{chunk_id}"));
         let path = wp(&format!("notes/{chunk_id}.md"));
@@ -654,10 +659,7 @@ mod tests {
         tied_a.retrieval.lexical_rank = Some(2);
         let mut tied_b = mk_hit("bbbb", 2, SearchMode::Lexical, 0.4);
         tied_b.retrieval.lexical_rank = Some(2);
-        let lex3 = Arc::new(CannedRetriever::new(
-            vec![tied_a, tied_b],
-            "lex-v1",
-        ));
+        let lex3 = Arc::new(CannedRetriever::new(vec![tied_a, tied_b], "lex-v1"));
         let vec3 = Arc::new(CannedRetriever::new(vec![], "vec-v1"));
         let h3 = HybridRetriever::with_policy(lex3, vec3, rrf_policy(60), 5);
         let out3 = h3.search(&make_query(SearchMode::Hybrid, 5)).unwrap();
@@ -728,9 +730,10 @@ mod tests {
 
     #[test]
     fn search_with_trace_returns_lex_and_vec_lists() {
-        use kebab_core::{ChunkId, DocumentId, IndexVersion, ChunkerVersion,
-                         RetrievalDetail, SearchHit, SearchMode, SearchQuery,
-                         WorkspacePath, Citation};
+        use kebab_core::{
+            ChunkId, ChunkerVersion, Citation, DocumentId, IndexVersion, RetrievalDetail,
+            SearchHit, SearchMode, SearchQuery, WorkspacePath,
+        };
         use std::sync::Arc;
 
         fn mk_hit(rank: u32, chunk: &str, score: f32, mode: SearchMode) -> SearchHit {
@@ -751,10 +754,26 @@ mod tests {
                 retrieval: RetrievalDetail {
                     method: mode,
                     fusion_score: score,
-                    lexical_score: if mode == SearchMode::Lexical { Some(score) } else { None },
-                    vector_score: if mode == SearchMode::Vector { Some(score) } else { None },
-                    lexical_rank: if mode == SearchMode::Lexical { Some(rank) } else { None },
-                    vector_rank: if mode == SearchMode::Vector { Some(rank) } else { None },
+                    lexical_score: if mode == SearchMode::Lexical {
+                        Some(score)
+                    } else {
+                        None
+                    },
+                    vector_score: if mode == SearchMode::Vector {
+                        Some(score)
+                    } else {
+                        None
+                    },
+                    lexical_rank: if mode == SearchMode::Lexical {
+                        Some(rank)
+                    } else {
+                        None
+                    },
+                    vector_rank: if mode == SearchMode::Vector {
+                        Some(rank)
+                    } else {
+                        None
+                    },
                 },
                 index_version: IndexVersion("v1".into()),
                 embedding_model: None,
@@ -767,12 +786,16 @@ mod tests {
             }
         }
 
-        struct Stub { hits: Vec<SearchHit> }
+        struct Stub {
+            hits: Vec<SearchHit>,
+        }
         impl Retriever for Stub {
             fn search(&self, _q: &SearchQuery) -> anyhow::Result<Vec<SearchHit>> {
                 Ok(self.hits.clone())
             }
-            fn index_version(&self) -> IndexVersion { IndexVersion("v1".into()) }
+            fn index_version(&self) -> IndexVersion {
+                IndexVersion("v1".into())
+            }
         }
 
         let lex = Arc::new(Stub {
@@ -816,7 +839,9 @@ mod tests {
             fn search(&self, _q: &SearchQuery) -> anyhow::Result<Vec<kebab_core::SearchHit>> {
                 Ok(vec![])
             }
-            fn index_version(&self) -> IndexVersion { IndexVersion("v1".into()) }
+            fn index_version(&self) -> IndexVersion {
+                IndexVersion("v1".into())
+            }
         }
         let lex = Arc::new(EmptyR);
         let vec_r = Arc::new(EmptyR);
@@ -855,12 +880,7 @@ mod tests {
         let vec_r = Arc::new(Stub {
             hits: vec![mk_hit("c1", 1, SearchMode::Vector, 0.8)],
         });
-        let hybrid = HybridRetriever::with_policy(
-            lex,
-            vec_r,
-            FusionPolicy::Rrf { k_rrf: 60 },
-            2,
-        );
+        let hybrid = HybridRetriever::with_policy(lex, vec_r, FusionPolicy::Rrf { k_rrf: 60 }, 2);
         let q = SearchQuery {
             text: "x".into(),
             mode: SearchMode::Hybrid,
@@ -892,14 +912,11 @@ mod tests {
         // mk_hit defaults to Rrf; override per spec for this test.
         let mut lex_hit = mk_hit("c1", 1, SearchMode::Lexical, 0.5);
         lex_hit.score_kind = ScoreKind::Bm25;
-        let lex = Arc::new(Stub { hits: vec![lex_hit] });
+        let lex = Arc::new(Stub {
+            hits: vec![lex_hit],
+        });
         let vec_r = Arc::new(Stub { hits: vec![] });
-        let hybrid = HybridRetriever::with_policy(
-            lex,
-            vec_r,
-            FusionPolicy::Rrf { k_rrf: 60 },
-            2,
-        );
+        let hybrid = HybridRetriever::with_policy(lex, vec_r, FusionPolicy::Rrf { k_rrf: 60 }, 2);
         let q = SearchQuery {
             text: "x".into(),
             mode: SearchMode::Lexical,

@@ -43,10 +43,7 @@ pub fn render_search(f: &mut Frame, area: Rect, state: &App) {
     let Some(s) = state.search.as_ref() else {
         // Pane has no state yet — should not happen because the run
         // loop lazy-inits before render. Defensive empty block.
-        f.render_widget(
-            Block::default().title("Search").borders(Borders::ALL),
-            area,
-        );
+        f.render_widget(Block::default().title("Search").borders(Borders::ALL), area);
         return;
     };
 
@@ -93,7 +90,8 @@ fn render_input_bar(f: &mut Frame, area: Rect, s: &SearchState, theme: &crate::t
     // unhides the caret for the Search input column.
     // place_cursor_x sums in usize (avoiding u16 wrap) and clamps to
     // the right edge of the inner area.
-    let cursor_x = crate::input::place_cursor_x(inner.x, inner.width, prompt_w, s.input.cursor_col());
+    let cursor_x =
+        crate::input::place_cursor_x(inner.x, inner.width, prompt_w, s.input.cursor_col());
     f.set_cursor_position((cursor_x, inner.y));
 }
 
@@ -169,7 +167,10 @@ fn format_hit_lines(h: &SearchHit, theme: &crate::theme::Theme) -> Vec<Line<'sta
     };
     vec![
         header_line,
-        Line::from(Span::styled(path_line, theme.style(crate::theme::Role::Path))),
+        Line::from(Span::styled(
+            path_line,
+            theme.style(crate::theme::Role::Path),
+        )),
         Line::from(format!("  {s1}")),
         Line::from(format!("  {s2}")),
     ]
@@ -239,7 +240,8 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
                 trace: true,
                 ..Default::default()
             };
-            if let Ok(resp) = kebab_app::search_with_opts_with_config(state.config.clone(), q, opts) {
+            if let Ok(resp) = kebab_app::search_with_opts_with_config(state.config.clone(), q, opts)
+            {
                 if let Some(t) = resp.trace {
                     state.trace_popup = Some(crate::trace_popup::TracePopupState::new(t));
                 }
@@ -305,8 +307,7 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
             // `~/...` / `${XDG_…}` expansion via `kebab-config::expand_path`
             // — same helper used by the markdown / image / PDF ingest
             // paths (HOTFIXES 2026-05-02 P9-4 follow-up).
-            let workspace_root =
-                kebab_config::expand_path(&state.config.workspace.root, "");
+            let workspace_root = kebab_config::expand_path(&state.config.workspace.root, "");
             state.pending_editor = Some(crate::app::EditorRequest {
                 citation: citation.unwrap(),
                 editor_env: editor,
@@ -478,7 +479,8 @@ pub fn build_jump_command(
     let mut args = leading_args;
 
     let editor_basename = std::path::Path::new(&program)
-        .file_name().map_or_else(|| program.clone(), |s| s.to_string_lossy().into_owned());
+        .file_name()
+        .map_or_else(|| program.clone(), |s| s.to_string_lossy().into_owned());
 
     match citation {
         Citation::Line { start, .. } => {
@@ -557,7 +559,9 @@ fn parse_editor_env(env: &str) -> (String, Vec<String>) {
 ///   the spawn is redundant — wait for the result.
 /// - dedupe against `last_query` (was already there pre-fb-08, kept).
 pub fn debounce_due(s: &SearchState) -> bool {
-    let Some(at) = s.input_dirty_at else { return false };
+    let Some(at) = s.input_dirty_at else {
+        return false;
+    };
     let elapsed = (time::OffsetDateTime::now_utc() - at)
         .try_into()
         .unwrap_or(Duration::ZERO);
@@ -634,10 +638,7 @@ pub(crate) fn fire_search(state: &mut App) -> anyhow::Result<()> {
                 filters: kebab_core::SearchFilters::default(),
             };
             let result = kebab_app::search_with_config(cfg, query);
-            let _ = tx.send(crate::app::SearchWorkerMessage::Done {
-                generation,
-                result,
-            });
+            let _ = tx.send(crate::app::SearchWorkerMessage::Done { generation, result });
         })
         .map_err(|e| anyhow::anyhow!("spawn search worker: {e}"))?;
 
@@ -651,8 +652,12 @@ pub(crate) fn fire_search(state: &mut App) -> anyhow::Result<()> {
 /// dropped per the generation-counter contract. `pub` so integration
 /// tests can drive the stale-result paths by injecting a channel.
 pub fn poll_worker(state: &mut App) {
-    let Some(s) = state.search.as_mut() else { return };
-    let Some(rx) = s.worker_rx.as_ref() else { return };
+    let Some(s) = state.search.as_mut() else {
+        return;
+    };
+    let Some(rx) = s.worker_rx.as_ref() else {
+        return;
+    };
     let msg = match rx.try_recv() {
         Ok(m) => m,
         Err(std::sync::mpsc::TryRecvError::Empty) => return,
@@ -694,10 +699,8 @@ pub fn poll_worker(state: &mut App) {
                     // the user submitted for *this* result set. If
                     // input has drifted since spawn, the gen-check
                     // already returned early.
-                    let q_text =
-                        s.last_query.as_ref().map_or("", |(t, _)| t.as_str());
-                    s.short_query_hint =
-                        kebab_app::short_query_hint(q_text, hits.is_empty());
+                    let q_text = s.last_query.as_ref().map_or("", |(t, _)| t.as_str());
+                    s.short_query_hint = kebab_app::short_query_hint(q_text, hits.is_empty());
                     s.hits = hits;
                     s.selected_hit = 0;
                     s.preview = None;
@@ -706,8 +709,7 @@ pub fn poll_worker(state: &mut App) {
                     s.hits.clear();
                     s.selected_hit = 0;
                     s.short_query_hint = None;
-                    state.error_overlay =
-                        Some(crate::error_popup::ErrorOverlay::from_anyhow(&e));
+                    state.error_overlay = Some(crate::error_popup::ErrorOverlay::from_anyhow(&e));
                 }
             }
         }
@@ -732,4 +734,3 @@ pub(crate) fn refresh_preview(state: &mut App) -> anyhow::Result<()> {
     s.preview = Some(chunk.text);
     Ok(())
 }
-

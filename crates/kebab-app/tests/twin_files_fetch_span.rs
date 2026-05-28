@@ -44,8 +44,8 @@ fn twin_files_fetch_span_uses_correct_asset() {
     std::fs::write(dir_b.join("note.md"), content).unwrap();
 
     // Ingest all files (fixture workspace + our two new twins).
-    let report = ingest_with_config(env.config.clone(), env.scope(), false)
-        .expect("ingest must succeed");
+    let report =
+        ingest_with_config(env.config.clone(), env.scope(), false).expect("ingest must succeed");
     assert_eq!(report.errors, 0, "no ingest errors; report={report:?}");
 
     // Both twin paths must appear as New in the report.
@@ -53,8 +53,7 @@ fn twin_files_fetch_span_uses_correct_asset() {
     let twin_items: Vec<_> = items
         .iter()
         .filter(|i| {
-            i.doc_path.0.ends_with("src_a/note.md")
-                || i.doc_path.0.ends_with("src_b/note.md")
+            i.doc_path.0.ends_with("src_a/note.md") || i.doc_path.0.ends_with("src_b/note.md")
         })
         .collect();
     assert_eq!(
@@ -149,7 +148,10 @@ fn twin_files_fetch_span_uses_correct_asset() {
     // at either twin, making one twin's span fetch behave incorrectly.
     let report2 = ingest_with_config(env.config.clone(), env.scope(), false)
         .expect("second ingest must succeed");
-    assert_eq!(report2.errors, 0, "no ingest errors on second run; report={report2:?}");
+    assert_eq!(
+        report2.errors, 0,
+        "no ingest errors on second run; report={report2:?}"
+    );
 
     // Re-open app after second ingest and verify span still works on both.
     let app2 = env.app();

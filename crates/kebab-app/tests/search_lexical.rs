@@ -35,8 +35,8 @@ fn lexical_search_returns_hits_after_ingest() {
 fn lexical_search_empty_query_returns_empty() {
     let env = TestEnv::lexical_only();
     kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
-    let hits = kebab_app::search_with_config(env.config.clone(), common::lexical_query("   "))
-        .unwrap();
+    let hits =
+        kebab_app::search_with_config(env.config.clone(), common::lexical_query("   ")).unwrap();
     assert!(hits.is_empty(), "blank query must short-circuit empty");
 }
 
@@ -107,17 +107,17 @@ fn search_uncached_returns_same_hits_as_cached() {
 #[test]
 fn first_ingest_bumps_corpus_revision() {
     let env = TestEnv::lexical_only();
-    let store_before =
-        kebab_store_sqlite::SqliteStore::open(&env.config).unwrap();
+    let store_before = kebab_store_sqlite::SqliteStore::open(&env.config).unwrap();
     store_before.run_migrations().unwrap();
     assert_eq!(store_before.corpus_revision(), 0, "fresh store seeds 0");
 
-    let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
-    assert!(report.new + report.updated > 0, "first ingest must commit ≥1 doc");
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    assert!(
+        report.new + report.updated > 0,
+        "first ingest must commit ≥1 doc"
+    );
 
-    let store_after =
-        kebab_store_sqlite::SqliteStore::open(&env.config).unwrap();
+    let store_after = kebab_store_sqlite::SqliteStore::open(&env.config).unwrap();
     assert!(
         store_after.corpus_revision() >= 1,
         "ingest commit must bump corpus_revision (got {})",

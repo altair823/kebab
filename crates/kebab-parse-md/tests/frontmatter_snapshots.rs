@@ -52,8 +52,7 @@ fn assert_snapshot(fixture: &str, baseline: &str) {
     };
     let actual: Value = serde_json::to_value(&snap).unwrap();
 
-    let expected_text =
-        fs::read_to_string(dir.join(baseline)).expect("snapshot baseline readable");
+    let expected_text = fs::read_to_string(dir.join(baseline)).expect("snapshot baseline readable");
     let expected: Value = serde_json::from_str(&expected_text).expect("baseline parses as json");
 
     if actual != expected {
@@ -107,5 +106,8 @@ fn snapshot_is_deterministic_across_runs() {
     let bytes = fs::read(dir.join("frontmatter-only.md")).unwrap();
     let (a, _, _) = parse_frontmatter(&bytes, &pinned_hints()).unwrap();
     let (b, _, _) = parse_frontmatter(&bytes, &pinned_hints()).unwrap();
-    assert_eq!(serde_json::to_value(&a).unwrap(), serde_json::to_value(&b).unwrap());
+    assert_eq!(
+        serde_json::to_value(&a).unwrap(),
+        serde_json::to_value(&b).unwrap()
+    );
 }

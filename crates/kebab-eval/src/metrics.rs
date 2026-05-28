@@ -191,12 +191,18 @@ pub(crate) fn aggregate_from_rows(
     let total_queries = u32::try_from(rows.len()).unwrap_or(u32::MAX);
     let mut failed_queries: u32 = 0;
 
-    let mut hit_at_k: BTreeMap<u32, (u32, u32)> =
-        TOP_K_VARIANTS.iter().map(|k| (*k, (0_u32, 0_u32))).collect();
-    let mut recall_at_k_doc: BTreeMap<u32, (f64, u32)> =
-        TOP_K_VARIANTS.iter().map(|k| (*k, (0.0_f64, 0_u32))).collect();
-    let mut precision_at_k_chunk: BTreeMap<u32, (f64, u32)> =
-        TOP_K_VARIANTS.iter().map(|k| (*k, (0.0_f64, 0_u32))).collect();
+    let mut hit_at_k: BTreeMap<u32, (u32, u32)> = TOP_K_VARIANTS
+        .iter()
+        .map(|k| (*k, (0_u32, 0_u32)))
+        .collect();
+    let mut recall_at_k_doc: BTreeMap<u32, (f64, u32)> = TOP_K_VARIANTS
+        .iter()
+        .map(|k| (*k, (0.0_f64, 0_u32)))
+        .collect();
+    let mut precision_at_k_chunk: BTreeMap<u32, (f64, u32)> = TOP_K_VARIANTS
+        .iter()
+        .map(|k| (*k, (0.0_f64, 0_u32)))
+        .collect();
 
     let mut mrr_sum: f64 = 0.0;
     let mut mrr_denom: u32 = 0;
@@ -295,7 +301,10 @@ pub(crate) fn aggregate_from_rows(
                     .filter(|h| h.rank <= *k)
                     .map(|h| &h.doc_id)
                     .collect();
-                let covered = expected_docs.iter().filter(|d| topk_docs.contains(*d)).count();
+                let covered = expected_docs
+                    .iter()
+                    .filter(|d| topk_docs.contains(*d))
+                    .count();
                 let frac = covered as f64 / expected_docs.len() as f64;
                 entry.0 += frac;
             }
@@ -419,14 +428,16 @@ fn ratio_or_zero(num: u32, denom: u32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kebab_core::answer::{
+        Answer, AnswerCitation, AnswerRetrievalSummary, ModelRef, TokenUsage, TraceId,
+    };
+    use kebab_core::asset::WorkspacePath;
+    use kebab_core::media::Lang;
+    use kebab_core::versions::PromptTemplateVersion;
     use kebab_core::{
         ChunkId, ChunkerVersion, Citation, DocumentId, IndexVersion, RetrievalDetail, SearchHit,
         SearchMode,
     };
-    use kebab_core::asset::WorkspacePath;
-    use kebab_core::media::Lang;
-    use kebab_core::answer::{Answer, AnswerCitation, AnswerRetrievalSummary, ModelRef, TokenUsage, TraceId};
-    use kebab_core::versions::PromptTemplateVersion;
     use time::OffsetDateTime;
 
     fn gq(id: &str, expected_chunks: &[&str], expected_docs: &[&str]) -> GoldenQuery {
@@ -434,8 +445,14 @@ mod tests {
             id: id.into(),
             query: format!("q-{id}"),
             lang: Lang(String::new()),
-            expected_doc_ids: expected_docs.iter().map(|s| DocumentId((*s).into())).collect(),
-            expected_chunk_ids: expected_chunks.iter().map(|s| ChunkId((*s).into())).collect(),
+            expected_doc_ids: expected_docs
+                .iter()
+                .map(|s| DocumentId((*s).into()))
+                .collect(),
+            expected_chunk_ids: expected_chunks
+                .iter()
+                .map(|s| ChunkId((*s).into()))
+                .collect(),
             must_contain: vec![],
             forbidden: vec![],
             difficulty: None,
@@ -478,7 +495,12 @@ mod tests {
         }
     }
 
-    fn qr(id: &str, hits: Vec<SearchHit>, error: Option<String>, answer: Option<Answer>) -> QueryResult {
+    fn qr(
+        id: &str,
+        hits: Vec<SearchHit>,
+        error: Option<String>,
+        answer: Option<Answer>,
+    ) -> QueryResult {
         QueryResult {
             query_id: id.into(),
             query: format!("q-{id}"),
@@ -490,9 +512,12 @@ mod tests {
         }
     }
 
-    fn record(id: &str, hits: Vec<SearchHit>, error: Option<String>, answer: Option<Answer>)
-        -> kebab_store_sqlite::EvalQueryResultRecord
-    {
+    fn record(
+        id: &str,
+        hits: Vec<SearchHit>,
+        error: Option<String>,
+        answer: Option<Answer>,
+    ) -> kebab_store_sqlite::EvalQueryResultRecord {
         kebab_store_sqlite::EvalQueryResultRecord {
             query_id: id.into(),
             result_json: serde_json::to_string(&qr(id, hits, error, answer)).unwrap(),
@@ -502,21 +527,28 @@ mod tests {
     fn answer(text: &str, grounded: bool, citation_paths: &[&str]) -> Answer {
         Answer {
             answer: text.into(),
-            citations: citation_paths.iter().map(|p| AnswerCitation {
-                marker: None,
-                citation: Citation::Line {
-                    path: WorkspacePath::new((*p).into()).unwrap(),
-                    start: 1,
-                    end: 1,
-                    section: None,
-                },
-                // fb-32: synthetic eval citations don't exercise staleness.
-                indexed_at: OffsetDateTime::UNIX_EPOCH,
-                stale: false,
-            }).collect(),
+            citations: citation_paths
+                .iter()
+                .map(|p| AnswerCitation {
+                    marker: None,
+                    citation: Citation::Line {
+                        path: WorkspacePath::new((*p).into()).unwrap(),
+                        start: 1,
+                        end: 1,
+                        section: None,
+                    },
+                    // fb-32: synthetic eval citations don't exercise staleness.
+                    indexed_at: OffsetDateTime::UNIX_EPOCH,
+                    stale: false,
+                })
+                .collect(),
             grounded,
             refusal_reason: None,
-            model: ModelRef { id: "m".into(), provider: "p".into(), dimensions: None },
+            model: ModelRef {
+                id: "m".into(),
+                provider: "p".into(),
+                dimensions: None,
+            },
             embedding: None,
             prompt_template_version: PromptTemplateVersion("p@1".into()),
             retrieval: AnswerRetrievalSummary {
@@ -528,7 +560,11 @@ mod tests {
                 chunks_returned: 1,
                 chunks_used: 1,
             },
-            usage: TokenUsage { prompt_tokens: 1, completion_tokens: 1, latency_ms: 1 },
+            usage: TokenUsage {
+                prompt_tokens: 1,
+                completion_tokens: 1,
+                latency_ms: 1,
+            },
             created_at: OffsetDateTime::UNIX_EPOCH,
             conversation_id: None,
             turn_index: None,
@@ -547,7 +583,17 @@ mod tests {
         ];
         let rows = vec![
             record("q1", vec![hit(1, "c1", "d1")], None, None),
-            record("q2", vec![hit(1, "x", "y"), hit(2, "x", "y"), hit(3, "x", "y"), hit(4, "c2", "d2")], None, None),
+            record(
+                "q2",
+                vec![
+                    hit(1, "x", "y"),
+                    hit(2, "x", "y"),
+                    hit(3, "x", "y"),
+                    hit(4, "c2", "d2"),
+                ],
+                None,
+                None,
+            ),
             record("q3", vec![hit(1, "x", "y")], None, None),
         ];
         let agg = aggregate_from_rows(&queries, &rows).unwrap();
@@ -568,7 +614,17 @@ mod tests {
         ];
         let rows = vec![
             record("q1", vec![hit(1, "c1", "d1")], None, None),
-            record("q2", vec![hit(1, "x", "y"), hit(2, "x", "y"), hit(3, "x", "y"), hit(4, "c2", "d2")], None, None),
+            record(
+                "q2",
+                vec![
+                    hit(1, "x", "y"),
+                    hit(2, "x", "y"),
+                    hit(3, "x", "y"),
+                    hit(4, "c2", "d2"),
+                ],
+                None,
+                None,
+            ),
             record("q3", vec![hit(1, "x", "y")], None, None),
         ];
         let agg = aggregate_from_rows(&queries, &rows).unwrap();
@@ -579,7 +635,12 @@ mod tests {
     fn recall_at_k_doc_partial() {
         // q1 expects {d1, d2}; top-3 returns {d1}. recall@3 = 0.5
         let queries = vec![gq("q1", &[], &["d1", "d2"])];
-        let rows = vec![record("q1", vec![hit(1, "c1", "d1"), hit(2, "c2", "d3")], None, None)];
+        let rows = vec![record(
+            "q1",
+            vec![hit(1, "c1", "d1"), hit(2, "c2", "d3")],
+            None,
+            None,
+        )];
         let agg = aggregate_from_rows(&queries, &rows).unwrap();
         assert_eq!(agg.recall_at_k_doc[&3], 0.5);
         assert_eq!(agg.recall_at_k_doc[&10], 0.5);
@@ -624,7 +685,11 @@ mod tests {
         let queries = vec![gq("q1", &[], &[])];
         let rows = vec![record("q1", vec![], None, None)];
         let agg = aggregate_from_rows(&queries, &rows).unwrap();
-        assert!(agg.refusal_correctness.is_nan(), "got {}", agg.refusal_correctness);
+        assert!(
+            agg.refusal_correctness.is_nan(),
+            "got {}",
+            agg.refusal_correctness
+        );
     }
 
     #[test]
@@ -662,8 +727,16 @@ mod tests {
         let rows = vec![record("q1", vec![hit(1, "c1", "d1")], None, None)];
         let agg = aggregate_from_rows(&queries, &rows).unwrap();
         let json: serde_json::Value = serde_json::to_value(&agg).unwrap();
-        assert!(json["citation_coverage"].is_null(), "expected null, got {:?}", json["citation_coverage"]);
-        assert!(json["refusal_correctness"].is_null(), "expected null, got {:?}", json["refusal_correctness"]);
+        assert!(
+            json["citation_coverage"].is_null(),
+            "expected null, got {:?}",
+            json["citation_coverage"]
+        );
+        assert!(
+            json["refusal_correctness"].is_null(),
+            "expected null, got {:?}",
+            json["refusal_correctness"]
+        );
     }
 
     #[test]
@@ -791,10 +864,7 @@ mod tests {
         // q1: expected=[c1], hits=[c1@1, x@2, y@3]   → P@5 = 1/5 = 0.2
         // q2: expected=[c1, c2], hits=[c1@1, c2@2]  → P@5 = 2/5 = 0.4
         // Avg P@5 = 0.3.
-        let queries = vec![
-            gq("q1", &["c1"], &["d1"]),
-            gq("q2", &["c1", "c2"], &["d2"]),
-        ];
+        let queries = vec![gq("q1", &["c1"], &["d1"]), gq("q2", &["c1", "c2"], &["d2"])];
         let rows = vec![
             record(
                 "q1",

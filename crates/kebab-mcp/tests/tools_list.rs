@@ -7,7 +7,12 @@ use kebab_mcp::build_tools_vec;
 #[test]
 fn tools_list_returns_eight_tools() {
     let tools = build_tools_vec();
-    assert_eq!(tools.len(), 8, "expected exactly 8 tools, got {}", tools.len());
+    assert_eq!(
+        tools.len(),
+        8,
+        "expected exactly 8 tools, got {}",
+        tools.len()
+    );
 
     let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
     assert!(names.contains(&"schema"), "missing 'schema' tool");
@@ -15,7 +20,10 @@ fn tools_list_returns_eight_tools() {
     assert!(names.contains(&"search"), "missing 'search' tool");
     assert!(names.contains(&"ask"), "missing 'ask' tool");
     assert!(names.contains(&"ingest_file"), "missing 'ingest_file' tool");
-    assert!(names.contains(&"ingest_stdin"), "missing 'ingest_stdin' tool");
+    assert!(
+        names.contains(&"ingest_stdin"),
+        "missing 'ingest_stdin' tool"
+    );
     assert!(names.contains(&"fetch"), "missing 'fetch' tool");
     assert!(names.contains(&"bulk_search"), "missing 'bulk_search' tool");
 }

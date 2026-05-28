@@ -49,7 +49,12 @@ pub(crate) fn citation_from_first_span(
             end_ms: *end_ms,
             speaker: None,
         },
-        Some(SourceSpan::Code { line_start, line_end, symbol, lang }) => Citation::Code {
+        Some(SourceSpan::Code {
+            line_start,
+            line_end,
+            symbol,
+            lang,
+        }) => Citation::Code {
             path,
             line_start: *line_start,
             line_end: *line_end,

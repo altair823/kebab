@@ -23,7 +23,9 @@ use kebab_core::{
 
 use crate::hash::hash_file;
 use crate::media::media_type_for;
-use crate::walker::{SkipCategory, WalkOverrides, build_overrides, read_kbignore, walk_files_with_skips};
+use crate::walker::{
+    SkipCategory, WalkOverrides, build_overrides, read_kbignore, walk_files_with_skips,
+};
 
 /// Local-filesystem `SourceConnector`. Constructed once from `Config`,
 /// reused across `scan` calls.
@@ -56,10 +58,7 @@ impl FsSourceConnector {
         // + `root = "kb"` reads `/tmp/kb`, not the user's cwd.
         let root = config.resolve_workspace_root();
 
-        let copy_threshold_bytes = config
-            .storage
-            .copy_threshold_mb
-            .saturating_mul(1024 * 1024);
+        let copy_threshold_bytes = config.storage.copy_threshold_mb.saturating_mul(1024 * 1024);
 
         Ok(Self {
             default_root: root,
@@ -72,10 +71,7 @@ impl FsSourceConnector {
     }
 
     /// Resolve the effective root and build the merged + per-source overrides.
-    fn resolve_scan_params(
-        &self,
-        scope: &SourceScope,
-    ) -> Result<(PathBuf, WalkOverrides)> {
+    fn resolve_scan_params(&self, scope: &SourceScope) -> Result<(PathBuf, WalkOverrides)> {
         let root = if scope.root.as_os_str().is_empty() {
             self.default_root.clone()
         } else {
@@ -97,10 +93,7 @@ impl FsSourceConnector {
     /// all the information needed to populate `IngestReport.skipped_gitignore`,
     /// `skipped_kebabignore`, `skipped_builtin_blacklist`, and `skip_examples`
     /// without a second walker pass.
-    pub fn scan_with_skips(
-        &self,
-        scope: &SourceScope,
-    ) -> Result<(Vec<RawAsset>, FsScanSkips)> {
+    pub fn scan_with_skips(&self, scope: &SourceScope) -> Result<(Vec<RawAsset>, FsScanSkips)> {
         let (root, overrides) = self.resolve_scan_params(scope)?;
 
         let (files, skipped_entries) = walk_files_with_skips(&root, &overrides)?;
@@ -108,6 +101,8 @@ impl FsSourceConnector {
         // Accumulate per-category skip counts and sample paths.
         let mut fs_skips = FsScanSkips::default();
         for entry in &skipped_entries {
+            let rel_path = entry.path.strip_prefix(&root).unwrap_or(&entry.path);
+            let doc_path = rel_path.to_string_lossy().replace('\\', "/");
             match entry.category {
                 SkipCategory::BuiltinBlacklist => {
                     fs_skips.skipped_builtin_blacklist =
@@ -117,20 +112,34 @@ impl FsSourceConnector {
                         &entry.path,
                         &root,
                     );
+                    let ext = entry
+                        .path
+                        .extension()
+                        .map(|e| format!(".{}", e.to_string_lossy()))
+                        .unwrap_or_default();
+                    fs_skips.events.push(FsSkipEvent {
+                        doc_path,
+                        reason: "builtin_blacklist",
+                        detail: if ext.is_empty() { None } else { Some(ext) },
+                    });
                 }
                 SkipCategory::Gitignore => {
-                    fs_skips.skipped_gitignore =
-                        fs_skips.skipped_gitignore.saturating_add(1);
-                    push_sample(
-                        &mut fs_skips.skip_examples.gitignore,
-                        &entry.path,
-                        &root,
-                    );
+                    fs_skips.skipped_gitignore = fs_skips.skipped_gitignore.saturating_add(1);
+                    push_sample(&mut fs_skips.skip_examples.gitignore, &entry.path, &root);
+                    fs_skips.events.push(FsSkipEvent {
+                        doc_path,
+                        reason: "gitignore",
+                        detail: None,
+                    });
                 }
                 SkipCategory::Kebabignore => {
-                    fs_skips.skipped_kebabignore =
-                        fs_skips.skipped_kebabignore.saturating_add(1);
+                    fs_skips.skipped_kebabignore = fs_skips.skipped_kebabignore.saturating_add(1);
                     // kebabignore intentionally NOT in skip_examples per spec §5.5.
+                    fs_skips.events.push(FsSkipEvent {
+                        doc_path,
+                        reason: "kebabignore",
+                        detail: None,
+                    });
                 }
                 SkipCategory::Other => {
                     // DEFAULT_EXCLUDES or config.workspace.exclude — no dedicated
@@ -151,41 +160,44 @@ impl FsSourceConnector {
             if self.skip_generated_header
                 && crate::code_meta::is_generated_file(&abs_path).unwrap_or(false)
             {
-                fs_skips.skipped_generated =
-                    fs_skips.skipped_generated.saturating_add(1);
-                push_sample(
-                    &mut fs_skips.skip_examples.generated,
-                    &abs_path,
-                    &root,
-                );
+                fs_skips.skipped_generated = fs_skips.skipped_generated.saturating_add(1);
+                push_sample(&mut fs_skips.skip_examples.generated, &abs_path, &root);
                 tracing::debug!(
                     path = %rel_path.display(),
                     "skip: generated-file marker detected"
                 );
+                fs_skips.events.push(FsSkipEvent {
+                    doc_path: rel_path.to_string_lossy().replace('\\', "/"),
+                    reason: "generated",
+                    detail: None,
+                });
                 continue;
             }
 
-            // Size-cap check (byte or line limit).
-            if crate::code_meta::is_oversized(
-                &abs_path,
-                self.max_file_bytes,
-                self.max_file_lines,
-            )
-            .unwrap_or(false)
-            {
-                fs_skips.skipped_size_exceeded =
-                    fs_skips.skipped_size_exceeded.saturating_add(1);
-                push_sample(
-                    &mut fs_skips.skip_examples.size_exceeded,
+            // v0.20.0 sub-item 1 bugfix (#2): size-cap applies ONLY to
+            // code files. PDF/image/markdown bypass — their parsers
+            // have their own size controls. spec §3.3.
+            if crate::code_meta::is_code_file(&abs_path)
+                && crate::code_meta::is_oversized(
                     &abs_path,
-                    &root,
-                );
+                    self.max_file_bytes,
+                    self.max_file_lines,
+                )
+                .unwrap_or(false)
+            {
+                fs_skips.skipped_size_exceeded = fs_skips.skipped_size_exceeded.saturating_add(1);
+                push_sample(&mut fs_skips.skip_examples.size_exceeded, &abs_path, &root);
                 tracing::debug!(
                     path = %rel_path.display(),
                     max_bytes = self.max_file_bytes,
                     max_lines = self.max_file_lines,
-                    "skip: file exceeds size cap"
+                    "skip: code file exceeds size cap"
                 );
+                fs_skips.events.push(FsSkipEvent {
+                    doc_path: rel_path.to_string_lossy().replace('\\', "/"),
+                    reason: "size_exceeded",
+                    detail: None,
+                });
                 continue;
             }
 
@@ -215,6 +227,16 @@ pub struct FsScanSkips {
     /// Sample paths per spec §5.5 (≤ 5 per category). Paths are
     /// workspace-relative POSIX strings when available, absolute otherwise.
     pub skip_examples: SkipExamples,
+    /// v0.20.x ingest log: per-file skip events for structured log writing.
+    pub events: Vec<FsSkipEvent>,
+}
+
+/// A single per-file skip event for structured ingest log (v0.20.x).
+#[derive(Debug)]
+pub struct FsSkipEvent {
+    pub doc_path: String,
+    pub reason: &'static str,
+    pub detail: Option<String>,
 }
 
 /// Push a path into a sample vec (cap = 5) as a workspace-relative POSIX
@@ -252,8 +274,8 @@ fn build_assets(
         };
 
         let media_type = media_type_for(abs);
-        let (byte_len, full_hex) = hash_file(abs)
-            .with_context(|| format!("hashing {}", abs.display()))?;
+        let (byte_len, full_hex) =
+            hash_file(abs).with_context(|| format!("hashing {}", abs.display()))?;
         let checksum = Checksum(full_hex.clone());
         let asset_id = id_for_asset(&full_hex);
 
@@ -281,7 +303,6 @@ fn build_assets(
     assets.sort_by(|a, b| a.workspace_path.0.cmp(&b.workspace_path.0));
     Ok(assets)
 }
-
 
 impl SourceConnector for FsSourceConnector {
     fn scan(&self, scope: &SourceScope) -> Result<Vec<RawAsset>> {
@@ -313,10 +334,7 @@ mod tests {
     #[test]
     fn scan_empty_dir_yields_empty_vec() {
         let dir = tempfile::tempdir().unwrap();
-        let conn = FsSourceConnector::new(&cfg_with_root(
-            dir.path().to_str().unwrap(),
-        ))
-        .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root(dir.path().to_str().unwrap())).unwrap();
         let scope = SourceScope::default();
         let v = conn.scan(&scope).unwrap();
         assert!(v.is_empty());
@@ -331,9 +349,7 @@ mod tests {
         std::fs::write(root.join("notes/beta.md"), b"b").unwrap();
         std::fs::write(root.join("notes/alpha.md"), b"a").unwrap();
 
-        let conn =
-            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-                .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).unwrap();
         let v = conn.scan(&SourceScope::default()).unwrap();
         let names: Vec<_> = v.iter().map(|a| a.workspace_path.0.clone()).collect();
         assert_eq!(
@@ -354,9 +370,7 @@ mod tests {
         std::fs::write(root.join("a.md"), b"x").unwrap();
         std::fs::write(root.join("b.tmp"), b"x").unwrap();
 
-        let conn =
-            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-                .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).unwrap();
         let v = conn.scan(&SourceScope::default()).unwrap();
         let names: Vec<_> = v.iter().map(|a| a.workspace_path.0.clone()).collect();
         // Decision: `.kebabignore` itself IS emitted as a RawAsset (MediaType::Other("")).
@@ -380,9 +394,7 @@ mod tests {
         std::fs::write(root.join(".DS_Store"), b"\0\0").unwrap();
         std::fs::write(root.join("._sidecar"), b"\0\0").unwrap();
 
-        let conn =
-            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-                .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).unwrap();
         let v = conn.scan(&SourceScope::default()).unwrap();
         let names: Vec<_> = v.iter().map(|a| a.workspace_path.0.clone()).collect();
         assert_eq!(names, vec!["a.md".to_string()]);
@@ -404,8 +416,14 @@ mod tests {
         let v = conn.scan(&SourceScope::default()).unwrap();
         let names: Vec<_> = v.iter().map(|a| a.workspace_path.0.clone()).collect();
         assert!(names.contains(&"a.md".to_string()));
-        assert!(!names.contains(&"b.tmp".to_string()), "kbignore should drop *.tmp");
-        assert!(!names.contains(&"c.log".to_string()), "config.exclude should drop *.log");
+        assert!(
+            !names.contains(&"b.tmp".to_string()),
+            "kbignore should drop *.tmp"
+        );
+        assert!(
+            !names.contains(&"c.log".to_string()),
+            "config.exclude should drop *.log"
+        );
     }
 
     #[test]
@@ -414,9 +432,7 @@ mod tests {
         let root = dir.path();
         std::fs::write(root.join("hello.md"), b"hello world").unwrap();
 
-        let conn =
-            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-                .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).unwrap();
         let v = conn.scan(&SourceScope::default()).unwrap();
         assert_eq!(v.len(), 1);
         let asset = &v[0];
@@ -439,9 +455,7 @@ mod tests {
         std::fs::write(root.join("notes/a.md"), b"alpha").unwrap();
         std::fs::write(root.join("notes/b.md"), b"beta").unwrap();
 
-        let conn =
-            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-                .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).unwrap();
         let v1 = conn.scan(&SourceScope::default()).unwrap();
         let v2 = conn.scan(&SourceScope::default()).unwrap();
         assert_eq!(v1.len(), v2.len());
@@ -471,9 +485,7 @@ mod tests {
         std::fs::create_dir_all(root.join("a/b/c")).unwrap();
         std::fs::write(root.join("a/b/c/d.md"), b"x").unwrap();
 
-        let conn =
-            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-                .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).unwrap();
         let v = conn.scan(&SourceScope::default()).unwrap();
         assert_eq!(v.len(), 1);
         let p = &v[0].workspace_path.0;
@@ -493,9 +505,7 @@ mod tests {
         std::fs::write(root.join("ok.md"), b"x").unwrap();
         std::fs::write(root.join("has#hash.md"), b"y").unwrap();
 
-        let conn =
-            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-                .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).unwrap();
         let v = conn.scan(&SourceScope::default()).unwrap();
         let names: Vec<_> = v.iter().map(|a| a.workspace_path.0.clone()).collect();
         assert_eq!(names, vec!["ok.md".to_string()]);
@@ -538,9 +548,7 @@ mod tests {
         std::fs::write(root.join("ok.md"), b"# ok").unwrap();
         std::fs::write(root.join("skipme.log"), b"x").unwrap();
 
-        let conn =
-            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-                .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).unwrap();
         let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
 
         assert!(
@@ -549,7 +557,11 @@ mod tests {
             skips.skipped_gitignore
         );
         assert!(
-            skips.skip_examples.gitignore.iter().any(|p| p.contains("skipme.log")),
+            skips
+                .skip_examples
+                .gitignore
+                .iter()
+                .any(|p| p.contains("skipme.log")),
             "skip_examples.gitignore should contain 'skipme.log'; got: {:?}",
             skips.skip_examples.gitignore
         );
@@ -565,9 +577,7 @@ mod tests {
         std::fs::write(root.join("node_modules/foo/bar.js"), b"x").unwrap();
         std::fs::write(root.join("ok.md"), b"# ok").unwrap();
 
-        let conn =
-            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-                .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).unwrap();
         let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
 
         assert!(
@@ -576,7 +586,11 @@ mod tests {
             skips.skipped_builtin_blacklist
         );
         assert!(
-            skips.skip_examples.builtin_blacklist.iter().any(|p| p.contains("node_modules")),
+            skips
+                .skip_examples
+                .builtin_blacklist
+                .iter()
+                .any(|p| p.contains("node_modules")),
             "skip_examples.builtin_blacklist should contain a node_modules path; got: {:?}",
             skips.skip_examples.builtin_blacklist
         );
@@ -590,9 +604,7 @@ mod tests {
         std::fs::write(root.join("ok.md"), b"x").unwrap();
         std::fs::write(root.join("creds.secret"), b"pw").unwrap();
 
-        let conn =
-            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-                .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).unwrap();
         let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
 
         assert!(
@@ -624,9 +636,7 @@ mod tests {
         std::fs::write(root.join("node_modules/pkg/index.js"), b"x").unwrap();
         std::fs::write(root.join("ok.md"), b"x").unwrap();
 
-        let conn =
-            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-                .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).unwrap();
         let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
 
         assert!(
@@ -652,9 +662,7 @@ mod tests {
         }
         std::fs::write(root.join("ok.md"), b"x").unwrap();
 
-        let conn =
-            FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap()))
-                .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root(root.to_str().unwrap())).unwrap();
         let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
 
         assert_eq!(skips.skipped_gitignore, 7, "should count all 7");
@@ -690,10 +698,7 @@ mod tests {
         std::fs::write(root.join("normal.md"), "# hi").unwrap();
         std::fs::write(root.join("autogen.rs"), "// @generated\nfn x() {}\n").unwrap();
 
-        let conn = FsSourceConnector::new(
-            &cfg_with_root_defaults(root.to_str().unwrap()),
-        )
-        .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_root_defaults(root.to_str().unwrap())).unwrap();
         let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
 
         assert!(
@@ -702,15 +707,16 @@ mod tests {
             skips.skipped_generated
         );
         assert!(
-            skips.skip_examples.generated.iter().any(|p| p.contains("autogen")),
+            skips
+                .skip_examples
+                .generated
+                .iter()
+                .any(|p| p.contains("autogen")),
             "skip_examples.generated should contain 'autogen'; got: {:?}",
             skips.skip_examples.generated
         );
         // The normal.md file must NOT be skipped.
-        let asset_paths: Vec<_> = _assets
-            .iter()
-            .map(|a| a.workspace_path.0.clone())
-            .collect();
+        let asset_paths: Vec<_> = _assets.iter().map(|a| a.workspace_path.0.clone()).collect();
         assert!(
             asset_paths.iter().any(|p| p.contains("normal")),
             "normal.md should still be emitted; assets: {asset_paths:?}"
@@ -726,10 +732,8 @@ mod tests {
         let big: String = "x\n".repeat(1_000);
         std::fs::write(root.join("huge.rs"), &big).unwrap();
 
-        let conn = FsSourceConnector::new(
-            &cfg_with_size_cap(root.to_str().unwrap(), 1024, 5_000),
-        )
-        .unwrap();
+        let conn = FsSourceConnector::new(&cfg_with_size_cap(root.to_str().unwrap(), 1024, 5_000))
+            .unwrap();
         let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
 
         assert!(
@@ -738,7 +742,11 @@ mod tests {
             skips.skipped_size_exceeded
         );
         assert!(
-            skips.skip_examples.size_exceeded.iter().any(|p| p.contains("huge")),
+            skips
+                .skip_examples
+                .size_exceeded
+                .iter()
+                .any(|p| p.contains("huge")),
             "skip_examples.size_exceeded should contain 'huge'; got: {:?}",
             skips.skip_examples.size_exceeded
         );
@@ -752,10 +760,9 @@ mod tests {
         let body: String = "x\n".repeat(6_000);
         std::fs::write(root.join("longfile.rs"), &body).unwrap();
 
-        let conn = FsSourceConnector::new(
-            &cfg_with_size_cap(root.to_str().unwrap(), 262_144, 5_000),
-        )
-        .unwrap();
+        let conn =
+            FsSourceConnector::new(&cfg_with_size_cap(root.to_str().unwrap(), 262_144, 5_000))
+                .unwrap();
         let (_assets, skips) = conn.scan_with_skips(&SourceScope::default()).unwrap();
 
         assert!(
@@ -763,5 +770,38 @@ mod tests {
             "skipped_size_exceeded should be >= 1 (line cap); got {}",
             skips.skipped_size_exceeded
         );
+    }
+
+    #[test]
+    fn size_cap_skips_only_code_files() {
+        use tempfile::tempdir;
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+
+        // 300 KB pdf / md / rs (each > 262 144 byte cap)
+        std::fs::write(root.join("paper.pdf"), vec![b'%'; 300_000]).unwrap();
+        std::fs::write(root.join("notes.md"), vec![b'#'; 300_000]).unwrap();
+        std::fs::write(root.join("big.rs"), vec![b'/'; 300_000]).unwrap();
+
+        let cfg = cfg_with_size_cap(root.to_str().unwrap(), 262_144, 5_000);
+        let connector = FsSourceConnector::new(&cfg).unwrap();
+        let (assets, skips) = connector.scan_with_skips(&SourceScope::default()).unwrap();
+
+        let paths: Vec<_> = assets.iter().map(|a| a.workspace_path.0.as_str()).collect();
+        assert!(
+            paths.iter().any(|p| p.contains("paper.pdf")),
+            "PDF must pass: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p.contains("notes.md")),
+            "MD must pass: {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p.contains("big.rs")),
+            "code file must skip: {paths:?}"
+        );
+
+        assert_eq!(skips.skip_examples.size_exceeded.len(), 1);
+        assert!(skips.skip_examples.size_exceeded[0].contains("big.rs"));
     }
 }

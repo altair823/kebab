@@ -98,9 +98,8 @@ impl Extractor for CppAstExtractor {
         let parser_version = self.parser_version();
         let doc_id = id_for_doc(&asset.workspace_path, &asset.asset_id, &parser_version);
 
-        let source = String::from_utf8(bytes.to_vec()).map_err(|e| {
-            anyhow::anyhow!("kebab-parse-code: C++ source is not valid UTF-8: {e}")
-        })?;
+        let source = String::from_utf8(bytes.to_vec())
+            .map_err(|e| anyhow::anyhow!("kebab-parse-code: C++ source is not valid UTF-8: {e}"))?;
 
         let blocks = build_blocks_top(&source, &doc_id)?;
         let unit_count = blocks.len() as u32;
@@ -309,9 +308,7 @@ fn build_blocks(
                 flush_glue(glue, units);
 
                 let name_node = child.child_by_field_name("name");
-                let body = child
-                    .child_by_field_name("body")
-                    .unwrap_or(child);
+                let body = child.child_by_field_name("body").unwrap_or(child);
 
                 match name_node {
                     None => {
@@ -335,7 +332,8 @@ fn build_blocks(
                             let mut new_prefix = prefix.to_vec();
                             let mut nc = nn.walk();
                             for seg in nn.named_children(&mut nc) {
-                                new_prefix.push(source[seg.start_byte()..seg.end_byte()].to_string());
+                                new_prefix
+                                    .push(source[seg.start_byte()..seg.end_byte()].to_string());
                             }
                             build_blocks(body, source, &new_prefix, units, glue);
                             flush_glue(glue, units);
@@ -528,11 +526,7 @@ fn unwrap_to_fn_declarator<'a>(
 }
 
 /// Given the innermost name node of a function_declarator, produce the symbol.
-fn extract_name_node(
-    inner: tree_sitter::Node,
-    source: &str,
-    prefix: &[String],
-) -> Option<String> {
+fn extract_name_node(inner: tree_sitter::Node, source: &str, prefix: &[String]) -> Option<String> {
     match inner.kind() {
         "identifier" | "field_identifier" => {
             let name = &source[inner.start_byte()..inner.end_byte()];
@@ -652,7 +646,9 @@ pub(crate) mod tests_support {
             workspace_root: &root,
             config: &cfg,
         };
-        CppAstExtractor::new().extract(&ctx, src.as_bytes()).unwrap()
+        CppAstExtractor::new()
+            .extract(&ctx, src.as_bytes())
+            .unwrap()
     }
 }
 
@@ -710,10 +706,19 @@ namespace ns {
         let doc = tests_support::extract_cpp(src, "x/foo.cpp");
         let s = syms(&doc);
         assert!(s.iter().any(|x| x == "ns::Foo"), "ns::Foo missing: {s:?}");
-        assert!(s.iter().any(|x| x == "ns::Foo::method"), "method missing: {s:?}");
+        assert!(
+            s.iter().any(|x| x == "ns::Foo::method"),
+            "method missing: {s:?}"
+        );
         assert!(s.iter().any(|x| x == "ns::Foo::Foo"), "ctor missing: {s:?}");
-        assert!(s.iter().any(|x| x == "ns::Foo::~Foo"), "dtor missing: {s:?}");
-        assert!(s.iter().any(|x| x == "ns::Foo::operator+"), "op+ missing: {s:?}");
+        assert!(
+            s.iter().any(|x| x == "ns::Foo::~Foo"),
+            "dtor missing: {s:?}"
+        );
+        assert!(
+            s.iter().any(|x| x == "ns::Foo::operator+"),
+            "op+ missing: {s:?}"
+        );
     }
 
     #[test]
@@ -794,7 +799,10 @@ concept Printable = requires(T t) { t.print(); };
         let doc = tests_support::extract_cpp(src, "x/foo.cpp");
         let s = syms(&doc);
         assert!(s.iter().any(|x| x == "Color"), "Color missing: {s:?}");
-        assert!(s.iter().any(|x| x == "Printable"), "Printable missing: {s:?}");
+        assert!(
+            s.iter().any(|x| x == "Printable"),
+            "Printable missing: {s:?}"
+        );
     }
 
     #[test]
@@ -839,7 +847,10 @@ class Foo {
         let src = "#include <vector>\nusing namespace std;\n";
         let doc = tests_support::extract_cpp(src, "x/glue.cpp");
         let s = syms(&doc);
-        assert!(s.iter().any(|x| x == "<module>"), "expected <module>: got {s:?}");
+        assert!(
+            s.iter().any(|x| x == "<module>"),
+            "expected <module>: got {s:?}"
+        );
     }
 
     #[test]
@@ -877,7 +888,10 @@ void free_fn() {}
 ";
         let a = tests_support::extract_cpp(src, "x/foo.cpp");
         for _ in 0..20 {
-            assert_eq!(tests_support::extract_cpp(src, "x/foo.cpp").blocks, a.blocks);
+            assert_eq!(
+                tests_support::extract_cpp(src, "x/foo.cpp").blocks,
+                a.blocks
+            );
         }
     }
 }

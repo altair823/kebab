@@ -64,11 +64,7 @@ pub trait OcrEngine: Send + Sync {
     /// Run OCR on `image_bytes`. `lang_hint` (BCP-47) can be passed
     /// through to engines that benefit from it (Tesseract languages,
     /// LLM prompt steering); ignore otherwise.
-    fn recognize(
-        &self,
-        image_bytes: &[u8],
-        lang_hint: Option<&Lang>,
-    ) -> Result<OcrText>;
+    fn recognize(&self, image_bytes: &[u8], lang_hint: Option<&Lang>) -> Result<OcrText>;
 }
 
 /// Mutate `block.ocr` in place by running `engine` over `image_bytes`,
@@ -244,11 +240,7 @@ impl OcrEngine for OllamaVisionOcr {
         format!("ollama/{}", self.model)
     }
 
-    fn recognize(
-        &self,
-        image_bytes: &[u8],
-        lang_hint: Option<&Lang>,
-    ) -> Result<OcrText> {
+    fn recognize(&self, image_bytes: &[u8], lang_hint: Option<&Lang>) -> Result<OcrText> {
         let (prepared, w, h) = image_prep::downscale_to_png(image_bytes, self.max_pixels)
             .context("preparing image for OCR")?;
         let b64 = BASE64_STANDARD.encode(&prepared);
@@ -280,9 +272,8 @@ impl OcrEngine for OllamaVisionOcr {
                 truncate(&body_text, 512)
             );
         }
-        let parsed: OllamaGenerateResponse = resp
-            .json()
-            .context("parsing Ollama OCR response as JSON")?;
+        let parsed: OllamaGenerateResponse =
+            resp.json().context("parsing Ollama OCR response as JSON")?;
         if let Some(err) = parsed.error {
             anyhow::bail!("OllamaVisionOcr: server error — {}", truncate(&err, 512));
         }
@@ -326,7 +317,10 @@ fn truncate(s: &str, n: usize) -> String {
         return s.to_string();
     }
     let mut out: String = s.chars().take(n).collect();
-    out.push_str(&format!("... (truncated, original {} chars)", s.chars().count()));
+    out.push_str(&format!(
+        "... (truncated, original {} chars)",
+        s.chars().count()
+    ));
     out
 }
 
@@ -395,14 +389,8 @@ mod tests {
 
     #[test]
     fn build_prompt_omits_hint_when_lang_und() {
-        let engine = OllamaVisionOcr::from_parts(
-            "http://x",
-            "m",
-            vec!["eng".into()],
-            1024,
-            300,
-        )
-        .unwrap();
+        let engine =
+            OllamaVisionOcr::from_parts("http://x", "m", vec!["eng".into()], 1024, 300).unwrap();
         let p = engine.build_prompt(Some(&Lang("und".into())));
         assert!(!p.contains("hint:"));
     }
@@ -439,11 +427,9 @@ mod tests {
     /// tested implicitly (no panic, no error).
     #[test]
     fn build_clamps_max_pixels_outside_legal_range() {
-        let too_small =
-            OllamaVisionOcr::from_parts("http://x", "m", vec![], 1, 300).unwrap();
+        let too_small = OllamaVisionOcr::from_parts("http://x", "m", vec![], 1, 300).unwrap();
         assert_eq!(too_small.max_pixels(), MIN_LONG_EDGE);
-        let too_big =
-            OllamaVisionOcr::from_parts("http://x", "m", vec![], u32::MAX, 300).unwrap();
+        let too_big = OllamaVisionOcr::from_parts("http://x", "m", vec![], u32::MAX, 300).unwrap();
         assert_eq!(too_big.max_pixels(), MAX_LONG_EDGE);
     }
 }

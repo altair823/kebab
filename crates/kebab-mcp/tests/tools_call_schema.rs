@@ -10,10 +10,7 @@ use rmcp::model::RawContent;
 fn minimal_config(data_dir: &std::path::Path, workspace_root: &std::path::Path) -> Config {
     let mut cfg = Config::defaults();
     cfg.storage.data_dir = data_dir.to_string_lossy().into_owned();
-    cfg.storage.model_dir = data_dir
-        .join("models")
-        .to_string_lossy()
-        .into_owned();
+    cfg.storage.model_dir = data_dir.join("models").to_string_lossy().into_owned();
     cfg.workspace.root = workspace_root.to_string_lossy().into_owned();
     cfg.workspace.exclude.clear();
     cfg.models.embedding.provider = "none".to_string();
@@ -52,7 +49,10 @@ async fn schema_tool_returns_schema_v1_json() {
         "expected isError=false on healthy schema, got {result:?}"
     );
 
-    let content = result.content.first().expect("expected at least one content item");
+    let content = result
+        .content
+        .first()
+        .expect("expected at least one content item");
 
     // Content = Annotated<RawContent>; deref to get the inner RawContent.
     let text = match &content.raw {
@@ -67,7 +67,9 @@ async fn schema_tool_returns_schema_v1_json() {
         "unexpected schema_version in: {v}"
     );
     assert_eq!(
-        v.get("capabilities").and_then(|c| c.get("mcp_server")).and_then(serde_json::Value::as_bool),
+        v.get("capabilities")
+            .and_then(|c| c.get("mcp_server"))
+            .and_then(serde_json::Value::as_bool),
         Some(true),
         "mcp_server capability flag should be true after fb-30",
     );

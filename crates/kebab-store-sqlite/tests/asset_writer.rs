@@ -44,8 +44,16 @@ fn copy_mode_writes_file_with_0o644_and_correct_bytes() {
 
     // Path: data_dir/assets/aa/aaaaaa…aa
     let aa = &asset.asset_id.0[..2];
-    let dest = env.data_dir().join("assets").join(aa).join(&asset.asset_id.0);
-    assert!(dest.exists(), "asset file not written at {}", dest.display());
+    let dest = env
+        .data_dir()
+        .join("assets")
+        .join(aa)
+        .join(&asset.asset_id.0);
+    assert!(
+        dest.exists(),
+        "asset file not written at {}",
+        dest.display()
+    );
     let on_disk = std::fs::read(&dest).unwrap();
     assert_eq!(on_disk, bytes);
 
@@ -82,10 +90,16 @@ fn reference_mode_does_not_write_file_but_records_path() {
     let mut asset = fixed_asset(bytes, 1, &cs);
     asset.source_uri = SourceUri::File(PathBuf::from("/path/to/original.md"));
 
-    store.put_asset_with_bytes(&asset, bytes).expect("ref write");
+    store
+        .put_asset_with_bytes(&asset, bytes)
+        .expect("ref write");
 
     let aa = &asset.asset_id.0[..2];
-    let dest = env.data_dir().join("assets").join(aa).join(&asset.asset_id.0);
+    let dest = env
+        .data_dir()
+        .join("assets")
+        .join(aa)
+        .join(&asset.asset_id.0);
     assert!(!dest.exists(), "reference mode must not copy bytes");
 
     let (storage_kind, storage_path): (String, String) = env.with_conn(|c| {
@@ -161,11 +175,18 @@ fn put_asset_with_bytes_sweeps_workspace_path_orphan() {
             |row| row.get(0),
         )
     });
-    assert_eq!(new_count, 1, "new asset_id must own the workspace_path slot");
+    assert_eq!(
+        new_count, 1,
+        "new asset_id must own the workspace_path slot"
+    );
 
     // New asset's bytes published at the final destination.
     let aa = &asset.asset_id.0[..2];
-    let dest = env.data_dir().join("assets").join(aa).join(&asset.asset_id.0);
+    let dest = env
+        .data_dir()
+        .join("assets")
+        .join(aa)
+        .join(&asset.asset_id.0);
     assert!(
         dest.exists(),
         "new asset bytes must be visible at {}",
@@ -185,7 +206,11 @@ fn put_asset_with_bytes_rejects_invalid_asset_id() {
     // 32 chars but contains a `/` — would let `assets_path_for` stitch
     // together a path outside the shard tree.
     let evil_id = "../etc/passwd_padded_to_xx_xxxxx".to_string();
-    assert_eq!(evil_id.len(), 32, "test fixture must be 32 chars to exercise length-only checks");
+    assert_eq!(
+        evil_id.len(),
+        32,
+        "test fixture must be 32 chars to exercise length-only checks"
+    );
     let mut asset = fixed_asset(b"x", 1, &b3_full_hex(b"x"));
     asset.asset_id = AssetId(evil_id.clone());
 

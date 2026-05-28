@@ -32,10 +32,9 @@ fn schema_path(name: &str) -> PathBuf {
 }
 
 fn parse_schema(name: &str) -> serde_json::Value {
-    let text = std::fs::read_to_string(schema_path(name))
-        .unwrap_or_else(|e| panic!("read {name}: {e}"));
-    serde_json::from_str(&text)
-        .unwrap_or_else(|e| panic!("{name} must parse as valid JSON: {e}"))
+    let text =
+        std::fs::read_to_string(schema_path(name)).unwrap_or_else(|e| panic!("read {name}: {e}"));
+    serde_json::from_str(&text).unwrap_or_else(|e| panic!("{name} must parse as valid JSON: {e}"))
 }
 
 #[test]

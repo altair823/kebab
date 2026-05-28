@@ -79,7 +79,10 @@ async fn search_with_trace_true_returns_trace_field() {
     let result = kebab_mcp::tools::search::handle(handler.state(), make_input(Some(true)));
     let v = extract_json(&result);
     assert_eq!(v["schema_version"], "search_response.v1");
-    assert!(v["trace"].is_object(), "trace field present when trace:true");
+    assert!(
+        v["trace"].is_object(),
+        "trace field present when trace:true"
+    );
     assert!(v["trace"]["timing"]["total_ms"].is_number());
     assert!(v["trace"]["lexical"].is_array());
     assert!(v["trace"]["vector"].is_array());

@@ -16,8 +16,8 @@
 mod common;
 
 use common::TestEnv;
-use kebab_app::ingest_with_config_opts;
 use kebab_app::IngestOpts;
+use kebab_app::ingest_with_config_opts;
 use kebab_core::{DocFilter, DocumentStore, SearchMode, SearchQuery, SourceScope};
 
 /// Helper: open the store via `TestEnv` and run `list_documents`.
@@ -125,17 +125,10 @@ fn include_scope_narrowing_does_not_purge() {
         include: vec!["**/*.rs".to_string()],
         exclude: env.config.workspace.exclude.clone(),
     };
-    let first = ingest_with_config_opts(
-        env.config.clone(),
-        wide_scope,
-        false,
-        IngestOpts::default(),
-    )
-    .expect("first ingest (wide) must succeed");
-    assert!(
-        first.new >= 2,
-        "expected at least 2 new docs: {first:?}"
-    );
+    let first =
+        ingest_with_config_opts(env.config.clone(), wide_scope, false, IngestOpts::default())
+            .expect("first ingest (wide) must succeed");
+    assert!(first.new >= 2, "expected at least 2 new docs: {first:?}");
     assert_eq!(
         first.purged_deleted_files, 0,
         "no purges on first ingest: {first:?}"

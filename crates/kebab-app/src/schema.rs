@@ -39,6 +39,14 @@ pub struct Capabilities {
 pub struct Models {
     pub parser_version: String,
     pub chunker_version: String,
+    /// v0.20.1+ (Bug #13). Corpus 안 활성 parser version 전체.
+    /// 빈 corpus → empty Vec. backward compat: `parser_version` field 보존.
+    #[serde(default)]
+    pub active_parsers: Vec<String>,
+    /// v0.20.1+ (Bug #13). Corpus 안 활성 chunker version 전체.
+    /// 빈 corpus → empty Vec.
+    #[serde(default)]
+    pub active_chunkers: Vec<String>,
     pub embedding_version: String,
     pub prompt_template_version: String,
     pub index_version: String,
@@ -142,10 +150,10 @@ fn capabilities_snapshot() -> Capabilities {
         rag_multi_turn: true,
         search_cache: true,
         incremental_ingest: true,
-        streaming_ask: false,
+        streaming_ask: true,
         http_daemon: false,
         mcp_server: true,
-        single_file_ingest: false,
+        single_file_ingest: true,
         bulk_search: true,
     }
 }
@@ -160,12 +168,8 @@ fn open_store_for_stats(cfg: &Config) -> anyhow::Result<kebab_store_sqlite::Sqli
     kebab_store_sqlite::SqliteStore::open_existing(&db_path)
 }
 
-fn collect_stats(
-    cfg: &Config,
-    store: &kebab_store_sqlite::SqliteStore,
-) -> anyhow::Result<Stats> {
-    let counts = store
-        .count_summary_with_threshold(u64::from(cfg.search.stale_threshold_days))?;
+fn collect_stats(cfg: &Config, store: &kebab_store_sqlite::SqliteStore) -> anyhow::Result<Stats> {
+    let counts = store.count_summary_with_threshold(u64::from(cfg.search.stale_threshold_days))?;
     let data_dir = kebab_config::expand_path(&cfg.storage.data_dir, "");
     let index_bytes = kebab_store_sqlite::stats_ext::index_bytes(&data_dir)
         .map_err(|e| anyhow::anyhow!("index_bytes: {e}"))?;
@@ -190,12 +194,16 @@ fn collect_stats(
 }
 
 fn collect_models(cfg: &Config, store: &kebab_store_sqlite::SqliteStore) -> Models {
+    let active_parsers = store.fetch_distinct_parser_versions().unwrap_or_default();
+    let active_chunkers = store.fetch_distinct_chunker_versions().unwrap_or_default();
     Models {
         // markdown parser only — pdf-page-v1 (P7) / image extractors (P6)
         // maintain their own versions; surface those when SchemaV1.models
         // becomes a multi-medium map (P+).
         parser_version: kebab_parse_md::PARSER_VERSION.to_string(),
         chunker_version: cfg.chunking.chunker_version.clone(),
+        active_parsers,
+        active_chunkers,
         // EmbeddingModelCfg uses `.model` (not `.id`) — adapt from plan.
         embedding_version: cfg.models.embedding.model.clone(),
         prompt_template_version: cfg.rag.prompt_template_version.clone(),
@@ -266,5 +274,29 @@ mod tests_stats_ext {
         assert!(s.stats.index_bytes.sqlite > 0);
         assert_eq!(s.stats.index_bytes.lancedb, 0);
         assert_eq!(s.stats.stale_doc_count, 0);
+    }
+}
+
+#[cfg(test)]
+mod tests_capabilities {
+    use super::*;
+
+    #[test]
+    fn capabilities_streaming_ask_matches_cli_surface() {
+        // Bug #9: kebab ask --stream 가 answer_event.v1 ndjson 191 event 정상 emit →
+        // capabilities.streaming_ask 가 true 여야 함.
+        let caps = capabilities_snapshot();
+        assert!(caps.streaming_ask, "streaming_ask must be true (Bug #9)");
+    }
+
+    #[test]
+    fn capabilities_single_file_ingest_matches_cli_surface() {
+        // Bug #9: kebab ingest-file <path> + kebab ingest-stdin --title <T> 양쪽 모두
+        // ingest_report.v1 정상 emit → capabilities.single_file_ingest 가 true 여야 함.
+        let caps = capabilities_snapshot();
+        assert!(
+            caps.single_file_ingest,
+            "single_file_ingest must be true (Bug #9)"
+        );
     }
 }

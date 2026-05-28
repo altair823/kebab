@@ -10,12 +10,11 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use globset::GlobMatcher;
 use kebab_core::{
-    ChunkId, ChunkerVersion, DocumentId, IndexVersion, RetrievalDetail, Retriever,
-    ScoreKind, SearchFilters, SearchHit, SearchMode, SearchQuery, SourceSpan, TrustLevel,
-    WorkspacePath,
+    ChunkId, ChunkerVersion, DocumentId, IndexVersion, RetrievalDetail, Retriever, ScoreKind,
+    SearchFilters, SearchHit, SearchMode, SearchQuery, SourceSpan, TrustLevel, WorkspacePath,
 };
 use kebab_store_sqlite::SqliteStore;
-use rusqlite::{params_from_iter, Connection, Row, ToSql};
+use rusqlite::{Connection, Row, ToSql, params_from_iter};
 
 use crate::citation_helper::citation_from_first_span;
 
@@ -124,13 +123,7 @@ impl Retriever for LexicalRetriever {
         };
 
         let conn = self.store.read_conn();
-        let raw_rows = run_query(
-            &conn,
-            &match_str,
-            self.snippet_words,
-            filters,
-            fetch_limit,
-        )?;
+        let raw_rows = run_query(&conn, &match_str, self.snippet_words, filters, fetch_limit)?;
 
         let mut hits: Vec<SearchHit> = Vec::with_capacity(raw_rows.len().min(k));
         let mut rank: u32 = 0;
@@ -224,8 +217,8 @@ fn build_match_string(text: &str) -> Option<String> {
 
     const MIN_TRIGRAM_CHARS: usize = 3;
 
-    let whole_candidate: Option<String> = (trimmed.chars().count() >= MIN_TRIGRAM_CHARS)
-        .then(|| escape_fts5_token(trimmed));
+    let whole_candidate: Option<String> =
+        (trimmed.chars().count() >= MIN_TRIGRAM_CHARS).then(|| escape_fts5_token(trimmed));
 
     let token_and_candidate: Option<String> = {
         let toks: Vec<String> = trimmed
@@ -332,9 +325,7 @@ fn run_query(
 
     // tags_any: doc must own at least one of the requested tags.
     if !filters.tags_any.is_empty() {
-        sql.push_str(
-            " AND f.doc_id IN (SELECT doc_id FROM document_tags WHERE tag IN (",
-        );
+        sql.push_str(" AND f.doc_id IN (SELECT doc_id FROM document_tags WHERE tag IN (");
         for (i, tag) in filters.tags_any.iter().enumerate() {
             if i > 0 {
                 sql.push(',');
@@ -378,8 +369,7 @@ fn run_query(
     //        ELSE (first object key)
     //   END IN (?, ...)
     if !filters.media.is_empty() {
-        let placeholders: Vec<&str> =
-            std::iter::repeat_n("?", filters.media.len()).collect();
+        let placeholders: Vec<&str> = std::iter::repeat_n("?", filters.media.len()).collect();
         let placeholders = placeholders.join(",");
         sql.push_str(&format!(
             " AND f.doc_id IN (\
@@ -457,7 +447,10 @@ fn run_query(
         .prepare(&sql)
         .context("kb-search lexical: prepare FTS5 statement")?;
     let rows = stmt
-        .query_map(params_from_iter(params.iter().map(std::convert::AsRef::as_ref)), row_from_sql)
+        .query_map(
+            params_from_iter(params.iter().map(std::convert::AsRef::as_ref)),
+            row_from_sql,
+        )
         .context("kb-search lexical: execute FTS5 query")?;
     let mut out: Vec<RawRow> = Vec::new();
     for r in rows {
@@ -682,7 +675,10 @@ mod tests {
     /// wrapped in `text : (...)`.
     #[test]
     fn build_match_string_single_long_token_no_duplicate_or() {
-        assert_eq!(build_match_string("러스트").unwrap(), r#"text : ("러스트")"#);
+        assert_eq!(
+            build_match_string("러스트").unwrap(),
+            r#"text : ("러스트")"#
+        );
         assert_eq!(build_match_string("rust").unwrap(), r#"text : ("rust")"#);
     }
 
@@ -772,9 +768,7 @@ mod tests {
         let c = citation_from_first_span("c1", p, Some("Intro".to_string()), Some(&span));
         match c {
             Citation::Page {
-                page,
-                ref section,
-                ..
+                page, ref section, ..
             } => {
                 assert_eq!(page, 4);
                 assert_eq!(section.as_deref(), Some("Intro"));

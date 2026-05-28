@@ -11,9 +11,8 @@ use std::path::PathBuf;
 
 use kebab_config::Config;
 use kebab_core::{
-    ChunkId, ChunkerVersion, Citation, DocumentId, IndexVersion, Lang,
-    RetrievalDetail, SearchHit, SearchMode,
-    asset::WorkspacePath,
+    ChunkId, ChunkerVersion, Citation, DocumentId, IndexVersion, Lang, RetrievalDetail, SearchHit,
+    SearchMode, asset::WorkspacePath,
 };
 use kebab_eval::{
     AggregateMetrics, CompareOpts, CompareReport, ComparisonKind, GoldenQuery, QueryResult,
@@ -267,8 +266,11 @@ fn compare_runs_classifies_win_loss_draw_regression() {
     drop(store);
 
     let report = compare_runs_with_config(&cfg, "run_a", "run_b", &CompareOpts::default()).unwrap();
-    let by_id: std::collections::HashMap<&str, &kebab_eval::QueryComparison> =
-        report.per_query.iter().map(|c| (c.query_id.as_str(), c)).collect();
+    let by_id: std::collections::HashMap<&str, &kebab_eval::QueryComparison> = report
+        .per_query
+        .iter()
+        .map(|c| (c.query_id.as_str(), c))
+        .collect();
     assert_eq!(by_id["q-001"].kind, ComparisonKind::Loss);
     assert_eq!(by_id["q-002"].kind, ComparisonKind::Win);
     assert_eq!(by_id["q-003"].kind, ComparisonKind::Win);
@@ -283,8 +285,20 @@ fn compare_strict_mode_refuses_chunker_version_mismatch() {
     let store = SqliteStore::open(&cfg).unwrap();
     store.run_migrations().unwrap();
     let now = OffsetDateTime::UNIX_EPOCH;
-    write_run(&store, "run_a", "test@1", now, vec![qr("q-001", vec![hit(1, "chunk-1", "doc-1")])]);
-    write_run(&store, "run_b", "test@2", now, vec![qr("q-001", vec![hit(1, "chunk-1", "doc-1")])]);
+    write_run(
+        &store,
+        "run_a",
+        "test@1",
+        now,
+        vec![qr("q-001", vec![hit(1, "chunk-1", "doc-1")])],
+    );
+    write_run(
+        &store,
+        "run_b",
+        "test@2",
+        now,
+        vec![qr("q-001", vec![hit(1, "chunk-1", "doc-1")])],
+    );
     drop(store);
 
     let opts = CompareOpts {
@@ -305,7 +319,13 @@ fn compare_graceful_falls_back_to_doc_id() {
     let now = OffsetDateTime::UNIX_EPOCH;
     // Run A uses test@1 chunker; run B uses test@2 — chunk_ids no longer
     // align, but doc_ids do.
-    write_run(&store, "run_a", "test@1", now, vec![qr("q-001", vec![hit(1, "chunk-1", "doc-1")])]);
+    write_run(
+        &store,
+        "run_a",
+        "test@1",
+        now,
+        vec![qr("q-001", vec![hit(1, "chunk-1", "doc-1")])],
+    );
     write_run(
         &store,
         "run_b",
@@ -319,7 +339,11 @@ fn compare_graceful_falls_back_to_doc_id() {
 
     let report = compare_runs_with_config(&cfg, "run_a", "run_b", &CompareOpts::default()).unwrap();
     assert_eq!(report.deltas["chunker_version_match"], "fallback_doc");
-    let q1 = report.per_query.iter().find(|c| c.query_id == "q-001").unwrap();
+    let q1 = report
+        .per_query
+        .iter()
+        .find(|c| c.query_id == "q-001")
+        .unwrap();
     // Both runs hit doc-1 at rank 1 → Draw.
     assert_eq!(q1.kind, ComparisonKind::Draw);
     assert_eq!(q1.a_hit_rank, Some(1));
@@ -374,13 +398,19 @@ fn compare_report_snapshot_matches_fixture() {
         .join("eval")
         .join("compare-1.json");
     if std::env::var("UPDATE_SNAPSHOTS").is_ok() {
-        fs::write(&fixture, format!("{}\n", serde_json::to_string_pretty(&actual).unwrap()))
-            .unwrap();
+        fs::write(
+            &fixture,
+            format!("{}\n", serde_json::to_string_pretty(&actual).unwrap()),
+        )
+        .unwrap();
     }
     let expected_text = fs::read_to_string(&fixture)
         .unwrap_or_else(|e| panic!("missing fixture {}: {e}", fixture.display()));
     let expected: serde_json::Value = serde_json::from_str(&expected_text).unwrap();
-    assert_eq!(actual, expected, "compare report drift — re-run with UPDATE_SNAPSHOTS=1 if intended");
+    assert_eq!(
+        actual, expected,
+        "compare report drift — re-run with UPDATE_SNAPSHOTS=1 if intended"
+    );
 }
 
 /// Project a `CompareReport` to the stable-across-runs subset.

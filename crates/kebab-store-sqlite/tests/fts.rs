@@ -334,9 +334,7 @@ fn normalize_ws(s: &str) -> String {
 /// - no `CREATE VIRTUAL TABLE chunks_fts` inside that block
 /// - no `END;` after the virtual-table line
 fn extract_design_5_5_fts_block() -> String {
-    let doc = include_str!(
-        "../../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md"
-    );
+    let doc = include_str!("../../../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md");
     let heading_idx = doc
         .find("### 5.5 Chunks + FTS5")
         .expect("design doc must contain `### 5.5 Chunks + FTS5` heading");
@@ -394,9 +392,7 @@ fn extract_migration_5_5_verbatim_block() -> String {
         .expect("V007 must carry the `End §5.5 verbatim block` closing anchor")
         + after_open_line;
     // Walk back from the close marker to the start of its comment line.
-    let close_line_start = migration[..close_idx]
-        .rfind('\n')
-        .map_or(0, |n| n + 1);
+    let close_line_start = migration[..close_idx].rfind('\n').map_or(0, |n| n + 1);
 
     migration[after_open_line..close_line_start].to_string()
 }
@@ -476,8 +472,7 @@ fn fts_store_drop_releases_wal_files() {
     }
     // The main DB file should likewise be removable.
     if db_path.exists() {
-        std::fs::remove_file(&db_path)
-            .expect("main DB file should be removable after store drop");
+        std::fs::remove_file(&db_path).expect("main DB file should be removable after store drop");
     }
 }
 
@@ -584,11 +579,7 @@ fn fts_trigram_english_substring_hits() {
         1,
         "substring of 'tokenizer' — trigram recall"
     );
-    assert_eq!(
-        count_match(&conn, "izer"),
-        1,
-        "substring of 'tokenizer'"
-    );
+    assert_eq!(count_match(&conn, "izer"), 1, "substring of 'tokenizer'");
     // 3-char-minimum applies to English too.
     assert_eq!(count_match(&conn, "to"), 0, "2-char English query");
 }

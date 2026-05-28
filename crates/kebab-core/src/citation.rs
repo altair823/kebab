@@ -63,7 +63,9 @@ impl Citation {
     /// fragment; they live in the structured wire object.
     pub fn to_uri(&self) -> String {
         match self {
-            Citation::Line { path, start, end, .. } => {
+            Citation::Line {
+                path, start, end, ..
+            } => {
                 if start == end {
                     format!("{}#L{}", path.0, start)
                 } else {

@@ -34,21 +34,25 @@
 //! still allowing the cross-crate calls.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
-use kebab_chunk::{CodeCAstV1Chunker, CodeCppAstV1Chunker, CodeGoAstV1Chunker, CodeJavaAstV1Chunker, CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker, CodeTextParagraphV1Chunker, CodeTsAstV1Chunker, DockerfileFileV1Chunker, K8sManifestResourceV1Chunker, ManifestFileV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker};
+use kebab_chunk::{
+    CodeCAstV1Chunker, CodeCppAstV1Chunker, CodeGoAstV1Chunker, CodeJavaAstV1Chunker,
+    CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker,
+    CodeTextParagraphV1Chunker, CodeTsAstV1Chunker, DockerfileFileV1Chunker,
+    K8sManifestResourceV1Chunker, ManifestFileV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker,
+};
 use kebab_core::{
-    Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, ChunkerVersion, Chunker,
-    DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput,
-    EmbeddingKind, ExtractContext, IngestReport, Lang, LanguageModel, MediaType,
-    ParserVersion, RawAsset, SearchHit, SearchQuery, SourceScope,
-    SourceUri, VectorRecord, VectorStore,
+    Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, Chunker, ChunkerVersion,
+    DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput, EmbeddingKind,
+    ExtractContext, IngestReport, Lang, LanguageModel, MediaType, ParserVersion, RawAsset,
+    SearchHit, SearchQuery, SourceScope, SourceUri, VectorRecord, VectorStore,
 };
 use kebab_llm_local::OllamaLanguageModel;
-use kebab_parse_image::{OllamaVisionOcr, apply_caption, apply_ocr};
+use kebab_parse_image::{OcrEngine, OllamaVisionOcr, apply_caption, apply_ocr};
 use kebab_parse_md::{BodyHints, build_canonical_document, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
 
@@ -60,20 +64,26 @@ pub mod error_signal;
 pub mod error_wire;
 pub mod external;
 pub mod fetch;
+pub mod ingest_log;
 pub mod ingest_progress;
 pub mod logging;
+pub mod pdf_ocr_apply;
 pub mod reset;
 pub mod schema;
 mod staleness;
 
 pub use app::{App, SearchResponse, short_query_hint};
-pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
-pub use reset::{ResetReport, ResetScope, enumerate_orphans};
-pub use error_wire::{ERROR_V1_ID, ErrorV1, StructuredError, classify};
-pub use fetch::fetch_with_config;
 #[doc(hidden)]
 pub use bulk::{BULK_QUERIES_MAX, bulk_search_with_config};
-pub use schema::{Capabilities, Models, SCHEMA_V1_ID, SchemaV1, Stats, WireBlock, schema_with_config};
+pub use error_wire::{ERROR_V1_ID, ErrorV1, StructuredError, classify};
+pub use fetch::fetch_with_config;
+pub use ingest_log::{IngestLogWriter, IngestSummary, LogEvent};
+pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
+pub use kebab_config::{ConfigInvalid, ConfigNotFound};
+pub use reset::{ResetReport, ResetScope, enumerate_orphans};
+pub use schema::{
+    Capabilities, Models, SCHEMA_V1_ID, SchemaV1, Stats, WireBlock, schema_with_config,
+};
 pub use staleness::{compute_stale, mark_stale_in_place};
 
 /// p9-fb-25: sentinel for files without an extension in
@@ -293,6 +303,24 @@ pub fn ingest_with_config_opts(
 
     let app = App::open_with_config(config)?;
 
+    // v0.20.x Hook 1: init per-run log writer (None when disabled or on open failure).
+    let log_writer: Option<Arc<Mutex<crate::ingest_log::IngestLogWriter>>> =
+        match crate::ingest_log::IngestLogWriter::open(&app.config.logging) {
+            Ok(Some(w)) => Some(Arc::new(Mutex::new(w))),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!(
+                    target: "kebab-app",
+                    error = %e,
+                    "ingest_log: failed to open log file; logging disabled for this run"
+                );
+                None
+            }
+        };
+    let ocr_ms_samples: Arc<Mutex<Vec<u64>>> = Arc::new(Mutex::new(Vec::new()));
+    let ocr_pages_cnt: Arc<Mutex<u32>> = Arc::new(Mutex::new(0u32));
+    let ocr_failures_cnt: Arc<Mutex<u32>> = Arc::new(Mutex::new(0u32));
+
     // Walk the workspace.
     crate::ingest_progress::emit(
         progress,
@@ -300,8 +328,8 @@ pub fn ingest_with_config_opts(
             root: scope.root.to_string_lossy().into_owned(),
         },
     );
-    let connector = FsSourceConnector::new(&app.config)
-        .context("kb-app::ingest: build FsSourceConnector")?;
+    let connector =
+        FsSourceConnector::new(&app.config).context("kb-app::ingest: build FsSourceConnector")?;
     let (assets, fs_skips) = connector
         .scan_with_skips(&scope)
         .context("kb-app::ingest: scan workspace")?;
@@ -311,6 +339,20 @@ pub fn ingest_with_config_opts(
             total: u32::try_from(assets.len()).unwrap_or(u32::MAX),
         },
     );
+
+    // v0.20.x Hook 4: emit skip events from scan into log writer.
+    if let Some(ref lw) = log_writer {
+        for ev in &fs_skips.events {
+            if let Ok(mut w) = lw.lock() {
+                let _ = w.write_event(&crate::ingest_log::LogEvent::Skip {
+                    ts: crate::ingest_log::now_ts(),
+                    doc_path: &ev.doc_path,
+                    reason: ev.reason,
+                    detail: ev.detail.as_deref(),
+                });
+            }
+        }
+    }
 
     // Embedder + vector store: build once at the top so the cold-start
     // cost is paid once even when the workspace has 1000 markdown files.
@@ -336,18 +378,14 @@ pub fn ingest_with_config_opts(
     // endpoint) aborts ingest fail-fast — better than silently disabling
     // OCR/caption mid-run.
     let ocr_engine: Option<OllamaVisionOcr> = if app.config.image.ocr.enabled {
-        Some(
-            OllamaVisionOcr::new(&app.config)
-                .context("kb-app::ingest: build OllamaVisionOcr")?,
-        )
+        Some(OllamaVisionOcr::new(&app.config).context("kb-app::ingest: build OllamaVisionOcr")?)
     } else {
         None
     };
     let caption_llm: Option<Box<dyn LanguageModel>> = if app.config.image.caption.enabled {
-        Some(Box::new(
-            OllamaLanguageModel::new(&app.config)
-                .context("kb-app::ingest: build OllamaLanguageModel for caption")?,
-        ))
+        Some(Box::new(OllamaLanguageModel::new(&app.config).context(
+            "kb-app::ingest: build OllamaLanguageModel for caption",
+        )?))
     } else {
         None
     };
@@ -355,6 +393,29 @@ pub fn ingest_with_config_opts(
         ocr_engine: ocr_engine.as_ref(),
         caption_llm: caption_llm.as_deref(),
     };
+
+    // p10 / v0.20 sub-item 1: PDF OCR engine eager init (H-5 resolution).
+    // image OCR pattern mirror — per-ingest 1회 build, fallible → fail-fast.
+    let pdf_ocr_engine: Option<OllamaVisionOcr> =
+        if app.config.pdf.ocr.enabled || app.config.pdf.ocr.always_on {
+            let cfg = &app.config.pdf.ocr;
+            let endpoint = match cfg.endpoint.as_deref() {
+                Some(s) if !s.is_empty() => s.to_string(),
+                _ => app.config.models.llm.endpoint.clone(),
+            };
+            Some(
+                OllamaVisionOcr::from_parts(
+                    endpoint,
+                    cfg.model.clone(),
+                    cfg.languages.clone(),
+                    cfg.max_pixels,
+                    cfg.request_timeout_secs,
+                )
+                .context("kb-app::ingest: build OllamaVisionOcr (pdf)")?,
+            )
+        } else {
+            None
+        };
 
     // Pre-load every existing doc_id so we can label `IngestItem.kind`
     // as `New` vs `Updated` correctly. `list_documents` returns one
@@ -381,10 +442,8 @@ pub fn ingest_with_config_opts(
     // current walker scope (config narrowing / include-glob change) is
     // NOT purged — we leave it in place to protect against accidental
     // data loss via config edits.
-    let scanned_paths: std::collections::HashSet<kebab_core::WorkspacePath> = assets
-        .iter()
-        .map(|a| a.workspace_path.clone())
-        .collect();
+    let scanned_paths: std::collections::HashSet<kebab_core::WorkspacePath> =
+        assets.iter().map(|a| a.workspace_path.clone()).collect();
     let purged_deleted_files = sweep_deleted_files(
         &app,
         &scanned_paths,
@@ -447,6 +506,13 @@ pub fn ingest_with_config_opts(
             &existing_doc_ids,
             &image_pipeline,
             force_reingest,
+            pdf_ocr_engine.as_ref(),
+            progress,
+            opts.cancel.as_ref(),
+            log_writer.clone(),
+            ocr_ms_samples.clone(),
+            ocr_pages_cnt.clone(),
+            ocr_failures_cnt.clone(),
         );
 
         let item = match item {
@@ -458,6 +524,16 @@ pub fn ingest_with_config_opts(
                     error = %e,
                     "kb-app::ingest: per-file fatal"
                 );
+                // v0.20.x Hook 3: write per-asset error to log writer.
+                if let Some(ref lw) = log_writer {
+                    if let Ok(mut w) = lw.lock() {
+                        let _ = w.write_event(&crate::ingest_log::LogEvent::Error {
+                            ts: crate::ingest_log::now_ts(),
+                            code: "ingest_asset_error",
+                            message: &format!("{e:#}"),
+                        });
+                    }
+                }
                 // Note: `error_count += 1` happens below in the
                 // `match item.kind { Error => ... }` arm — incrementing
                 // here too would double-count (a regression first
@@ -475,6 +551,8 @@ pub fn ingest_with_config_opts(
                     parser_version: None,
                     chunker_version: None,
                     warnings: Vec::new(),
+                    pdf_ocr_pages: None,
+                    pdf_ocr_ms_total: None,
                     error: Some(format!("{e:#}")),
                 }
             }
@@ -581,8 +659,7 @@ pub fn ingest_with_config_opts(
         }
     }
 
-    let duration_ms = u32::try_from(started_instant.elapsed().as_millis())
-        .unwrap_or(u32::MAX);
+    let duration_ms = u32::try_from(started_instant.elapsed().as_millis()).unwrap_or(u32::MAX);
     let finished_at = time::OffsetDateTime::now_utc();
 
     // Record the ingest_runs row with aggregate counts.
@@ -679,6 +756,29 @@ pub fn ingest_with_config_opts(
                 error = %e,
                 "bump_corpus_revision failed; cache may serve stale results until process restart"
             ),
+        }
+    }
+
+    // v0.20.x Hook 1 exit: write summary record + flush log writer.
+    if let Some(ref lw) = log_writer {
+        if let Ok(mut w) = lw.lock() {
+            let run_id = w.run_id().to_string();
+            let ms_samples = ocr_ms_samples.lock().map(|v| v.clone()).unwrap_or_default();
+            let pages = ocr_pages_cnt.lock().map(|v| *v).unwrap_or(0);
+            let failures = ocr_failures_cnt.lock().map(|v| *v).unwrap_or(0);
+            let summary = crate::ingest_log::IngestSummary::new(
+                crate::ingest_log::now_ts(),
+                run_id,
+                scanned_count,
+                new_count,
+                error_count,
+                pages,
+                failures,
+                &ms_samples,
+                started_instant.elapsed().as_millis() as u64,
+            );
+            let _ = w.write_summary(&summary);
+            let _ = w.flush();
         }
     }
 
@@ -840,8 +940,8 @@ fn try_skip_unchanged(
 
     if stored_is_tier3_fallback {
         // Embedder version still must match.
-        let embedder_match = existing_doc.last_embedding_version.as_ref()
-            == current_embedding_version;
+        let embedder_match =
+            existing_doc.last_embedding_version.as_ref() == current_embedding_version;
         if !embedder_match {
             return Ok(None);
         }
@@ -863,6 +963,8 @@ fn try_skip_unchanged(
             parser_version: Some(existing_doc.parser_version.clone()),
             chunker_version: existing_doc.last_chunker_version.clone(),
             warnings: Vec::new(),
+            pdf_ocr_pages: None,
+            pdf_ocr_ms_total: None,
             error: None,
         }));
     }
@@ -883,23 +985,17 @@ fn try_skip_unchanged(
         // sentinel removes every doc at this path (the new doc_id is
         // not yet known here — it's computed downstream from the new
         // PARSER_VERSION).
-        purge_workspace_path_for_parser_bump(app, asset).with_context(|| {
-            format!(
-                "parser-bump orphan purge at {}",
-                asset.workspace_path.0
-            )
-        })?;
+        purge_workspace_path_for_parser_bump(app, asset)
+            .with_context(|| format!("parser-bump orphan purge at {}", asset.workspace_path.0))?;
         return Ok(None);
     }
     // 3. Chunker unchanged.
-    let chunker_match = existing_doc.last_chunker_version.as_ref()
-        == Some(current_chunker_version);
+    let chunker_match = existing_doc.last_chunker_version.as_ref() == Some(current_chunker_version);
     if !chunker_match {
         return Ok(None);
     }
     // 4. Embedder unchanged.
-    let embedder_match = existing_doc.last_embedding_version.as_ref()
-        == current_embedding_version;
+    let embedder_match = existing_doc.last_embedding_version.as_ref() == current_embedding_version;
     if !embedder_match {
         return Ok(None);
     }
@@ -921,6 +1017,8 @@ fn try_skip_unchanged(
         parser_version: Some(existing_doc.parser_version.clone()),
         chunker_version: existing_doc.last_chunker_version.clone(),
         warnings: Vec::new(),
+        pdf_ocr_pages: None,
+        pdf_ocr_ms_total: None,
         error: None,
     }))
 }
@@ -933,7 +1031,8 @@ fn try_skip_unchanged(
 fn ext_for_skip_warning(path: &str) -> String {
     std::path::Path::new(path)
         .extension()
-        .and_then(|s| s.to_str()).map_or_else(|| NO_EXT_SENTINEL.to_string(), str::to_ascii_lowercase)
+        .and_then(|s| s.to_str())
+        .map_or_else(|| NO_EXT_SENTINEL.to_string(), str::to_ascii_lowercase)
 }
 
 /// p9-fb-25: render the `IngestItem.warnings` line for a Skipped
@@ -963,6 +1062,13 @@ fn ingest_one_asset(
     existing_doc_ids: &std::collections::HashSet<String>,
     image_pipeline: &ImagePipeline<'_>,
     force_reingest: bool,
+    pdf_ocr_engine: Option<&OllamaVisionOcr>,
+    progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
+    cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    log_writer: Option<Arc<Mutex<crate::ingest_log::IngestLogWriter>>>,
+    ocr_ms_samples: Arc<Mutex<Vec<u64>>>,
+    ocr_pages_cnt: Arc<Mutex<u32>>,
+    ocr_failures_cnt: Arc<Mutex<u32>>,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     tracing::debug!(
         target: "kebab-app::ingest",
@@ -998,14 +1104,37 @@ fn ingest_one_asset(
                 vector_store,
                 existing_doc_ids,
                 force_reingest,
+                pdf_ocr_engine,
+                progress,
+                cancel,
+                log_writer,
+                ocr_ms_samples,
+                ocr_pages_cnt,
+                ocr_failures_cnt,
             );
         }
         // p10-1A-2 / 1B: code ingest dispatch. p10-2: Tier 2 langs added. p10-3: shell added. p10-1D: c/cpp added.
         MediaType::Code(lang)
-            if matches!(lang.as_str(),
-                "rust" | "python" | "typescript" | "javascript" | "go" | "java" | "kotlin"
-                | "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod"
-                | "shell" | "c" | "cpp") =>
+            if matches!(
+                lang.as_str(),
+                "rust"
+                    | "python"
+                    | "typescript"
+                    | "javascript"
+                    | "go"
+                    | "java"
+                    | "kotlin"
+                    | "yaml"
+                    | "dockerfile"
+                    | "toml"
+                    | "json"
+                    | "xml"
+                    | "groovy"
+                    | "go-mod"
+                    | "shell"
+                    | "c"
+                    | "cpp"
+            ) =>
         {
             return ingest_one_code_asset(
                 app,
@@ -1032,6 +1161,8 @@ fn ingest_one_asset(
                 parser_version: None,
                 chunker_version: None,
                 warnings: vec![unsupported_media_warning(&asset.workspace_path.0)],
+                pdf_ocr_pages: None,
+                pdf_ocr_ms_total: None,
                 error: None,
             });
         }
@@ -1051,6 +1182,8 @@ fn ingest_one_asset(
                 parser_version: None,
                 chunker_version: None,
                 warnings: vec!["kb:// URI not yet supported".to_string()],
+                pdf_ocr_pages: None,
+                pdf_ocr_ms_total: None,
                 error: None,
             });
         }
@@ -1081,16 +1214,17 @@ fn ingest_one_asset(
 
     // Frontmatter — `parse_frontmatter` returns Ok even on malformed
     // frontmatter (warnings are surfaced through the `Vec<Warning>`).
-    let (metadata, fm_span, fm_warns) = parse_frontmatter(&bytes, &body_hints)
-        .context("kb-parse-md::parse_frontmatter")?;
+    let (metadata, fm_span, fm_warns) =
+        parse_frontmatter(&bytes, &body_hints).context("kb-parse-md::parse_frontmatter")?;
 
     let body_offset_lines = match fm_span {
         Some(span) => count_lines_in(&bytes[..span.end]),
         None => 0,
     };
 
-    let (parsed_blocks, blk_warns) = parse_blocks(&bytes[fm_span_end(fm_span)..], body_offset_lines)
-        .context("kb-parse-md::parse_blocks")?;
+    let (parsed_blocks, blk_warns) =
+        parse_blocks(&bytes[fm_span_end(fm_span)..], body_offset_lines)
+            .context("kb-parse-md::parse_blocks")?;
 
     let mut all_warnings = Vec::with_capacity(fm_warns.len() + blk_warns.len());
     all_warnings.extend(fm_warns);
@@ -1103,14 +1237,9 @@ fn ingest_one_asset(
         .map(|w| format!("{:?}: {}", w.kind, w.note))
         .collect();
 
-    let mut canonical = build_canonical_document(
-        asset,
-        metadata,
-        parsed_blocks,
-        parser_version,
-        all_warnings,
-    )
-    .context("kb-parse-md::build_canonical_document")?;
+    let mut canonical =
+        build_canonical_document(asset, metadata, parsed_blocks, parser_version, all_warnings)
+            .context("kb-parse-md::build_canonical_document")?;
 
     let chunks = MdHeadingV1Chunker
         .chunk(&canonical, chunk_policy)
@@ -1177,9 +1306,7 @@ fn ingest_one_asset(
                     dimensions,
                 })
                 .collect();
-            vec_store
-                .upsert(&records)
-                .context("VectorStore::upsert")?;
+            vec_store.upsert(&records).context("VectorStore::upsert")?;
         }
     }
 
@@ -1200,6 +1327,8 @@ fn ingest_one_asset(
         parser_version: Some(parser_version.clone()),
         chunker_version: Some(MdHeadingV1Chunker.chunker_version()),
         warnings: warning_notes,
+        pdf_ocr_pages: None,
+        pdf_ocr_ms_total: None,
         error: None,
     })
 }
@@ -1242,9 +1371,9 @@ fn ingest_one_image_asset(
                 chunk_count: None,
                 parser_version: None,
                 chunker_version: None,
-                warnings: vec![
-                    "kb:// URI not yet supported".to_string(),
-                ],
+                warnings: vec!["kb:// URI not yet supported".to_string()],
+                pdf_ocr_pages: None,
+                pdf_ocr_ms_total: None,
                 error: None,
             });
         }
@@ -1354,17 +1483,19 @@ fn ingest_one_image_asset(
                 "image document missing leading ImageRef block — OCR/caption skipped (first block: {:?})",
                 other.map(|b| std::mem::discriminant(b))
             );
-            canonical.provenance.events.push(kebab_core::ProvenanceEvent {
-                at: now,
-                agent: "kb-app".to_string(),
-                kind: kebab_core::ProvenanceKind::Warning,
-                note: Some(
-                    "image document missing leading ImageRef block — OCR/caption skipped"
-                        .to_string(),
-                ),
-            });
-            warning_notes
-                .push("ImageDispatchAnomaly: missing ImageRef block".to_string());
+            canonical
+                .provenance
+                .events
+                .push(kebab_core::ProvenanceEvent {
+                    at: now,
+                    agent: "kb-app".to_string(),
+                    kind: kebab_core::ProvenanceKind::Warning,
+                    note: Some(
+                        "image document missing leading ImageRef block — OCR/caption skipped"
+                            .to_string(),
+                    ),
+                });
+            warning_notes.push("ImageDispatchAnomaly: missing ImageRef block".to_string());
         }
     }
 
@@ -1455,6 +1586,8 @@ fn ingest_one_image_asset(
         parser_version: Some(canonical.parser_version.clone()),
         chunker_version: Some(MdHeadingV1Chunker.chunker_version()),
         warnings: warning_notes,
+        pdf_ocr_pages: None,
+        pdf_ocr_ms_total: None,
         error: None,
     })
 }
@@ -1510,10 +1643,7 @@ fn record_image_analysis_failure(
 /// 3. Sweeps the SQLite `documents` row (CASCADE drops `blocks` /
 ///    `chunks` / `embedding_records`). The `assets` row stays — same
 ///    bytes, same asset_id, only the derived `doc_id` changed.
-fn purge_workspace_path_for_parser_bump(
-    app: &App,
-    asset: &RawAsset,
-) -> anyhow::Result<()> {
+fn purge_workspace_path_for_parser_bump(app: &App, asset: &RawAsset) -> anyhow::Result<()> {
     let path = &asset.workspace_path.0;
     let stale = app
         .sqlite
@@ -1648,21 +1778,19 @@ fn sweep_deleted_files(
         }
 
         // File is truly absent → purge.
-        let chunk_ids = match kebab_store_sqlite::purge_deleted_workspace_path(
-            &app.sqlite,
-            &stored_path,
-        ) {
-            Ok(ids) => ids,
-            Err(e) => {
-                tracing::warn!(
-                    target: "kebab-app",
-                    path = %stored_path.0,
-                    error = %e,
-                    "sweep_deleted_files: purge failed; skipping this path"
-                );
-                continue;
-            }
-        };
+        let chunk_ids =
+            match kebab_store_sqlite::purge_deleted_workspace_path(&app.sqlite, &stored_path) {
+                Ok(ids) => ids,
+                Err(e) => {
+                    tracing::warn!(
+                        target: "kebab-app",
+                        path = %stored_path.0,
+                        error = %e,
+                        "sweep_deleted_files: purge failed; skipping this path"
+                    );
+                    continue;
+                }
+            };
 
         // Purge associated vectors (best-effort; partial failure
         // acceptable — orphan vectors get cleaned by `kebab reset
@@ -1725,6 +1853,13 @@ fn ingest_one_pdf_asset(
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
     force_reingest: bool,
+    pdf_ocr_engine: Option<&OllamaVisionOcr>,
+    progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
+    cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    log_writer: Option<Arc<Mutex<crate::ingest_log::IngestLogWriter>>>,
+    ocr_ms_samples: Arc<Mutex<Vec<u64>>>,
+    ocr_pages_cnt: Arc<Mutex<u32>>,
+    ocr_failures_cnt: Arc<Mutex<u32>>,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     let path = match &asset.source_uri {
         SourceUri::File(p) => p.clone(),
@@ -1739,9 +1874,9 @@ fn ingest_one_pdf_asset(
                 chunk_count: None,
                 parser_version: None,
                 chunker_version: None,
-                warnings: vec![
-                    "kb:// URI not yet supported".to_string(),
-                ],
+                warnings: vec!["kb:// URI not yet supported".to_string()],
+                pdf_ocr_pages: None,
+                pdf_ocr_ms_total: None,
                 error: None,
             });
         }
@@ -1777,6 +1912,105 @@ fn ingest_one_pdf_asset(
     let mut canonical = app
         .extract_for(&asset.media_type, &ctx, &bytes)
         .context("kb-app::extract_for (pdf)")?;
+
+    // v0.20 sub-item 1: post-extract OCR enrichment (PR #187 registry
+    // dispatch invariant 보존 — extract_for 가 normal entry).
+    let (pdf_ocr_pages, pdf_ocr_ms_total): (Option<u32>, Option<u64>) =
+        if app.config.pdf.ocr.enabled || app.config.pdf.ocr.always_on {
+            match pdf_ocr_engine {
+                Some(engine) => {
+                    let ocr_opts = crate::pdf_ocr_apply::PdfOcrOpts {
+                        enabled: app.config.pdf.ocr.enabled || app.config.pdf.ocr.always_on,
+                        always_on: app.config.pdf.ocr.always_on,
+                        valid_ratio_threshold: app.config.pdf.ocr.valid_ratio_threshold,
+                        min_char_count: app.config.pdf.ocr.min_char_count,
+                        lang_hint: app.config.pdf.ocr.lang_hint.clone().map(kebab_core::Lang),
+                        cancel: cancel.cloned(),
+                    };
+                    // v0.20.x Hook 2: pre-clone Arcs for capture by OCR closure.
+                    let lw_for_ocr = log_writer.clone();
+                    let samples_for_ocr = ocr_ms_samples.clone();
+                    let pages_for_ocr = ocr_pages_cnt.clone();
+                    let failures_for_ocr = ocr_failures_cnt.clone();
+                    let doc_path_for_log = asset.workspace_path.0.clone();
+
+                    let summary = crate::pdf_ocr_apply::apply_ocr_to_pdf_pages(
+                        &mut canonical,
+                        engine,
+                        &bytes,
+                        &ocr_opts,
+                        |p| match p {
+                            crate::pdf_ocr_apply::PdfOcrProgress::Started { page } => {
+                                if let Some(sender) = progress {
+                                    let _ = sender.send(
+                                        crate::ingest_progress::IngestEvent::PdfOcrStarted { page },
+                                    );
+                                }
+                            }
+                            crate::pdf_ocr_apply::PdfOcrProgress::Finished {
+                                page,
+                                ms,
+                                chars,
+                                skipped,
+                                image_byte_size,
+                                image_width,
+                                image_height,
+                                ref failure_reason,
+                            } => {
+                                if let Some(sender) = progress {
+                                    let _ = sender.send(
+                                        crate::ingest_progress::IngestEvent::PdfOcrFinished {
+                                            page,
+                                            ms,
+                                            chars,
+                                            ocr_engine: engine.engine_name().to_string(),
+                                            skipped,
+                                            image_byte_size,
+                                            image_width,
+                                            image_height,
+                                            failure_reason: failure_reason.clone(),
+                                        },
+                                    );
+                                }
+                                // v0.20.x Hook 2: write OCR event to log writer.
+                                let success = !skipped && failure_reason.is_none();
+                                if let Some(ref lw) = lw_for_ocr {
+                                    if let Ok(mut w) = lw.lock() {
+                                        let _ = w.write_event(&crate::ingest_log::LogEvent::Ocr {
+                                            ts: crate::ingest_log::now_ts(),
+                                            doc_path: &doc_path_for_log,
+                                            page,
+                                            image_byte_size,
+                                            image_width,
+                                            image_height,
+                                            ms,
+                                            chars,
+                                            success,
+                                            reason: failure_reason.as_deref(),
+                                            ocr_engine: engine.engine_name(),
+                                        });
+                                    }
+                                }
+                                if let Ok(mut p) = pages_for_ocr.lock() {
+                                    *p += 1;
+                                }
+                                if success {
+                                    if let Ok(mut s) = samples_for_ocr.lock() {
+                                        s.push(ms);
+                                    }
+                                } else if let Ok(mut f) = failures_for_ocr.lock() {
+                                    *f += 1;
+                                }
+                            }
+                        },
+                    )?;
+                    (Some(summary.pages_ocrd), Some(summary.ms_total))
+                }
+                None => (Some(0), Some(0)),
+            }
+        } else {
+            (None, None)
+        };
 
     // Per-medium chunker selection: PDF docs always use pdf-page-v1
     // regardless of `config.chunking.chunker_version`. The chunker
@@ -1818,9 +2052,7 @@ fn ingest_one_pdf_asset(
                 kind: EmbeddingKind::Document,
             })
             .collect();
-        let vectors = emb
-            .embed(&inputs)
-            .context("Embedder::embed (pdf chunks)")?;
+        let vectors = emb.embed(&inputs).context("Embedder::embed (pdf chunks)")?;
         let model_id = emb.model_id();
         let model_version = emb.model_version();
         let dimensions = emb.dimensions();
@@ -1879,6 +2111,8 @@ fn ingest_one_pdf_asset(
         parser_version: Some(canonical.parser_version.clone()),
         chunker_version: Some(chunker.chunker_version()),
         warnings,
+        pdf_ocr_pages,
+        pdf_ocr_ms_total,
         error: None,
     })
 }
@@ -1902,7 +2136,7 @@ fn ingest_one_code_asset(
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
     force_reingest: bool,
-    code_lang: &str,                        // <-- NEW (p10-1b Task D)
+    code_lang: &str, // <-- NEW (p10-1b Task D)
 ) -> anyhow::Result<kebab_core::IngestItem> {
     let path = match &asset.source_uri {
         SourceUri::File(p) => p.clone(),
@@ -1917,9 +2151,9 @@ fn ingest_one_code_asset(
                 chunk_count: None,
                 parser_version: None,
                 chunker_version: None,
-                warnings: vec![
-                    "kb:// URI not yet supported".to_string(),
-                ],
+                warnings: vec!["kb:// URI not yet supported".to_string()],
+                pdf_ocr_pages: None,
+                pdf_ocr_ms_total: None,
                 error: None,
             });
         }
@@ -1927,43 +2161,43 @@ fn ingest_one_code_asset(
 
     // p10-1b Task D/G/J: parser_version per-lang.
     let parser_version = match code_lang {
-        "rust"       => ParserVersion(kebab_parse_code::RUST_PARSER_VERSION.to_string()),
-        "python"     => ParserVersion(kebab_parse_code::PYTHON_PARSER_VERSION.to_string()),
+        "rust" => ParserVersion(kebab_parse_code::RUST_PARSER_VERSION.to_string()),
+        "python" => ParserVersion(kebab_parse_code::PYTHON_PARSER_VERSION.to_string()),
         "typescript" => ParserVersion(kebab_parse_code::TS_PARSER_VERSION.to_string()),
         "javascript" => ParserVersion(kebab_parse_code::JS_PARSER_VERSION.to_string()),
         "go" => ParserVersion(kebab_parse_code::GO_PARSER_VERSION.to_string()),
         "java" => ParserVersion(kebab_parse_code::JAVA_PARSER_VERSION.to_string()),
         "kotlin" => ParserVersion(kebab_parse_code::KOTLIN_PARSER_VERSION.to_string()),
         // p10-2: Tier 2 has no parse step — sentinel "none-v1".
-        "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod"
-            => ParserVersion("none-v1".to_string()),
+        "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod" => {
+            ParserVersion("none-v1".to_string())
+        }
         // p10-3: shell direct routes to Tier 3 (no parse step).
         "shell" => ParserVersion("none-v1".to_string()),
         // p10-1D: C + C++ AST extractors.
-        "c"   => ParserVersion(kebab_parse_code::C_PARSER_VERSION.to_string()),
+        "c" => ParserVersion(kebab_parse_code::C_PARSER_VERSION.to_string()),
         "cpp" => ParserVersion(kebab_parse_code::CPP_PARSER_VERSION.to_string()),
         other => anyhow::bail!("unsupported code_lang: {other}"),
     };
 
     // p10-1b Task D/G/J/L: chunker_version per-lang.
     let mut chunker_version = match code_lang {
-        "rust"       => CodeRustAstV1Chunker.chunker_version(),
-        "python"     => CodePythonAstV1Chunker.chunker_version(),
+        "rust" => CodeRustAstV1Chunker.chunker_version(),
+        "python" => CodePythonAstV1Chunker.chunker_version(),
         "typescript" => CodeTsAstV1Chunker.chunker_version(),
         "javascript" => CodeJsAstV1Chunker.chunker_version(),
         "go" => CodeGoAstV1Chunker.chunker_version(),
         "java" => CodeJavaAstV1Chunker.chunker_version(),
-        "kotlin"     => CodeKotlinAstV1Chunker.chunker_version(),
+        "kotlin" => CodeKotlinAstV1Chunker.chunker_version(),
         // p10-2 Tier 2:
-        "yaml"       => K8sManifestResourceV1Chunker.chunker_version(),
+        "yaml" => K8sManifestResourceV1Chunker.chunker_version(),
         "dockerfile" => DockerfileFileV1Chunker.chunker_version(),
-        "toml" | "json" | "xml" | "groovy" | "go-mod"
-                     => ManifestFileV1Chunker.chunker_version(),
+        "toml" | "json" | "xml" | "groovy" | "go-mod" => ManifestFileV1Chunker.chunker_version(),
         // p10-3:
-        "shell"      => CodeTextParagraphV1Chunker.chunker_version(),
+        "shell" => CodeTextParagraphV1Chunker.chunker_version(),
         // p10-1D: C + C++ AST chunkers.
-        "c"          => CodeCAstV1Chunker.chunker_version(),
-        "cpp"        => CodeCppAstV1Chunker.chunker_version(),
+        "c" => CodeCAstV1Chunker.chunker_version(),
+        "cpp" => CodeCppAstV1Chunker.chunker_version(),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -2026,8 +2260,12 @@ fn ingest_one_code_asset(
     // Tier 2 (yaml/dockerfile/…) and shell errors are real (e.g. non-UTF-8) — propagate.
     let mut canonical = match canonical_result {
         Ok(d) => d,
-        Err(e) if code_lang == "shell"
-            || matches!(code_lang, "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod") =>
+        Err(e)
+            if code_lang == "shell"
+                || matches!(
+                    code_lang,
+                    "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod"
+                ) =>
         {
             return Err(e).context("synthesize_tier2_document failed for tier 2/3 lang");
         }
@@ -2051,7 +2289,10 @@ fn ingest_one_code_asset(
     // Tier 2 langs already have "none-v1" parser_version normally, so exclude them
     // from the extract_fell_back guard with the !matches! exclusion.
     let extract_fell_back = canonical.parser_version.0 == "none-v1"
-        && !matches!(code_lang, "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod" | "shell");
+        && !matches!(
+            code_lang,
+            "yaml" | "dockerfile" | "toml" | "json" | "xml" | "groovy" | "go-mod" | "shell"
+        );
 
     let chunks_result: anyhow::Result<Vec<Chunk>> = if extract_fell_back {
         // Tier 1 lang whose extractor errored — go straight to Tier 3 chunker.
@@ -2110,7 +2351,7 @@ fn ingest_one_code_asset(
     // "shell" direct path is already Tier 3 — don't retry-double-up.
     let chunks: Vec<Chunk> = match chunks_result {
         Ok(v) if !v.is_empty() => v,
-        other if code_lang == "shell" => other?,  // shell propagates directly
+        other if code_lang == "shell" => other?, // shell propagates directly
         Ok(_empty) => {
             tracing::warn!(
                 workspace_path = %asset.workspace_path.0,
@@ -2134,7 +2375,9 @@ fn ingest_one_code_asset(
             canonical.parser_version = ParserVersion("none-v1".to_string());
             CodeTextParagraphV1Chunker
                 .chunk(&canonical, chunk_policy)
-                .context("kb-chunk::CodeTextParagraphV1Chunker::chunk (tier 3 fallback after error)")?
+                .context(
+                    "kb-chunk::CodeTextParagraphV1Chunker::chunk (tier 3 fallback after error)",
+                )?
         }
     };
 
@@ -2226,6 +2469,8 @@ fn ingest_one_code_asset(
         parser_version: Some(canonical.parser_version.clone()),
         chunker_version: Some(chunker_version),
         warnings,
+        pdf_ocr_pages: None,
+        pdf_ocr_ms_total: None,
         error: None,
     })
 }
@@ -2260,13 +2505,7 @@ fn synthesize_tier2_document(
         symbol: Some("<file>".to_string()),
         lang: Some(code_lang.to_string()),
     };
-    let block_id: BlockId = id_for_block(
-        &doc_id,
-        "code",
-        &[],
-        0,
-        &span,
-    );
+    let block_id: BlockId = id_for_block(&doc_id, "code", &[], 0, &span);
     let block = kebab_core::Block::Code(CodeBlock {
         common: CommonBlock {
             block_id,
@@ -2312,7 +2551,9 @@ fn synthesize_tier2_document(
     };
 
     let title = {
-        let fname = asset.workspace_path.0
+        let fname = asset
+            .workspace_path
+            .0
             .rsplit('/')
             .next()
             .unwrap_or(&asset.workspace_path.0);
@@ -2558,7 +2799,9 @@ pub fn ask_with_session_with_config(
 /// `data_dir_writable` check probes the resolved `storage.data_dir`
 /// from that config (so `--config` users see their custom paths
 /// reflected in the report rather than the XDG defaults).
-pub fn doctor_with_config_path(config_path: Option<&std::path::Path>) -> anyhow::Result<DoctorReport> {
+pub fn doctor_with_config_path(
+    config_path: Option<&std::path::Path>,
+) -> anyhow::Result<DoctorReport> {
     tracing::debug!("doctor() invoked");
     let mut checks = Vec::new();
 
@@ -2576,11 +2819,7 @@ pub fn doctor_with_config_path(config_path: Option<&std::path::Path>) -> anyhow:
     } else if config_path.is_some() {
         // Explicit `--config <path>` that doesn't exist is a hard error
         // — defaults would silently mask the user's intent.
-        (
-            false,
-            format!("{} (not found)", cfg_path.display()),
-            None,
-        )
+        (false, format!("{} (not found)", cfg_path.display()), None)
     } else {
         // No `--config` and no XDG file: defaults are always loadable.
         (true, format!("{} (defaults)", cfg_path.display()), None)
@@ -2666,16 +2905,18 @@ pub fn ingest_file_with_config(
     path: &std::path::Path,
 ) -> anyhow::Result<IngestReport> {
     if !path.exists() {
-        anyhow::bail!("ingest-file: source path does not exist: {}", path.display());
+        anyhow::bail!(
+            "ingest-file: source path does not exist: {}",
+            path.display()
+        );
     }
     if !path.is_file() {
         anyhow::bail!("ingest-file: not a regular file: {}", path.display());
     }
 
-    let ext_raw = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .ok_or_else(|| anyhow::anyhow!("ingest-file: source has no extension: {}", path.display()))?;
+    let ext_raw = path.extension().and_then(|e| e.to_str()).ok_or_else(|| {
+        anyhow::anyhow!("ingest-file: source has no extension: {}", path.display())
+    })?;
     let ext = ext_raw.to_lowercase();
 
     const SUPPORTED_EXTS: &[&str] = &["md", "pdf", "png", "jpg", "jpeg"];
@@ -2752,11 +2993,7 @@ pub fn ingest_stdin_with_config(
     let external_dir = crate::external::ensure_external_dir(&workspace_root)?;
     crate::external::ensure_kebabignore_entry(&workspace_root)?;
 
-    let dest = crate::external::copy_to_external(
-        &external_dir,
-        wrapped.as_bytes(),
-        "md",
-    )?;
+    let dest = crate::external::copy_to_external(&external_dir, wrapped.as_bytes(), "md")?;
 
     ingest_file_with_config(config, &dest)
 }
@@ -2764,7 +3001,10 @@ pub fn ingest_stdin_with_config(
 /// Returns true if `source_path` matches any `.kebabignore` pattern
 /// rooted at `workspace_root`. Used by `ingest_file_with_config` to
 /// emit a stderr warn before bypassing the ignore.
-fn check_kebabignore_match(workspace_root: &std::path::Path, source_path: &std::path::Path) -> bool {
+fn check_kebabignore_match(
+    workspace_root: &std::path::Path,
+    source_path: &std::path::Path,
+) -> bool {
     let kebabignore = workspace_root.join(".kebabignore");
     if !kebabignore.exists() {
         return false;
@@ -2785,5 +3025,7 @@ fn check_kebabignore_match(workspace_root: &std::path::Path, source_path: &std::
         Ok(m) => m,
         Err(_) => return false,
     };
-    matcher.matched(source_path, source_path.is_dir()).is_ignore()
+    matcher
+        .matched(source_path, source_path.is_dir())
+        .is_ignore()
 }

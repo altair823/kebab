@@ -50,14 +50,14 @@ impl App {
 fn fetch_chunk(app: &App, id: ChunkId, opts: FetchOpts) -> Result<FetchResult> {
     let target = <kebab_store_sqlite::SqliteStore as DocumentStore>::get_chunk(&app.sqlite, &id)?
         .ok_or_else(|| {
-            anyhow::Error::new(StructuredError(ErrorV1 {
-                schema_version: ERROR_V1_ID.to_string(),
-                code: "chunk_not_found".to_string(),
-                message: format!("chunk_id '{}' not found", id.0),
-                details: serde_json::Value::Null,
-                hint: None,
-            }))
-        })?;
+        anyhow::Error::new(StructuredError(ErrorV1 {
+            schema_version: ERROR_V1_ID.to_string(),
+            code: "chunk_not_found".to_string(),
+            message: format!("chunk_id '{}' not found", id.0),
+            details: serde_json::Value::Null,
+            hint: None,
+        }))
+    })?;
 
     let doc_id = target.doc_id.clone();
     let doc =
@@ -107,14 +107,14 @@ fn fetch_chunk(app: &App, id: ChunkId, opts: FetchOpts) -> Result<FetchResult> {
 fn fetch_doc(app: &App, id: DocumentId, opts: FetchOpts) -> Result<FetchResult> {
     let doc = <kebab_store_sqlite::SqliteStore as DocumentStore>::get_document(&app.sqlite, &id)?
         .ok_or_else(|| {
-            anyhow::Error::new(StructuredError(ErrorV1 {
-                schema_version: ERROR_V1_ID.to_string(),
-                code: "doc_not_found".to_string(),
-                message: format!("doc_id '{}' not found", id.0),
-                details: serde_json::Value::Null,
-                hint: None,
-            }))
-        })?;
+        anyhow::Error::new(StructuredError(ErrorV1 {
+            schema_version: ERROR_V1_ID.to_string(),
+            code: "doc_not_found".to_string(),
+            message: format!("doc_id '{}' not found", id.0),
+            details: serde_json::Value::Null,
+            hint: None,
+        }))
+    })?;
 
     let mut text = fmt_canonical_to_markdown(&doc);
     let mut truncated = false;
@@ -176,14 +176,14 @@ fn fetch_span(
 ) -> Result<FetchResult> {
     let doc = <kebab_store_sqlite::SqliteStore as DocumentStore>::get_document(&app.sqlite, &id)?
         .ok_or_else(|| {
-            anyhow::Error::new(StructuredError(ErrorV1 {
-                schema_version: ERROR_V1_ID.to_string(),
-                code: "doc_not_found".to_string(),
-                message: format!("doc_id '{}' not found", id.0),
-                details: serde_json::Value::Null,
-                hint: None,
-            }))
-        })?;
+        anyhow::Error::new(StructuredError(ErrorV1 {
+            schema_version: ERROR_V1_ID.to_string(),
+            code: "doc_not_found".to_string(),
+            message: format!("doc_id '{}' not found", id.0),
+            details: serde_json::Value::Null,
+            hint: None,
+        }))
+    })?;
 
     // Reject line-incompatible media types (PDF / audio). `SourceType`
     // (markdown / note / paper / reference / inbox) is the *user-facing*

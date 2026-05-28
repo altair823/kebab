@@ -20,9 +20,7 @@ use std::sync::OnceLock;
 use anyhow::{Context, Result, anyhow};
 use kebab_config::expand_path;
 use ort::session::Session;
-use tokenizers::{
-    Tokenizer, TruncationDirection, TruncationParams, TruncationStrategy,
-};
+use tokenizers::{Tokenizer, TruncationDirection, TruncationParams, TruncationStrategy};
 
 use crate::{NliScores, NliVerifier};
 
@@ -218,8 +216,12 @@ impl OnnxNliVerifier {
 
     fn load_tokenizer(&self) -> Result<Tokenizer> {
         let tokenizer_path = self.fetch(HF_TOKENIZER_FILE)?;
-        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| anyhow!("kebab-nli: Tokenizer::from_file({}) failed: {e}", tokenizer_path.display()))?;
+        let mut tokenizer = Tokenizer::from_file(&tokenizer_path).map_err(|e| {
+            anyhow!(
+                "kebab-nli: Tokenizer::from_file({}) failed: {e}",
+                tokenizer_path.display()
+            )
+        })?;
         tokenizer
             .with_truncation(Some(TruncationParams {
                 max_length: MAX_TOKENS,
@@ -354,7 +356,9 @@ mod tests {
     fn score_empty_hypothesis_returns_err() {
         let (_tmp, cfg) = tempdir_config();
         let v = OnnxNliVerifier::new(&cfg).unwrap();
-        let err = v.score("anything", "").expect_err("empty hypothesis must error");
+        let err = v
+            .score("anything", "")
+            .expect_err("empty hypothesis must error");
         assert!(
             err.to_string().contains("empty hypothesis"),
             "unexpected error message: {err}"

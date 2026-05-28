@@ -19,9 +19,7 @@ use kebab_core::{ChunkId, DocumentId};
 use kebab_store_sqlite::SqliteStore;
 
 use crate::loader::load_golden_set;
-use crate::metrics::{
-    AggregateMetrics, compute_aggregate_with_config, resolve_golden_path,
-};
+use crate::metrics::{AggregateMetrics, compute_aggregate_with_config, resolve_golden_path};
 use crate::types::{GoldenQuery, QueryResult};
 
 /// Strict-mode behavior pivot used by [`CompareOpts::strict_chunker_version`].
@@ -151,7 +149,11 @@ pub fn compare_runs_with_config(
 /// not a wire schema. Stable enough for snapshot tests.
 pub fn render_report_md(report: &CompareReport) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "# Eval compare: `{}` vs `{}`", report.run_a, report.run_b);
+    let _ = writeln!(
+        out,
+        "# Eval compare: `{}` vs `{}`",
+        report.run_a, report.run_b
+    );
     let _ = writeln!(out);
     let _ = writeln!(out, "## Aggregate deltas");
     let _ = writeln!(out);
@@ -171,7 +173,13 @@ pub fn render_report_md(report: &CompareReport) -> String {
             ),
         );
     }
-    let _ = writeln!(out, "| MRR | {} | {} | {} |", fmt(a.mrr), fmt(b.mrr), fmt_delta(a.mrr, b.mrr));
+    let _ = writeln!(
+        out,
+        "| MRR | {} | {} | {} |",
+        fmt(a.mrr),
+        fmt(b.mrr),
+        fmt_delta(a.mrr, b.mrr)
+    );
     for k in crate::metrics::TOP_K_VARIANTS {
         let _ = writeln!(
             out,
@@ -236,8 +244,16 @@ pub fn render_report_md(report: &CompareReport) -> String {
     );
     let _ = writeln!(out);
 
-    let wins: Vec<_> = report.per_query.iter().filter(|c| c.kind == ComparisonKind::Win).collect();
-    let losses: Vec<_> = report.per_query.iter().filter(|c| c.kind == ComparisonKind::Loss).collect();
+    let wins: Vec<_> = report
+        .per_query
+        .iter()
+        .filter(|c| c.kind == ComparisonKind::Win)
+        .collect();
+    let losses: Vec<_> = report
+        .per_query
+        .iter()
+        .filter(|c| c.kind == ComparisonKind::Loss)
+        .collect();
     let regressions: Vec<_> = report
         .per_query
         .iter()
@@ -370,8 +386,12 @@ fn build_per_query(
 
         let (a_rank, b_rank) = match gq {
             Some(g) => (
-                a.and_then(|q| first_hit_rank(q, &g.expected_chunk_ids, &g.expected_doc_ids, fallback)),
-                b.and_then(|q| first_hit_rank(q, &g.expected_chunk_ids, &g.expected_doc_ids, fallback)),
+                a.and_then(|q| {
+                    first_hit_rank(q, &g.expected_chunk_ids, &g.expected_doc_ids, fallback)
+                }),
+                b.and_then(|q| {
+                    first_hit_rank(q, &g.expected_chunk_ids, &g.expected_doc_ids, fallback)
+                }),
             ),
             None => (None, None),
         };
@@ -401,8 +421,9 @@ fn classify(
             // an expected chunk to find. Without that, downgrade to Loss
             // so refusal-flow queries (no expected_*) don't appear as
             // regressions.
-            let has_expected = gq
-                .is_some_and(|g| !g.expected_chunk_ids.is_empty() || !g.expected_doc_ids.is_empty());
+            let has_expected = gq.is_some_and(|g| {
+                !g.expected_chunk_ids.is_empty() || !g.expected_doc_ids.is_empty()
+            });
             if has_expected {
                 (ComparisonKind::Regression, Some("hit→miss".into()))
             } else {
@@ -512,7 +533,10 @@ mod tests {
             total_queries: 0,
             failed_queries: 0,
         };
-        let b = AggregateMetrics { mrr: 0.75, ..a.clone() };
+        let b = AggregateMetrics {
+            mrr: 0.75,
+            ..a.clone()
+        };
         let d = build_deltas(&a, &b, "exact");
         assert!(d["citation_coverage"].is_null());
         assert!(d["refusal_correctness"].is_null());

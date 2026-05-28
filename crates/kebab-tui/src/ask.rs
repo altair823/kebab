@@ -92,7 +92,8 @@ fn render_input(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::T
     // place_cursor_x sums in usize (avoiding u16 wrap) and clamps to
     // the right edge of the inner area.
     let prompt_w = crate::input::display_width(PROMPT);
-    let cursor_x = crate::input::place_cursor_x(inner.x, inner.width, prompt_w, s.input.cursor_col());
+    let cursor_x =
+        crate::input::place_cursor_x(inner.x, inner.width, prompt_w, s.input.cursor_col());
     f.set_cursor_position((cursor_x, inner.y));
 }
 
@@ -101,7 +102,11 @@ fn render_answer(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::
         "transcript".to_string()
     } else {
         let count = s.turns.len() + usize::from(s.streaming);
-        format!("transcript ({} turn{})", count, if count == 1 { "" } else { "s" })
+        format!(
+            "transcript ({} turn{})",
+            count,
+            if count == 1 { "" } else { "s" }
+        )
     };
     let block = Block::default().title(title).borders(Borders::ALL);
 
@@ -165,8 +170,7 @@ fn render_answer(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::
     let para = Paragraph::new(lines).wrap(Wrap { trim: false });
     let scroll = if s.follow_tail {
         let total_lines = para.line_count(inner.width);
-        u16::try_from(total_lines.saturating_sub(inner.height as usize))
-            .unwrap_or(u16::MAX)
+        u16::try_from(total_lines.saturating_sub(inner.height as usize)).unwrap_or(u16::MAX)
     } else {
         s.scroll
     };
@@ -265,17 +269,16 @@ fn render_status(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::
                 // live answers (PR-9c-2 wires the gate), but the
                 // match must stay exhaustive so the new variants
                 // compile without `_ => unreachable!()`.
-                Some(RefusalReason::NliVerificationFailed) => {
-                    "  refusal=nli_verification_failed"
-                }
-                Some(RefusalReason::NliModelUnavailable) => {
-                    "  refusal=nli_model_unavailable"
-                }
+                Some(RefusalReason::NliVerificationFailed) => "  refusal=nli_verification_failed",
+                Some(RefusalReason::NliModelUnavailable) => "  refusal=nli_model_unavailable",
                 None => "",
             };
             let mut lines = vec![
                 Line::from(format!("grounded {grounded}  model {}", a.model.id)),
-                Line::from(format!("prompt {}  mode {mode}", a.prompt_template_version.0)),
+                Line::from(format!(
+                    "prompt {}  mode {mode}",
+                    a.prompt_template_version.0
+                )),
                 Line::from(format!(
                     "k={}  used={}/{}{refusal}",
                     a.retrieval.k, a.retrieval.chunks_used, a.retrieval.chunks_returned
@@ -305,8 +308,17 @@ fn render_status(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn render_citations_or_explain(f: &mut Frame, area: Rect, s: &AskState, theme: &crate::theme::Theme) {
-    let title = if s.explain { "explain (per-claim)" } else { "citations" };
+fn render_citations_or_explain(
+    f: &mut Frame,
+    area: Rect,
+    s: &AskState,
+    theme: &crate::theme::Theme,
+) {
+    let title = if s.explain {
+        "explain (per-claim)"
+    } else {
+        "citations"
+    };
     let block = Block::default().title(title).borders(Borders::ALL);
     let lines: Vec<Line> = match &s.last_answer {
         None => vec![Line::from(Span::styled(
@@ -314,7 +326,11 @@ fn render_citations_or_explain(f: &mut Frame, area: Rect, s: &AskState, theme: &
             theme.style(crate::theme::Role::Hint),
         ))],
         Some(a) if a.citations.is_empty() => vec![Line::from(Span::styled(
-            if a.grounded { "(no citations)" } else { "(가까운 후보 없음)" },
+            if a.grounded {
+                "(no citations)"
+            } else {
+                "(가까운 후보 없음)"
+            },
             theme.style(crate::theme::Role::Hint),
         ))],
         Some(a) => a
@@ -406,11 +422,9 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
             //   no-op. Otherwise the new worker would race the
             //   detached one against the same Ollama endpoint and
             //   the stream output would interleave.
-            if state
-                .ask
-                .as_ref()
-                .is_none_or(|s| s.streaming || s.thread.is_some() || s.input.as_str().trim().is_empty())
-            {
+            if state.ask.as_ref().is_none_or(|s| {
+                s.streaming || s.thread.is_some() || s.input.as_str().trim().is_empty()
+            }) {
                 return KeyOutcome::Continue;
             }
             spawn_ask_worker(state);
@@ -573,8 +587,7 @@ fn spawn_ask_worker(state: &mut App) {
         turn_index: Some(turn_index),
         multi_hop,
     };
-    let handle =
-        thread::spawn(move || kebab_app::ask_with_config(cfg, &query, opts));
+    let handle = thread::spawn(move || kebab_app::ask_with_config(cfg, &query, opts));
     s.thread = Some(handle);
 }
 
@@ -645,8 +658,7 @@ pub(crate) fn poll_worker(state: &mut App) {
         }
         Ok(Err(e)) => {
             s.last_error = Some(format!("{e:#}"));
-            state.error_overlay =
-                Some(crate::error_popup::ErrorOverlay::from_anyhow(&e));
+            state.error_overlay = Some(crate::error_popup::ErrorOverlay::from_anyhow(&e));
         }
         Err(panic_payload) => {
             let msg = panic_payload
@@ -655,11 +667,10 @@ pub(crate) fn poll_worker(state: &mut App) {
                 .or_else(|| panic_payload.downcast_ref::<String>().cloned())
                 .unwrap_or_else(|| "ask worker panicked".to_string());
             s.last_error = Some(msg.clone());
-            state.error_overlay =
-                Some(crate::error_popup::ErrorOverlay::from_message(
-                    "ask worker panic",
-                    msg,
-                ));
+            state.error_overlay = Some(crate::error_popup::ErrorOverlay::from_message(
+                "ask worker panic",
+                msg,
+            ));
         }
     }
 }

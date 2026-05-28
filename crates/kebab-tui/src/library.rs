@@ -92,7 +92,11 @@ impl FilterEdit {
         if let Some(lang) = filter.lang.as_ref() {
             lang_buf.push_str(&lang.0);
         }
-        Self { field: FilterField::Tags, tags_buf, lang_buf }
+        Self {
+            field: FilterField::Tags,
+            tags_buf,
+            lang_buf,
+        }
     }
 
     pub fn commit_into(&self, filter: &mut DocFilter) {
@@ -145,7 +149,12 @@ fn filter_overlay_height(state: &App) -> u16 {
 const LABEL_TAGS: &str = "tags_any (csv): ";
 const LABEL_LANG: &str = "lang:           ";
 
-fn render_filter_overlay(f: &mut Frame, area: Rect, edit: &FilterEdit, theme: &crate::theme::Theme) {
+fn render_filter_overlay(
+    f: &mut Frame,
+    area: Rect,
+    edit: &FilterEdit,
+    theme: &crate::theme::Theme,
+) {
     let block = Block::default()
         .title("Filter (Tab=cycle field, Enter=apply, Esc=cancel)")
         .borders(Borders::ALL);
@@ -153,8 +162,18 @@ fn render_filter_overlay(f: &mut Frame, area: Rect, edit: &FilterEdit, theme: &c
     f.render_widget(block, area);
 
     let lines = vec![
-        line_with_focus(LABEL_TAGS, edit.tags_buf.as_str(), edit.field == FilterField::Tags, theme),
-        line_with_focus(LABEL_LANG, edit.lang_buf.as_str(), edit.field == FilterField::Lang, theme),
+        line_with_focus(
+            LABEL_TAGS,
+            edit.tags_buf.as_str(),
+            edit.field == FilterField::Tags,
+            theme,
+        ),
+        line_with_focus(
+            LABEL_LANG,
+            edit.lang_buf.as_str(),
+            edit.field == FilterField::Lang,
+            theme,
+        ),
     ];
     let para = Paragraph::new(lines);
     f.render_widget(para, inner);
@@ -171,7 +190,8 @@ fn render_filter_overlay(f: &mut Frame, area: Rect, edit: &FilterEdit, theme: &c
         FilterField::Lang => (LABEL_LANG, &edit.lang_buf, 1u16),
     };
     let label_w = display_width(label);
-    let cursor_x = crate::input::place_cursor_x(inner.x, inner.width, label_w, focused_buf.cursor_col());
+    let cursor_x =
+        crate::input::place_cursor_x(inner.x, inner.width, label_w, focused_buf.cursor_col());
     f.set_cursor_position((cursor_x, inner.y + row_offset));
 }
 
@@ -365,8 +385,7 @@ pub fn handle_key_library(state: &mut App, key: KeyEvent) -> KeyOutcome {
             // (e.g. "ingest already running") surface via the error
             // overlay.
             if let Err(e) = crate::ingest_progress::start_ingest(state) {
-                state.error_overlay =
-                    Some(crate::ErrorOverlay::from_anyhow(&e));
+                state.error_overlay = Some(crate::ErrorOverlay::from_anyhow(&e));
             }
             KeyOutcome::Continue
         }
@@ -472,10 +491,8 @@ fn set_selection(inner: &mut LibraryStateInner, idx: usize) {
 /// because the run loop owns the call site.
 pub(crate) fn refresh_docs(state: &mut App) -> anyhow::Result<()> {
     state.library.inner.loading = true;
-    let result = kebab_app::list_docs_with_config(
-        state.config.clone(),
-        state.library.inner.filter.clone(),
-    );
+    let result =
+        kebab_app::list_docs_with_config(state.config.clone(), state.library.inner.filter.clone());
     state.library.inner.loading = false;
     match result {
         Ok(docs) => {
@@ -560,11 +577,7 @@ mod tests {
     fn format_doc_header_aligns_with_format_doc_row() {
         let title_w = 30;
         let header = format_doc_header(title_w);
-        let header_text: String = header
-            .spans
-            .iter()
-            .map(|sp| sp.content.as_ref())
-            .collect();
+        let header_text: String = header.spans.iter().map(|sp| sp.content.as_ref()).collect();
         assert!(header_text.contains("TITLE"), "header has TITLE label");
         assert!(header_text.contains("TAGS"), "header has TAGS label");
         assert!(header_text.contains("UPDATED"), "header has UPDATED label");

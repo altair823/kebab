@@ -9,8 +9,8 @@
 use std::path::PathBuf;
 
 use kebab_core::{
-    AssetId, ChunkerVersion, DocumentId, IngestItem, IngestItemKind, IngestReport,
-    ParserVersion, SourceScope, WorkspacePath,
+    AssetId, ChunkerVersion, DocumentId, IngestItem, IngestItemKind, IngestReport, ParserVersion,
+    SourceScope, WorkspacePath,
 };
 use serde_json::Value;
 
@@ -54,6 +54,8 @@ fn fixture_report() -> IngestReport {
                 parser_version: Some(ParserVersion("md-frontmatter-v2".into())),
                 chunker_version: Some(ChunkerVersion("md-heading-v1".into())),
                 warnings: vec![],
+                pdf_ocr_pages: None,
+                pdf_ocr_ms_total: None,
                 error: None,
             },
             IngestItem {
@@ -67,6 +69,8 @@ fn fixture_report() -> IngestReport {
                 parser_version: Some(ParserVersion("md-frontmatter-v2".into())),
                 chunker_version: Some(ChunkerVersion("md-heading-v1".into())),
                 warnings: vec!["malformed frontmatter".into()],
+                pdf_ocr_pages: None,
+                pdf_ocr_ms_total: None,
                 error: None,
             },
         ]),

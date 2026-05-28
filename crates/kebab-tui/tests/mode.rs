@@ -24,12 +24,13 @@ fn esc_in_insert_flips_to_normal_and_consumes() {
     for &pane in &[Pane::Library, Pane::Search, Pane::Ask, Pane::Inspect] {
         let mut app = fresh_app(pane);
         app.mode = Mode::Insert;
-        let consumed = mode_intercept(
-            &mut app,
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-        );
+        let consumed = mode_intercept(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(consumed, "Esc in Insert must be consumed (pane: {pane:?})");
-        assert_eq!(app.mode, Mode::Normal, "mode flipped to Normal (pane: {pane:?})");
+        assert_eq!(
+            app.mode,
+            Mode::Normal,
+            "mode flipped to Normal (pane: {pane:?})"
+        );
     }
 }
 
@@ -40,10 +41,7 @@ fn esc_in_insert_flips_to_normal_and_consumes() {
 fn esc_in_normal_mode_falls_through() {
     let mut app = fresh_app(Pane::Library);
     assert_eq!(app.mode, Mode::Normal);
-    let consumed = mode_intercept(
-        &mut app,
-        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-    );
+    let consumed = mode_intercept(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(!consumed, "Esc in Normal must fall through to pane");
     assert_eq!(app.mode, Mode::Normal, "mode unchanged");
 }
@@ -55,13 +53,21 @@ fn esc_in_normal_mode_falls_through() {
 fn i_in_normal_on_library_inspect_jobs_flips_to_insert() {
     for &pane in &[Pane::Library, Pane::Inspect, Pane::Jobs] {
         let mut app = fresh_app(pane);
-        assert_eq!(app.mode, Mode::Normal, "auto_for({pane:?}) should be Normal");
+        assert_eq!(
+            app.mode,
+            Mode::Normal,
+            "auto_for({pane:?}) should be Normal"
+        );
         let consumed = mode_intercept(
             &mut app,
             KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
         );
         assert!(consumed, "i in Normal on {pane:?} must be consumed");
-        assert_eq!(app.mode, Mode::Insert, "mode flipped to Insert (pane: {pane:?})");
+        assert_eq!(
+            app.mode,
+            Mode::Insert,
+            "mode flipped to Insert (pane: {pane:?})"
+        );
     }
 }
 
@@ -72,7 +78,11 @@ fn i_in_normal_on_library_inspect_jobs_flips_to_insert() {
 fn i_on_search_or_ask_in_insert_falls_through_to_pane() {
     for &pane in &[Pane::Search, Pane::Ask] {
         let mut app = fresh_app(pane);
-        assert_eq!(app.mode, Mode::Insert, "auto_for({pane:?}) should be Insert");
+        assert_eq!(
+            app.mode,
+            Mode::Insert,
+            "auto_for({pane:?}) should be Insert"
+        );
         let consumed = mode_intercept(
             &mut app,
             KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
@@ -96,7 +106,11 @@ fn i_on_search_or_ask_in_normal_flips_to_insert() {
             KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
         );
         assert!(consumed, "i on {pane:?}/Normal must intercept (p9-fb-21)");
-        assert_eq!(app.mode, Mode::Insert, "mode flipped to Insert (pane: {pane:?})");
+        assert_eq!(
+            app.mode,
+            Mode::Insert,
+            "mode flipped to Insert (pane: {pane:?})"
+        );
     }
 }
 
@@ -107,10 +121,7 @@ fn i_on_search_or_ask_in_normal_flips_to_insert() {
 fn modifier_keys_do_not_trigger_intercept() {
     let mut app = fresh_app(Pane::Library);
     app.mode = Mode::Insert;
-    let consumed = mode_intercept(
-        &mut app,
-        KeyEvent::new(KeyCode::Esc, KeyModifiers::CONTROL),
-    );
+    let consumed = mode_intercept(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::CONTROL));
     assert!(!consumed, "Ctrl+Esc must fall through");
     assert_eq!(app.mode, Mode::Insert, "mode unchanged");
 
@@ -136,16 +147,19 @@ fn shift_modifier_passes_modifier_filter() {
     // 'i', so it falls through. Both are intentional.)
     let mut app = fresh_app(Pane::Library);
     app.mode = Mode::Insert;
-    let consumed = mode_intercept(
-        &mut app,
-        KeyEvent::new(KeyCode::Esc, KeyModifiers::SHIFT),
+    let consumed = mode_intercept(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::SHIFT));
+    assert!(
+        consumed,
+        "Shift+Esc still toggles (modifier filter allows SHIFT)"
     );
-    assert!(consumed, "Shift+Esc still toggles (modifier filter allows SHIFT)");
 
     let mut app = fresh_app(Pane::Library);
     let consumed = mode_intercept(
         &mut app,
         KeyEvent::new(KeyCode::Char('I'), KeyModifiers::SHIFT),
     );
-    assert!(!consumed, "Shift+I (capital) falls through — only lowercase 'i' toggles");
+    assert!(
+        !consumed,
+        "Shift+I (capital) falls through — only lowercase 'i' toggles"
+    );
 }

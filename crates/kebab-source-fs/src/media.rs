@@ -86,46 +86,97 @@ mod tests {
             MediaType::Code("rust".to_string())
         );
         // Cargo.toml is a Tier 2 code manifest (p10-2), handled by code_lang_for_path
-        assert_eq!(media_type_for(Path::new("Cargo.toml")), MediaType::Code("toml".to_string()));
+        assert_eq!(
+            media_type_for(Path::new("Cargo.toml")),
+            MediaType::Code("toml".to_string())
+        );
     }
 
     #[test]
     fn py_ts_js_files_map_to_media_code() {
-        assert_eq!(media_type_for(Path::new("a/b.py")),    MediaType::Code("python".into()));
-        assert_eq!(media_type_for(Path::new("a/b.pyi")),   MediaType::Code("python".into()));
-        assert_eq!(media_type_for(Path::new("a/b.ts")),    MediaType::Code("typescript".into()));
-        assert_eq!(media_type_for(Path::new("a/b.tsx")),   MediaType::Code("typescript".into()));
-        assert_eq!(media_type_for(Path::new("a/b.js")),    MediaType::Code("javascript".into()));
-        assert_eq!(media_type_for(Path::new("a/b.mjs")),   MediaType::Code("javascript".into()));
-        assert_eq!(media_type_for(Path::new("a/b.cjs")),   MediaType::Code("javascript".into()));
-        assert_eq!(media_type_for(Path::new("a/b.jsx")),   MediaType::Code("javascript".into()));
-        assert_eq!(media_type_for(Path::new("a/b.rs")),    MediaType::Code("rust".into()));
+        assert_eq!(
+            media_type_for(Path::new("a/b.py")),
+            MediaType::Code("python".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/b.pyi")),
+            MediaType::Code("python".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/b.ts")),
+            MediaType::Code("typescript".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/b.tsx")),
+            MediaType::Code("typescript".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/b.js")),
+            MediaType::Code("javascript".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/b.mjs")),
+            MediaType::Code("javascript".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/b.cjs")),
+            MediaType::Code("javascript".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/b.jsx")),
+            MediaType::Code("javascript".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/b.rs")),
+            MediaType::Code("rust".into())
+        );
     }
 
     #[test]
     fn ts_variants_mts_cts() {
         // .mts / .cts are TypeScript ESM / CommonJS — same grammar as .ts.
-        assert_eq!(media_type_for(Path::new("a/b.mts")), MediaType::Code("typescript".into()));
-        assert_eq!(media_type_for(Path::new("a/b.cts")), MediaType::Code("typescript".into()));
+        assert_eq!(
+            media_type_for(Path::new("a/b.mts")),
+            MediaType::Code("typescript".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/b.cts")),
+            MediaType::Code("typescript".into())
+        );
     }
 
     #[test]
     fn mdx_routes_to_markdown() {
         // MDX is markdown with JSX islands; the md parser folds the JSX
         // through as raw passthrough.
-        assert_eq!(media_type_for(Path::new("docs/page.mdx")), MediaType::Markdown);
+        assert_eq!(
+            media_type_for(Path::new("docs/page.mdx")),
+            MediaType::Markdown
+        );
     }
 
     #[test]
     fn go_files_map_to_media_code_go() {
-        assert_eq!(media_type_for(Path::new("a/b.go")), MediaType::Code("go".into()));
+        assert_eq!(
+            media_type_for(Path::new("a/b.go")),
+            MediaType::Code("go".into())
+        );
     }
 
     #[test]
     fn java_kotlin_files_map_to_media_code() {
-        assert_eq!(media_type_for(Path::new("a/b.java")), MediaType::Code("java".into()));
-        assert_eq!(media_type_for(Path::new("a/b.kt")), MediaType::Code("kotlin".into()));
-        assert_eq!(media_type_for(Path::new("a/b.kts")), MediaType::Code("kotlin".into()));
+        assert_eq!(
+            media_type_for(Path::new("a/b.java")),
+            MediaType::Code("java".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/b.kt")),
+            MediaType::Code("kotlin".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/b.kts")),
+            MediaType::Code("kotlin".into())
+        );
     }
 
     #[test]
@@ -142,11 +193,29 @@ mod tests {
 
     #[test]
     fn tier2_files_map_to_media_code() {
-        assert_eq!(media_type_for(Path::new("a/deploy.yaml")), MediaType::Code("yaml".into()));
-        assert_eq!(media_type_for(Path::new("a/Dockerfile")), MediaType::Code("dockerfile".into()));
-        assert_eq!(media_type_for(Path::new("a/Cargo.toml")), MediaType::Code("toml".into()));
-        assert_eq!(media_type_for(Path::new("a/pom.xml")), MediaType::Code("xml".into()));
-        assert_eq!(media_type_for(Path::new("a/build.gradle")), MediaType::Code("groovy".into()));
-        assert_eq!(media_type_for(Path::new("a/go.mod")), MediaType::Code("go-mod".into()));
+        assert_eq!(
+            media_type_for(Path::new("a/deploy.yaml")),
+            MediaType::Code("yaml".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/Dockerfile")),
+            MediaType::Code("dockerfile".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/Cargo.toml")),
+            MediaType::Code("toml".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/pom.xml")),
+            MediaType::Code("xml".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/build.gradle")),
+            MediaType::Code("groovy".into())
+        );
+        assert_eq!(
+            media_type_for(Path::new("a/go.mod")),
+            MediaType::Code("go-mod".into())
+        );
     }
 }

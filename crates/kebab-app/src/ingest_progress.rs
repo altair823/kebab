@@ -46,9 +46,12 @@ pub struct AggregateCounts {
 /// Ordering invariant per design §2.4a:
 ///
 /// ```text
-/// ScanStarted < ScanCompleted < (AssetStarted < AssetFinished)*
-///                             < (Completed | Aborted)
+/// ScanStarted < ScanCompleted
+///   < (AssetStarted [< (PdfOcrStarted < PdfOcrFinished)*] < AssetFinished)*
+///   < (Completed | Aborted)
 /// ```
+///
+/// `[]` = optional, per-PDF asset only (v0.20.0 sub-item 1).
 ///
 /// Embed-batch events (`embed_batch_started` / `embed_batch_finished`
 /// in §2.4a) are reserved for a future iteration and are not emitted
@@ -85,6 +88,30 @@ pub enum IngestEvent {
     /// aggregate at the cancel boundary. Emitted by `p9-fb-04`; this
     /// task never produces `Aborted`.
     Aborted { counts: AggregateCounts },
+    /// PDF page 별 OCR 시작 시 emit. v0.20.0 sub-item 1.
+    PdfOcrStarted { page: u32 },
+    /// PDF page 별 OCR 종료 시 emit. v0.20.0 sub-item 1.
+    /// `skipped` = `true` 일 시 OCR 미수행 (DCTDecode 부재 또는 engine 실패).
+    /// `chars = 0` 만으로는 "skip" 과 "0-char OCR result" 구분 불가, `skipped` field 가 명시적.
+    PdfOcrFinished {
+        page: u32,
+        ms: u64,
+        chars: u32,
+        ocr_engine: String,
+        skipped: bool,
+        /// v0.20.x ingest log: raster image byte size (additive minor, optional).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        image_byte_size: Option<u64>,
+        /// v0.20.x ingest log: raster image width in pixels (additive minor, optional).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        image_width: Option<u32>,
+        /// v0.20.x ingest log: raster image height in pixels (additive minor, optional).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        image_height: Option<u32>,
+        /// v0.20.x ingest log: OCR failure reason (additive minor, optional).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        failure_reason: Option<String>,
+    },
 }
 
 /// Map a `MediaType` to the short label used by `IngestEvent::AssetStarted`.
@@ -118,10 +145,7 @@ pub fn render_skipped_breakdown(map: &std::collections::BTreeMap<String, u32>) -
 /// Best-effort send into an optional `mpsc::Sender`. A dropped receiver
 /// is silently absorbed — the ingest hot path must not stall on a slow
 /// consumer. Logged at `trace` for diagnostics.
-pub(crate) fn emit(
-    progress: Option<&std::sync::mpsc::Sender<IngestEvent>>,
-    event: IngestEvent,
-) {
+pub(crate) fn emit(progress: Option<&std::sync::mpsc::Sender<IngestEvent>>, event: IngestEvent) {
     if let Some(tx) = progress {
         if tx.send(event).is_err() {
             tracing::trace!(
@@ -165,7 +189,10 @@ mod tests {
             media: "markdown".into(),
         };
         let v = serde_json::to_value(&ev).unwrap();
-        assert_eq!(v.get("kind").and_then(|s| s.as_str()), Some("asset_started"));
+        assert_eq!(
+            v.get("kind").and_then(|s| s.as_str()),
+            Some("asset_started")
+        );
         assert_eq!(v.get("idx").and_then(serde_json::Value::as_u64), Some(1));
         assert_eq!(v.get("total").and_then(serde_json::Value::as_u64), Some(10));
         assert_eq!(v.get("path").and_then(|s| s.as_str()), Some("notes/foo.md"));
@@ -184,8 +211,14 @@ mod tests {
         let v = serde_json::to_value(&ev).unwrap();
         assert_eq!(v.get("kind").and_then(|s| s.as_str()), Some("completed"));
         let counts = v.get("counts").unwrap();
-        assert_eq!(counts.get("scanned").and_then(serde_json::Value::as_u64), Some(5));
-        assert_eq!(counts.get("new").and_then(serde_json::Value::as_u64), Some(2));
+        assert_eq!(
+            counts.get("scanned").and_then(serde_json::Value::as_u64),
+            Some(5)
+        );
+        assert_eq!(
+            counts.get("new").and_then(serde_json::Value::as_u64),
+            Some(2)
+        );
     }
 
     #[test]

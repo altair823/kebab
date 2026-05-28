@@ -32,12 +32,9 @@ fn search_with_doc_id_filter_returns_only_target_doc() {
     common::ingest(&cfg, &workspace);
 
     // First, search without a doc-id filter to find what doc_ids exist.
-    let (stdout, _) = common::run_search_with_args(
-        &cfg,
-        &["--json", "--mode", "lexical", "rust"],
-    );
-    let resp: Value = serde_json::from_str(stdout.trim())
-        .unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
+    let (stdout, _) = common::run_search_with_args(&cfg, &["--json", "--mode", "lexical", "rust"]);
+    let resp: Value =
+        serde_json::from_str(stdout.trim()).unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
     let hits = resp["hits"].as_array().expect("hits array");
     assert!(
         hits.len() >= 2,
@@ -147,15 +144,19 @@ fn search_with_media_filter_md_alias_normalizes_to_markdown() {
     let (cfg, workspace, _data) = common::write_config(dir.path(), 30);
 
     // Only a markdown file — the `md` alias should match it.
-    fs::write(workspace.join("notes.md"), "# Notes\n\nrust async programming\n").unwrap();
+    fs::write(
+        workspace.join("notes.md"),
+        "# Notes\n\nrust async programming\n",
+    )
+    .unwrap();
     common::ingest(&cfg, &workspace);
 
     let (stdout, _) = common::run_search_with_args(
         &cfg,
         &["--json", "--mode", "lexical", "--media", "md", "rust"],
     );
-    let resp: Value = serde_json::from_str(stdout.trim())
-        .unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
+    let resp: Value =
+        serde_json::from_str(stdout.trim()).unwrap_or_else(|e| panic!("not JSON: {stdout:?}: {e}"));
     let hits = resp["hits"].as_array().expect("hits array");
 
     assert!(
@@ -189,10 +190,8 @@ fn search_with_tag_filter_matches_frontmatter_tags() {
     common::ingest(&cfg, &workspace);
 
     // Without filter — both docs must produce hits.
-    let (unfiltered, _) = common::run_search_with_args(
-        &cfg,
-        &["--json", "--mode", "lexical", "rust"],
-    );
+    let (unfiltered, _) =
+        common::run_search_with_args(&cfg, &["--json", "--mode", "lexical", "rust"]);
     let uresp: Value = serde_json::from_str(unfiltered.trim())
         .unwrap_or_else(|e| panic!("not JSON (unfiltered): {unfiltered:?}: {e}"));
     let uhits = uresp["hits"].as_array().expect("unfiltered hits array");
@@ -254,10 +253,8 @@ fn search_with_two_tag_filters_returns_or_within_tags() {
     common::ingest(&cfg, &workspace);
 
     // Without filter: all three docs produce hits.
-    let (unfiltered, _) = common::run_search_with_args(
-        &cfg,
-        &["--json", "--mode", "lexical", "rust"],
-    );
+    let (unfiltered, _) =
+        common::run_search_with_args(&cfg, &["--json", "--mode", "lexical", "rust"]);
     let uresp: Value = serde_json::from_str(unfiltered.trim())
         .unwrap_or_else(|e| panic!("not JSON (unfiltered): {unfiltered:?}: {e}"));
     let uhits = uresp["hits"].as_array().expect("unfiltered hits array");
@@ -270,10 +267,7 @@ fn search_with_two_tag_filters_returns_or_within_tags() {
     let (filtered, _) = common::run_search_with_args(
         &cfg,
         &[
-            "--json", "--mode", "lexical",
-            "--tag", "rust",
-            "--tag", "async",
-            "rust",
+            "--json", "--mode", "lexical", "--tag", "rust", "--tag", "async", "rust",
         ],
     );
     let fresp: Value = serde_json::from_str(filtered.trim())
@@ -301,6 +295,12 @@ fn search_with_two_tag_filters_returns_or_within_tags() {
         .collect();
     let has_a = paths.iter().any(|p| p.ends_with("a.md"));
     let has_b = paths.iter().any(|p| p.ends_with("b.md"));
-    assert!(has_a, "--tag rust must include a.md (rust-tagged): paths={paths:?}");
-    assert!(has_b, "--tag async must include b.md (async-tagged): paths={paths:?}");
+    assert!(
+        has_a,
+        "--tag rust must include a.md (rust-tagged): paths={paths:?}"
+    );
+    assert!(
+        has_b,
+        "--tag async must include b.md (async-tagged): paths={paths:?}"
+    );
 }

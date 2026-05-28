@@ -46,17 +46,13 @@ fn build_text_pdf(pages: &[Option<&str>]) -> Vec<u8> {
                 operations: vec![
                     Operation::new("BT", vec![]),
                     Operation::new("Tf", vec!["F1".into(), 24.into()]),
-                    Operation::new(
-                        "Td",
-                        vec![Object::Integer(100), Object::Integer(700)],
-                    ),
+                    Operation::new("Td", vec![Object::Integer(100), Object::Integer(700)]),
                     Operation::new("Tj", vec![Object::string_literal(*text)]),
                     Operation::new("ET", vec![]),
                 ],
             };
             let stream_data = content.encode().expect("content encode");
-            let content_id =
-                doc.add_object(Stream::new(dictionary! {}, stream_data));
+            let content_id = doc.add_object(Stream::new(dictionary! {}, stream_data));
             page_dict.set("Contents", content_id);
         }
         let page_id = doc.add_object(page_dict);
@@ -76,8 +72,7 @@ fn build_text_pdf(pages: &[Option<&str>]) -> Vec<u8> {
             Object::Integer(842),
         ],
     };
-    doc.objects
-        .insert(pages_id, Object::Dictionary(pages_dict));
+    doc.objects.insert(pages_id, Object::Dictionary(pages_dict));
 
     let catalog_id = doc.add_object(dictionary! {
         "Type" => "Catalog",
@@ -146,9 +141,8 @@ fn ingest_3_page_pdf_produces_one_doc_and_per_page_chunks() {
     write_pdf(&env.workspace_root, "three.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report =
-        kebab_app::ingest_with_config(cfg.clone(), env.scope(), false)
-            .expect("PDF ingest must succeed");
+    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false)
+        .expect("PDF ingest must succeed");
 
     assert_eq!(report.errors, 0);
     let items = report.items.as_ref().expect("items present");
@@ -157,23 +151,28 @@ fn ingest_3_page_pdf_produces_one_doc_and_per_page_chunks() {
         .find(|i| i.doc_path.0.ends_with("three.pdf"))
         .expect("PDF item present");
     assert_eq!(pdf_item.kind, IngestItemKind::New);
-    assert_eq!(pdf_item.block_count, Some(3), "one Block::Paragraph per page");
-    assert_eq!(pdf_item.chunk_count, Some(3), "one chunk per non-empty page");
+    assert_eq!(
+        pdf_item.block_count,
+        Some(3),
+        "one Block::Paragraph per page"
+    );
+    assert_eq!(
+        pdf_item.chunk_count,
+        Some(3),
+        "one chunk per non-empty page"
+    );
     assert_eq!(
         pdf_item.parser_version.as_ref().map(|p| p.0.as_str()),
         Some("pdf-text-v1")
     );
     assert_eq!(
         pdf_item.chunker_version.as_ref().map(|c| c.0.as_str()),
-        Some("pdf-page-v1")
+        Some("pdf-page-v1.1")
     );
 
     // Inspect the stored doc to confirm SourceSpan::Page round-trip.
-    let doc = kebab_app::inspect_doc_with_config(
-        cfg,
-        pdf_item.doc_id.as_ref().unwrap(),
-    )
-    .expect("inspect_doc returns the PDF document");
+    let doc = kebab_app::inspect_doc_with_config(cfg, pdf_item.doc_id.as_ref().unwrap())
+        .expect("inspect_doc returns the PDF document");
     assert_eq!(doc.blocks.len(), 3);
     for (i, block) in doc.blocks.iter().enumerate() {
         let want_page = (i as u32) + 1;
@@ -202,8 +201,7 @@ fn re_ingest_identical_pdf_produces_unchanged_with_same_doc_id() {
     write_pdf(&env.workspace_root, "stable.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report1 =
-        kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report1 = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
     let item1 = report1
         .items
         .as_ref()
@@ -214,8 +212,7 @@ fn re_ingest_identical_pdf_produces_unchanged_with_same_doc_id() {
         .unwrap();
     assert_eq!(item1.kind, IngestItemKind::New);
 
-    let report2 =
-        kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report2 = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
     let item2 = report2
         .items
         .unwrap()
@@ -239,8 +236,7 @@ fn re_ingest_edited_pdf_produces_new_doc_id() {
     std::fs::write(&path, &bytes_v1).unwrap();
     let cfg = cfg_with_pdf(&env);
 
-    let report_v1 =
-        kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report_v1 = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
     let id_v1 = report_v1
         .items
         .as_ref()
@@ -252,12 +248,10 @@ fn re_ingest_edited_pdf_produces_new_doc_id() {
         .clone()
         .unwrap();
 
-    let bytes_v2 =
-        build_text_pdf(&[Some("VERSION TWO entirely different body content.")]);
+    let bytes_v2 = build_text_pdf(&[Some("VERSION TWO entirely different body content.")]);
     std::fs::write(&path, &bytes_v2).unwrap();
 
-    let report_v2 =
-        kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report_v2 = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
     let item_v2 = report_v2
         .items
         .as_ref()
@@ -282,9 +276,11 @@ fn encrypted_pdf_fails_with_qpdf_hint() {
     write_pdf(&env.workspace_root, "secret.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report =
-        kebab_app::ingest_with_config(cfg, env.scope(), false).unwrap();
-    assert_eq!(report.errors, 1, "encrypted PDF must increment errors exactly once");
+    let report = kebab_app::ingest_with_config(cfg, env.scope(), false).unwrap();
+    assert_eq!(
+        report.errors, 1,
+        "encrypted PDF must increment errors exactly once"
+    );
     let items = report.items.as_ref().unwrap();
     let pdf_item = items
         .iter()
@@ -310,9 +306,11 @@ fn corrupt_pdf_fails_without_storing() {
     write_pdf(&env.workspace_root, "corrupt.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report =
-        kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
-    assert_eq!(report.errors, 1, "corrupt PDF must increment errors exactly once");
+    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    assert_eq!(
+        report.errors, 1,
+        "corrupt PDF must increment errors exactly once"
+    );
     let items = report.items.as_ref().unwrap();
     let pdf_item = items
         .iter()
@@ -322,11 +320,8 @@ fn corrupt_pdf_fails_without_storing() {
 
     // Confirm the doc was NOT stored — list_docs returns nothing for
     // this path.
-    let summaries = kebab_app::list_docs_with_config(
-        cfg,
-        kebab_core::DocFilter::default(),
-    )
-    .unwrap();
+    let summaries =
+        kebab_app::list_docs_with_config(cfg, kebab_core::DocFilter::default()).unwrap();
     assert!(
         !summaries
             .iter()
@@ -341,14 +336,15 @@ fn corrupt_pdf_fails_without_storing() {
 #[test]
 fn mixed_page_pdf_stores_asset_with_scanned_candidate_warning() {
     let env = TestEnv::lexical_only();
-    let bytes =
-        build_text_pdf(&[Some("first page"), None, Some("third page")]);
+    let bytes = build_text_pdf(&[Some("first page"), None, Some("third page")]);
     write_pdf(&env.workspace_root, "mixed.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report =
-        kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
-    assert_eq!(report.errors, 0, "scanned candidate is a Warning, not Error");
+    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    assert_eq!(
+        report.errors, 0,
+        "scanned candidate is a Warning, not Error"
+    );
     let pdf_item = report
         .items
         .as_ref()
@@ -365,14 +361,10 @@ fn mixed_page_pdf_stores_asset_with_scanned_candidate_warning() {
     assert_eq!(
         pdf_item.chunk_count,
         Some(2),
-        "pdf-page-v1 emits 0 chunks for the empty page; total = 2"
+        "pdf-page-v1.1 emits 0 chunks for the empty page; total = 2"
     );
 
-    let doc = kebab_app::inspect_doc_with_config(
-        cfg,
-        pdf_item.doc_id.as_ref().unwrap(),
-    )
-    .unwrap();
+    let doc = kebab_app::inspect_doc_with_config(cfg, pdf_item.doc_id.as_ref().unwrap()).unwrap();
     let warnings: Vec<_> = doc
         .provenance
         .events
@@ -419,8 +411,7 @@ fn ingest_report_arithmetic_invariant_holds_with_corrupt_pdf() {
     write_pdf(&env.workspace_root, "broken.pdf", &corrupt_pdf());
     let cfg = cfg_with_pdf(&env);
 
-    let report =
-        kebab_app::ingest_with_config(cfg, env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(cfg, env.scope(), false).unwrap();
     let total = report.new + report.updated + report.skipped + report.errors;
     assert_eq!(
         report.scanned, total,
@@ -441,14 +432,12 @@ fn long_pdf_round_trips_through_lexical_pipeline() {
     let pages: Vec<String> = (1..=50)
         .map(|i| format!("Page {i} body — lorem ipsum dolor sit amet."))
         .collect();
-    let page_refs: Vec<Option<&str>> =
-        pages.iter().map(|s| Some(s.as_str())).collect();
+    let page_refs: Vec<Option<&str>> = pages.iter().map(|s| Some(s.as_str())).collect();
     let bytes = build_text_pdf(&page_refs);
     write_pdf(&env.workspace_root, "long.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report =
-        kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
     assert_eq!(report.errors, 0);
     let pdf_item = report
         .items
@@ -466,8 +455,7 @@ fn long_pdf_round_trips_through_lexical_pipeline() {
 
     // Round-trip: list_docs sees the long PDF.
     let summaries =
-        kebab_app::list_docs_with_config(cfg, kebab_core::DocFilter::default())
-            .unwrap();
+        kebab_app::list_docs_with_config(cfg, kebab_core::DocFilter::default()).unwrap();
     assert!(summaries.iter().any(|s| s.doc_path.0.ends_with("long.pdf")));
 }
 
@@ -476,13 +464,11 @@ fn long_pdf_round_trips_through_lexical_pipeline() {
 #[test]
 fn inspect_doc_surfaces_page_spans() {
     let env = TestEnv::lexical_only();
-    let bytes =
-        build_text_pdf(&[Some("alpha body"), Some("beta body"), Some("gamma body")]);
+    let bytes = build_text_pdf(&[Some("alpha body"), Some("beta body"), Some("gamma body")]);
     write_pdf(&env.workspace_root, "inspect.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report =
-        kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
     let pdf_item = report
         .items
         .as_ref()
@@ -490,19 +476,12 @@ fn inspect_doc_surfaces_page_spans() {
         .iter()
         .find(|i| i.doc_path.0.ends_with("inspect.pdf"))
         .unwrap();
-    let doc = kebab_app::inspect_doc_with_config(
-        cfg,
-        pdf_item.doc_id.as_ref().unwrap(),
-    )
-    .unwrap();
+    let doc = kebab_app::inspect_doc_with_config(cfg, pdf_item.doc_id.as_ref().unwrap()).unwrap();
     assert_eq!(doc.parser_version.0, "pdf-text-v1");
     assert_eq!(doc.blocks.len(), 3);
     for block in &doc.blocks {
         match block {
-            Block::Paragraph(p) => assert!(matches!(
-                p.common.source_span,
-                SourceSpan::Page { .. }
-            )),
+            Block::Paragraph(p) => assert!(matches!(p.common.source_span, SourceSpan::Page { .. })),
             other => panic!("expected Paragraph, got {other:?}"),
         }
     }

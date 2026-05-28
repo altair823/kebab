@@ -18,8 +18,8 @@
 use std::ops::Range;
 use std::sync::OnceLock;
 
-use kebab_core::{Metadata, SourceType, TrustLevel};
 use crate::types::{Warning, WarningKind};
+use kebab_core::{Metadata, SourceType, TrustLevel};
 use lingua::{IsoCode639_1, Language, LanguageDetector, LanguageDetectorBuilder};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -430,25 +430,33 @@ fn derive_metadata(
     // ---- source_type ----
     let source_type = match raw.source_type.as_deref() {
         None => SourceType::Markdown,
-        Some(s) => if let Some(st) = parse_source_type(s) { st } else {
-            warnings.push(Warning {
-                kind: WarningKind::MalformedFrontmatter,
-                note: format!("unknown source_type={s}, defaulted to markdown"),
-            });
-            SourceType::Markdown
-        },
+        Some(s) => {
+            if let Some(st) = parse_source_type(s) {
+                st
+            } else {
+                warnings.push(Warning {
+                    kind: WarningKind::MalformedFrontmatter,
+                    note: format!("unknown source_type={s}, defaulted to markdown"),
+                });
+                SourceType::Markdown
+            }
+        }
     };
 
     // ---- trust_level ----
     let trust_level = match raw.trust_level.as_deref() {
         None => TrustLevel::Primary,
-        Some(s) => if let Some(tl) = parse_trust_level(s) { tl } else {
-            warnings.push(Warning {
-                kind: WarningKind::MalformedFrontmatter,
-                note: format!("unknown trust_level={s}, defaulted to primary"),
-            });
-            TrustLevel::Primary
-        },
+        Some(s) => {
+            if let Some(tl) = parse_trust_level(s) {
+                tl
+            } else {
+                warnings.push(Warning {
+                    kind: WarningKind::MalformedFrontmatter,
+                    note: format!("unknown trust_level={s}, defaulted to primary"),
+                });
+                TrustLevel::Primary
+            }
+        }
     };
 
     // ---- id alias ----
@@ -587,11 +595,7 @@ fn iso_code(lang: Language) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kebab_core::{
-        AssetId, WorkspacePath,
-        ids::id_for_doc,
-        versions::ParserVersion,
-    };
+    use kebab_core::{AssetId, WorkspacePath, ids::id_for_doc, versions::ParserVersion};
     use time::macros::datetime;
 
     fn hints() -> BodyHints {
@@ -626,7 +630,10 @@ trust_level: secondary\n\
         assert_eq!(meta.trust_level, TrustLevel::Secondary);
         assert_eq!(meta.created_at, datetime!(2024-03-01 00:00:00 UTC));
         assert_eq!(meta.updated_at, datetime!(2024-03-02 00:00:00 UTC));
-        assert_eq!(meta.user.get("title").and_then(|v| v.as_str()), Some("My Doc"));
+        assert_eq!(
+            meta.user.get("title").and_then(|v| v.as_str()),
+            Some("My Doc")
+        );
         assert_eq!(meta.user.get("lang").and_then(|v| v.as_str()), Some("en"));
         assert_eq!(meta.user_id_alias, None);
     }
@@ -679,7 +686,11 @@ source_type: alien\n\
         assert_eq!(meta.trust_level, TrustLevel::Primary);
         assert_eq!(meta.source_type, SourceType::Markdown);
         assert_eq!(warns.len(), 2);
-        assert!(warns.iter().all(|w| matches!(w.kind, WarningKind::MalformedFrontmatter)));
+        assert!(
+            warns
+                .iter()
+                .all(|w| matches!(w.kind, WarningKind::MalformedFrontmatter))
+        );
         assert!(warns.iter().any(|w| w.note.contains("trust_level=weird")));
         assert!(warns.iter().any(|w| w.note.contains("source_type=alien")));
     }
@@ -776,7 +787,10 @@ source_type: alien\n\
     #[test]
     fn detect_delimiters_no_match_without_leading_marker() {
         assert!(detect_delimiters(b"# heading\n---\n---\n").is_none());
-        assert!(detect_delimiters(b"  ---\n---\n").is_none(), "leading whitespace");
+        assert!(
+            detect_delimiters(b"  ---\n---\n").is_none(),
+            "leading whitespace"
+        );
         assert!(detect_delimiters(b"").is_none());
     }
 
@@ -857,10 +871,7 @@ updated_at: 2024-03-02T00:00:00Z\r\n\
         let (meta, span, warns) = parse_frontmatter(bytes, &hints()).unwrap();
         assert!(warns.is_empty(), "warnings: {warns:?}");
         assert!(span.is_some());
-        assert_eq!(
-            meta.user.get("title").and_then(|v| v.as_str()),
-            Some("Doc")
-        );
+        assert_eq!(meta.user.get("title").and_then(|v| v.as_str()), Some("Doc"));
         assert_eq!(meta.created_at, datetime!(2024-03-01 00:00:00 UTC));
         assert_eq!(meta.updated_at, datetime!(2024-03-02 00:00:00 UTC));
     }
@@ -874,10 +885,7 @@ created_at = \"2024-03-01T00:00:00Z\"\r\n\
         let (meta, span, warns) = parse_frontmatter(bytes, &hints()).unwrap();
         assert!(warns.is_empty(), "warnings: {warns:?}");
         assert!(span.is_some());
-        assert_eq!(
-            meta.user.get("title").and_then(|v| v.as_str()),
-            Some("Doc")
-        );
+        assert_eq!(meta.user.get("title").and_then(|v| v.as_str()), Some("Doc"));
         assert_eq!(meta.created_at, datetime!(2024-03-01 00:00:00 UTC));
     }
 
@@ -960,10 +968,7 @@ created_at: 2024-03-01T00:00:00Z\n\
         assert!(warns.is_empty(), "warnings: {warns:?}");
         let span = span.expect("span present");
         assert_eq!(span.start, 3);
-        assert_eq!(
-            meta.user.get("title").and_then(|v| v.as_str()),
-            Some("Doc")
-        );
+        assert_eq!(meta.user.get("title").and_then(|v| v.as_str()), Some("Doc"));
         assert_eq!(meta.user.get("lang").and_then(|v| v.as_str()), Some("en"));
         assert_eq!(meta.created_at, datetime!(2024-03-01 00:00:00 UTC));
     }

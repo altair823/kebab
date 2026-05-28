@@ -14,9 +14,7 @@ use crate::ask::{drain_stream, handle_key_ask, poll_worker, render_ask};
 use crate::error_popup::{ErrorOverlay, render_error_overlay};
 use crate::inspect::{handle_key_inspect, refresh_inspect, render_inspect};
 use crate::library::{handle_key_library, refresh_docs, render_library};
-use crate::search::{
-    debounce_due, fire_search, handle_key_search, refresh_preview, render_search,
-};
+use crate::search::{debounce_due, fire_search, handle_key_search, refresh_preview, render_search};
 use crate::terminal::TuiTerminal;
 
 /// Poll interval for crossterm's `event::poll`. Short enough that a
@@ -69,10 +67,7 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                     // current generation's result populates `hits`
                     // / clears `searching` here.
                     crate::search::poll_worker(app);
-                    let due = app
-                        .search
-                        .as_ref()
-                        .is_some_and(debounce_due);
+                    let due = app.search.as_ref().is_some_and(debounce_due);
                     if due {
                         if let Err(e) = fire_search(app) {
                             app.error_overlay = Some(ErrorOverlay::from_anyhow(&e));
@@ -97,10 +92,7 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
                     poll_worker(app);
                 }
                 Pane::Inspect => {
-                    let due = app
-                        .inspect
-                        .as_ref()
-                        .is_some_and(|s| s.needs_fetch);
+                    let due = app.inspect.as_ref().is_some_and(|s| s.needs_fetch);
                     if due {
                         if let Err(e) = refresh_inspect(app) {
                             app.error_overlay = Some(ErrorOverlay::from_anyhow(&e));
@@ -227,10 +219,7 @@ pub(crate) fn run_loop(app: &mut App) -> Result<()> {
 
 /// Stub key handler for panes whose authoring task has not landed
 /// yet. `q` / `Esc` returns to Library; everything else is a no-op.
-fn handle_key_unimplemented_pane(
-    app: &mut App,
-    key: crossterm::event::KeyEvent,
-) -> KeyOutcome {
+fn handle_key_unimplemented_pane(app: &mut App, key: crossterm::event::KeyEvent) -> KeyOutcome {
     use crossterm::event::KeyCode;
     if app.error_overlay.is_some() {
         app.error_overlay = None;
@@ -250,10 +239,10 @@ fn render_root(f: &mut Frame, app: &App) {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),  // top header
-            Constraint::Min(1),     // pane content
-            Constraint::Length(1),  // status bar
-            Constraint::Length(1),  // key hint bar
+            Constraint::Length(1), // top header
+            Constraint::Min(1),    // pane content
+            Constraint::Length(1), // status bar
+            Constraint::Length(1), // key hint bar
         ])
         .split(f.area());
     render_header(f, outer[0], app);
@@ -282,7 +271,11 @@ fn render_root(f: &mut Frame, app: &App) {
 
 /// p9-fb-37: centered sub-rect helper for the trace popup. Returns
 /// a rect of `percent_x` × `percent_y` percent of `r`, centered.
-fn centered_rect(percent_x: u16, percent_y: u16, r: ratatui::layout::Rect) -> ratatui::layout::Rect {
+fn centered_rect(
+    percent_x: u16,
+    percent_y: u16,
+    r: ratatui::layout::Rect,
+) -> ratatui::layout::Rect {
     use ratatui::layout::{Constraint, Direction, Layout};
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)
@@ -456,7 +449,7 @@ fn render_key_hints(f: &mut Frame, area: Rect, app: &App) {
 /// - **Order**: most-frequent verb first; last fragment is always
 ///   the way back out (`Esc`/`q`).
 pub fn footer_hints(focus: Pane, mode: crate::app::Mode, filter_open: bool) -> &'static str {
-    use crate::app::Mode::{Normal, Insert};
+    use crate::app::Mode::{Insert, Normal};
     // p9-fb-21: every hint starts with `F1 도움말` so the cheatsheet
     // is always one keystroke away — dogfooding feedback was that
     // the F1 binding itself was undiscoverable.
@@ -465,22 +458,34 @@ pub fn footer_hints(focus: Pane, mode: crate::app::Mode, filter_open: bool) -> &
         // captures every key, mode label irrelevant).
         (Pane::Library, _, true) => "F1 도움말  Tab 필드전환  Enter 적용  Esc 취소",
         // Library Normal: full navigation surface.
-        (Pane::Library, Normal, false) => "F1 도움말  ↑/k 위로  ↓/j 아래로  gg 맨위  G 맨아래  f 필터  / 검색  ? 질문  Enter 자세히  r 인덱싱  q 종료",
+        (Pane::Library, Normal, false) => {
+            "F1 도움말  ↑/k 위로  ↓/j 아래로  gg 맨위  G 맨아래  f 필터  / 검색  ? 질문  Enter 자세히  r 인덱싱  q 종료"
+        }
         // Library Insert: degenerate — nothing types in Library.
         (Pane::Library, Insert, false) => "F1 도움말  Esc 로 NORMAL 모드",
         // Search Insert: typing the query is the dominant action.
         // `i` becomes a typed char here (intercept only fires in
         // Normal mode); `o` is the chunk-inspect command exposed
         // via Esc → o (was `i` pre-fb-21).
-        (Pane::Search, Insert, _) => "F1 도움말  타이핑 검색어  Tab 모드전환  Enter 검색  Esc 로 NORMAL 모드 (j/k 이동  o 인스펙트  g 에디터  i 입력모드)",
+        (Pane::Search, Insert, _) => {
+            "F1 도움말  타이핑 검색어  Tab 모드전환  Enter 검색  Esc 로 NORMAL 모드 (j/k 이동  o 인스펙트  g 에디터  i 입력모드)"
+        }
         // Search Normal: navigation + commands.
-        (Pane::Search, Normal, _) => "F1 도움말  ↑/k 위로  ↓/j 아래로  Tab 모드전환  Enter 검색  o 인스펙트  g 에디터  i 입력모드  Esc 뒤로",
+        (Pane::Search, Normal, _) => {
+            "F1 도움말  ↑/k 위로  ↓/j 아래로  Tab 모드전환  Enter 검색  o 인스펙트  g 에디터  i 입력모드  Esc 뒤로"
+        }
         // Ask Insert: typing the question.
-        (Pane::Ask, Insert, _) => "F1 도움말  타이핑 질문  Enter 전송  Esc 로 NORMAL 모드 (e 상세  j/k 스크롤  i 입력모드)",
+        (Pane::Ask, Insert, _) => {
+            "F1 도움말  타이핑 질문  Enter 전송  Esc 로 NORMAL 모드 (e 상세  j/k 스크롤  i 입력모드)"
+        }
         // Ask Normal: scroll + toggle.
-        (Pane::Ask, Normal, _) => "F1 도움말  e 상세설명  ↑/k 위로  ↓/j 아래로  Enter 전송  Ctrl-L 새대화  i 입력모드  Esc 뒤로",
+        (Pane::Ask, Normal, _) => {
+            "F1 도움말  e 상세설명  ↑/k 위로  ↓/j 아래로  Enter 전송  Ctrl-L 새대화  i 입력모드  Esc 뒤로"
+        }
         // Inspect Normal (default): scroll + collapse.
-        (Pane::Inspect, Normal, _) => "F1 도움말  ↑/k 위로  ↓/j 아래로  PgUp/PgDn 페이지  c 섹션접기  Esc/q 뒤로",
+        (Pane::Inspect, Normal, _) => {
+            "F1 도움말  ↑/k 위로  ↓/j 아래로  PgUp/PgDn 페이지  c 섹션접기  Esc/q 뒤로"
+        }
         // Inspect Insert: degenerate.
         (Pane::Inspect, Insert, _) => "F1 도움말  Esc 로 NORMAL 모드",
         // Jobs pane: placeholder.
@@ -513,8 +518,8 @@ pub fn footer_hints(focus: Pane, mode: crate::app::Mode, filter_open: bool) -> &
 /// intercept paths by constructing KeyEvents directly without
 /// standing up the full run loop.
 pub fn mode_intercept(app: &mut crate::app::App, key: crossterm::event::KeyEvent) -> bool {
-    use crossterm::event::{KeyCode, KeyModifiers};
     use crate::app::Mode;
+    use crossterm::event::{KeyCode, KeyModifiers};
 
     // Modifier-bearing keys (Ctrl-Esc etc.) are not the toggle.
     if !key.modifiers.is_empty() && key.modifiers != KeyModifiers::SHIFT {
@@ -558,8 +563,7 @@ pub fn mode_intercept(app: &mut crate::app::App, key: crossterm::event::KeyEvent
 /// full run loop.
 pub fn cheatsheet_intercept(app: &mut crate::app::App, key: crossterm::event::KeyEvent) -> bool {
     use crossterm::event::{KeyCode, KeyModifiers};
-    let plain_or_shift =
-        key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT;
+    let plain_or_shift = key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT;
     if !plain_or_shift {
         return false;
     }
@@ -623,7 +627,10 @@ mod footer_hints_tests {
         // p9-fb-21: every hint now leads with `F1 도움말`. The
         // "typing verb" (`타이핑 검색어`) follows immediately so it's
         // still the dominant action visually.
-        assert!(h.starts_with("F1 도움말"), "should lead with F1 도움말: {h}");
+        assert!(
+            h.starts_with("F1 도움말"),
+            "should lead with F1 도움말: {h}"
+        );
         assert!(h.contains("타이핑 검색어"), "expected 타이핑 검색어: {h}");
         assert!(h.contains("Tab 모드전환"), "expected Tab 모드전환: {h}");
         assert!(h.contains("Enter 검색"), "expected Enter 검색: {h}");
@@ -634,7 +641,10 @@ mod footer_hints_tests {
     fn ask_insert_hint_leads_with_typing_verb() {
         let h = footer_hints(Pane::Ask, Mode::Insert, false);
         // p9-fb-21: F1 prefix now leads; typing verb is second.
-        assert!(h.starts_with("F1 도움말"), "should lead with F1 도움말: {h}");
+        assert!(
+            h.starts_with("F1 도움말"),
+            "should lead with F1 도움말: {h}"
+        );
         assert!(h.contains("타이핑 질문"), "expected 타이핑 질문: {h}");
         assert!(h.contains("Enter 전송"), "expected Enter 전송: {h}");
     }
@@ -667,7 +677,13 @@ mod footer_hints_tests {
     /// invisible until the user already knew about it.
     #[test]
     fn every_hint_starts_with_f1_help_prefix() {
-        for pane in [Pane::Library, Pane::Search, Pane::Ask, Pane::Inspect, Pane::Jobs] {
+        for pane in [
+            Pane::Library,
+            Pane::Search,
+            Pane::Ask,
+            Pane::Inspect,
+            Pane::Jobs,
+        ] {
             for mode in [Mode::Normal, Mode::Insert] {
                 for filter_open in [false, true] {
                     let h = footer_hints(pane, mode, filter_open);
@@ -699,11 +715,20 @@ mod footer_hints_tests {
     /// covers every arm.
     #[test]
     fn every_pane_mode_combo_returns_non_empty_hint() {
-        for pane in [Pane::Library, Pane::Search, Pane::Ask, Pane::Inspect, Pane::Jobs] {
+        for pane in [
+            Pane::Library,
+            Pane::Search,
+            Pane::Ask,
+            Pane::Inspect,
+            Pane::Jobs,
+        ] {
             for mode in [Mode::Normal, Mode::Insert] {
                 for filter_open in [false, true] {
                     let h = footer_hints(pane, mode, filter_open);
-                    assert!(!h.is_empty(), "{pane:?}/{mode:?}/filter={filter_open} empty");
+                    assert!(
+                        !h.is_empty(),
+                        "{pane:?}/{mode:?}/filter={filter_open} empty"
+                    );
                 }
             }
         }

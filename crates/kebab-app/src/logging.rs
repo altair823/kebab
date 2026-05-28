@@ -26,7 +26,9 @@ pub fn init(level: LogLevel) -> Result<WorkerGuard> {
     let (nb, guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = match level {
-        LogLevel::Default => EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
+        LogLevel::Default => {
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"))
+        }
         LogLevel::Verbose => EnvFilter::new("info"),
         LogLevel::Debug => EnvFilter::new("debug"),
     };

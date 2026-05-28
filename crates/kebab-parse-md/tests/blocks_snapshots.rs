@@ -47,8 +47,7 @@ fn assert_snapshot(fixture: &str, baseline: &str) {
     };
     let actual: Value = serde_json::to_value(&snap).unwrap();
 
-    let expected_text =
-        fs::read_to_string(dir.join(baseline)).expect("snapshot baseline readable");
+    let expected_text = fs::read_to_string(dir.join(baseline)).expect("snapshot baseline readable");
     let expected: Value = serde_json::from_str(&expected_text).expect("baseline parses as json");
 
     if actual != expected {
@@ -64,18 +63,12 @@ fn assert_snapshot(fixture: &str, baseline: &str) {
 
 #[test]
 fn nested_headings_blocks_snapshot() {
-    assert_snapshot(
-        "nested-headings.md",
-        "nested-headings.blocks.snapshot.json",
-    );
+    assert_snapshot("nested-headings.md", "nested-headings.blocks.snapshot.json");
 }
 
 #[test]
 fn code_and_table_blocks_snapshot() {
-    assert_snapshot(
-        "code-and-table.md",
-        "code-and-table.blocks.snapshot.json",
-    );
+    assert_snapshot("code-and-table.md", "code-and-table.blocks.snapshot.json");
 }
 
 /// Run with `cargo test -p kb-parse-md --test blocks_snapshots emit_blocks_snapshots -- --ignored --nocapture`

@@ -86,11 +86,7 @@ impl SqliteStore {
 }
 
 impl kebab_core::JobRepo for SqliteStore {
-    fn create(
-        &self,
-        kind: kebab_core::JobKind,
-        payload: Value,
-    ) -> Result<kebab_core::JobId> {
+    fn create(&self, kind: kebab_core::JobKind, payload: Value) -> Result<kebab_core::JobId> {
         let now_dt = OffsetDateTime::now_utc();
         let now = now_dt
             .format(&time::format_description::well_known::Rfc3339)
@@ -100,8 +96,7 @@ impl kebab_core::JobRepo for SqliteStore {
         // identical `(kind, payload)` still get distinct IDs.
         let job_id = mint_job_id(&kind, &payload, now_dt);
         let kind_label = job_kind_label(&kind);
-        let payload_json = serde_json::to_string(&payload)
-            .context("serialize job payload")?;
+        let payload_json = serde_json::to_string(&payload).context("serialize job payload")?;
         let conn = self.lock_conn();
         conn.execute(
             "INSERT INTO jobs (
@@ -114,13 +109,8 @@ impl kebab_core::JobRepo for SqliteStore {
         Ok(job_id)
     }
 
-    fn update_progress(
-        &self,
-        id: &kebab_core::JobId,
-        progress: Value,
-    ) -> Result<()> {
-        let progress_json = serde_json::to_string(&progress)
-            .context("serialize job progress")?;
+    fn update_progress(&self, id: &kebab_core::JobId, progress: Value) -> Result<()> {
+        let progress_json = serde_json::to_string(&progress).context("serialize job progress")?;
         let now = OffsetDateTime::now_utc()
             .format(&time::format_description::well_known::Rfc3339)
             .context("format job updated_at")?;
@@ -167,10 +157,7 @@ impl kebab_core::JobRepo for SqliteStore {
         Ok(())
     }
 
-    fn list(
-        &self,
-        filter: &kebab_core::JobFilter,
-    ) -> Result<Vec<kebab_core::JobRow>> {
+    fn list(&self, filter: &kebab_core::JobFilter) -> Result<Vec<kebab_core::JobRow>> {
         let conn = self.lock_conn();
         let mut sql = String::from(
             "SELECT job_id, kind, status, payload_json, progress_json,
@@ -259,11 +246,9 @@ fn job_row_from_sql(row: &rusqlite::Row<'_>) -> rusqlite::Result<kebab_core::Job
     let finished_at_raw: Option<String> = row.get(8)?;
 
     let kind: kebab_core::JobKind =
-        serde_json::from_value(serde_json::Value::String(kind_raw))
-            .map_err(conv_err(1))?;
+        serde_json::from_value(serde_json::Value::String(kind_raw)).map_err(conv_err(1))?;
     let status: kebab_core::JobStatus =
-        serde_json::from_value(serde_json::Value::String(status_raw))
-            .map_err(conv_err(2))?;
+        serde_json::from_value(serde_json::Value::String(status_raw)).map_err(conv_err(2))?;
     let payload: Value = serde_json::from_str(&payload_json).map_err(conv_err(3))?;
     let progress: Option<Value> = match progress_json {
         Some(s) => Some(serde_json::from_str(&s).map_err(conv_err(4))?),

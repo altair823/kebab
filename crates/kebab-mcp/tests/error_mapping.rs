@@ -23,7 +23,11 @@ async fn schema_tool_emits_error_v1_when_db_missing() {
         handler.state(),
         kebab_mcp::tools::schema::SchemaInput::default(),
     );
-    assert_eq!(result.is_error, Some(true), "expected isError=true on missing DB");
+    assert_eq!(
+        result.is_error,
+        Some(true),
+        "expected isError=true on missing DB"
+    );
 
     let content = result.content.first().unwrap();
     let text = match &content.raw {
@@ -31,6 +35,9 @@ async fn schema_tool_emits_error_v1_when_db_missing() {
         other => panic!("expected text content, got {other:?}"),
     };
     let v: serde_json::Value = serde_json::from_str(text).unwrap();
-    assert_eq!(v.get("schema_version").and_then(|s| s.as_str()), Some("error.v1"));
+    assert_eq!(
+        v.get("schema_version").and_then(|s| s.as_str()),
+        Some("error.v1")
+    );
     assert_eq!(v.get("code").and_then(|s| s.as_str()), Some("not_indexed"));
 }

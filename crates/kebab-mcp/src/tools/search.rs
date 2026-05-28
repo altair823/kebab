@@ -79,15 +79,10 @@ pub fn handle(state: &KebabAppState, input: SearchInput) -> CallToolResult {
 
     let ingested_after = match input.ingested_after.as_deref() {
         Some(s) => {
-            match time::OffsetDateTime::parse(
-                s,
-                &time::format_description::well_known::Rfc3339,
-            ) {
+            match time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339) {
                 Ok(ts) => Some(ts),
                 Err(e) => {
-                    return invalid_input(&format!(
-                        "ingested_after: invalid RFC3339 '{s}': {e}"
-                    ));
+                    return invalid_input(&format!("ingested_after: invalid RFC3339 '{s}': {e}"));
                 }
             }
         }
@@ -152,8 +147,7 @@ pub fn handle(state: &KebabAppState, input: SearchInput) -> CallToolResult {
                 "truncated": resp.truncated,
             });
             if let Some(trace) = &resp.trace {
-                let trace_v =
-                    serde_json::to_value(trace).unwrap_or(serde_json::Value::Null);
+                let trace_v = serde_json::to_value(trace).unwrap_or(serde_json::Value::Null);
                 if let serde_json::Value::Object(ref mut map) = envelope {
                     map.insert("trace".to_string(), trace_v);
                 }

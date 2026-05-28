@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use kebab_chunk::MdHeadingV1Chunker;
 use kebab_core::{
-    AssetId, AssetStorage, Checksum, ChunkPolicy, ChunkerVersion, Chunker, MediaType,
+    AssetId, AssetStorage, Checksum, ChunkPolicy, Chunker, ChunkerVersion, MediaType,
     ParserVersion, RawAsset, SourceUri, WorkspacePath,
 };
 use kebab_parse_md::{BodyHints, build_canonical_document, parse_blocks, parse_frontmatter};
@@ -65,8 +65,7 @@ fn long_section_chunks_snapshot() {
         Some(span) => bytes[..span.end].iter().filter(|b| **b == b'\n').count() as u32 + 1,
         None => 1,
     };
-    let (blocks, parse_warns) =
-        parse_blocks(&bytes, body_offset_lines).expect("blocks parse");
+    let (blocks, parse_warns) = parse_blocks(&bytes, body_offset_lines).expect("blocks parse");
 
     // Pin parser_version so doc_id / block_ids are reproducible.
     let parser_version = ParserVersion("kb-chunk-snapshot-test-0".into());
@@ -74,9 +73,8 @@ fn long_section_chunks_snapshot() {
     metadata.aliases.sort();
     metadata.tags.sort();
 
-    let doc =
-        build_canonical_document(&asset, metadata, blocks, &parser_version, parse_warns)
-            .expect("build_canonical_document");
+    let doc = build_canonical_document(&asset, metadata, blocks, &parser_version, parse_warns)
+        .expect("build_canonical_document");
 
     // Pin policy so policy_hash and chunk_ids are reproducible.
     let policy = ChunkPolicy {
@@ -102,8 +100,7 @@ fn long_section_chunks_snapshot() {
             baseline_path.display()
         ),
     };
-    let expected: Value =
-        serde_json::from_str(&baseline_text).expect("baseline parses as json");
+    let expected: Value = serde_json::from_str(&baseline_text).expect("baseline parses as json");
 
     if actual != expected {
         if std::env::var("UPDATE_SNAPSHOTS").is_ok() {
@@ -154,14 +151,8 @@ fn long_section_chunks_are_deterministic() {
         let mut metadata = metadata;
         metadata.aliases.sort();
         metadata.tags.sort();
-        let doc = build_canonical_document(
-            &asset,
-            metadata,
-            blocks,
-            &parser_version,
-            parse_warns,
-        )
-        .expect("build_canonical_document");
+        let doc = build_canonical_document(&asset, metadata, blocks, &parser_version, parse_warns)
+            .expect("build_canonical_document");
         let ids: Vec<String> = MdHeadingV1Chunker
             .chunk(&doc, &policy)
             .unwrap()

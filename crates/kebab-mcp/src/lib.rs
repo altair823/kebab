@@ -142,17 +142,13 @@ impl ServerHandler for KebabHandler {
             }
             "search" => {
                 let args = request.arguments.unwrap_or_default();
-                self.spawn_tool(args, |state, input| {
-                    tools::search::handle(&state, input)
-                })
-                .await
+                self.spawn_tool(args, |state, input| tools::search::handle(&state, input))
+                    .await
             }
             "ask" => {
                 let args = request.arguments.unwrap_or_default();
-                self.spawn_tool(args, |state, input| {
-                    tools::ask::handle(&state, input)
-                })
-                .await
+                self.spawn_tool(args, |state, input| tools::ask::handle(&state, input))
+                    .await
             }
             "ingest_file" => {
                 let args = request.arguments.unwrap_or_default();
@@ -170,10 +166,8 @@ impl ServerHandler for KebabHandler {
             }
             "fetch" => {
                 let args = request.arguments.unwrap_or_default();
-                self.spawn_tool(args, |state, input| {
-                    tools::fetch::handle(&state, input)
-                })
-                .await
+                self.spawn_tool(args, |state, input| tools::fetch::handle(&state, input))
+                    .await
             }
             "bulk_search" => {
                 let args = request.arguments.unwrap_or_default();

@@ -85,8 +85,7 @@ pub fn enumerate_paths(scope: ResetScope, cfg: &Config) -> Vec<PathBuf> {
         ResetScope::All => vec![cfg_dir, data_dir, cache_dir, state_dir],
         ResetScope::DataOnly => vec![data_dir, cache_dir, state_dir],
         ResetScope::VectorOnly => {
-            let vector_dir =
-                expand_path(&cfg.storage.vector_dir, &data_dir.to_string_lossy());
+            let vector_dir = expand_path(&cfg.storage.vector_dir, &data_dir.to_string_lossy());
             vec![vector_dir]
         }
         ResetScope::ConfigOnly => vec![cfg_dir],
@@ -137,8 +136,8 @@ pub fn estimate_size_bytes(paths: &[PathBuf]) -> u64 {
 /// the double scan is acceptable for a rare destructive operation.
 pub fn enumerate_orphans(cfg: &Config) -> Result<Vec<WorkspacePath>> {
     use kebab_core::DocumentStore as _;
-    use kebab_source_fs::FsSourceConnector;
     use kebab_core::SourceScope;
+    use kebab_source_fs::FsSourceConnector;
 
     let store = kebab_store_sqlite::SqliteStore::open(cfg)
         .context("enumerate_orphans: open SqliteStore")?;
@@ -160,16 +159,13 @@ pub fn enumerate_orphans(cfg: &Config) -> Result<Vec<WorkspacePath>> {
         ..Default::default()
     };
 
-    let connector = FsSourceConnector::new(cfg)
-        .context("enumerate_orphans: build FsSourceConnector")?;
+    let connector =
+        FsSourceConnector::new(cfg).context("enumerate_orphans: build FsSourceConnector")?;
     let (assets, _skips) = connector
         .scan_with_skips(&scope)
         .context("enumerate_orphans: scan workspace")?;
 
-    let scanned: HashSet<WorkspacePath> = assets
-        .into_iter()
-        .map(|a| a.workspace_path)
-        .collect();
+    let scanned: HashSet<WorkspacePath> = assets.into_iter().map(|a| a.workspace_path).collect();
 
     let mut orphans: Vec<WorkspacePath> = stored
         .into_iter()
@@ -206,8 +202,7 @@ pub fn execute(scope: ResetScope, cfg: &Config) -> Result<ResetReport> {
         if !p.exists() {
             continue;
         }
-        std::fs::remove_dir_all(p)
-            .with_context(|| format!("remove {}", p.display()))?;
+        std::fs::remove_dir_all(p).with_context(|| format!("remove {}", p.display()))?;
         removed.push(p.clone());
     }
 
@@ -229,8 +224,7 @@ pub fn execute(scope: ResetScope, cfg: &Config) -> Result<ResetReport> {
 /// Execute the `OrphansOnly` variant: reconcile stored docs against the
 /// current walker scope without touching any filesystem directory.
 fn execute_orphans_only(cfg: &Config) -> Result<ResetReport> {
-    let orphans = enumerate_orphans(cfg)
-        .context("execute_orphans_only: enumerate orphans")?;
+    let orphans = enumerate_orphans(cfg).context("execute_orphans_only: enumerate orphans")?;
 
     if orphans.is_empty() {
         return Ok(ResetReport {

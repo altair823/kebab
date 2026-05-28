@@ -78,19 +78,15 @@ fn reset_orphans_only_purges_out_of_scope_docs() {
     narrow_cfg.workspace.exclude = vec!["b.rs".to_string(), "c.rs".to_string()];
 
     // Run orphans-only reset.
-    let report = execute(ResetScope::OrphansOnly, &narrow_cfg)
-        .expect("orphans-only reset must succeed");
+    let report =
+        execute(ResetScope::OrphansOnly, &narrow_cfg).expect("orphans-only reset must succeed");
 
     assert_eq!(
         report.orphans_purged, 2,
         "expected 2 orphans purged (b.rs + c.rs): {report:?}"
     );
 
-    let mut purged: Vec<String> = report
-        .purged_paths
-        .iter()
-        .map(|p| p.0.clone())
-        .collect();
+    let mut purged: Vec<String> = report.purged_paths.iter().map(|p| p.0.clone()).collect();
     purged.sort();
     assert_eq!(
         purged,

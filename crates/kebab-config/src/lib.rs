@@ -24,6 +24,15 @@ pub struct ConfigInvalid {
     pub cause: String,
 }
 
+/// p20-bugfix3 Bug #10: explicit `--config <path>` was missing → silent
+/// fallback to defaults instead of fail-fast. `kebab-app::error_wire::classify`
+/// downcasts → `code: "config_not_found"` ErrorV1.
+#[derive(Debug, thiserror::Error)]
+#[error("config file does not exist: {path}")]
+pub struct ConfigNotFound {
+    pub path: PathBuf,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub schema_version: u32,
@@ -50,6 +59,16 @@ pub struct Config {
     /// load cleanly with built-in defaults.
     #[serde(default)]
     pub ingest: IngestCfg,
+    /// v0.20.0 sub-item 1: PDF ingest pipeline settings. `#[serde(default)]`
+    /// so pre-v0.20 config files without a `[pdf]` section load with
+    /// built-in defaults (OCR disabled — opt-in for scanned PDF KB).
+    #[serde(default = "PdfCfg::defaults")]
+    pub pdf: PdfCfg,
+    /// v0.20.x ingest log surface. `#[serde(default)]` so pre-v0.20
+    /// config files without a `[logging]` section load with built-in
+    /// defaults (enabled=true, dir=~/.local/state/kebab/logs).
+    #[serde(default)]
+    pub logging: LoggingCfg,
     /// p9-fb-05: directory of the on-disk config file this `Config`
     /// was loaded from, if any. Populated by `Config::from_file` /
     /// `Config::load` — never serialized (`#[serde(skip)]`). Used by
@@ -392,6 +411,145 @@ impl CaptionCfg {
     }
 }
 
+/// Settings for the PDF ingest pipeline (P7 + v0.20.0 sub-item 1).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PdfCfg {
+    #[serde(default = "PdfOcrCfg::defaults")]
+    pub ocr: PdfOcrCfg,
+}
+
+impl PdfCfg {
+    pub fn defaults() -> Self {
+        Self {
+            ocr: PdfOcrCfg::defaults(),
+        }
+    }
+}
+
+impl Default for PdfCfg {
+    fn default() -> Self {
+        Self::defaults()
+    }
+}
+
+/// v0.20.x ingest log surface: structured ndjson log written per ingest run.
+/// `#[serde(default)]` on Config.logging ensures pre-v0.20 config files load cleanly.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LoggingCfg {
+    /// Write structured ndjson log for each ingest run. Default `true`.
+    /// Set `false` to suppress log file creation entirely (AC-6).
+    #[serde(default = "default_ingest_log_enabled")]
+    pub ingest_log_enabled: bool,
+
+    /// Directory for per-run log files. Default `{state_dir}/logs`.
+    /// `{state_dir}` expands to the XDG state dir (e.g. `~/.local/state/kebab`).
+    /// Log file accumulation is user-managed — no rotation policy (spec §6 R-1).
+    #[serde(default = "default_ingest_log_dir")]
+    pub ingest_log_dir: PathBuf,
+}
+
+fn default_ingest_log_enabled() -> bool {
+    true
+}
+fn default_ingest_log_dir() -> PathBuf {
+    PathBuf::from("{state_dir}/logs")
+}
+
+impl Default for LoggingCfg {
+    fn default() -> Self {
+        Self {
+            ingest_log_enabled: default_ingest_log_enabled(),
+            ingest_log_dir: default_ingest_log_dir(),
+        }
+    }
+}
+
+/// v0.20.0 sub-item 1: scanned PDF OCR via Ollama vision LLM. Default
+/// disabled — opt-in because OCR adds ~45-100s per scanned page on CPU
+/// (qwen2.5vl:3b, remote). Enable for book / paper scan KB.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PdfOcrCfg {
+    /// Run OCR on scanned PDF pages. Default `false` (opt-in).
+    pub enabled: bool,
+    /// `false` (default) — text-detect first + vision fallback on
+    /// scanned pages only. `true` — vision LLM 호출 on every page
+    /// (vector PDF 의 dual-text confidence boost — doubles chunk count).
+    pub always_on: bool,
+    /// Engine identifier. v1 only ships `"ollama-vision"`.
+    pub engine: String,
+    /// Vision model id. Default `"qwen2.5vl:3b"` per PoC (§3.5 family
+    /// asymmetry vs image OCR's gemma4:e4b is acknowledged).
+    pub model: String,
+    /// HTTP endpoint. `None` → fall back to `models.llm.endpoint`.
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    /// BCP-47 language hints rendered into prompt.
+    pub languages: Vec<String>,
+    /// Long-edge cap (px). Larger images bloat prompt cost.
+    pub max_pixels: u32,
+    /// HTTP request timeout (sec). Same `0` = "fail immediately"
+    /// semantics as `image.ocr.request_timeout_secs` (NOT a disable
+    /// sentinel — see image.ocr docs).
+    #[serde(default = "default_pdf_ocr_request_timeout_secs")]
+    pub request_timeout_secs: u64,
+    /// Valid char ratio threshold (0.0..=1.0). Page with ratio below
+    /// this is classified as scanned/mojibake → OCR fallback. Default
+    /// `0.5`.
+    #[serde(default = "default_pdf_ocr_valid_ratio")]
+    pub valid_ratio_threshold: f32,
+    /// Minimum char count per page below which page is auto-scanned.
+    /// Default `20`.
+    #[serde(default = "default_pdf_ocr_min_char_count")]
+    pub min_char_count: u32,
+    /// Single-page lang hint. Default `Some("kor")`. `None` = no hint.
+    #[serde(default = "default_pdf_ocr_lang_hint")]
+    pub lang_hint: Option<String>,
+}
+
+impl PdfOcrCfg {
+    pub fn defaults() -> Self {
+        Self {
+            enabled: false,
+            always_on: false,
+            engine: "ollama-vision".to_string(),
+            model: "qwen2.5vl:3b".to_string(),
+            endpoint: None,
+            languages: vec!["eng".to_string(), "kor".to_string()],
+            max_pixels: 2048,
+            request_timeout_secs: default_pdf_ocr_request_timeout_secs(),
+            valid_ratio_threshold: default_pdf_ocr_valid_ratio(),
+            min_char_count: default_pdf_ocr_min_char_count(),
+            lang_hint: default_pdf_ocr_lang_hint(),
+        }
+    }
+}
+
+/// PDF OCR per-page request timeout 의 기본값.
+/// 6-32s 가 정상 throughput; 180s 초과는 Ollama 다운 / 매우 dense·고해상도 page 의 신호.
+/// `config.toml` 의 `[pdf.ocr] request_timeout_secs = N` 로 override.
+///
+/// HOTFIXES 2026-05-27 (Bug #11): metro-korea.pdf dogfood 에서 page 8/13 모두
+/// 기존 600s default 까지 완전 timeout (`chars: 0, skipped: true` × 20분 cost) →
+/// 우선 60s 로 하향. parent spec §1000 / §1628 OQ-1 ("CPU 환경 105s 의 5x 여유") 가
+/// 가정한 "page 당 평균 105s" 보다 실측 cloud GPU Ollama 가 6-32s 로 훨씬 빠름.
+///
+/// HOTFIXES 2026-05-28 (Bug #11 follow-up): 60s 는 dense Korean page (특히
+/// metro-korea.pdf page 8/9/13) 의 OCR 을 강제 timeout 시켜 본문 indexed 손실.
+/// **conservative starting point 180s 로 재조정** + dogfood evidence 기반 sweet spot
+/// 점진적 축소 정책. user 가 `[pdf.ocr] request_timeout_secs = N` 으로 직접 tune.
+fn default_pdf_ocr_request_timeout_secs() -> u64 {
+    180
+}
+fn default_pdf_ocr_valid_ratio() -> f32 {
+    0.5
+}
+fn default_pdf_ocr_min_char_count() -> u32 {
+    20
+}
+fn default_pdf_ocr_lang_hint() -> Option<String> {
+    Some("kor".to_string())
+}
+
 /// p9-fb-14: TUI-only configuration. Currently a single `theme`
 /// selector (`"dark"` / `"light"`); future fields (custom role
 /// overrides, mode-machine cursor shapes, …) extend the same
@@ -531,14 +689,15 @@ impl Config {
                 explain_default: false,
                 max_context_tokens: 8000,
                 multi_hop_max_depth: default_multi_hop_max_depth(),
-                multi_hop_max_sub_queries_per_iter:
-                    default_multi_hop_max_sub_queries_per_iter(),
+                multi_hop_max_sub_queries_per_iter: default_multi_hop_max_sub_queries_per_iter(),
                 multi_hop_max_pool_chunks: default_multi_hop_max_pool_chunks(),
                 nli_threshold: default_nli_threshold(),
             },
             image: ImageCfg::defaults(),
             ui: UiCfg::defaults(),
             ingest: IngestCfg::default(),
+            pdf: PdfCfg::defaults(),
+            logging: LoggingCfg::default(),
             // p9-fb-05: defaults are not loaded from disk, so no
             // source_dir. Relative `workspace.root` (rare with
             // defaults) falls back to caller `cwd` via the
@@ -600,7 +759,11 @@ impl Config {
     pub fn load(path: Option<&Path>) -> anyhow::Result<Self> {
         let from_disk = match path {
             Some(p) if p.exists() => Self::from_file(p)?,
-            Some(_) => Self::defaults(),
+            Some(p) => {
+                return Err(anyhow::Error::new(ConfigNotFound {
+                    path: p.to_path_buf(),
+                }));
+            }
             None => {
                 let p = Self::xdg_config_path();
                 if p.exists() {
@@ -865,11 +1028,7 @@ impl Config {
                 "KEBAB_IMAGE_OCR_ENDPOINT" => {
                     // Empty env value is treated the same as "fall back
                     // to models.llm.endpoint" — i.e. set None.
-                    self.image.ocr.endpoint = if v.is_empty() {
-                        None
-                    } else {
-                        Some(v.clone())
-                    };
+                    self.image.ocr.endpoint = if v.is_empty() { None } else { Some(v.clone()) };
                 }
                 "KEBAB_IMAGE_OCR_LANGUAGES" => {
                     // Comma-separated list, e.g. "eng,kor".
@@ -901,6 +1060,45 @@ impl Config {
                 }
                 "KEBAB_IMAGE_CAPTION_PROMPT_TEMPLATE_VERSION" => {
                     self.image.caption.prompt_template_version = v.clone();
+                }
+
+                // pdf.ocr (v0.20.0 sub-item 1)
+                "KEBAB_PDF_OCR_ENABLED" => self.pdf.ocr.enabled = parse_bool(v),
+                "KEBAB_PDF_OCR_ALWAYS_ON" => self.pdf.ocr.always_on = parse_bool(v),
+                "KEBAB_PDF_OCR_ENGINE" => self.pdf.ocr.engine = v.clone(),
+                "KEBAB_PDF_OCR_MODEL" => self.pdf.ocr.model = v.clone(),
+                "KEBAB_PDF_OCR_ENDPOINT" => {
+                    self.pdf.ocr.endpoint = if v.is_empty() { None } else { Some(v.clone()) };
+                }
+                "KEBAB_PDF_OCR_LANGUAGES" => {
+                    self.pdf.ocr.languages = v
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+                "KEBAB_PDF_OCR_MAX_PIXELS" => {
+                    if let Ok(n) = v.parse::<u32>() {
+                        self.pdf.ocr.max_pixels = n;
+                    }
+                }
+                "KEBAB_PDF_OCR_REQUEST_TIMEOUT_SECS" => {
+                    if let Ok(n) = v.parse::<u64>() {
+                        self.pdf.ocr.request_timeout_secs = n;
+                    }
+                }
+                "KEBAB_PDF_OCR_VALID_RATIO_THRESHOLD" => {
+                    if let Ok(n) = v.parse::<f32>() {
+                        self.pdf.ocr.valid_ratio_threshold = n.clamp(0.0, 1.0);
+                    }
+                }
+                "KEBAB_PDF_OCR_MIN_CHAR_COUNT" => {
+                    if let Ok(n) = v.parse::<u32>() {
+                        self.pdf.ocr.min_char_count = n;
+                    }
+                }
+                "KEBAB_PDF_OCR_LANG_HINT" => {
+                    self.pdf.ocr.lang_hint = if v.is_empty() { None } else { Some(v.clone()) };
                 }
 
                 // Unknown KEBAB_* keys are silently ignored — see
@@ -1130,7 +1328,10 @@ theme = "dark"
     #[test]
     fn env_overrides_chunking_target_tokens() {
         let mut env = HashMap::new();
-        env.insert("KEBAB_CHUNKING_TARGET_TOKENS".to_string(), "777".to_string());
+        env.insert(
+            "KEBAB_CHUNKING_TARGET_TOKENS".to_string(),
+            "777".to_string(),
+        );
         let c = Config::defaults().apply_env(&env);
         assert_eq!(c.chunking.target_tokens, 777);
     }
@@ -1142,7 +1343,10 @@ theme = "dark"
             "KEBAB_MODELS_LLM_ENDPOINT".to_string(),
             "http://10.0.0.1:11434".to_string(),
         );
-        env.insert("KEBAB_MODELS_LLM_TEMPERATURE".to_string(), "0.7".to_string());
+        env.insert(
+            "KEBAB_MODELS_LLM_TEMPERATURE".to_string(),
+            "0.7".to_string(),
+        );
         let c = Config::defaults().apply_env(&env);
         assert_eq!(c.models.llm.endpoint, "http://10.0.0.1:11434");
         assert!((c.models.llm.temperature - 0.7).abs() < 1e-6);
@@ -1172,8 +1376,7 @@ theme = "dark"
     /// shared with the OCR-side invariant via [`LEGACY_PRE_TIMEOUT_TOML`].
     #[test]
     fn legacy_config_without_request_timeout_secs_uses_default() {
-        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
-            .expect("parse legacy config");
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML).expect("parse legacy config");
         assert_eq!(c.models.llm.request_timeout_secs, 300);
     }
 
@@ -1202,10 +1405,7 @@ theme = "dark"
     /// existing configs that omit the new field keep behaving identically.
     #[test]
     fn default_ocr_request_timeout_secs_is_300() {
-        assert_eq!(
-            Config::defaults().image.ocr.request_timeout_secs,
-            300
-        );
+        assert_eq!(Config::defaults().image.ocr.request_timeout_secs, 300);
     }
 
     #[test]
@@ -1225,8 +1425,7 @@ theme = "dark"
     /// with the LLM-side invariant via [`LEGACY_PRE_TIMEOUT_TOML`].
     #[test]
     fn legacy_config_without_ocr_request_timeout_secs_uses_default() {
-        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
-            .expect("parse legacy config");
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML).expect("parse legacy config");
         assert_eq!(c.image.ocr.request_timeout_secs, 300);
     }
 
@@ -1239,10 +1438,7 @@ theme = "dark"
 
     #[test]
     fn default_multi_hop_max_sub_queries_per_iter_is_5() {
-        assert_eq!(
-            Config::defaults().rag.multi_hop_max_sub_queries_per_iter,
-            5
-        );
+        assert_eq!(Config::defaults().rag.multi_hop_max_sub_queries_per_iter, 5);
     }
 
     #[test]
@@ -1256,10 +1452,7 @@ theme = "dark"
     #[test]
     fn env_overrides_multi_hop_knobs() {
         let mut env = HashMap::new();
-        env.insert(
-            "KEBAB_RAG_MULTI_HOP_MAX_DEPTH".to_string(),
-            "5".to_string(),
-        );
+        env.insert("KEBAB_RAG_MULTI_HOP_MAX_DEPTH".to_string(), "5".to_string());
         env.insert(
             "KEBAB_RAG_MULTI_HOP_MAX_SUB_QUERIES_PER_ITER".to_string(),
             "7".to_string(),
@@ -1281,8 +1474,7 @@ theme = "dark"
     /// (that fixture also predates the multi_hop_* fields).
     #[test]
     fn legacy_config_without_multi_hop_knobs_uses_defaults() {
-        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
-            .expect("parse legacy config");
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML).expect("parse legacy config");
         assert_eq!(c.rag.multi_hop_max_depth, 3);
         assert_eq!(c.rag.multi_hop_max_sub_queries_per_iter, 5);
         // v0.18 dogfood (post-PR-7): pool default 30 → 15.
@@ -1315,8 +1507,7 @@ theme = "dark"
     /// all PR-9c-1 fields).
     #[test]
     fn legacy_config_without_nli_uses_defaults() {
-        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML)
-            .expect("parse legacy config");
+        let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML).expect("parse legacy config");
         assert_eq!(c.rag.nli_threshold, 0.0);
         assert_eq!(
             c.models.nli.model,
@@ -1516,7 +1707,11 @@ max_context_tokens = 8000
             "[workspace]\ninclude = [\"**/*.md\", \"**/*.txt\"]",
         );
         let parsed: Result<Config, _> = toml::from_str(&toml_text);
-        assert!(parsed.is_ok(), "legacy include must not break load: {:?}", parsed.err());
+        assert!(
+            parsed.is_ok(),
+            "legacy include must not break load: {:?}",
+            parsed.err()
+        );
         let cfg = parsed.unwrap();
         assert_eq!(cfg.workspace.root, "/tmp/kebab-legacy");
     }
@@ -1526,7 +1721,10 @@ max_context_tokens = 8000
     #[test]
     fn workspace_cfg_has_only_root_and_exclude_fields() {
         let ws = Config::defaults().workspace;
-        let WorkspaceCfg { root: _, exclude: _ } = &ws;
+        let WorkspaceCfg {
+            root: _,
+            exclude: _,
+        } = &ws;
     }
 
     #[test]
@@ -1538,9 +1736,10 @@ max_context_tokens = 8000
     #[test]
     fn env_override_stale_threshold() {
         let c = Config::defaults();
-        let env: HashMap<String, String> = [
-            ("KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(), "7".to_string()),
-        ]
+        let env: HashMap<String, String> = [(
+            "KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(),
+            "7".to_string(),
+        )]
         .into_iter()
         .collect();
         let c = c.apply_env(&env);
@@ -1555,9 +1754,10 @@ max_context_tokens = 8000
         // `fb27_tests::file_negative_stale_threshold_returns_config_invalid`)
         // is the spec-required hard error surface.
         let c = Config::defaults();
-        let env: HashMap<String, String> = [
-            ("KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(), "-5".to_string()),
-        ]
+        let env: HashMap<String, String> = [(
+            "KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(),
+            "-5".to_string(),
+        )]
         .into_iter()
         .collect();
         let c = c.apply_env(&env);
@@ -1576,7 +1776,10 @@ max_context_tokens = 8000
             std::env::set_var("XDG_CONFIG_HOME", "/tmp/kebabtest-xdg-config");
         }
         let p = Config::xdg_config_path();
-        assert_eq!(p, PathBuf::from("/tmp/kebabtest-xdg-config/kebab/config.toml"));
+        assert_eq!(
+            p,
+            PathBuf::from("/tmp/kebabtest-xdg-config/kebab/config.toml")
+        );
         // SAFETY: scope-local restore.
         unsafe {
             match prev {
@@ -1621,10 +1824,7 @@ max_context_tokens = 8000
         let base = Config::defaults();
         let mut toml_text = toml::to_string(&base).unwrap();
         // Inject max_file_bytes override into the [ingest.code] table.
-        toml_text = toml_text.replace(
-            "max_file_bytes = 262144",
-            "max_file_bytes = 524288",
-        );
+        toml_text = toml_text.replace("max_file_bytes = 262144", "max_file_bytes = 524288");
         let cfg: Config = toml::from_str(&toml_text).unwrap();
         assert_eq!(cfg.ingest.code.max_file_bytes, 524_288);
     }
@@ -1639,7 +1839,8 @@ mod fb27_tests {
     fn config_invalid_carries_path_and_cause() {
         let nonexistent = PathBuf::from("/this/path/should/not/exist/kebab.toml");
         let err = Config::from_file(&nonexistent).unwrap_err();
-        let signal = err.downcast_ref::<ConfigInvalid>()
+        let signal = err
+            .downcast_ref::<ConfigInvalid>()
             .expect("from_file error should downcast to ConfigInvalid");
         assert_eq!(signal.path, nonexistent);
         assert!(!signal.cause.is_empty(), "cause should be non-empty");
@@ -1651,7 +1852,8 @@ mod fb27_tests {
         let p = dir.path().join("bad.toml");
         std::fs::write(&p, "this is not [valid toml").unwrap();
         let err = Config::from_file(&p).unwrap_err();
-        let signal = err.downcast_ref::<ConfigInvalid>()
+        let signal = err
+            .downcast_ref::<ConfigInvalid>()
             .expect("malformed TOML should downcast to ConfigInvalid");
         assert_eq!(signal.path, p);
         assert!(!signal.cause.is_empty(), "cause should be non-empty");
@@ -1675,19 +1877,41 @@ mod fb27_tests {
             toml_text.contains("stale_threshold_days = 30"),
             "default value drifted; update test fixture"
         );
-        toml_text = toml_text.replace(
-            "stale_threshold_days = 30",
-            "stale_threshold_days = -5",
-        );
+        toml_text = toml_text.replace("stale_threshold_days = 30", "stale_threshold_days = -5");
         std::fs::write(&p, &toml_text).unwrap();
         let err = Config::from_file(&p).unwrap_err();
-        let signal = err.downcast_ref::<ConfigInvalid>()
+        let signal = err
+            .downcast_ref::<ConfigInvalid>()
             .expect("negative stale_threshold_days should downcast to ConfigInvalid");
         assert_eq!(signal.path, p);
         assert!(
             signal.cause.contains("parse_failed"),
             "expected parse_failed cause, got: {}",
             signal.cause
+        );
+    }
+
+    #[test]
+    fn config_load_explicit_nonexistent_path_returns_config_not_found() {
+        // Bug #10: --config /tmp/nonexistent.toml → silent fallback 금지.
+        let p = std::path::Path::new("/tmp/__kebab_bugfix3_nonexistent.toml");
+        assert!(!p.exists(), "test precondition: path must not exist");
+
+        let err = Config::load(Some(p)).expect_err("expected ConfigNotFound");
+        let signal = err
+            .downcast_ref::<ConfigNotFound>()
+            .expect("from_load error should downcast to ConfigNotFound");
+        assert_eq!(signal.path, p.to_path_buf());
+    }
+
+    #[test]
+    fn pdf_ocr_request_timeout_default_is_180s() {
+        // Bug #11 (dogfood 2026-05-27 + follow-up 2026-05-28):
+        // default 600s → 60s → 180s (sweet spot 점진적 축소 정책).
+        let cfg = PdfOcrCfg::defaults();
+        assert_eq!(
+            cfg.request_timeout_secs, 180,
+            "pdf.ocr.request_timeout_secs default must be 180s (Bug #11, HOTFIXES 2026-05-28)"
         );
     }
 }

@@ -48,8 +48,7 @@ pub fn place_cursor_x(inner_x: u16, inner_width: u16, prompt_w: usize, cursor_co
     let raw = (inner_x as usize)
         .saturating_add(prompt_w)
         .saturating_add(cursor_col);
-    let max = (inner_x as usize)
-        .saturating_add(inner_width.saturating_sub(1) as usize);
+    let max = (inner_x as usize).saturating_add(inner_width.saturating_sub(1) as usize);
     raw.min(max).try_into().unwrap_or(u16::MAX)
 }
 
@@ -472,9 +471,9 @@ mod tests {
     fn input_buffer_insert_at_cursor_mid_string() {
         let mut b = InputBuffer::new();
         b.push_str("abc");
-        b.move_left();          // cursor between b and c
-        b.move_left();          // cursor between a and b
-        b.push_char('X');       // insert X between a and b
+        b.move_left(); // cursor between b and c
+        b.move_left(); // cursor between a and b
+        b.push_char('X'); // insert X between a and b
         assert_eq!(b.as_str(), "aXbc");
         assert_eq!(b.cursor_col(), 2);
     }
@@ -484,9 +483,9 @@ mod tests {
     fn input_buffer_backspace_at_cursor() {
         let mut b = InputBuffer::new();
         b.push_str("abcde");
-        b.move_left();          // cursor between d and e
-        b.move_left();          // cursor between c and d
-        b.pop_char();           // delete c
+        b.move_left(); // cursor between d and e
+        b.move_left(); // cursor between c and d
+        b.pop_char(); // delete c
         assert_eq!(b.as_str(), "abde");
         assert_eq!(b.cursor_col(), 2);
     }
@@ -528,13 +527,13 @@ mod tests {
     #[test]
     fn input_buffer_cursor_col_after_mixed_hangul_edits() {
         let mut b = InputBuffer::new();
-        b.push_str("a한b");      // cursor at end, col = 1 + 2 + 1 = 4
+        b.push_str("a한b"); // cursor at end, col = 1 + 2 + 1 = 4
         assert_eq!(b.cursor_col(), 4);
-        b.move_left();            // before 'b': col = 3
+        b.move_left(); // before 'b': col = 3
         assert_eq!(b.cursor_col(), 3);
-        b.move_left();            // before '한': col = 1
+        b.move_left(); // before '한': col = 1
         assert_eq!(b.cursor_col(), 1);
-        b.push_char('글');        // insert 글 → "a글한b", cursor between 글 and 한, col = 1 + 2 = 3
+        b.push_char('글'); // insert 글 → "a글한b", cursor between 글 and 한, col = 1 + 2 = 3
         assert_eq!(b.as_str(), "a글한b");
         assert_eq!(b.cursor_col(), 3);
     }

@@ -3,8 +3,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use kebab_config::Config;
 use kebab_core::{
-    Citation, ChunkId, ChunkerVersion, DocumentId, EmbeddingModelId, IndexVersion,
-    RetrievalDetail, SearchHit, SearchMode, WorkspacePath,
+    ChunkId, ChunkerVersion, Citation, DocumentId, EmbeddingModelId, IndexVersion, RetrievalDetail,
+    SearchHit, SearchMode, WorkspacePath,
 };
 use kebab_tui::{
     App, KeyOutcome, Mode, Pane, SearchState, SearchWorkerMessage, build_jump_command,
@@ -73,10 +73,7 @@ fn line_citation(path: &str, line: u32) -> Citation {
 #[test]
 fn esc_returns_to_library() {
     let mut app = fresh_app();
-    let outcome = handle_key_search(
-        &mut app,
-        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-    );
+    let outcome = handle_key_search(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert_eq!(outcome, KeyOutcome::SwitchPane(Pane::Library));
 }
 
@@ -134,20 +131,14 @@ fn enter_with_query_emits_refresh() {
         let s = app.search.as_mut().unwrap();
         s.input.push_str("rust");
     }
-    let outcome = handle_key_search(
-        &mut app,
-        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-    );
+    let outcome = handle_key_search(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(outcome, KeyOutcome::Refresh);
 }
 
 #[test]
 fn enter_with_empty_query_is_continue() {
     let mut app = fresh_app();
-    let outcome = handle_key_search(
-        &mut app,
-        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-    );
+    let outcome = handle_key_search(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(outcome, KeyOutcome::Continue);
 }
 
@@ -193,19 +184,23 @@ fn j_k_move_selection_within_bounds() {
 #[test]
 fn build_jump_command_line_uses_plus_n_for_vim() {
     let citation = line_citation("notes/foo.md", 42);
-    let (program, args) =
-        build_jump_command(&citation, "vim", Path::new("/tmp/workspace"));
+    let (program, args) = build_jump_command(&citation, "vim", Path::new("/tmp/workspace"));
     assert_eq!(program, "vim");
-    assert_eq!(args, vec!["+42".to_string(), "/tmp/workspace/notes/foo.md".into()]);
+    assert_eq!(
+        args,
+        vec!["+42".to_string(), "/tmp/workspace/notes/foo.md".into()]
+    );
 }
 
 #[test]
 fn build_jump_command_line_uses_g_flag_for_code() {
     let citation = line_citation("notes/foo.md", 42);
-    let (program, args) =
-        build_jump_command(&citation, "code", Path::new("/tmp/workspace"));
+    let (program, args) = build_jump_command(&citation, "code", Path::new("/tmp/workspace"));
     assert_eq!(program, "code");
-    assert_eq!(args, vec!["-g".to_string(), "/tmp/workspace/notes/foo.md:42".into()]);
+    assert_eq!(
+        args,
+        vec!["-g".to_string(), "/tmp/workspace/notes/foo.md:42".into()]
+    );
 }
 
 #[test]
@@ -227,8 +222,18 @@ fn render_search_with_hits_shows_input_and_path() {
         s.input.push_str("rust traits");
         s.mode = SearchMode::Hybrid;
         s.hits = vec![
-            make_hit(1, "notes/rust.md", "trait dispatch\nis dynamic", line_citation("notes/rust.md", 12)),
-            make_hit(2, "notes/dyn.md", "dynamic dispatch\nvtable", line_citation("notes/dyn.md", 3)),
+            make_hit(
+                1,
+                "notes/rust.md",
+                "trait dispatch\nis dynamic",
+                line_citation("notes/rust.md", 12),
+            ),
+            make_hit(
+                2,
+                "notes/dyn.md",
+                "dynamic dispatch\nvtable",
+                line_citation("notes/dyn.md", 3),
+            ),
         ];
         s.selected_hit = 0;
     }
@@ -249,10 +254,19 @@ fn render_search_with_hits_shows_input_and_path() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(rendered.contains("hybrid"), "mode badge rendered: {rendered}");
+    assert!(
+        rendered.contains("hybrid"),
+        "mode badge rendered: {rendered}"
+    );
     assert!(rendered.contains("rust traits"), "input text rendered");
-    assert!(rendered.contains("notes/rust.md"), "first hit path rendered");
-    assert!(rendered.contains("notes/dyn.md"), "second hit path rendered");
+    assert!(
+        rendered.contains("notes/rust.md"),
+        "first hit path rendered"
+    );
+    assert!(
+        rendered.contains("notes/dyn.md"),
+        "second hit path rendered"
+    );
 }
 
 /// p9-fb-32: Search pane prefixes the rank/score header line with a
@@ -454,7 +468,12 @@ fn g_key_enqueues_pending_editor_request() {
     app.mode = kebab_tui::Mode::Normal;
     {
         let s = app.search.as_mut().unwrap();
-        s.hits = vec![make_hit(1, "notes/x.md", "snippet", line_citation("notes/x.md", 42))];
+        s.hits = vec![make_hit(
+            1,
+            "notes/x.md",
+            "snippet",
+            line_citation("notes/x.md", 42),
+        )];
         s.selected_hit = 0;
     }
     assert!(app.pending_editor().is_none(), "queue starts empty");
@@ -570,15 +589,18 @@ fn poll_worker_noop_when_no_rx() {
 /// Helper for the debounce_due tests — build a state with the four
 /// fields the test cares about set, others default.
 #[allow(clippy::field_reassign_with_default)]
-fn search_state_with(input: &str, mode: SearchMode, searching: bool, last_query: Option<(String, SearchMode)>) -> SearchState {
+fn search_state_with(
+    input: &str,
+    mode: SearchMode,
+    searching: bool,
+    last_query: Option<(String, SearchMode)>,
+) -> SearchState {
     let mut s = SearchState::default();
     s.input.push_str(input);
     s.mode = mode;
     s.searching = searching;
     s.last_query = last_query;
-    s.input_dirty_at = Some(
-        time::OffsetDateTime::now_utc() - time::Duration::seconds(1),
-    );
+    s.input_dirty_at = Some(time::OffsetDateTime::now_utc() - time::Duration::seconds(1));
     s
 }
 
@@ -683,12 +705,7 @@ fn o_in_normal_with_hits_enters_inspect() {
     app.focus = Pane::Search;
     app.mode = Mode::Normal;
     let s = app.search.as_mut().unwrap();
-    s.hits = vec![make_hit(
-        1,
-        "a.md",
-        "snippet",
-        line_citation("a.md", 1),
-    )];
+    s.hits = vec![make_hit(1, "a.md", "snippet", line_citation("a.md", 1))];
     s.selected_hit = 0;
     let outcome = kebab_tui::handle_key_search(
         &mut app,

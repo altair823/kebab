@@ -13,8 +13,7 @@ use std::sync::{Arc, Mutex};
 use kebab_config::Config;
 use kebab_core::{
     AssetId, BlockId, CommonBlock, FinishReason, GenerateRequest, ImageRefBlock, Lang,
-    LanguageModel, ModelRef, ProvenanceEvent, ProvenanceKind, SourceSpan, TokenChunk,
-    TokenUsage,
+    LanguageModel, ModelRef, ProvenanceEvent, ProvenanceKind, SourceSpan, TokenChunk, TokenUsage,
 };
 use kebab_llm::MockLanguageModel;
 use kebab_parse_image::{apply_caption, caption_image};
@@ -127,7 +126,10 @@ fn apply_caption_sets_block_caption_and_appends_provenance() {
     assert_eq!(events[0].kind, ProvenanceKind::CaptionApplied);
     assert_eq!(events[0].agent, "kb-parse-image");
     let note = events[0].note.as_deref().unwrap_or("");
-    assert!(note.contains("vision-mock:1b") && note.contains("caption-v1"), "{note}");
+    assert!(
+        note.contains("vision-mock:1b") && note.contains("caption-v1"),
+        "{note}"
+    );
 }
 
 // ── Empty token stream → empty caption text ──────────────────────────────
@@ -206,10 +208,7 @@ fn caption_image_routes_image_into_request_images_field() {
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(&imgs[0])
         .expect("base64 decodes");
-    assert!(
-        !decoded.is_empty(),
-        "decoded image bytes must be non-empty"
-    );
+    assert!(!decoded.is_empty(), "decoded image bytes must be non-empty");
 
     let sys = captured_system.lock().unwrap().clone().unwrap();
     assert!(

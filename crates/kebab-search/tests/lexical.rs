@@ -51,10 +51,7 @@ impl Env {
     }
 
     fn retriever(&self) -> LexicalRetriever {
-        LexicalRetriever::new(
-            Arc::clone(&self.store),
-            IndexVersion("v1.0".to_string()),
-        )
+        LexicalRetriever::new(Arc::clone(&self.store), IndexVersion("v1.0".to_string()))
     }
 
     fn retriever_with_snippet_chars(&self, snippet_chars: usize) -> LexicalRetriever {
@@ -208,7 +205,15 @@ fn lexical_empty_query_returns_empty_vec_without_db_hit() {
 fn lexical_single_doc_match_returns_one_hit_with_citation_round_trip() {
     let env = Env::new();
     let conn = env.raw_conn();
-    insert_document(&conn, &id32("d"), "notes/rust.md", "Rust Notes", "en", "primary", &[]);
+    insert_document(
+        &conn,
+        &id32("d"),
+        "notes/rust.md",
+        "Rust Notes",
+        "en",
+        "primary",
+        &[],
+    );
     insert_chunk(
         &conn,
         &id32("c1"),
@@ -305,8 +310,24 @@ fn lexical_snippet_length_capped_at_snippet_chars() {
 fn lexical_filter_tags_any_excludes_untagged_docs() {
     let env = Env::new();
     let conn = env.raw_conn();
-    insert_document(&conn, &id32("d1"), "notes/a.md", "A", "en", "primary", &["rust"]);
-    insert_document(&conn, &id32("d2"), "notes/b.md", "B", "en", "primary", &["python"]);
+    insert_document(
+        &conn,
+        &id32("d1"),
+        "notes/a.md",
+        "A",
+        "en",
+        "primary",
+        &["rust"],
+    );
+    insert_document(
+        &conn,
+        &id32("d2"),
+        "notes/b.md",
+        "B",
+        "en",
+        "primary",
+        &["python"],
+    );
     insert_chunk(
         &conn,
         &id32("c1"),
@@ -392,7 +413,15 @@ fn lexical_filter_path_glob_does_not_cross_slash() {
     let env = Env::new();
     let conn = env.raw_conn();
     insert_document(&conn, &id32("d1"), "notes/a.md", "A", "en", "primary", &[]);
-    insert_document(&conn, &id32("d2"), "notes/sub/b.md", "B", "en", "primary", &[]);
+    insert_document(
+        &conn,
+        &id32("d2"),
+        "notes/sub/b.md",
+        "B",
+        "en",
+        "primary",
+        &[],
+    );
     insert_chunk(
         &conn,
         &id32("c1"),
@@ -551,7 +580,10 @@ fn lexical_determinism_same_query_twice() {
     };
     let a = r.search(&q).unwrap();
     let b = r.search(&q).unwrap();
-    assert_eq!(a, b, "same DB + same query must yield identical Vec<SearchHit>");
+    assert_eq!(
+        a, b,
+        "same DB + same query must yield identical Vec<SearchHit>"
+    );
 }
 
 #[test]
@@ -561,7 +593,15 @@ fn lexical_determinism_chunk_id_tiebreaker_on_equal_bm25() {
     // `chunk_id` ordering so the result is stable across runs.
     let env = Env::new();
     let conn = env.raw_conn();
-    insert_document(&conn, &id32("d"), "notes/tie.md", "Tie", "en", "primary", &[]);
+    insert_document(
+        &conn,
+        &id32("d"),
+        "notes/tie.md",
+        "Tie",
+        "en",
+        "primary",
+        &[],
+    );
     let cid_a = id32("aaaa");
     let cid_b = id32("bbbb");
     assert!(cid_a < cid_b, "test premise: aaaa-id sorts before bbbb-id");
@@ -690,7 +730,15 @@ fn lexical_retriever_hits_carry_bm25_score_kind() {
     // relationship: Lexical-only search → Bm25 score semantics.
     let env = Env::new();
     let conn = env.raw_conn();
-    insert_document(&conn, &id32("d"), "notes/bm25.md", "Bm25", "en", "primary", &[]);
+    insert_document(
+        &conn,
+        &id32("d"),
+        "notes/bm25.md",
+        "Bm25",
+        "en",
+        "primary",
+        &[],
+    );
     for (cid, body) in [
         ("c1", "alpha bravo charlie"),
         ("c2", "alpha delta"),
@@ -724,7 +772,8 @@ fn lexical_retriever_hits_carry_bm25_score_kind() {
     );
     for h in &hits {
         assert_eq!(
-            h.score_kind, ScoreKind::Bm25,
+            h.score_kind,
+            ScoreKind::Bm25,
             "lexical retriever must label all hits with ScoreKind::Bm25"
         );
     }
@@ -848,7 +897,13 @@ impl TestEnv {
     }
 
     /// Insert a code doc with explicit `code_lang` and optional `repo` in metadata.
-    fn insert_code_doc(&self, path: &str, body: &str, code_lang: &str, repo: Option<&str>) -> DocumentId {
+    fn insert_code_doc(
+        &self,
+        path: &str,
+        body: &str,
+        code_lang: &str,
+        repo: Option<&str>,
+    ) -> DocumentId {
         let metadata_json = match repo {
             Some(r) => format!(r#"{{"code_lang":"{code_lang}","repo":"{r}"}}"#),
             None => format!(r#"{{"code_lang":"{code_lang}"}}"#),
@@ -887,7 +942,11 @@ fn lexical_filter_by_media() {
     };
     let hits = env.run_search("rust", &filters);
     assert_eq!(hits.len(), 1, "only pdf doc should match");
-    assert!(hits[0].doc_path.0.ends_with(".pdf"), "got: {}", hits[0].doc_path.0);
+    assert!(
+        hits[0].doc_path.0.ends_with(".pdf"),
+        "got: {}",
+        hits[0].doc_path.0
+    );
 }
 
 #[test]
@@ -921,7 +980,10 @@ fn lexical_filter_by_doc_id() {
         ..Default::default()
     };
     let hits = env.run_search("shared", &filters);
-    assert!(!hits.is_empty(), "should get at least one hit for target doc");
+    assert!(
+        !hits.is_empty(),
+        "should get at least one hit for target doc"
+    );
     for h in &hits {
         assert_eq!(h.doc_id, target, "all hits must be from target doc");
     }
@@ -978,7 +1040,11 @@ fn lexical_filter_by_code_lang() {
         ..Default::default()
     };
     let hits = env.run_search("AsyncClient", &filters);
-    assert_eq!(hits.len(), 1, "only python doc should match code_lang filter");
+    assert_eq!(
+        hits.len(),
+        1,
+        "only python doc should match code_lang filter"
+    );
     assert!(
         hits[0].doc_path.0.ends_with(".py"),
         "expected python path, got: {}",
@@ -991,8 +1057,18 @@ fn lexical_filter_by_repo() {
     // Three docs: one in repo "httpx", one in repo "requests", one with no repo.
     // Filter repo=["httpx"] → only the httpx doc should match.
     let env = TestEnv::new();
-    env.insert_code_doc("httpx/client.py", "session send request", "python", Some("httpx"));
-    env.insert_code_doc("requests/api.py", "session send request", "python", Some("requests"));
+    env.insert_code_doc(
+        "httpx/client.py",
+        "session send request",
+        "python",
+        Some("httpx"),
+    );
+    env.insert_code_doc(
+        "requests/api.py",
+        "session send request",
+        "python",
+        Some("requests"),
+    );
     env.insert_code_doc("standalone.py", "session send request", "python", None);
 
     let filters = SearchFilters {
@@ -1017,7 +1093,15 @@ fn lexical_snapshot_run_1() {
     // Stable because rusqlite ships bundled SQLite — a tokenizer/bm25 algorithm change in a future SQLite bump will require regenerating run-1.json via `KEBAB_UPDATE_SNAPSHOTS=1`.
     let env = Env::new();
     let conn = env.raw_conn();
-    insert_document(&conn, &id32("d"), "notes/snap.md", "Snap", "en", "primary", &[]);
+    insert_document(
+        &conn,
+        &id32("d"),
+        "notes/snap.md",
+        "Snap",
+        "en",
+        "primary",
+        &[],
+    );
     for (cid, body, span) in [
         (
             "c1",
@@ -1035,7 +1119,16 @@ fn lexical_snapshot_run_1() {
             r#"[{"kind":"line","start":7,"end":8}]"#,
         ),
     ] {
-        insert_chunk(&conn, &id32(cid), &id32("d"), body, &["Snap"], Some("Snap"), span, "v1");
+        insert_chunk(
+            &conn,
+            &id32(cid),
+            &id32("d"),
+            body,
+            &["Snap"],
+            Some("Snap"),
+            span,
+            "v1",
+        );
     }
     drop(conn);
 
@@ -1050,10 +1143,14 @@ fn lexical_snapshot_run_1() {
         .unwrap();
     let actual = serde_json::to_value(&hits).unwrap();
 
-    let baseline_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/search/lexical/run-1.json");
+    let baseline_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/search/lexical/run-1.json");
     if std::env::var_os("KEBAB_UPDATE_SNAPSHOTS").is_some() {
-        std::fs::write(&baseline_path, serde_json::to_string_pretty(&actual).unwrap()).unwrap();
+        std::fs::write(
+            &baseline_path,
+            serde_json::to_string_pretty(&actual).unwrap(),
+        )
+        .unwrap();
     }
     let baseline_text = std::fs::read_to_string(&baseline_path)
         .expect("baseline snapshot must exist; run with KEBAB_UPDATE_SNAPSHOTS=1 to seed");

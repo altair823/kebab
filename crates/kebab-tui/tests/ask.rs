@@ -7,9 +7,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use kebab_config::Config;
 use kebab_core::{
-    Answer, AnswerCitation, AnswerRetrievalSummary, Citation, ModelRef,
-    PromptTemplateVersion, RefusalReason, SearchMode, TokenUsage, TraceId, Turn,
-    WorkspacePath,
+    Answer, AnswerCitation, AnswerRetrievalSummary, Citation, ModelRef, PromptTemplateVersion,
+    RefusalReason, SearchMode, TokenUsage, TraceId, Turn, WorkspacePath,
 };
 use kebab_tui::{App, AskState, KeyOutcome, Pane, handle_key_ask, render_ask};
 use ratatui::Terminal;
@@ -90,10 +89,7 @@ fn esc_returns_to_library_and_clears_streaming() {
         s.streaming = true;
         s.partial = "partial answer…".into();
     }
-    let outcome = handle_key_ask(
-        &mut app,
-        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-    );
+    let outcome = handle_key_ask(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert_eq!(outcome, KeyOutcome::SwitchPane(Pane::Library));
     let s = app.ask.as_ref().unwrap();
     assert!(!s.streaming);
@@ -155,12 +151,20 @@ fn jk_scroll_in_normal_mode_type_in_insert() {
         &mut app,
         KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
     );
-    assert_eq!(app.ask.as_ref().unwrap().scroll, 1, "j scrolls down in Normal");
+    assert_eq!(
+        app.ask.as_ref().unwrap().scroll,
+        1,
+        "j scrolls down in Normal"
+    );
     handle_key_ask(
         &mut app,
         KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
     );
-    assert_eq!(app.ask.as_ref().unwrap().scroll, 0, "k scrolls up in Normal");
+    assert_eq!(
+        app.ask.as_ref().unwrap().scroll,
+        0,
+        "k scrolls up in Normal"
+    );
     // Now Insert — j/k type.
     app.mode = kebab_tui::Mode::Insert;
     handle_key_ask(
@@ -213,10 +217,7 @@ fn e_typed_into_input_when_input_nonempty() {
 #[test]
 fn enter_with_empty_input_is_continue() {
     let mut app = fresh_app();
-    let outcome = handle_key_ask(
-        &mut app,
-        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-    );
+    let outcome = handle_key_ask(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(outcome, KeyOutcome::Continue);
     assert!(!app.ask.as_ref().unwrap().streaming);
 }
@@ -229,10 +230,7 @@ fn enter_while_streaming_is_noop() {
         s.input.push_str("anything");
         s.streaming = true;
     }
-    handle_key_ask(
-        &mut app,
-        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-    );
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     // streaming flag remains true (no new worker spawned)
     assert!(app.ask.as_ref().unwrap().streaming);
     // No thread spawned because enter was a no-op.
@@ -335,7 +333,10 @@ fn render_grounded_answer_with_citation() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(rendered.contains("test answer body"), "answer body rendered");
+    assert!(
+        rendered.contains("test answer body"),
+        "answer body rendered"
+    );
     assert!(rendered.contains("grounded ✓"), "grounded status visible");
     assert!(rendered.contains("notes/foo.md"), "citation path rendered");
     assert!(rendered.contains("[1]"), "citation marker rendered");
@@ -346,7 +347,11 @@ fn render_refusal_score_gate_shows_status_without_citation_index_panic() {
     let mut app = fresh_app();
     {
         let s = app.ask.as_mut().unwrap();
-        let mut ans = make_answer(false, Some(RefusalReason::ScoreGate), "insufficient grounding to answer.");
+        let mut ans = make_answer(
+            false,
+            Some(RefusalReason::ScoreGate),
+            "insufficient grounding to answer.",
+        );
         ans.citations.clear(); // refusal often has no citations
         s.turns.push(Turn {
             question: "test refusal question".into(),
@@ -374,7 +379,10 @@ fn render_refusal_score_gate_shows_status_without_citation_index_panic() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(rendered.contains("insufficient grounding"), "refusal body rendered");
+    assert!(
+        rendered.contains("insufficient grounding"),
+        "refusal body rendered"
+    );
     assert!(rendered.contains("grounded ✗"), "ungrounded status visible");
     assert!(rendered.contains("score_gate"), "refusal reason surfaced");
 }
@@ -535,10 +543,7 @@ fn enter_with_detached_prior_thread_is_blocked() {
             }
         }));
     }
-    let outcome = handle_key_ask(
-        &mut app,
-        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-    );
+    let outcome = handle_key_ask(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     // Enter is a no-op while a prior thread is attached.
     assert_eq!(outcome, KeyOutcome::Continue);
     let s = app.ask.as_ref().unwrap();
@@ -693,7 +698,10 @@ fn render_transcript_shows_completed_turns_in_order() {
     assert!(q1_pos < q2_pos, "chronological order: Q1 before Q2");
     assert!(rendered.contains("first question"), "first question text");
     assert!(rendered.contains("second answer"), "second answer text");
-    assert!(rendered.contains("transcript (2 turns)"), "title shows count");
+    assert!(
+        rendered.contains("transcript (2 turns)"),
+        "title shows count"
+    );
 }
 
 #[test]
@@ -772,10 +780,16 @@ fn left_arrow_then_typing_inserts_at_cursor_in_ask() {
     let mut app = fresh_app();
     app.mode = kebab_tui::Mode::Insert;
     for ch in "abc".chars() {
-        handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        handle_key_ask(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+        );
     }
     handle_key_ask(&mut app, KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
-    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE),
+    );
     let s = app.ask.as_ref().unwrap();
     assert_eq!(s.input.as_str(), "abXc", "X inserts before c, not at end");
     assert_eq!(s.input.cursor_col(), 3, "cursor sits between X and c");
@@ -787,7 +801,10 @@ fn left_arrow_then_typing_inserts_at_cursor_in_ask() {
 fn right_arrow_at_end_is_noop_in_ask() {
     let mut app = fresh_app();
     app.mode = kebab_tui::Mode::Insert;
-    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+    );
     handle_key_ask(&mut app, KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     let s = app.ask.as_ref().unwrap();
     assert_eq!(s.input.cursor_col(), 1);
@@ -800,7 +817,10 @@ fn home_end_jump_cursor_in_ask() {
     let mut app = fresh_app();
     app.mode = kebab_tui::Mode::Insert;
     for ch in "hello".chars() {
-        handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        handle_key_ask(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+        );
     }
     handle_key_ask(&mut app, KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
     assert_eq!(app.ask.as_ref().unwrap().input.cursor_col(), 0);
@@ -815,7 +835,10 @@ fn delete_key_removes_char_at_cursor_in_ask() {
     let mut app = fresh_app();
     app.mode = kebab_tui::Mode::Insert;
     for ch in "abc".chars() {
-        handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        handle_key_ask(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+        );
     }
     handle_key_ask(&mut app, KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
     handle_key_ask(&mut app, KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
@@ -831,14 +854,20 @@ fn hangul_left_arrow_rewinds_by_two_cols_in_ask() {
     let mut app = fresh_app();
     app.mode = kebab_tui::Mode::Insert;
     for ch in "한글".chars() {
-        handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        handle_key_ask(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+        );
     }
     assert_eq!(app.ask.as_ref().unwrap().input.cursor_col(), 4);
     handle_key_ask(&mut app, KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
     assert_eq!(app.ask.as_ref().unwrap().input.cursor_col(), 2);
     // Inserting at the new cursor position lands between the two
     // syllables, proving cursor_col is not just a display annotation.
-    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE),
+    );
     assert_eq!(app.ask.as_ref().unwrap().input.as_str(), "한X글");
 }
 
@@ -859,7 +888,10 @@ fn ask_state_default_follow_tail_is_true() {
 fn k_disengages_follow_tail_in_ask() {
     let mut app = fresh_app();
     app.mode = kebab_tui::Mode::Normal;
-    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+    );
     assert!(!app.ask.as_ref().unwrap().follow_tail);
 }
 
@@ -875,7 +907,10 @@ fn shift_g_re_engages_follow_tail_in_ask() {
         s.follow_tail = false;
         s.scroll = 7;
     }
-    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT));
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
+    );
     let s = app.ask.as_ref().unwrap();
     assert!(s.follow_tail, "Shift-G re-engages follow-tail");
     assert_eq!(s.scroll, 0, "scroll cleared (renderer recomputes)");
@@ -888,7 +923,10 @@ fn ctrl_l_resets_follow_tail_in_ask() {
     let mut app = fresh_app();
     app.mode = kebab_tui::Mode::Normal;
     app.ask.as_mut().unwrap().follow_tail = false;
-    handle_key_ask(&mut app, KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+    handle_key_ask(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL),
+    );
     assert!(app.ask.as_ref().unwrap().follow_tail);
 }
 
@@ -917,18 +955,12 @@ fn page_up_rewinds_scroll_saturating_and_freezes_follow_tail_in_ask() {
     app.mode = kebab_tui::Mode::Normal;
     app.ask.as_mut().unwrap().scroll = 25;
     app.ask.as_mut().unwrap().follow_tail = true;
-    handle_key_ask(
-        &mut app,
-        KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
-    );
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
     let s = app.ask.as_ref().unwrap();
     assert_eq!(s.scroll, 15);
     assert!(!s.follow_tail);
     app.ask.as_mut().unwrap().scroll = 3;
-    handle_key_ask(
-        &mut app,
-        KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
-    );
+    handle_key_ask(&mut app, KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
     assert_eq!(app.ask.as_ref().unwrap().scroll, 0);
 }
 
@@ -1172,7 +1204,6 @@ fn ask_state_multi_hop_field_default_false_and_round_trips() {
     s.multi_hop = false;
     assert!(!s.multi_hop, "settable back to false");
 }
-
 
 /// Small render helper shared with the rest of the test module's
 /// buffer-snapshot pattern. We define it locally here to avoid

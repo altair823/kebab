@@ -14,6 +14,84 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-28 — PDF OCR `request_timeout_secs` default 60s → 180s (Bug #11 follow-up)
+
+**Discovered**: v0.20.0 final dogfood (2026-05-28), round 3 fresh KB ingest.
+
+**Symptom**: 60s default 가 metro-korea.pdf 의 page 8/9/13 (dense Korean text + Identity-H CID font) 의 OCR 을 강제 timeout. round 2 (600s default) 의 page 8/13 (2 page) → round 3 (60s) 의 page 8/9/13 (3 page) — **1 page 더 timeout** + 본문 indexed 손실 증가. 사용자 perspective: cost 절약 vs coverage trade-off 가 60s 에선 coverage 쪽으로 너무 깎임.
+
+**Decision**: **conservative starting point 180s 로 재조정** + dogfood evidence 기반 sweet spot 점진적 축소 정책. 180s 가 600s 의 1/3 cost cap (page 당 max 3분) 보장 + dense page coverage 회복.
+
+**Fix** (HOTFIXES 2026-05-28 follow-up, branch `feat/pdf-scanned-ocr`):
+- `crates/kebab-config/src/lib.rs::default_pdf_ocr_request_timeout_secs() = 180`.
+- Doc-comment 보강 — "180s starting point + sweet spot 점진적 축소" 명시.
+- Unit test rename `pdf_ocr_request_timeout_default_is_60s` → `_is_180s` + assertion 180.
+- `crates/kebab-config/tests/pdf_ocr.rs` 의 `assert_eq!(...request_timeout_secs, 60)` → `180`.
+- User override path 보존 — `config.toml [pdf.ocr] request_timeout_secs = N` 로 늘리/줄이기 가능 (이미 `#[serde(default)]` field, 변경 0).
+
+**Future tuning policy**: 향후 dogfood 마다 OCR 평균 ms 분포 측정 후 (예: 90th percentile + buffer) default 점진적 축소. 60s 같은 짧은 default 로 직접 jump 안 함.
+
+## 2026-05-27 — PDF OCR `request_timeout_secs` default 600s → 60s (Bug #11, superseded by 2026-05-28 follow-up)
+
+**Discovered**: v0.20.0 final dogfood (2026-05-27), metro-korea.pdf 의 page 8 + 13.
+
+**Symptom**: 두 page 모두 `kebab ingest` 가 600s 까지 완전 timeout (`ms: 600000, chars: 0, skipped: true`). 본문 indexed 안 됨, page 당 20분 cost 낭비, user 가 ingest 완료 signal 못 받음.
+
+**Root cause**: `default_pdf_ocr_request_timeout_secs() = 600` (spec `2026-05-27-pdf-scanned-ocr-spec.md` line 1000 + OQ-1 line 1628 의 "CPU 환경 105s 의 5x 여유" 가정). 실측 cloud GPU Ollama 의 per-page throughput 는 6-32s — 600s 까지 가야 timeout 이라면 Ollama 다운 상태가 사실상 확실. 600s 가 fail-fast 신호로 작동 안 함.
+
+**Fix** (v0.20.0 bugfix3 round 3, branch `feat/pdf-scanned-ocr`):
+- `crates/kebab-config/src/lib.rs` `default_pdf_ocr_request_timeout_secs() = 60` (2026-05-28 entry 에서 180 으로 재조정).
+- Doc-comment 보강 — 6-32s 정상 throughput, 60s 초과는 Ollama 다운 / 매우 dense·고해상도 page 신호.
+- User override path 보존 — `config.toml [pdf.ocr] request_timeout_secs = N` 로 늘릴 수 있음.
+
+**Amends**: `docs/superpowers/specs/2026-05-27-pdf-scanned-ocr-spec.md` line 1000 / OQ-1 line 1628 (frozen — text 변경 없음, inline HTML 주석 cross-link 1 줄만 추가). 본 entry 가 live source of truth.
+
+## 2026-05-27 — Identity-H mojibake marker bypassed OCR fallback (Bug #6)
+
+- **Symptom**: `metro-korea.pdf` (Identity-H CID font without ToUnicode CMap) 의 ingest 가 `pdf_ocr_pages=0` 으로 종료. text 전체가 `?Identity-H Unimplemented?` marker 1154회 반복 (lopdf 0.32.0 emit). text-detect ratio = 1.0 → OCR fallback threshold 0.5 bypass.
+- **Root cause**: `crates/kebab-parse-pdf/src/text_quality.rs::compute_valid_char_ratio()` 의 `is_valid_text_char()` 가 ASCII printable range (0x0020..=0x007E) 를 unconditional valid 처리. marker (28 ASCII char) 는 valid 로 count.
+- **Fix**: `MOJIBAKE_MARKERS` const 도입 + marker strip after-strip 의 trim-empty → 0.0 + dominance heuristic (strip > 잔여 일 때 cap 0.3). spec ACCEPT: `docs/superpowers/specs/2026-05-27-v0.20-sub1-bugfix2-spec.md` §4.1. parser_version/wire schema 영향 0.
+- **User action**: 이미 `metro-korea.pdf` class 의 mojibake-heavy PDF 를 v0.20.0 pre-bugfix2 binary 로 indexed 한 경우, `kebab ingest --force-reingest <workspace>` 로 cached skip 무효화 필요 (release notes 동등 안내).
+
+## 2026-05-27 — v0.20.0 sub-item 1: chunk_id `#c{char_start}` workaround collapses under aggressive overlap (Bug #3 second-iteration patch)
+
+**Symptom**: F2 (1580 chars OCR, scanned_page2.pdf) ingest 시
+`DocumentStore::put_chunks (pdf): sqlite error: UNIQUE constraint
+failed: chunks.chunk_id: ... Error code 1555: A PRIMARY KEY constraint
+failed`. `kebab v0.20.0` (commit `b4d9e60`) dogfood (qwen2.5vl:3b 의
+`192.168.0.47:11434` Ollama endpoint, `/build/cache/tmp/v0.20-dogfood`
+isolated KB) `--force-reingest` 마다 reproducible.
+
+**Root cause**: `crates/kebab-chunk/src/pdf_page_v1.rs:170` 의
+`per_chunk_hash = format!("{base_policy_hash}#c{char_start}")` 에서
+`char_start` = post-overlap `actual_start`. line 266-281 의 overlap
+walk 가 `prev_min` floor 까지만 back-walk 하므로 aggressive overlap
++ 첫 segment 가 작은 page (F2 의 한국어 OCR text: 첫 ~10 char 안
+sentence-end → segment_1 = [0, 30], segment_2 = [30, n], overlap_bytes
+240 / chars=80 → segment_2 의 actual_start 가 prev_min=0 으로
+collapse) → 두 chunk 의 `#c0` suffix identical → identical chunk_id →
+`chunks` PRIMARY KEY violation.
+
+**Fix** (spec §4.4): `chunk_page` return tuple 에 `segment_start`
+추가 (3-tuple → 4-tuple `(segment_start, actual_start, chunk_end,
+slice)`), caller `per_chunk_hash` 의 suffix 를 `segment_start` 로
+변경. `segment_start` 는 `bounds[seg_idx]` (dedup 후 strictly
+increasing) — overlap walk 와 무관하게 모든 chunk distinct. citation
+locality 의 `SourceSpan::Page.char_start` 는 여전히 post-overlap
+`actual_start` 유지.
+
+**chunker_version cascade**: `pdf-page-v1` → `pdf-page-v1.1` bump
+(spec §4.4.1 round 1c M-1 결정, design §9 cascade rule 의 직접 적용).
+multi-chunk PDF page (pre-OCR 시점 `metro-korea.pdf` 의 21 block /
+34 chunk 같은 정상 path) 의 chunk_id 가 변경 — explicit user-facing
+audit trail 확보, store layer 의 자동 invalidation report. v0.20.0
+force-update path 라 사용자 cost zero (어차피 fresh ingest).
+
+**Amends**: spec `docs/superpowers/specs/2026-05-27-v0.20-sub1-bugfix-spec.md`
+§4.4. parent design §4.2 chunk_id recipe 자체 unchanged (workaround
+layer 의 internal computation 만 변경). parent PR #189
+(`feat/pdf-scanned-ocr`, force-update path).
+
 ## 2026-05-26 — design deviation — kebab-normalize + kebab-parse-types 흡수 (24 → 22 crates)
 
 **Symptom**: design deviation — post-PR9 audit (system-architect, `tasks/INDEX.md` L169) identified 두 crate (`kebab-normalize` + `kebab-parse-types`) 가 dead abstraction. design §3.7b 의 "thin layer" raison d'être ((a) `kebab-core` namespace 폭발 방지, (b) normalize 의 parser non-dependence) 가 4 parser 중 1개 (markdown) 만 lift 를 경유하는 현실에서 fan-in/fan-out 모두 1 → layer 의미 잃음. `kebab-parse-types` 의 production caller 가 2개 (`kebab-parse-md` + `kebab-normalize`) 이고 `kebab-normalize` 자체 caller 가 1개 (`kebab-app`) — 모두 markdown 의 lift 경로 안에서 단일 fan-in 경계 가능.

@@ -48,7 +48,11 @@ pub fn render_error_overlay(f: &mut Frame, area: Rect, overlay: &ErrorOverlay, t
 
     let mut lines: Vec<Line> = Vec::with_capacity(overlay.chain.len() + 2);
     lines.push(Line::from(Span::styled(
-        format!("{}: {}", overlay.title, overlay.chain.first().map_or("(unknown)", String::as_str)),
+        format!(
+            "{}: {}",
+            overlay.title,
+            overlay.chain.first().map_or("(unknown)", String::as_str)
+        ),
         theme.style(Role::Error).add_modifier(Modifier::BOLD),
     )));
     for cause in overlay.chain.iter().skip(1) {
@@ -64,7 +68,9 @@ pub fn render_error_overlay(f: &mut Frame, area: Rect, overlay: &ErrorOverlay, t
         .title("error")
         .borders(Borders::ALL)
         .border_style(theme.style(Role::Error));
-    let para = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    let para = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
     f.render_widget(para, popup_area);
 }
 

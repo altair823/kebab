@@ -60,11 +60,13 @@ fn vector_hits_snapshot_run_1() {
     //   - payload shape: { doc_id, text, heading_path }
     //   - that scores live in [0, 1] and are sorted descending
     let actual = json!(
-        hits.iter().map(|h| json!({
-            "chunk_id": h.chunk_id.0,
-            "score_in_unit_interval": (0.0..=1.0).contains(&h.score),
-            "payload": h.payload,
-        })).collect::<Vec<_>>()
+        hits.iter()
+            .map(|h| json!({
+                "chunk_id": h.chunk_id.0,
+                "score_in_unit_interval": (0.0..=1.0).contains(&h.score),
+                "payload": h.payload,
+            }))
+            .collect::<Vec<_>>()
     );
 
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -75,25 +77,25 @@ fn vector_hits_snapshot_run_1() {
 
     if std::env::var_os("KEBAB_UPDATE_SNAPSHOTS").is_some() {
         std::fs::create_dir_all(fixture.parent().unwrap()).unwrap();
-        std::fs::write(&fixture, serde_json::to_string_pretty(&actual).unwrap())
-            .unwrap();
+        std::fs::write(&fixture, serde_json::to_string_pretty(&actual).unwrap()).unwrap();
         return;
     }
 
     let expected: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&fixture).unwrap_or_else(
-            |_| panic!(
+        serde_json::from_str(&std::fs::read_to_string(&fixture).unwrap_or_else(|_| {
+            panic!(
                 "missing snapshot fixture at {}; run with KEBAB_UPDATE_SNAPSHOTS=1 to create",
                 fixture.display()
-            ),
-        ))
+            )
+        }))
         .unwrap();
 
     // Refuse to silently "pass" when the fixture is the committed
     // placeholder. The placeholder JSON carries a `_comment` field
     // with regeneration instructions; production fixtures (a captured
     // hits array) do not.
-    assert!(!expected.get("_comment").is_some(), 
+    assert!(
+        !expected.get("_comment").is_some(),
         "snapshot fixture is a placeholder — regenerate on AVX hardware then commit. \
          Path: {}. To regenerate: \
          `KEBAB_UPDATE_SNAPSHOTS=1 cargo test -p kb-store-vector -- --ignored snapshot`.",

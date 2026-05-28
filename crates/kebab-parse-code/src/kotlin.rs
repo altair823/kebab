@@ -503,7 +503,11 @@ fn flush_glue(
     // imports. The post-pass demotes any `<module>` to `<top-level>` if
     // the file produced any real unit.
     let only_imports = glue.iter().all(|(is_import, _, _)| *is_import == 1);
-    let label = if only_imports { "<module>" } else { "<top-level>" };
+    let label = if only_imports {
+        "<module>"
+    } else {
+        "<top-level>"
+    };
     units.push((join_symbol(mod_prefix, mod_path, label), s, e, false));
     glue.clear();
 }

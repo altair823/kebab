@@ -19,10 +19,7 @@ pub struct Breakdowns {
 /// `lang` only contains observed languages; NULL lang is
 /// keyed as the literal string `"null"`. `stale_doc_count` is 0 when
 /// `threshold_days == 0` (mirrors fb-32 staleness disable semantics).
-pub fn breakdowns(
-    conn: &Connection,
-    threshold_days: u64,
-) -> rusqlite::Result<Breakdowns> {
+pub fn breakdowns(conn: &Connection, threshold_days: u64) -> rusqlite::Result<Breakdowns> {
     // media: dual JSON shape — text variant ("markdown") vs object
     // variant ({"image":{"format":"png"}}). Same CASE WHEN as fb-36.
     let mut media: BTreeMap<String, u64> = MEDIA_KINDS
@@ -40,9 +37,7 @@ pub fn breakdowns(
          FROM documents d JOIN assets a ON a.asset_id = d.asset_id \
          GROUP BY kind",
     )?;
-    let rows = stmt.query_map([], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?))
-    })?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))?;
     for row in rows {
         let (kind, n) = row?;
         media.insert(kind, n);
@@ -53,9 +48,7 @@ pub fn breakdowns(
         "SELECT COALESCE(lang, 'null') AS l, COUNT(*) \
          FROM documents GROUP BY l",
     )?;
-    let rows = stmt.query_map([], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?))
-    })?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))?;
     for row in rows {
         let (l, n) = row?;
         lang.insert(l, n);
@@ -65,8 +58,7 @@ pub fn breakdowns(
         0
     } else {
         let secs = (threshold_days as i64) * 86_400;
-        let cutoff = time::OffsetDateTime::now_utc()
-            - time::Duration::seconds(secs);
+        let cutoff = time::OffsetDateTime::now_utc() - time::Duration::seconds(secs);
         let cutoff_str = cutoff
             .format(&time::format_description::well_known::Rfc3339)
             .expect("RFC3339 format");
@@ -148,7 +140,10 @@ mod tests {
     fn index_bytes_includes_sqlite_main() {
         let (dir, _store) = open_fresh();
         let b = index_bytes(dir.path()).unwrap();
-        assert!(b.sqlite > 0, "main sqlite file should exist after migrations");
+        assert!(
+            b.sqlite > 0,
+            "main sqlite file should exist after migrations"
+        );
         assert_eq!(b.lancedb, 0);
     }
 

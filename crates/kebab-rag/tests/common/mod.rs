@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex};
 
 use kebab_config::Config;
 use kebab_core::{
-    ChunkerVersion, ChunkId, Citation, DocumentId, IndexVersion, RetrievalDetail,
-    Retriever, SearchHit, SearchMode, SearchQuery, WorkspacePath,
+    ChunkId, ChunkerVersion, Citation, DocumentId, IndexVersion, RetrievalDetail, Retriever,
+    SearchHit, SearchMode, SearchQuery, WorkspacePath,
 };
 use kebab_nli::{NliScores, NliVerifier};
 use kebab_store_sqlite::SqliteStore;
@@ -147,7 +147,10 @@ pub fn mk_hit_with_indexed_at(
         chunk_id: ChunkId(chunk_id.to_string()),
         doc_id: DocumentId(doc_id.to_string()),
         doc_path: p.clone(),
-        heading_path: heading.iter().map(std::string::ToString::to_string).collect(),
+        heading_path: heading
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect(),
         section_label: None,
         snippet: "snippet".to_string(),
         citation: Citation::Line {
@@ -238,9 +241,7 @@ impl ScriptedRetriever {
 
 impl Retriever for ScriptedRetriever {
     fn search(&self, _q: &SearchQuery) -> anyhow::Result<Vec<SearchHit>> {
-        let idx = self
-            .next
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let idx = self.next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(self.hits_per_call.get(idx).cloned().unwrap_or_default())
     }
     fn index_version(&self) -> IndexVersion {
@@ -356,12 +357,9 @@ impl kebab_core::LanguageModel for ScriptedLm {
     fn generate_stream(
         &self,
         req: kebab_core::GenerateRequest,
-    ) -> anyhow::Result<
-        Box<dyn Iterator<Item = anyhow::Result<kebab_core::TokenChunk>> + Send>,
-    > {
-        let idx = self
-            .next
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    ) -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<kebab_core::TokenChunk>> + Send>>
+    {
+        let idx = self.next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let canned = self.responses.get(idx).unwrap_or_else(|| {
             panic!(
                 "ScriptedLm exhausted: call #{idx} requested but only {} responses scripted",
@@ -495,8 +493,14 @@ impl SpyNliVerifier {
 
 impl NliVerifier for SpyNliVerifier {
     fn score(&self, premise: &str, hypothesis: &str) -> anyhow::Result<NliScores> {
-        self.received_premises.lock().unwrap().push(premise.to_string());
-        self.received_hypotheses.lock().unwrap().push(hypothesis.to_string());
+        self.received_premises
+            .lock()
+            .unwrap()
+            .push(premise.to_string());
+        self.received_hypotheses
+            .lock()
+            .unwrap()
+            .push(hypothesis.to_string());
         (self.score_fn)(premise, hypothesis)
     }
 

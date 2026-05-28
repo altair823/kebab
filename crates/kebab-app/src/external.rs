@@ -36,9 +36,7 @@ pub fn ensure_kebabignore_entry(workspace_root: &Path) -> Result<()> {
     } else {
         String::new()
     };
-    let already = existing
-        .lines()
-        .any(|line| line.trim() == KEBABIGNORE_LINE);
+    let already = existing.lines().any(|line| line.trim() == KEBABIGNORE_LINE);
     if already {
         return Ok(());
     }
@@ -57,11 +55,7 @@ pub fn ensure_kebabignore_entry(workspace_root: &Path) -> Result<()> {
 /// Copy bytes to `<external_dir>/<blake3-12>.<ext>`. Idempotent — if the
 /// destination file already exists with the expected hash, the existing
 /// file is reused (no second write). Returns the destination path.
-pub fn copy_to_external(
-    external_dir: &Path,
-    bytes: &[u8],
-    ext: &str,
-) -> Result<PathBuf> {
+pub fn copy_to_external(external_dir: &Path, bytes: &[u8], ext: &str) -> Result<PathBuf> {
     let hash = blake3::hash(bytes);
     let hex = hash.to_hex();
     let prefix = &hex.as_str()[..12];
@@ -82,11 +76,7 @@ pub fn copy_to_external(
 /// Internal `yaml_quote` always uses double-quoted YAML form with backslash
 /// escapes for `"` / `\` / control chars — agent-supplied titles with
 /// special characters are safe.
-pub fn inject_frontmatter(
-    body: &str,
-    title: &str,
-    source_uri: Option<&str>,
-) -> Result<String> {
+pub fn inject_frontmatter(body: &str, title: &str, source_uri: Option<&str>) -> Result<String> {
     let head = body.trim_start();
     if head.starts_with("---\n") || head.starts_with("---\r\n") || head.starts_with("---\r") {
         anyhow::bail!(

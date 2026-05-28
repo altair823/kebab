@@ -107,9 +107,7 @@ fn cargo_toml_single_chunk_with_toml_lang() {
         .unwrap_or_else(|e| panic!("cannot read fixture {}: {e}", fixture_path.display()));
 
     let doc = manifest_doc("toml", &text);
-    let chunks = ManifestFileV1Chunker
-        .chunk(&doc, &policy())
-        .expect("chunk");
+    let chunks = ManifestFileV1Chunker.chunk(&doc, &policy()).expect("chunk");
 
     assert_eq!(
         chunks.len(),
@@ -149,9 +147,7 @@ fn package_json_single_chunk_with_json_lang() {
         .unwrap_or_else(|e| panic!("cannot read fixture {}: {e}", fixture_path.display()));
 
     let doc = manifest_doc("json", &text);
-    let chunks = ManifestFileV1Chunker
-        .chunk(&doc, &policy())
-        .expect("chunk");
+    let chunks = ManifestFileV1Chunker.chunk(&doc, &policy()).expect("chunk");
 
     assert_eq!(
         chunks.len(),
@@ -191,9 +187,7 @@ fn pom_xml_single_chunk_with_xml_lang() {
         .unwrap_or_else(|e| panic!("cannot read fixture {}: {e}", fixture_path.display()));
 
     let doc = manifest_doc("xml", &text);
-    let chunks = ManifestFileV1Chunker
-        .chunk(&doc, &policy())
-        .expect("chunk");
+    let chunks = ManifestFileV1Chunker.chunk(&doc, &policy()).expect("chunk");
 
     assert_eq!(
         chunks.len(),
@@ -233,9 +227,7 @@ fn go_mod_single_chunk_with_go_mod_lang() {
         .unwrap_or_else(|e| panic!("cannot read fixture {}: {e}", fixture_path.display()));
 
     let doc = manifest_doc("go-mod", &text);
-    let chunks = ManifestFileV1Chunker
-        .chunk(&doc, &policy())
-        .expect("chunk");
+    let chunks = ManifestFileV1Chunker.chunk(&doc, &policy()).expect("chunk");
 
     assert_eq!(
         chunks.len(),

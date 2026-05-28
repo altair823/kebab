@@ -299,9 +299,7 @@ fn build_blocks(
                         }
                     }
                 }
-                "interface_declaration"
-                | "type_alias_declaration"
-                | "enum_declaration" => {
+                "interface_declaration" | "type_alias_declaration" | "enum_declaration" => {
                     if let Some(name) = name_text(&child, src) {
                         glue.retain(|(_, gs, _)| *gs < s);
                         flush_glue(glue, units, mod_prefix, mod_path);
@@ -326,22 +324,18 @@ fn build_blocks(
                             | "interface_declaration"
                             | "type_alias_declaration"
                             | "enum_declaration" => {
-                                let name_opt = name_text(&inner, src).map(std::string::ToString::to_string);
+                                let name_opt =
+                                    name_text(&inner, src).map(std::string::ToString::to_string);
                                 if let Some(name) = name_opt {
                                     glue.retain(|(_, gs, _)| *gs < outer_s);
                                     flush_glue(glue, units, mod_prefix, mod_path);
-                                    let sym =
-                                        join_symbol(mod_prefix, mod_path, &name);
+                                    let sym = join_symbol(mod_prefix, mod_path, &name);
                                     units.push((sym, outer_s, outer_e, true));
                                     if inner_kind == "class_declaration" {
-                                        if let Some(body) =
-                                            inner.child_by_field_name("body")
-                                        {
+                                        if let Some(body) = inner.child_by_field_name("body") {
                                             let mut np = mod_path.to_vec();
                                             np.push(name);
-                                            walk_class_body(
-                                                body, src, mod_prefix, &np, units,
-                                            );
+                                            walk_class_body(body, src, mod_prefix, &np, units);
                                         }
                                     }
                                 } else {
@@ -354,8 +348,7 @@ fn build_blocks(
                                     // `default` defensively.
                                     glue.retain(|(_, gs, _)| *gs < outer_s);
                                     flush_glue(glue, units, mod_prefix, mod_path);
-                                    let sym =
-                                        join_symbol(mod_prefix, mod_path, "default");
+                                    let sym = join_symbol(mod_prefix, mod_path, "default");
                                     units.push((sym, outer_s, outer_e, true));
                                 }
                             }
@@ -377,27 +370,17 @@ fn build_blocks(
                             | "class_declaration" => {
                                 let name_opt =
                                     name_text(&value, src).map(std::string::ToString::to_string);
-                                let leaf = name_opt
-                                    .as_deref()
-                                    .unwrap_or("default")
-                                    .to_string();
+                                let leaf = name_opt.as_deref().unwrap_or("default").to_string();
                                 glue.retain(|(_, gs, _)| *gs < outer_s);
                                 flush_glue(glue, units, mod_prefix, mod_path);
                                 let sym = join_symbol(mod_prefix, mod_path, &leaf);
                                 units.push((sym, outer_s, outer_e, true));
                                 // Recurse into class body if we have one.
-                                if matches!(
-                                    value.kind(),
-                                    "class" | "class_declaration"
-                                ) {
-                                    if let Some(body) =
-                                        value.child_by_field_name("body")
-                                    {
+                                if matches!(value.kind(), "class" | "class_declaration") {
+                                    if let Some(body) = value.child_by_field_name("body") {
                                         let mut np = mod_path.to_vec();
                                         np.push(leaf);
-                                        walk_class_body(
-                                            body, src, mod_prefix, &np, units,
-                                        );
+                                        walk_class_body(body, src, mod_prefix, &np, units);
                                     }
                                 }
                             }
@@ -442,7 +425,11 @@ fn build_blocks(
         let s = glue.iter().map(|(_, a, _)| *a).min().unwrap();
         let e = glue.iter().map(|(_, _, b)| *b).max().unwrap();
         let only_module = glue.iter().all(|(is_mod, _, _)| *is_mod == 1);
-        let label = if only_module { "<module>" } else { "<top-level>" };
+        let label = if only_module {
+            "<module>"
+        } else {
+            "<top-level>"
+        };
         units.push((join_symbol(mod_prefix, mod_path, label), s, e, false));
         glue.clear();
     }
@@ -514,9 +501,7 @@ mod tests {
             workspace_root: &root,
             config: &cfg,
         };
-        TypescriptAstExtractor::new()
-            .extract(&ctx, &bytes)
-            .unwrap()
+        TypescriptAstExtractor::new().extract(&ctx, &bytes).unwrap()
     }
 
     fn symbols(doc: &kebab_core::CanonicalDocument) -> Vec<String> {
@@ -565,10 +550,7 @@ mod tests {
     fn tsx_uses_tsx_grammar_and_emits_units() {
         let doc = extract_fixture("sample.tsx", "src/sample.tsx");
         let syms = symbols(&doc);
-        assert!(
-            syms.iter().any(|s| s == "src/sample.Hello"),
-            "got {syms:?}"
-        );
+        assert!(syms.iter().any(|s| s == "src/sample.Hello"), "got {syms:?}");
         assert!(
             syms.iter().any(|s| s == "src/sample.<top-level>"),
             "arrow fn + import should roll into top-level glue"
@@ -579,7 +561,10 @@ mod tests {
     fn deterministic_across_runs() {
         let a = extract_fixture("sample.ts", "src/sample.ts");
         for _ in 0..30 {
-            assert_eq!(extract_fixture("sample.ts", "src/sample.ts").blocks, a.blocks);
+            assert_eq!(
+                extract_fixture("sample.ts", "src/sample.ts").blocks,
+                a.blocks
+            );
         }
     }
 

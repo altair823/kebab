@@ -78,8 +78,8 @@ impl FastembedEmbedder {
         // 3. Verify dim match BEFORE loading the model — if the config
         //    is wrong we want to fail without paying the ONNX
         //    initialization cost.
-        let model_info = TextEmbedding::get_model_info(&model_name)
-            .context("fastembed: get_model_info")?;
+        let model_info =
+            TextEmbedding::get_model_info(&model_name).context("fastembed: get_model_info")?;
         check_dim(model_info.dim, config.models.embedding.dimensions)?;
 
         tracing::info!(
@@ -103,8 +103,7 @@ impl FastembedEmbedder {
             cache_dir = %cache_dir.display(),
             "loading embedding model (first run downloads model weights — ~470MB for e5-small, ~1.3GB for e5-large)"
         );
-        let inner = TextEmbedding::try_new(opts)
-            .context("fastembed: TextEmbedding::try_new")?;
+        let inner = TextEmbedding::try_new(opts).context("fastembed: TextEmbedding::try_new")?;
         let dimensions = model_info.dim;
         tracing::info!(
             target: "kebab-embed-local",
@@ -320,8 +319,10 @@ mod tests {
     fn check_dim_rejects_384_vs_1024() {
         let err = check_dim(384, 1024).expect_err("dim mismatch must error");
         let msg = format!("{err}");
-        assert!(msg.contains("384") && msg.contains("1024"),
-            "error must mention both dims, got: {msg}");
+        assert!(
+            msg.contains("384") && msg.contains("1024"),
+            "error must mention both dims, got: {msg}"
+        );
     }
 
     // expand_path tests live in `kb-config::paths`. The adapter imports

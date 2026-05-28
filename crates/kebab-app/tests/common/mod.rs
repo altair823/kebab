@@ -93,8 +93,7 @@ impl TestEnv {
     /// directly. Caller can invoke this multiple times to simulate
     /// re-opening the binary after a corpus revision bump.
     pub fn app(&self) -> kebab_app::App {
-        kebab_app::App::open_with_config(self.config.clone())
-            .expect("App::open_with_config")
+        kebab_app::App::open_with_config(self.config.clone()).expect("App::open_with_config")
     }
 }
 
@@ -169,3 +168,5 @@ fn copy_dir_recursive(src: &Path, dest: &Path) {
         }
     }
 }
+
+pub mod mock_ocr;

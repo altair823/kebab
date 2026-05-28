@@ -50,10 +50,22 @@ fn include_empty_accepts_all_files() {
     };
     let assets = conn.scan(&scope).unwrap();
     let names: Vec<_> = assets.iter().map(|a| a.workspace_path.0.clone()).collect();
-    assert!(names.contains(&"a.md".to_string()), "a.md missing; got: {names:?}");
-    assert!(names.contains(&"b.py".to_string()), "b.py missing; got: {names:?}");
-    assert!(names.contains(&"c.png".to_string()), "c.png missing; got: {names:?}");
-    assert!(names.contains(&"d.pdf".to_string()), "d.pdf missing; got: {names:?}");
+    assert!(
+        names.contains(&"a.md".to_string()),
+        "a.md missing; got: {names:?}"
+    );
+    assert!(
+        names.contains(&"b.py".to_string()),
+        "b.py missing; got: {names:?}"
+    );
+    assert!(
+        names.contains(&"c.png".to_string()),
+        "c.png missing; got: {names:?}"
+    );
+    assert!(
+        names.contains(&"d.pdf".to_string()),
+        "d.pdf missing; got: {names:?}"
+    );
     assert_eq!(names.len(), 4, "expected exactly 4 files; got: {names:?}");
 }
 
@@ -68,8 +80,14 @@ fn include_nonempty_is_allowlist() {
     };
     let assets = conn.scan(&scope).unwrap();
     let names: Vec<_> = assets.iter().map(|a| a.workspace_path.0.clone()).collect();
-    assert!(names.contains(&"a.md".to_string()), "a.md should be accepted; got: {names:?}");
-    assert!(names.contains(&"b.py".to_string()), "b.py should be accepted; got: {names:?}");
+    assert!(
+        names.contains(&"a.md".to_string()),
+        "a.md should be accepted; got: {names:?}"
+    );
+    assert!(
+        names.contains(&"b.py".to_string()),
+        "b.py should be accepted; got: {names:?}"
+    );
     assert!(
         !names.contains(&"c.png".to_string()),
         "c.png must be rejected by include allowlist; got: {names:?}"
@@ -99,7 +117,10 @@ fn include_and_exclude_are_anded() {
     };
     let assets = conn.scan(&scope).unwrap();
     let names: Vec<_> = assets.iter().map(|a| a.workspace_path.0.clone()).collect();
-    assert!(names.contains(&"keep.md".to_string()), "keep.md should be accepted; got: {names:?}");
+    assert!(
+        names.contains(&"keep.md".to_string()),
+        "keep.md should be accepted; got: {names:?}"
+    );
     assert!(
         !names.contains(&"drop.md".to_string()),
         "drop.md should be excluded (matched exclude); got: {names:?}"

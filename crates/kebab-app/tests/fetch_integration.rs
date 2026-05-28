@@ -12,7 +12,11 @@ fn open(env: &common::TestEnv) -> App {
 #[test]
 fn fetch_chunk_returns_target_only_when_no_context() {
     let env = common::TestEnv::new();
-    common::ingest_md(&env, "a.md", "# Title\n\nFirst paragraph.\n\n## Section\n\nSecond.\n");
+    common::ingest_md(
+        &env,
+        "a.md",
+        "# Title\n\nFirst paragraph.\n\n## Section\n\nSecond.\n",
+    );
     let app = open(&env);
 
     // Find a chunk via search to obtain its id.
@@ -42,7 +46,8 @@ fn fetch_chunk_with_context_returns_neighbors() {
     // match. The earlier fixture used 2-char tokens like `A1`/`A3` for
     // section bodies — those zero-hit under trigram. Use 5-char unique
     // words per section so the query can pin one chunk deterministically.
-    let body = "# H1\n\napples\n\n# H2\n\nbanana\n\n# H3\n\ncherry\n\n# H4\n\ndurian\n\n# H5\n\nelder\n";
+    let body =
+        "# H1\n\napples\n\n# H2\n\nbanana\n\n# H3\n\ncherry\n\n# H4\n\ndurian\n\n# H5\n\nelder\n";
     common::ingest_md(&env, "multi.md", body);
     let app = env.app();
 
@@ -110,7 +115,10 @@ fn fetch_doc_returns_serialized_markdown() {
         .unwrap();
     assert_eq!(result.kind, FetchKind::Doc);
     let text = result.text.expect("doc text");
-    assert!(text.contains("Heading One"), "doc text contains heading: {text:?}");
+    assert!(
+        text.contains("Heading One"),
+        "doc text contains heading: {text:?}"
+    );
     assert!(text.contains("First paragraph"), "doc text contains body");
     assert!(!result.truncated);
 }
@@ -155,7 +163,11 @@ fn fetch_doc_with_max_tokens_truncates() {
         .unwrap();
     assert!(result.truncated);
     let text = result.text.expect("doc text");
-    assert!(text.chars().count() <= 100, "trimmed text len {}", text.chars().count());
+    assert!(
+        text.chars().count() <= 100,
+        "trimmed text len {}",
+        text.chars().count()
+    );
 }
 
 #[test]
@@ -292,8 +304,7 @@ fn fetch_span_line_start_beyond_total_returns_empty_text() {
 fn fetch_chunk_context_at_first_chunk_clamps_lower_bound() {
     let env = common::TestEnv::new();
     // Multi-chunk markdown so context ±N has neighbors.
-    let body =
-        "# H1\n\nFirst chunk text body.\n\n# H2\n\nSecond chunk.\n\n# H3\n\nThird chunk.\n";
+    let body = "# H1\n\nFirst chunk text body.\n\n# H2\n\nSecond chunk.\n\n# H3\n\nThird chunk.\n";
     common::ingest_md(&env, "boundary.md", body);
     let app = env.app();
     let q = kebab_core::SearchQuery {

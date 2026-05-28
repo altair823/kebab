@@ -163,7 +163,9 @@ impl SqliteStore {
     /// safe to reuse — we simply unwrap the inner guard rather than
     /// propagate the panic to every subsequent call.
     pub(crate) fn lock_conn(&self) -> MutexGuard<'_, Connection> {
-        self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.conn
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Read-only borrow of the connection.
@@ -179,7 +181,9 @@ impl SqliteStore {
     ///
     /// Poisoning is recovered the same way as [`Self::lock_conn`].
     pub fn read_conn(&self) -> MutexGuard<'_, Connection> {
-        self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.conn
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Persist a `RawAsset` *with its raw bytes*: row goes into `assets`,
@@ -190,11 +194,7 @@ impl SqliteStore {
     /// In either branch, `blake3(bytes)` is recomputed and compared to
     /// `asset.checksum.0`. A mismatch returns
     /// `StoreError::Conflict` wrapped in `anyhow::Error`.
-    pub fn put_asset_with_bytes(
-        &self,
-        asset: &kebab_core::RawAsset,
-        bytes: &[u8],
-    ) -> Result<()> {
+    pub fn put_asset_with_bytes(&self, asset: &kebab_core::RawAsset, bytes: &[u8]) -> Result<()> {
         // 0. Validate the AssetId shape before any I/O. `kebab_core::AssetId`
         // is a `pub String` newtype: `FromStr` enforces the 32-hex-char
         // invariant, but a hand-constructed `AssetId("../etc/passwd…")`
@@ -229,9 +229,8 @@ impl SqliteStore {
             //       of the temp file so we never leak bytes on disk.
             let dest = self.assets_path_for(&asset.asset_id);
             if let Some(parent) = dest.parent() {
-                std::fs::create_dir_all(parent).with_context(|| {
-                    format!("create asset shard dir {}", parent.display())
-                })?;
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("create asset shard dir {}", parent.display()))?;
             }
             let temp_path = temp_path_for(&dest);
             // Inline closure so any `?` in (a)/(b) cleans up the temp
@@ -242,9 +241,8 @@ impl SqliteStore {
                         format!("create temp asset file {}", temp_path.display())
                     })?;
                     use std::io::Write;
-                    f.write_all(bytes).with_context(|| {
-                        format!("write asset bytes to {}", temp_path.display())
-                    })?;
+                    f.write_all(bytes)
+                        .with_context(|| format!("write asset bytes to {}", temp_path.display()))?;
                     f.sync_all().with_context(|| {
                         format!("fsync temp asset file {}", temp_path.display())
                     })?;
@@ -255,9 +253,8 @@ impl SqliteStore {
                     use std::os::unix::fs::PermissionsExt;
                     let mut perms = std::fs::metadata(&temp_path)?.permissions();
                     perms.set_mode(0o644);
-                    std::fs::set_permissions(&temp_path, perms).with_context(|| {
-                        format!("chmod 0o644 on {}", temp_path.display())
-                    })?;
+                    std::fs::set_permissions(&temp_path, perms)
+                        .with_context(|| format!("chmod 0o644 on {}", temp_path.display()))?;
                 }
                 // UPSERT the row first; only after a successful row write
                 // do we publish the file via rename. A second
@@ -270,12 +267,7 @@ impl SqliteStore {
                         &asset.workspace_path.0,
                         &asset.asset_id.0,
                     )?;
-                    upsert_asset_row(
-                        &conn,
-                        asset,
-                        "copied",
-                        &dest.to_string_lossy(),
-                    )?;
+                    upsert_asset_row(&conn, asset, "copied", &dest.to_string_lossy())?;
                 }
                 std::fs::rename(&temp_path, &dest).with_context(|| {
                     format!(
@@ -305,11 +297,7 @@ impl SqliteStore {
                 kebab_core::SourceUri::Kb(u) => u.clone(),
             };
             let conn = self.lock_conn();
-            purge_orphan_at_workspace_path(
-                &conn,
-                &asset.workspace_path.0,
-                &asset.asset_id.0,
-            )?;
+            purge_orphan_at_workspace_path(&conn, &asset.workspace_path.0, &asset.asset_id.0)?;
             upsert_asset_row(&conn, asset, "reference", &storage_path)?;
             Ok(())
         }
@@ -338,9 +326,7 @@ impl SqliteStore {
 /// permits hand-construction, so any function that turns an `AssetId`
 /// into a filesystem path must call this first.
 pub(crate) fn validate_asset_id(asset_id: &kebab_core::AssetId) -> Result<()> {
-    if asset_id.0.len() != ASSET_ID_HEX_LEN
-        || !asset_id.0.bytes().all(|b| b.is_ascii_hexdigit())
-    {
+    if asset_id.0.len() != ASSET_ID_HEX_LEN || !asset_id.0.bytes().all(|b| b.is_ascii_hexdigit()) {
         anyhow::bail!(
             "invalid AssetId shape (expected {} ASCII hex chars): {:?}",
             ASSET_ID_HEX_LEN,
@@ -359,7 +345,8 @@ fn temp_path_for(dest: &Path) -> PathBuf {
     let n = TEMP_SUFFIX_COUNTER.fetch_add(1, Ordering::Relaxed);
     let parent = dest.parent().unwrap_or_else(|| Path::new("."));
     let file_name = dest
-        .file_name().map_or_else(|| "asset".to_string(), |s| s.to_string_lossy().into_owned());
+        .file_name()
+        .map_or_else(|| "asset".to_string(), |s| s.to_string_lossy().into_owned());
     parent.join(format!("{file_name}.tmp.{pid}.{n}"))
 }
 
@@ -742,8 +729,7 @@ pub(crate) fn upsert_asset_row(
         kebab_core::SourceUri::File(p) => format!("file://{}", p.to_string_lossy()),
         kebab_core::SourceUri::Kb(u) => u.clone(),
     };
-    let media_type = serde_json::to_string(&asset.media_type)
-        .context("serialize media_type")?;
+    let media_type = serde_json::to_string(&asset.media_type).context("serialize media_type")?;
     let discovered_at = asset
         .discovered_at
         .format(&time::format_description::well_known::Rfc3339)
@@ -864,9 +850,7 @@ impl SqliteStore {
     /// skips rows where `code_lang` is NULL (i.e. non-code documents).
     /// Returns `BTreeMap<String, u32>` — key is the canonical lowercase
     /// language identifier (e.g. `"rust"`), value is the doc count.
-    pub fn code_lang_breakdown(
-        &self,
-    ) -> anyhow::Result<std::collections::BTreeMap<String, u32>> {
+    pub fn code_lang_breakdown(&self) -> anyhow::Result<std::collections::BTreeMap<String, u32>> {
         use anyhow::Context;
         let conn = self.read_conn();
         let mut stmt = conn
@@ -936,9 +920,7 @@ impl SqliteStore {
     /// where `repo` is NULL (documents without an explicit repo tag).
     /// Returns `BTreeMap<String, u32>` — key is the repo name as stored in
     /// frontmatter, value is the doc count.
-    pub fn repo_breakdown(
-        &self,
-    ) -> anyhow::Result<std::collections::BTreeMap<String, u32>> {
+    pub fn repo_breakdown(&self) -> anyhow::Result<std::collections::BTreeMap<String, u32>> {
         use anyhow::Context;
         let conn = self.read_conn();
         let mut stmt = conn
@@ -958,6 +940,51 @@ impl SqliteStore {
         for row in rows {
             let (k, v) = row.context("read repo_breakdown row")?;
             out.insert(k, v);
+        }
+        Ok(out)
+    }
+
+    /// p20-bugfix3 Bug #13: schema.v1.models.active_parsers 의 source.
+    /// `documents.parser_version` 컬럼의 DISTINCT 값을 정렬해 반환.
+    /// 빈 corpus → 빈 Vec.
+    pub fn fetch_distinct_parser_versions(&self) -> anyhow::Result<Vec<String>> {
+        use anyhow::Context;
+        let conn = self.read_conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT parser_version FROM documents \
+                  WHERE parser_version IS NOT NULL AND parser_version != '' \
+                  ORDER BY parser_version",
+            )
+            .context("prepare fetch_distinct_parser_versions")?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .context("query fetch_distinct_parser_versions")?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.context("read parser_version row")?);
+        }
+        Ok(out)
+    }
+
+    /// p20-bugfix3 Bug #13: schema.v1.models.active_chunkers 의 source.
+    /// `chunks.chunker_version` 컬럼의 DISTINCT 값을 정렬해 반환.
+    pub fn fetch_distinct_chunker_versions(&self) -> anyhow::Result<Vec<String>> {
+        use anyhow::Context;
+        let conn = self.read_conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT chunker_version FROM chunks \
+                  WHERE chunker_version IS NOT NULL AND chunker_version != '' \
+                  ORDER BY chunker_version",
+            )
+            .context("prepare fetch_distinct_chunker_versions")?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .context("query fetch_distinct_chunker_versions")?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.context("read chunker_version row")?);
         }
         Ok(out)
     }
@@ -1254,4 +1281,3 @@ mod tests {
         assert_eq!(bd.len(), 1, "expected exactly 1 entry, got: {bd:?}");
     }
 }
-

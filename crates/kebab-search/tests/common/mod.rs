@@ -18,10 +18,9 @@ use std::sync::Arc;
 
 use kebab_config::Config;
 use kebab_core::{
-    ChunkId, DocumentId, EmbeddingId, EmbeddingInput, EmbeddingKind,
-    EmbeddingModelId, EmbeddingVersion, IndexVersion, MediaType,
-    Retriever, SearchFilters, SearchHit, SearchMode, SearchQuery,
-    VectorRecord, VectorStore,
+    ChunkId, DocumentId, EmbeddingId, EmbeddingInput, EmbeddingKind, EmbeddingModelId,
+    EmbeddingVersion, IndexVersion, MediaType, Retriever, SearchFilters, SearchHit, SearchMode,
+    SearchQuery, VectorRecord, VectorStore,
 };
 use kebab_embed::{Embedder, MockEmbedder};
 use kebab_search::{LexicalRetriever, VectorRetriever};
@@ -37,7 +36,8 @@ use tempfile::TempDir;
 pub fn require_avx_or_panic() {
     #[cfg(target_arch = "x86_64")]
     {
-        assert!(std::is_x86_feature_detected!("avx"), 
+        assert!(
+            std::is_x86_feature_detected!("avx"),
             "kb-search hybrid integration test requires AVX-capable hardware; \
              host CPU lacks AVX. Run on an AVX-capable machine."
         );
@@ -71,8 +71,7 @@ impl HybridEnv {
         let sqlite = SqliteStore::open(&config).unwrap();
         sqlite.run_migrations().unwrap();
         let sqlite = Arc::new(sqlite);
-        let vector_store =
-            Arc::new(LanceVectorStore::new(&config, sqlite.clone()).unwrap());
+        let vector_store = Arc::new(LanceVectorStore::new(&config, sqlite.clone()).unwrap());
         let embedder = Arc::new(MockEmbedder::new(
             EmbeddingModelId(TEST_MODEL_ID.to_string()),
             EmbeddingVersion("v1".to_string()),
@@ -100,8 +99,7 @@ impl HybridEnv {
     pub fn vector_retriever(&self) -> VectorRetriever {
         let store: Arc<dyn VectorStore + Send + Sync> =
             Arc::clone(&self.vector_store) as Arc<dyn VectorStore + Send + Sync>;
-        let embed: Arc<dyn Embedder> =
-            Arc::clone(&self.embedder) as Arc<dyn Embedder>;
+        let embed: Arc<dyn Embedder> = Arc::clone(&self.embedder) as Arc<dyn Embedder>;
         VectorRetriever::new(
             store,
             embed,
@@ -183,12 +181,7 @@ impl HybridEnv {
     /// High-level helper: seed a doc with an explicit `MediaType`.
     /// The `media_type` is serialized to JSON (mirrors how
     /// `DocumentStore::put_document` writes it) and stored in `assets`.
-    pub fn insert_doc_with_media(
-        &self,
-        path: &str,
-        text: &str,
-        media: MediaType,
-    ) -> DocumentId {
+    pub fn insert_doc_with_media(&self, path: &str, text: &str, media: MediaType) -> DocumentId {
         // Derive deterministic IDs from the path so repeated calls with
         // the same path are idempotent (INSERT OR IGNORE).
         let path_hash: String = {
@@ -211,13 +204,7 @@ impl HybridEnv {
              ) VALUES (?, ?, ?, ?, 0,
                        'deadbeefdeadbeefdeadbeefdeadbeef',
                        'reference', ?, '1970-01-01T00:00:00Z')",
-            params![
-                asset_id,
-                format!("file:///{path}"),
-                path,
-                media_json,
-                path,
-            ],
+            params![asset_id, format!("file:///{path}"), path, media_json, path,],
         )
         .unwrap();
         conn.execute(
@@ -283,7 +270,10 @@ impl HybridEnv {
             vector,
             doc_id: DocumentId(doc_id.to_string()),
             text: text.to_string(),
-            heading_path: heading_path.iter().map(std::string::ToString::to_string).collect(),
+            heading_path: heading_path
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
             model_id: EmbeddingModelId(TEST_MODEL_ID.to_string()),
             model_version: EmbeddingVersion("v1".to_string()),
             dimensions: TEST_DIMENSIONS,

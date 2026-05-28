@@ -43,7 +43,9 @@ pub fn render_inspect(f: &mut Frame, area: Rect, state: &App) {
         return;
     };
     if s.loading {
-        let block = RBlock::default().title("Inspect — loading…").borders(Borders::ALL);
+        let block = RBlock::default()
+            .title("Inspect — loading…")
+            .borders(Borders::ALL);
         f.render_widget(block, area);
         return;
     }
@@ -59,9 +61,7 @@ pub fn render_inspect(f: &mut Frame, area: Rect, state: &App) {
             render_chunk(f, area, s, chunk, &state.theme);
         }
         _ => {
-            let block = RBlock::default()
-                .title("Inspect")
-                .borders(Borders::ALL);
+            let block = RBlock::default().title("Inspect").borders(Borders::ALL);
             let hint = Paragraph::new(Span::styled(
                 "(no target — return to Library and press Enter on a doc, \
                  or to Search and press `i` on a hit)",
@@ -83,10 +83,7 @@ fn render_doc(
 ) {
     let lines = build_doc_lines(s, doc, theme, threshold_days);
     let block = RBlock::default()
-        .title(format!(
-            "Inspect Doc — {}",
-            short_id(&doc.doc_id.0)
-        ))
+        .title(format!("Inspect Doc — {}", short_id(&doc.doc_id.0)))
         .borders(Borders::ALL);
     let para = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
@@ -94,13 +91,16 @@ fn render_doc(
     f.render_widget(para.block(block), area);
 }
 
-fn render_chunk(f: &mut Frame, area: Rect, s: &InspectState, chunk: &Chunk, theme: &crate::theme::Theme) {
+fn render_chunk(
+    f: &mut Frame,
+    area: Rect,
+    s: &InspectState,
+    chunk: &Chunk,
+    theme: &crate::theme::Theme,
+) {
     let lines = build_chunk_lines(s, chunk, theme);
     let block = RBlock::default()
-        .title(format!(
-            "Inspect Chunk — {}",
-            short_id(&chunk.chunk_id.0)
-        ))
+        .title(format!("Inspect Chunk — {}", short_id(&chunk.chunk_id.0)))
         .borders(Borders::ALL);
     let para = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
@@ -158,9 +158,7 @@ pub(crate) fn build_doc_lines<'a>(
         lines.push(kv("updated_at", &fmt_dt(&doc.metadata.updated_at), theme));
         // user metadata pretty-printed JSON
         if let Ok(pretty) =
-            serde_json::to_string_pretty(&serde_json::Value::Object(
-                doc.metadata.user.clone(),
-            ))
+            serde_json::to_string_pretty(&serde_json::Value::Object(doc.metadata.user.clone()))
         {
             for line in pretty.lines() {
                 lines.push(Line::from(format!("  {line}")));
@@ -197,20 +195,11 @@ pub(crate) fn build_doc_lines<'a>(
     // blocks — section header carries the count inline so a
     // collapsed view still reports "how many" without leaking
     // body lines (R1 review: count must collapse with the rest).
-    push_section_header_with_count(
-        &mut lines,
-        SECTION_BLOCKS,
-        s,
-        Some(doc.blocks.len()),
-        theme,
-    );
+    push_section_header_with_count(&mut lines, SECTION_BLOCKS, s, Some(doc.blocks.len()), theme);
     if !s.collapsed.contains(SECTION_BLOCKS) {
         let preview_n = 16.min(doc.blocks.len());
         for (i, b) in doc.blocks.iter().take(preview_n).enumerate() {
-            lines.push(Line::from(format!(
-                "  [{i}] {}",
-                describe_block(b)
-            )));
+            lines.push(Line::from(format!("  [{i}] {}", describe_block(b))));
         }
         if doc.blocks.len() > preview_n {
             lines.push(Line::from(Span::styled(
@@ -240,7 +229,11 @@ pub(crate) fn build_chunk_lines<'a>(
         },
         theme,
     ));
-    lines.push(header_kv("chunker_version", &chunk.chunker_version.0, theme));
+    lines.push(header_kv(
+        "chunker_version",
+        &chunk.chunker_version.0,
+        theme,
+    ));
     lines.push(header_kv("policy_hash", &chunk.policy_hash, theme));
     lines.push(header_kv(
         "token_estimate",
@@ -337,10 +330,7 @@ fn header_kv_with_stale(
 
 fn kv(k: &str, v: &str, theme: &crate::theme::Theme) -> Line<'static> {
     Line::from(vec![
-        Span::styled(
-            format!("  {k}: "),
-            theme.style(crate::theme::Role::Hint),
-        ),
+        Span::styled(format!("  {k}: "), theme.style(crate::theme::Role::Hint)),
         Span::raw(v.to_string()),
     ])
 }
@@ -418,11 +408,7 @@ fn describe_block(b: &Block) -> String {
             c.lang.as_deref().unwrap_or("?"),
             c.code.len()
         ),
-        Block::Table(t) => format!(
-            "Table: {} cols × {} rows",
-            t.headers.len(),
-            t.rows.len()
-        ),
+        Block::Table(t) => format!("Table: {} cols × {} rows", t.headers.len(), t.rows.len()),
         Block::ImageRef(i) => format!(
             "ImageRef: src={} alt={:?} ocr={}",
             i.src,

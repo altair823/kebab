@@ -110,13 +110,11 @@ fn k8s_multi_doc_emits_one_chunk_per_resource() {
 
     let symbols: Vec<&str> = chunks
         .iter()
-        .map(|c| {
-            match &c.source_spans[0] {
-                SourceSpan::Code { symbol, .. } => {
-                    symbol.as_deref().expect("symbol must be Some for k8s chunks")
-                }
-                other => panic!("expected Code span, got {other:?}"),
-            }
+        .map(|c| match &c.source_spans[0] {
+            SourceSpan::Code { symbol, .. } => symbol
+                .as_deref()
+                .expect("symbol must be Some for k8s chunks"),
+            other => panic!("expected Code span, got {other:?}"),
         })
         .collect();
 
@@ -270,7 +268,11 @@ fn k8s_oversize_splits_into_line_windows_sharing_symbol() {
     let ranges: Vec<(u32, u32)> = chunks
         .iter()
         .map(|c| match &c.source_spans[0] {
-            SourceSpan::Code { line_start, line_end, .. } => (*line_start, *line_end),
+            SourceSpan::Code {
+                line_start,
+                line_end,
+                ..
+            } => (*line_start, *line_end),
             other => panic!("expected Code span, got {other:?}"),
         })
         .collect();

@@ -50,9 +50,18 @@ fn reset_data_only_yes_removes_data_dir_and_keeps_config() {
     );
 
     assert!(!xdg_data.join("kebab").exists(), "data dir should be gone");
-    assert!(!xdg_cache.join("kebab").exists(), "cache dir should be gone");
-    assert!(!xdg_state.join("kebab").exists(), "state dir should be gone");
-    assert!(xdg_cfg.join("kebab/marker").exists(), "config dir preserved");
+    assert!(
+        !xdg_cache.join("kebab").exists(),
+        "cache dir should be gone"
+    );
+    assert!(
+        !xdg_state.join("kebab").exists(),
+        "state dir should be gone"
+    );
+    assert!(
+        xdg_cfg.join("kebab/marker").exists(),
+        "config dir preserved"
+    );
 }
 
 #[test]
@@ -101,7 +110,11 @@ fn reset_data_only_yes_json_emits_reset_report_v1() {
         .env("XDG_STATE_HOME", tmp.path().join("state"))
         .output()
         .unwrap();
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(

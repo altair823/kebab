@@ -23,7 +23,7 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
-use rusqlite::{params_from_iter, ToSql};
+use rusqlite::{ToSql, params_from_iter};
 
 use crate::store::SqliteStore;
 
@@ -347,9 +347,7 @@ mod tests {
             .put_embedding_records_pending(std::slice::from_ref(&embed_row))
             .unwrap();
         store
-            .mark_embedding_records_committed(std::slice::from_ref(
-                &embed_row.embedding_id,
-            ))
+            .mark_embedding_records_committed(std::slice::from_ref(&embed_row.embedding_id))
             .unwrap();
     }
 
@@ -430,9 +428,7 @@ mod tests {
             .put_embedding_records_pending(std::slice::from_ref(&embed_row))
             .unwrap();
         store
-            .mark_embedding_records_committed(std::slice::from_ref(
-                &embed_row.embedding_id,
-            ))
+            .mark_embedding_records_committed(std::slice::from_ref(&embed_row.embedding_id))
             .unwrap();
     }
 
@@ -502,9 +498,7 @@ mod tests {
             .put_embedding_records_pending(std::slice::from_ref(&embed_row))
             .unwrap();
         store
-            .mark_embedding_records_committed(std::slice::from_ref(
-                &embed_row.embedding_id,
-            ))
+            .mark_embedding_records_committed(std::slice::from_ref(&embed_row.embedding_id))
             .unwrap();
     }
 
@@ -573,10 +567,38 @@ mod tests {
         // c3: tags=[ko-style], lang=ko, secondary, notes/c.md
         // c4: tags=[ko-style], lang=en, generated, src/d.md
         let chunks = [
-            ("11111111111111111111111111111111", "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1", "notes/a.md", "en", "primary",   &["ko-style"][..]),
-            ("22222222222222222222222222222222", "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2", "notes/b.md", "en", "primary",   &["other"][..]),
-            ("33333333333333333333333333333333", "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3", "notes/c.md", "ko", "secondary", &["ko-style"][..]),
-            ("44444444444444444444444444444444", "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4", "src/d.md",   "en", "generated", &["ko-style"][..]),
+            (
+                "11111111111111111111111111111111",
+                "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+                "notes/a.md",
+                "en",
+                "primary",
+                &["ko-style"][..],
+            ),
+            (
+                "22222222222222222222222222222222",
+                "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+                "notes/b.md",
+                "en",
+                "primary",
+                &["other"][..],
+            ),
+            (
+                "33333333333333333333333333333333",
+                "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
+                "notes/c.md",
+                "ko",
+                "secondary",
+                &["ko-style"][..],
+            ),
+            (
+                "44444444444444444444444444444444",
+                "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+                "src/d.md",
+                "en",
+                "generated",
+                &["ko-style"][..],
+            ),
         ];
         for (c, d, p, l, t, tags) in &chunks {
             seed_committed(&store, c, d, p, l, tags, t);
@@ -588,10 +610,7 @@ mod tests {
             ..Default::default()
         };
         let out = store
-            .filter_chunks(
-                &chunks.iter().map(|c| cid(c.0)).collect::<Vec<_>>(),
-                &f,
-            )
+            .filter_chunks(&chunks.iter().map(|c| cid(c.0)).collect::<Vec<_>>(), &f)
             .unwrap();
         let mut got: Vec<&str> = out.iter().map(|c| c.0.as_str()).collect();
         got.sort_unstable();
@@ -604,10 +623,7 @@ mod tests {
             ..Default::default()
         };
         let out = store
-            .filter_chunks(
-                &chunks.iter().map(|c| cid(c.0)).collect::<Vec<_>>(),
-                &f,
-            )
+            .filter_chunks(&chunks.iter().map(|c| cid(c.0)).collect::<Vec<_>>(), &f)
             .unwrap();
         let mut got: Vec<&str> = out.iter().map(|c| c.0.as_str()).collect();
         got.sort_unstable();
@@ -621,10 +637,7 @@ mod tests {
             ..Default::default()
         };
         let out = store
-            .filter_chunks(
-                &chunks.iter().map(|c| cid(c.0)).collect::<Vec<_>>(),
-                &f,
-            )
+            .filter_chunks(&chunks.iter().map(|c| cid(c.0)).collect::<Vec<_>>(), &f)
             .unwrap();
         let got: Vec<&str> = out.iter().map(|c| c.0.as_str()).collect();
         assert_eq!(got, vec![chunks[0].0]);
@@ -635,10 +648,7 @@ mod tests {
             ..Default::default()
         };
         let out = store
-            .filter_chunks(
-                &chunks.iter().map(|c| cid(c.0)).collect::<Vec<_>>(),
-                &f,
-            )
+            .filter_chunks(&chunks.iter().map(|c| cid(c.0)).collect::<Vec<_>>(), &f)
             .unwrap();
         let mut got: Vec<&str> = out.iter().map(|c| c.0.as_str()).collect();
         got.sort_unstable();
@@ -652,9 +662,33 @@ mod tests {
         let c1 = "11111111111111111111111111111111";
         let c2 = "22222222222222222222222222222222";
         let c3 = "33333333333333333333333333333333";
-        seed_committed(&store, c1, "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1", "a.md", "en", &[], "primary");
-        seed_committed(&store, c2, "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2", "b.md", "en", &[], "primary");
-        seed_committed(&store, c3, "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3", "c.md", "en", &[], "primary");
+        seed_committed(
+            &store,
+            c1,
+            "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+            "a.md",
+            "en",
+            &[],
+            "primary",
+        );
+        seed_committed(
+            &store,
+            c2,
+            "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+            "b.md",
+            "en",
+            &[],
+            "primary",
+        );
+        seed_committed(
+            &store,
+            c3,
+            "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
+            "c.md",
+            "en",
+            &[],
+            "primary",
+        );
 
         // Ask in the order c3, c1, c2; result must preserve that order.
         let out = store
@@ -688,14 +722,24 @@ mod tests {
         let c1 = "11111111111111111111111111111111";
         let c2 = "22222222222222222222222222222222";
         seed_committed_full(
-            &store, c1, "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
-            "notes/a.md", "en", &[], "primary",
+            &store,
+            c1,
+            "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+            "notes/a.md",
+            "en",
+            &[],
+            "primary",
             r#""markdown""#,
             "1970-01-01T00:00:00Z",
         );
         seed_committed_full(
-            &store, c2, "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
-            "notes/b.pdf", "en", &[], "primary",
+            &store,
+            c2,
+            "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+            "notes/b.pdf",
+            "en",
+            &[],
+            "primary",
             r#""pdf""#,
             "1970-01-01T00:00:00Z",
         );
@@ -704,10 +748,12 @@ mod tests {
             media: vec!["pdf".to_string()],
             ..Default::default()
         };
-        let out = store
-            .filter_chunks(&[cid(c1), cid(c2)], &f)
-            .unwrap();
-        assert_eq!(out, vec![cid(c2)], "only pdf chunk should survive media filter");
+        let out = store.filter_chunks(&[cid(c1), cid(c2)], &f).unwrap();
+        assert_eq!(
+            out,
+            vec![cid(c2)],
+            "only pdf chunk should survive media filter"
+        );
     }
 
     #[test]
@@ -718,14 +764,24 @@ mod tests {
         let c1 = "11111111111111111111111111111111";
         let c2 = "22222222222222222222222222222222";
         seed_committed_full(
-            &store, c1, "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
-            "old.md", "en", &[], "primary",
+            &store,
+            c1,
+            "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+            "old.md",
+            "en",
+            &[],
+            "primary",
             r#""markdown""#,
             "2020-01-01T00:00:00Z",
         );
         seed_committed_full(
-            &store, c2, "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
-            "new.md", "en", &[], "primary",
+            &store,
+            c2,
+            "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+            "new.md",
+            "en",
+            &[],
+            "primary",
             r#""markdown""#,
             "2026-01-01T00:00:00Z",
         );
@@ -734,10 +790,12 @@ mod tests {
             ingested_after: Some(time::macros::datetime!(2025-01-01 00:00:00 UTC)),
             ..Default::default()
         };
-        let out = store
-            .filter_chunks(&[cid(c1), cid(c2)], &f)
-            .unwrap();
-        assert_eq!(out, vec![cid(c2)], "only post-2025 chunk should survive ingested_after filter");
+        let out = store.filter_chunks(&[cid(c1), cid(c2)], &f).unwrap();
+        assert_eq!(
+            out,
+            vec![cid(c2)],
+            "only post-2025 chunk should survive ingested_after filter"
+        );
     }
 
     #[test]
@@ -749,14 +807,24 @@ mod tests {
         let c2 = "22222222222222222222222222222222";
         let d1 = "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1";
         seed_committed_full(
-            &store, c1, d1,
-            "a.md", "en", &[], "primary",
+            &store,
+            c1,
+            d1,
+            "a.md",
+            "en",
+            &[],
+            "primary",
             r#""markdown""#,
             "1970-01-01T00:00:00Z",
         );
         seed_committed_full(
-            &store, c2, "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
-            "b.md", "en", &[], "primary",
+            &store,
+            c2,
+            "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+            "b.md",
+            "en",
+            &[],
+            "primary",
             r#""markdown""#,
             "1970-01-01T00:00:00Z",
         );
@@ -765,10 +833,12 @@ mod tests {
             doc_id: Some(kebab_core::DocumentId(d1.to_string())),
             ..Default::default()
         };
-        let out = store
-            .filter_chunks(&[cid(c1), cid(c2)], &f)
-            .unwrap();
-        assert_eq!(out, vec![cid(c1)], "doc_id filter must scope to the target doc only");
+        let out = store.filter_chunks(&[cid(c1), cid(c2)], &f).unwrap();
+        assert_eq!(
+            out,
+            vec![cid(c1)],
+            "doc_id filter must scope to the target doc only"
+        );
     }
 
     // ── p10-1A-1 new filter arms ─────────────────────────────────────────
@@ -783,18 +853,27 @@ mod tests {
         let c2 = "22222222222222222222222222222222";
         let c3 = "33333333333333333333333333333333";
         seed_committed_with_metadata(
-            &store, c1, "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
-            "src/main.py", r#""code""#,
+            &store,
+            c1,
+            "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+            "src/main.py",
+            r#""code""#,
             r#"{"code_lang":"python"}"#,
         );
         seed_committed_with_metadata(
-            &store, c2, "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
-            "src/lib.rs", r#""code""#,
+            &store,
+            c2,
+            "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+            "src/lib.rs",
+            r#""code""#,
             r#"{"code_lang":"rust"}"#,
         );
         seed_committed_with_metadata(
-            &store, c3, "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
-            "README.md", r#""markdown""#,
+            &store,
+            c3,
+            "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
+            "README.md",
+            r#""markdown""#,
             r"{}",
         );
 
@@ -805,7 +884,11 @@ mod tests {
         let out = store
             .filter_chunks(&[cid(c1), cid(c2), cid(c3)], &f)
             .unwrap();
-        assert_eq!(out, vec![cid(c1)], "only python chunk should survive code_lang filter");
+        assert_eq!(
+            out,
+            vec![cid(c1)],
+            "only python chunk should survive code_lang filter"
+        );
     }
 
     #[test]
@@ -818,18 +901,27 @@ mod tests {
         let c2 = "22222222222222222222222222222222";
         let c3 = "33333333333333333333333333333333";
         seed_committed_with_metadata(
-            &store, c1, "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
-            "httpx/client.py", r#""code""#,
+            &store,
+            c1,
+            "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+            "httpx/client.py",
+            r#""code""#,
             r#"{"repo":"httpx","code_lang":"python"}"#,
         );
         seed_committed_with_metadata(
-            &store, c2, "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
-            "requests/api.py", r#""code""#,
+            &store,
+            c2,
+            "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+            "requests/api.py",
+            r#""code""#,
             r#"{"repo":"requests","code_lang":"python"}"#,
         );
         seed_committed_with_metadata(
-            &store, c3, "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
-            "standalone.py", r#""code""#,
+            &store,
+            c3,
+            "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
+            "standalone.py",
+            r#""code""#,
             r#"{"code_lang":"python"}"#,
         );
 
@@ -840,7 +932,11 @@ mod tests {
         let out = store
             .filter_chunks(&[cid(c1), cid(c2), cid(c3)], &f)
             .unwrap();
-        assert_eq!(out, vec![cid(c1)], "only httpx chunk should survive repo filter");
+        assert_eq!(
+            out,
+            vec![cid(c1)],
+            "only httpx chunk should survive repo filter"
+        );
     }
 
     #[test]
@@ -865,8 +961,13 @@ mod tests {
         let store = open_store(&tmp);
         let c1 = "11111111111111111111111111111111";
         seed_committed_full(
-            &store, c1, "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
-            "doc.md", "en", &[], "primary",
+            &store,
+            c1,
+            "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+            "doc.md",
+            "en",
+            &[],
+            "primary",
             r#""markdown""#,
             "2026-04-01T01:00:00Z",
         );
@@ -883,9 +984,7 @@ mod tests {
             ingested_after: Some(filter_instant),
             ..Default::default()
         };
-        let out = store
-            .filter_chunks(&[cid(c1)], &f)
-            .unwrap();
+        let out = store.filter_chunks(&[cid(c1)], &f).unwrap();
         assert_eq!(
             out,
             vec![cid(c1)],

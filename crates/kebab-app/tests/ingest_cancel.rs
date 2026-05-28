@@ -107,13 +107,9 @@ fn cancel_none_is_uncancellable_default() {
     // ingest_with_config_progress (no cancel) runs to completion.
     let env = TestEnv::lexical_only();
     let (tx, rx) = mpsc::channel::<IngestEvent>();
-    let report = kebab_app::ingest_with_config_progress(
-        env.config.clone(),
-        env.scope(),
-        true,
-        Some(tx),
-    )
-    .unwrap();
+    let report =
+        kebab_app::ingest_with_config_progress(env.config.clone(), env.scope(), true, Some(tx))
+            .unwrap();
     assert_eq!(report.scanned, 3);
     assert_eq!(report.new, 3);
 

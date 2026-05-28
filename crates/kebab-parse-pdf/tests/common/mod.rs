@@ -56,17 +56,13 @@ pub fn build_text_pdf_with_info(pages: &[Option<&str>], info: &InfoDict) -> Vec<
                 operations: vec![
                     Operation::new("BT", vec![]),
                     Operation::new("Tf", vec!["F1".into(), 24.into()]),
-                    Operation::new(
-                        "Td",
-                        vec![Object::Integer(100), Object::Integer(700)],
-                    ),
+                    Operation::new("Td", vec![Object::Integer(100), Object::Integer(700)]),
                     Operation::new("Tj", vec![Object::string_literal(*text)]),
                     Operation::new("ET", vec![]),
                 ],
             };
             let stream_data = content.encode().expect("content encode");
-            let content_id =
-                doc.add_object(Stream::new(dictionary! {}, stream_data));
+            let content_id = doc.add_object(Stream::new(dictionary! {}, stream_data));
             page_dict.set("Contents", content_id);
         }
         let page_id = doc.add_object(page_dict);
@@ -86,8 +82,7 @@ pub fn build_text_pdf_with_info(pages: &[Option<&str>], info: &InfoDict) -> Vec<
             Object::Integer(842),
         ],
     };
-    doc.objects
-        .insert(pages_id, Object::Dictionary(pages_dict));
+    doc.objects.insert(pages_id, Object::Dictionary(pages_dict));
 
     let catalog_id = doc.add_object(dictionary! {
         "Type" => "Catalog",

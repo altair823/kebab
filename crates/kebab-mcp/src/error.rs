@@ -10,8 +10,7 @@ use kebab_app::classify;
 pub fn to_tool_error(err: &anyhow::Error) -> CallToolResult {
     let v1 = classify(err, false);
     let body = serde_json::to_string(&v1).unwrap_or_else(|_| {
-        r#"{"schema_version":"error.v1","code":"generic","message":"serialize failed"}"#
-            .to_string()
+        r#"{"schema_version":"error.v1","code":"generic","message":"serialize failed"}"#.to_string()
     });
     CallToolResult::error(vec![Content::text(body)])
 }

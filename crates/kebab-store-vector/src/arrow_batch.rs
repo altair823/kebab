@@ -23,8 +23,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use arrow_array::{
-    ArrayRef, FixedSizeListArray, Float32Array, RecordBatch, StringArray,
-    TimestampMicrosecondArray,
+    ArrayRef, FixedSizeListArray, Float32Array, RecordBatch, StringArray, TimestampMicrosecondArray,
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
 use kebab_core::VectorRecord;
@@ -71,21 +70,22 @@ pub(crate) fn build_batch(
     let schema = schema_for(dim);
 
     let chunk_ids = StringArray::from(
-        recs.iter().map(|r| r.chunk_id.0.as_str()).collect::<Vec<_>>(),
+        recs.iter()
+            .map(|r| r.chunk_id.0.as_str())
+            .collect::<Vec<_>>(),
     );
-    let doc_ids = StringArray::from(
-        recs.iter().map(|r| r.doc_id.0.as_str()).collect::<Vec<_>>(),
-    );
+    let doc_ids = StringArray::from(recs.iter().map(|r| r.doc_id.0.as_str()).collect::<Vec<_>>());
     let model_ids = StringArray::from(
-        recs.iter().map(|r| r.model_id.0.as_str()).collect::<Vec<_>>(),
+        recs.iter()
+            .map(|r| r.model_id.0.as_str())
+            .collect::<Vec<_>>(),
     );
     let model_versions = StringArray::from(
         recs.iter()
             .map(|r| r.model_version.0.as_str())
             .collect::<Vec<_>>(),
     );
-    let texts =
-        StringArray::from(recs.iter().map(|r| r.text.as_str()).collect::<Vec<_>>());
+    let texts = StringArray::from(recs.iter().map(|r| r.text.as_str()).collect::<Vec<_>>());
 
     // heading_path: serde_json::Value::Array of strings, then to_string.
     let heading_paths: Vec<String> = recs
@@ -93,9 +93,8 @@ pub(crate) fn build_batch(
         .map(|r| serde_json::to_string(&r.heading_path))
         .collect::<std::result::Result<_, _>>()
         .context("serialize heading_path JSON")?;
-    let heading_path_arr = StringArray::from(
-        heading_paths.iter().map(String::as_str).collect::<Vec<_>>(),
-    );
+    let heading_path_arr =
+        StringArray::from(heading_paths.iter().map(String::as_str).collect::<Vec<_>>());
 
     // Embedding: FixedSizeList<Float32, dim>. Build from the flat
     // contiguous f32 buffer.
@@ -112,22 +111,14 @@ pub(crate) fn build_batch(
         flat.extend_from_slice(&r.vector);
     }
     let values = Float32Array::from(flat);
-    let embedding_field =
-        Arc::new(Field::new("item", DataType::Float32, true));
-    let embedding = FixedSizeListArray::try_new(
-        embedding_field,
-        dim as i32,
-        Arc::new(values),
-        None,
-    )
-    .context("build FixedSizeList embedding column")?;
+    let embedding_field = Arc::new(Field::new("item", DataType::Float32, true));
+    let embedding =
+        FixedSizeListArray::try_new(embedding_field, dim as i32, Arc::new(values), None)
+            .context("build FixedSizeList embedding column")?;
 
     // created_at: microseconds since Unix epoch, UTC.
-    let micros: Vec<i64> = std::iter::repeat_n(
-        (now.unix_timestamp_nanos() / 1_000) as i64,
-        recs.len(),
-    )
-    .collect();
+    let micros: Vec<i64> =
+        std::iter::repeat_n((now.unix_timestamp_nanos() / 1_000) as i64, recs.len()).collect();
     let created_at = TimestampMicrosecondArray::from(micros).with_timezone("UTC");
 
     let arrays: Vec<ArrayRef> = vec![

@@ -33,8 +33,8 @@
 
 use std::ops::Range;
 
-use kebab_core::{Inline, SourceSpan};
 use crate::types::{ParsedBlock, ParsedBlockKind, ParsedPayload, Warning, WarningKind};
+use kebab_core::{Inline, SourceSpan};
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 /// Parse a Markdown body into a flat `Vec<ParsedBlock>` plus any warnings.
@@ -60,7 +60,9 @@ pub fn parse_blocks(
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         parse_blocks_inner(body, body_offset_lines)
     }));
-    if let Ok(out) = result { Ok(out) } else {
+    if let Ok(out) = result {
+        Ok(out)
+    } else {
         tracing::warn!("parse_blocks panicked on adversarial input; returning empty");
         Ok((
             Vec::new(),
@@ -99,7 +101,8 @@ fn parse_blocks_inner(body: &[u8], body_offset_lines: u32) -> (Vec<ParsedBlock>,
     // possibly-inverted spans would be more harmful than dropping output.
     if state.overflow_detected {
         let at = state
-            .overflow_at_body_line.map_or_else(|| "?".to_string(), |n| n.to_string());
+            .overflow_at_body_line
+            .map_or_else(|| "?".to_string(), |n| n.to_string());
         return (
             Vec::new(),
             vec![Warning {
@@ -273,7 +276,11 @@ enum InlineFrame {
     Top(Vec<Inline>),
     Strong(Vec<Inline>),
     Emph(Vec<Inline>),
-    Link { href: String, text: String, kids: Vec<Inline> },
+    Link {
+        href: String,
+        text: String,
+        kids: Vec<Inline>,
+    },
 }
 
 impl InlineBuf {
@@ -295,12 +302,16 @@ impl InlineBuf {
 
     fn push_text(&mut self, s: &str) {
         self.text.push_str(s);
-        self.push_inline(Inline::Text { text: s.to_string() });
+        self.push_inline(Inline::Text {
+            text: s.to_string(),
+        });
     }
 
     fn push_code(&mut self, s: &str) {
         self.text.push_str(s);
-        self.push_inline(Inline::Code { code: s.to_string() });
+        self.push_inline(Inline::Code {
+            code: s.to_string(),
+        });
     }
 
     fn open_strong(&mut self) {
@@ -375,7 +386,6 @@ impl InlineBuf {
         };
         (top, self.text)
     }
-
 }
 
 /// Flatten an emitted block into the inline buffer of an enclosing list
@@ -413,7 +423,10 @@ fn flatten_block_into_item(block: &ParsedBlock, inlines: &mut InlineBuf) {
             let hashes = "#".repeat((*level as usize).clamp(1, 6));
             inlines.push_text(&format!("\n{hashes} {text}\n"));
         }
-        ParsedPayload::Paragraph { text, inlines: child } => {
+        ParsedPayload::Paragraph {
+            text,
+            inlines: child,
+        } => {
             // Paragraphs inside list items normally don't reach this path
             // (the Start(Tag::Paragraph) handler suppresses creating a
             // Paragraph frame when the parent is a ListItem). This branch
@@ -526,7 +539,9 @@ impl<'a> WalkState<'a> {
         if let (Some(start), Some(end)) = (
             start_body.checked_add(self.body_offset_lines),
             end_body.checked_add(self.body_offset_lines),
-        ) { SourceSpan::Line { start, end } } else {
+        ) {
+            SourceSpan::Line { start, end }
+        } else {
             if !self.overflow_detected {
                 self.overflow_detected = true;
                 self.overflow_at_body_line = Some(start_body);
@@ -604,10 +619,7 @@ impl<'a> WalkState<'a> {
                 });
             }
             Event::Start(Tag::List(start)) => {
-                let nested_in_item = matches!(
-                    self.frames.last(),
-                    Some(Frame::ListItem { .. })
-                );
+                let nested_in_item = matches!(self.frames.last(), Some(Frame::ListItem { .. }));
                 self.frames.push(Frame::List {
                     ordered: start.is_some(),
                     range,
@@ -630,7 +642,13 @@ impl<'a> WalkState<'a> {
                         } else {
                             // Take only the first whitespace-delimited token,
                             // matching how editors render the info string.
-                            Some(trimmed.split_whitespace().next().unwrap_or(trimmed).to_string())
+                            Some(
+                                trimmed
+                                    .split_whitespace()
+                                    .next()
+                                    .unwrap_or(trimmed)
+                                    .to_string(),
+                            )
                         }
                     }
                 };
@@ -709,7 +727,12 @@ impl<'a> WalkState<'a> {
                 // The Tag::Heading frame is the source of truth for the
                 // level — `_level` from TagEnd is identical for well-formed
                 // input. We trust the frame.
-                if let Some(Frame::Heading { level: level_to_use, range, inlines }) = self.frames.pop() {
+                if let Some(Frame::Heading {
+                    level: level_to_use,
+                    range,
+                    inlines,
+                }) = self.frames.pop()
+                {
                     let (_inline_vec, text) = inlines.finish();
                     let text = text.trim().to_string();
 
@@ -737,7 +760,10 @@ impl<'a> WalkState<'a> {
                         kind: ParsedBlockKind::Heading,
                         heading_path: path,
                         source_span: self.span_for(&range),
-                        payload: ParsedPayload::Heading { level: level_to_use, text },
+                        payload: ParsedPayload::Heading {
+                            level: level_to_use,
+                            text,
+                        },
                     };
                     self.emit_block(block);
                 }
@@ -781,7 +807,10 @@ impl<'a> WalkState<'a> {
                             kind: ParsedBlockKind::Paragraph,
                             heading_path: self.heading_path(),
                             source_span: span,
-                            payload: ParsedPayload::Paragraph { text, inlines: inline_vec },
+                            payload: ParsedPayload::Paragraph {
+                                text,
+                                inlines: inline_vec,
+                            },
                         };
                         self.emit_block(block);
                     }
@@ -803,8 +832,14 @@ impl<'a> WalkState<'a> {
                     let mut inlines: Vec<Inline> = Vec::new();
                     for c in &children {
                         match &c.payload {
-                            ParsedPayload::Paragraph { text: t, inlines: il }
-                            | ParsedPayload::Quote { text: t, inlines: il } => {
+                            ParsedPayload::Paragraph {
+                                text: t,
+                                inlines: il,
+                            }
+                            | ParsedPayload::Quote {
+                                text: t,
+                                inlines: il,
+                            } => {
                                 if !text.is_empty() {
                                     text.push('\n');
                                 }
@@ -831,7 +866,13 @@ impl<'a> WalkState<'a> {
                 }
             }
             Event::End(TagEnd::List(_)) => {
-                if let Some(Frame::List { ordered, range, items, nested_in_item }) = self.frames.pop() {
+                if let Some(Frame::List {
+                    ordered,
+                    range,
+                    items,
+                    nested_in_item,
+                }) = self.frames.pop()
+                {
                     if nested_in_item {
                         // Flatten this sub-list into the enclosing list
                         // item's inline text. Each item becomes a line
@@ -871,7 +912,12 @@ impl<'a> WalkState<'a> {
                 }
             }
             Event::End(TagEnd::CodeBlock) => {
-                if let Some(Frame::Code { lang, range, mut code }) = self.frames.pop() {
+                if let Some(Frame::Code {
+                    lang,
+                    range,
+                    mut code,
+                }) = self.frames.pop()
+                {
                     // Fenced code blocks include a trailing newline from the
                     // last source line; pulldown-cmark already strips the
                     // closing fence. We trim a single trailing `\n` for
@@ -903,11 +949,9 @@ impl<'a> WalkState<'a> {
                             kind: WarningKind::MalformedTable,
                             note,
                         });
-                        let raw = std::str::from_utf8(
-                            self.body.get(range.clone()).unwrap_or(&[]),
-                        )
-                        .unwrap_or_default()
-                        .to_string();
+                        let raw = std::str::from_utf8(self.body.get(range.clone()).unwrap_or(&[]))
+                            .unwrap_or_default()
+                            .to_string();
                         ParsedBlock {
                             kind: ParsedBlockKind::Paragraph,
                             heading_path: self.heading_path(),
@@ -1187,8 +1231,18 @@ mod tests {
         let body = "# A\n\n## A.1\n\np1\n\n# B\n\np2\n";
         let (blocks, _) = parse(body, 1);
         // p1 under [A, A.1]; p2 under [B].
-        let p1 = blocks.iter().find(|b| matches!(b.payload, ParsedPayload::Paragraph { ref text, .. } if text == "p1")).unwrap();
-        let p2 = blocks.iter().find(|b| matches!(b.payload, ParsedPayload::Paragraph { ref text, .. } if text == "p2")).unwrap();
+        let p1 = blocks
+            .iter()
+            .find(
+                |b| matches!(b.payload, ParsedPayload::Paragraph { ref text, .. } if text == "p1"),
+            )
+            .unwrap();
+        let p2 = blocks
+            .iter()
+            .find(
+                |b| matches!(b.payload, ParsedPayload::Paragraph { ref text, .. } if text == "p2"),
+            )
+            .unwrap();
         assert_eq!(p1.heading_path, vec!["A".to_string(), "A.1".to_string()]);
         assert_eq!(p2.heading_path, vec!["B".to_string()]);
     }
@@ -1226,9 +1280,9 @@ mod tests {
         let (blocks, _) = parse(body, 1);
         let inner = blocks
             .iter()
-            .find(|b| {
-                matches!(b.payload, ParsedPayload::Heading { ref text, .. } if text == "Inner")
-            })
+            .find(
+                |b| matches!(b.payload, ParsedPayload::Heading { ref text, .. } if text == "Inner"),
+            )
             .expect("Inner heading present");
         assert_eq!(
             inner.heading_path,
@@ -1282,10 +1336,19 @@ mod tests {
         assert_eq!(blocks.len(), 1);
         match &blocks[0].payload {
             ParsedPayload::Table { headers, rows } => {
-                assert_eq!(headers, &vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+                assert_eq!(
+                    headers,
+                    &vec!["a".to_string(), "b".to_string(), "c".to_string()]
+                );
                 assert_eq!(rows.len(), 2);
-                assert_eq!(rows[0], vec!["1".to_string(), "2".to_string(), "3".to_string()]);
-                assert_eq!(rows[1], vec!["x".to_string(), "y".to_string(), "z".to_string()]);
+                assert_eq!(
+                    rows[0],
+                    vec!["1".to_string(), "2".to_string(), "3".to_string()]
+                );
+                assert_eq!(
+                    rows[1],
+                    vec!["x".to_string(), "y".to_string(), "z".to_string()]
+                );
             }
             _ => panic!("expected table, got {:?}", blocks[0].payload),
         }
@@ -1313,7 +1376,11 @@ mod tests {
         // Synthetic events — fake a 3-column table with a 2-cell header so
         // the `malformed` branch fires.
         let aligns = vec![Alignment::None, Alignment::None, Alignment::None];
-        state.handle_event(Event::Start(Tag::Table(aligns)), 0..body.len(), &mut warnings);
+        state.handle_event(
+            Event::Start(Tag::Table(aligns)),
+            0..body.len(),
+            &mut warnings,
+        );
         state.handle_event(Event::Start(Tag::TableHead), 0..0, &mut warnings);
         state.handle_event(Event::Start(Tag::TableCell), 0..0, &mut warnings);
         state.handle_event(Event::Text(CowStr::Borrowed("a")), 0..0, &mut warnings);
@@ -1330,7 +1397,10 @@ mod tests {
         assert_eq!(blocks[0].kind, ParsedBlockKind::Paragraph);
         match &blocks[0].payload {
             ParsedPayload::Paragraph { text, .. } => {
-                assert!(text.contains("| a | b |"), "raw markdown preserved: {text:?}");
+                assert!(
+                    text.contains("| a | b |"),
+                    "raw markdown preserved: {text:?}"
+                );
             }
             _ => panic!("expected paragraph fallback"),
         }
@@ -1470,7 +1540,11 @@ mod tests {
                     assert!(
                         matches!(
                             inl,
-                            Inline::Text { .. } | Inline::Code { .. } | Inline::Link { .. } | Inline::Strong { .. } | Inline::Emph { .. }
+                            Inline::Text { .. }
+                                | Inline::Code { .. }
+                                | Inline::Link { .. }
+                                | Inline::Strong { .. }
+                                | Inline::Emph { .. }
                         ),
                         "unexpected inline kind: {inl:?}"
                     );
@@ -1551,7 +1625,10 @@ mod tests {
                 assert_eq!(items.len(), 2);
                 let flat = flatten_inlines_to_text(&items[0]);
                 assert!(flat.contains("item"), "first item missing 'item': {flat:?}");
-                assert!(flat.contains("fn f(){}"), "first item missing code body: {flat:?}");
+                assert!(
+                    flat.contains("fn f(){}"),
+                    "first item missing code body: {flat:?}"
+                );
                 assert!(flat.contains("```"), "first item missing fence: {flat:?}");
                 assert_eq!(flatten_inlines_to_text(&items[1]).trim(), "next");
             }
@@ -1658,13 +1735,13 @@ mod tests {
             b"\0\0\0",
             b"```\nunclosed",
             b"# heading\n```\nfn main() {",
-            b"| a | b |\n|---|---|\n| 1 |\n",   // short row
-            b"| a | b |\n|---|\n| 1 | 2 |\n",   // header/sep mismatch
+            b"| a | b |\n|---|---|\n| 1 |\n", // short row
+            b"| a | b |\n|---|\n| 1 | 2 |\n", // header/sep mismatch
             b"![",
             b"](",
             b"---\nfm: yes\n",
-            b"#######",                                                  // 7 hashes (invalid heading)
-            b"\xff\xfe\x00\x00garbage",                                   // non-utf8
+            b"#######",                 // 7 hashes (invalid heading)
+            b"\xff\xfe\x00\x00garbage", // non-utf8
             "# 한글\n\n본문\n".as_bytes(),
         ];
         for c in cases {
@@ -1727,13 +1804,16 @@ mod tests {
         let (blocks, _) = parse(body, 1);
         match &blocks[0].payload {
             ParsedPayload::Paragraph { inlines, .. } => {
-                let kinds: Vec<&'static str> = inlines.iter().map(|i| match i {
-                    Inline::Text { .. } => "Text",
-                    Inline::Code { .. } => "Code",
-                    Inline::Link { .. } => "Link",
-                    Inline::Strong { .. } => "Strong",
-                    Inline::Emph { .. } => "Emph",
-                }).collect();
+                let kinds: Vec<&'static str> = inlines
+                    .iter()
+                    .map(|i| match i {
+                        Inline::Text { .. } => "Text",
+                        Inline::Code { .. } => "Code",
+                        Inline::Link { .. } => "Link",
+                        Inline::Strong { .. } => "Strong",
+                        Inline::Emph { .. } => "Emph",
+                    })
+                    .collect();
                 assert!(kinds.contains(&"Strong"));
                 assert!(kinds.contains(&"Emph"));
                 assert!(kinds.contains(&"Code"));

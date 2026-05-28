@@ -19,9 +19,7 @@
 // Per spec §7.2 — these are the only public-surface types this crate offers.
 // Adding new types is forbidden by the task contract.
 
-pub use kebab_core::{
-    Embedder, EmbeddingInput, EmbeddingKind, EmbeddingModelId, EmbeddingVersion,
-};
+pub use kebab_core::{Embedder, EmbeddingInput, EmbeddingKind, EmbeddingModelId, EmbeddingVersion};
 
 // ── Test helper ───────────────────────────────────────────────────────────
 

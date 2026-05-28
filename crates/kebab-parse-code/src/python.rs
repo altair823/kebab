@@ -319,12 +319,23 @@ fn build_blocks(
         // demotes any `<module>` to `<top-level>` if the file produced
         // any real unit.
         let only_imports = glue.iter().all(|(is_import, _, _)| *is_import == 1);
-        let label = if only_imports { "<module>" } else { "<top-level>" };
+        let label = if only_imports {
+            "<module>"
+        } else {
+            "<top-level>"
+        };
         units.push((join_symbol(mod_prefix, mod_path, label), s, e, false));
         glue.clear();
     }
 
-    walk(tree.root_node(), source, mod_prefix, &[], &mut units, &mut glue);
+    walk(
+        tree.root_node(),
+        source,
+        mod_prefix,
+        &[],
+        &mut units,
+        &mut glue,
+    );
 
     // `<module>` is correct only when the file produced no real unit.
     // Otherwise the import-only group becomes `<top-level>` (same
@@ -373,17 +384,18 @@ mod tests {
     use kebab_core::{Block, MediaType, SourceSpan};
 
     fn extract_fixture() -> kebab_core::CanonicalDocument {
-        let bytes = std::fs::read(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/sample.py"),
-        )
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/sample.py"
+        ))
         .unwrap();
-        let asset = crate::rust::tests_support::fixed_code_asset(
-            "kebab_eval/metrics.py", "python",
-        );
+        let asset = crate::rust::tests_support::fixed_code_asset("kebab_eval/metrics.py", "python");
         let cfg = kebab_core::ExtractConfig::default();
         let root = std::path::PathBuf::from("/tmp");
         let ctx = kebab_core::ExtractContext {
-            asset: &asset, workspace_root: &root, config: &cfg,
+            asset: &asset,
+            workspace_root: &root,
+            config: &cfg,
         };
         PythonAstExtractor::new().extract(&ctx, &bytes).unwrap()
     }
@@ -399,16 +411,20 @@ mod tests {
     #[test]
     fn python_units_carry_module_prefixed_symbols() {
         let doc = extract_fixture();
-        let mut syms: Vec<String> = doc.blocks.iter().map(|b| match b {
-            Block::Code(c) => match &c.common.source_span {
-                SourceSpan::Code { symbol, lang, .. } => {
-                    assert_eq!(lang.as_deref(), Some("python"));
-                    symbol.clone().unwrap()
-                }
-                _ => panic!("expected SourceSpan::Code"),
-            },
-            other => panic!("expected Block::Code, got {other:?}"),
-        }).collect();
+        let mut syms: Vec<String> = doc
+            .blocks
+            .iter()
+            .map(|b| match b {
+                Block::Code(c) => match &c.common.source_span {
+                    SourceSpan::Code { symbol, lang, .. } => {
+                        assert_eq!(lang.as_deref(), Some("python"));
+                        symbol.clone().unwrap()
+                    }
+                    _ => panic!("expected SourceSpan::Code"),
+                },
+                other => panic!("expected Block::Code, got {other:?}"),
+            })
+            .collect();
         syms.sort();
         assert!(syms.iter().any(|s| s == "kebab_eval.metrics.free"));
         assert!(syms.iter().any(|s| s == "kebab_eval.metrics.Foo"));
@@ -416,8 +432,14 @@ mod tests {
         assert!(syms.iter().any(|s| s == "kebab_eval.metrics.Foo.name"));
         assert!(syms.iter().any(|s| s == "kebab_eval.metrics.Outer"));
         assert!(syms.iter().any(|s| s == "kebab_eval.metrics.Outer.Inner"));
-        assert!(syms.iter().any(|s| s == "kebab_eval.metrics.Outer.Inner.helper"));
-        assert!(syms.iter().any(|s| s == "kebab_eval.metrics.with_decorator"));
+        assert!(
+            syms.iter()
+                .any(|s| s == "kebab_eval.metrics.Outer.Inner.helper")
+        );
+        assert!(
+            syms.iter()
+                .any(|s| s == "kebab_eval.metrics.with_decorator")
+        );
         assert!(syms.iter().any(|s| s == "kebab_eval.metrics.<top-level>"));
         // The `@no_type_check` decorator on `free` is folded into its
         // unit's line range (decorated_definition unwrap).
@@ -426,12 +448,17 @@ mod tests {
                 SourceSpan::Code{symbol,..} if symbol.as_deref()==Some("kebab_eval.metrics.free")) => Some(c.code.clone()),
             _ => None,
         }).unwrap();
-        assert!(free_src.contains("@no_type_check"), "decorator folded in: {free_src}");
+        assert!(
+            free_src.contains("@no_type_check"),
+            "decorator folded in: {free_src}"
+        );
     }
 
     #[test]
     fn deterministic_across_runs() {
         let a = extract_fixture();
-        for _ in 0..50 { assert_eq!(extract_fixture().blocks, a.blocks); }
+        for _ in 0..50 {
+            assert_eq!(extract_fixture().blocks, a.blocks);
+        }
     }
 }

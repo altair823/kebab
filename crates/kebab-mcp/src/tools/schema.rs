@@ -2,8 +2,8 @@
 //! Input: {} (no args). Output: schema.v1 JSON.
 
 use rmcp::model::CallToolResult;
-use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{to_tool_error, to_tool_success};
 use crate::state::KebabAppState;

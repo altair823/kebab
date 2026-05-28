@@ -110,11 +110,7 @@ fn document_and_query_yield_different_vectors() {
     assert_eq!(out[1].len(), 1024);
 
     // Both vectors are L2-normalized → cosine similarity == dot product.
-    let cos: f32 = out[0]
-        .iter()
-        .zip(out[1].iter())
-        .map(|(a, b)| a * b)
-        .sum();
+    let cos: f32 = out[0].iter().zip(out[1].iter()).map(|(a, b)| a * b).sum();
     // Same text, different prefix → vectors must NOT be identical.
     assert!(
         cos < 0.9999,
@@ -232,8 +228,8 @@ const SNAPSHOT_HASH_BASELINE: u64 = 0;
 #[ignore = "loads ONNX model; CI-only"]
 fn snapshot_aggregate_hash_is_stable() {
     let emb = shared_embedder();
-    let fixture_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/embed/known-sentences.json");
+    let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/embed/known-sentences.json");
     let raw = std::fs::read_to_string(&fixture_path).expect("read fixture");
     let json: serde_json::Value = serde_json::from_str(&raw).expect("parse fixture json");
     let sentences: Vec<String> = json["sentences"]

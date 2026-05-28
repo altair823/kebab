@@ -8,7 +8,7 @@
 
 use crate::tier2_shared::{policy_hash, push_chunks_with_oversize};
 use anyhow::Result;
-use kebab_core::{Block, CanonicalDocument, Chunk, ChunkPolicy, ChunkerVersion, Chunker};
+use kebab_core::{Block, CanonicalDocument, Chunk, ChunkPolicy, Chunker, ChunkerVersion};
 
 pub const VERSION_LABEL: &str = "manifest-file-v1";
 

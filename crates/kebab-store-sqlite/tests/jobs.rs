@@ -29,9 +29,7 @@ fn create_then_progress_then_finish() {
     assert_eq!(row[0].progress.as_ref().unwrap()["total"], json!(10));
 
     // Finish with success.
-    store
-        .finish(&id, JobStatus::Succeeded, None)
-        .unwrap();
+    store.finish(&id, JobStatus::Succeeded, None).unwrap();
     let row = store.list(&JobFilter::default()).unwrap();
     assert_eq!(row[0].status, JobStatus::Succeeded);
     assert!(row[0].finished_at.is_some());

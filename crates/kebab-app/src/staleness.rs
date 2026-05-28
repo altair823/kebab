@@ -10,11 +10,7 @@ use kebab_core::SearchHit;
 ///
 /// p9-fb-32: mirrored in `kebab_rag::pipeline::compute_stale` (dep-boundary
 /// rule prevents `kebab-rag → kebab-app`). Update both together.
-pub fn compute_stale(
-    indexed_at: OffsetDateTime,
-    now: OffsetDateTime,
-    threshold_days: u32,
-) -> bool {
+pub fn compute_stale(indexed_at: OffsetDateTime, now: OffsetDateTime, threshold_days: u32) -> bool {
     if threshold_days == 0 {
         return false;
     }
@@ -23,11 +19,7 @@ pub fn compute_stale(
 }
 
 /// Sets `stale` on each hit in place using `compute_stale`.
-pub fn mark_stale_in_place(
-    hits: &mut [SearchHit],
-    now: OffsetDateTime,
-    threshold_days: u32,
-) {
+pub fn mark_stale_in_place(hits: &mut [SearchHit], now: OffsetDateTime, threshold_days: u32) {
     for h in hits {
         h.stale = compute_stale(h.indexed_at, now, threshold_days);
     }

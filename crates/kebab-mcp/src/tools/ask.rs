@@ -51,9 +51,7 @@ pub fn handle(state: &KebabAppState, input: AskInput) -> CallToolResult {
     };
     let cfg_clone = (*state.config).clone();
     let result = match input.session_id {
-        Some(sid) => {
-            kebab_app::ask_with_session_with_config(cfg_clone, &sid, &input.query, opts)
-        }
+        Some(sid) => kebab_app::ask_with_session_with_config(cfg_clone, &sid, &input.query, opts),
         None => kebab_app::ask_with_config(cfg_clone, &input.query, opts),
     };
     match result {

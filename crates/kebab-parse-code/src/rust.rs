@@ -224,8 +224,8 @@ fn build_blocks(
             let s = unit_start(&child);
             let e = child.end_position().row as u32 + 1;
             match child.kind() {
-                "function_item" | "struct_item" | "enum_item" | "union_item"
-                | "trait_item" | "type_item" => {
+                "function_item" | "struct_item" | "enum_item" | "union_item" | "trait_item"
+                | "type_item" => {
                     if let Some(name) = node_name(&child, src) {
                         // Gap 2: a leading attribute/comment that this unit
                         // re-absorbs (via `unit_start`'s upward extension to
@@ -296,8 +296,12 @@ fn build_blocks(
                         glue.push((1, s, e));
                     }
                 }
-                "use_declaration" | "extern_crate_declaration" | "const_item"
-                | "static_item" | "attribute_item" | "macro_invocation" => {
+                "use_declaration"
+                | "extern_crate_declaration"
+                | "const_item"
+                | "static_item"
+                | "attribute_item"
+                | "macro_invocation" => {
                     glue.push((0, s, e));
                 }
                 _ => {}
@@ -320,7 +324,11 @@ fn build_blocks(
         // requires the *whole file* to have produced zero real units; that
         // demotion to `<top-level>` happens in the post-pass below.
         let only_mod_decls = glue.iter().all(|(is_mod, _, _)| *is_mod == 1);
-        let label = if only_mod_decls { "<module>" } else { "<top-level>" };
+        let label = if only_mod_decls {
+            "<module>"
+        } else {
+            "<top-level>"
+        };
         // Module-path-prefix the label so glue from `mod inner` carries
         // module context (`inner::<top-level>`) and doesn't collide with
         // file-top-level glue. `prefix` is empty at file top level, so the
@@ -379,14 +387,19 @@ mod tests {
     use kebab_core::{Block, MediaType, SourceSpan};
 
     fn extract_fixture() -> kebab_core::CanonicalDocument {
-        let bytes = std::fs::read(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/sample.rs"),
-        )
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/sample.rs"
+        ))
         .unwrap();
         let asset = tests_support::fixed_code_asset("crates/x/src/sample.rs", "rust");
         let cfg = kebab_core::ExtractConfig::default();
         let root = std::path::PathBuf::from("/tmp");
-        let ctx = kebab_core::ExtractContext { asset: &asset, workspace_root: &root, config: &cfg };
+        let ctx = kebab_core::ExtractContext {
+            asset: &asset,
+            workspace_root: &root,
+            config: &cfg,
+        };
         RustAstExtractor::new().extract(&ctx, &bytes).unwrap()
     }
 
@@ -406,7 +419,12 @@ mod tests {
             .iter()
             .map(|b| match b {
                 Block::Code(c) => match &c.common.source_span {
-                    SourceSpan::Code { symbol, line_start, line_end, lang } => {
+                    SourceSpan::Code {
+                        symbol,
+                        line_start,
+                        line_end,
+                        lang,
+                    } => {
                         assert_eq!(lang.as_deref(), Some("rust"));
                         (symbol.clone().unwrap(), *line_start, *line_end)
                     }
@@ -428,7 +446,10 @@ mod tests {
             Block::Code(c) if matches!(&c.common.source_span, SourceSpan::Code{symbol,..} if symbol.as_deref()==Some("parse")) => Some(c.code.clone()),
             _ => None,
         }).unwrap();
-        assert!(parse_src.contains("/// Doc comment on a free fn."), "doc comment folded in: {parse_src}");
+        assert!(
+            parse_src.contains("/// Doc comment on a free fn."),
+            "doc comment folded in: {parse_src}"
+        );
     }
 
     /// Run the extractor on an in-memory Rust source string (no fixture
@@ -437,7 +458,11 @@ mod tests {
         let asset = tests_support::fixed_code_asset("crates/x/src/inline.rs", "rust");
         let cfg = kebab_core::ExtractConfig::default();
         let root = std::path::PathBuf::from("/tmp");
-        let ctx = kebab_core::ExtractContext { asset: &asset, workspace_root: &root, config: &cfg };
+        let ctx = kebab_core::ExtractContext {
+            asset: &asset,
+            workspace_root: &root,
+            config: &cfg,
+        };
         let doc = RustAstExtractor::new()
             .extract(&ctx, source.as_bytes())
             .unwrap();
@@ -445,9 +470,7 @@ mod tests {
             .iter()
             .map(|b| match b {
                 Block::Code(c) => match &c.common.source_span {
-                    SourceSpan::Code { symbol, .. } => {
-                        (symbol.clone().unwrap(), c.code.clone())
-                    }
+                    SourceSpan::Code { symbol, .. } => (symbol.clone().unwrap(), c.code.clone()),
                     _ => panic!("code block must carry SourceSpan::Code"),
                 },
                 other => panic!("expected Block::Code, got {other:?}"),

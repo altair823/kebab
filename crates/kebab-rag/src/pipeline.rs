@@ -38,13 +38,12 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use kebab_core::{
-    Answer, AnswerCitation, AnswerRetrievalSummary, Citation, FinishReason,
-    GenerateRequest, HopKind, HopRecord, LanguageModel, ModelRef, RefusalReason,
-    Retriever, SearchFilters, SearchHit, SearchMode, SearchQuery, TokenChunk,
-    TokenUsage, TraceId, Turn, VerificationSummary,
-};
 use kebab_core::versions::PromptTemplateVersion;
+use kebab_core::{
+    Answer, AnswerCitation, AnswerRetrievalSummary, Citation, FinishReason, GenerateRequest,
+    HopKind, HopRecord, LanguageModel, ModelRef, RefusalReason, Retriever, SearchFilters,
+    SearchHit, SearchMode, SearchQuery, TokenChunk, TokenUsage, TraceId, Turn, VerificationSummary,
+};
 use kebab_store_sqlite::SqliteStore;
 use regex::Regex;
 use std::sync::OnceLock;
@@ -313,9 +312,7 @@ impl RagPipeline {
         // here — if the caller already dropped the receiver we just
         // skip and let the LLM-loop SendError handle it consistently.
         if let Some(sink) = &opts.stream_sink {
-            let _ = sink.send(StreamEvent::RetrievalDone {
-                hits: hits.clone(),
-            });
+            let _ = sink.send(StreamEvent::RetrievalDone { hits: hits.clone() });
         }
         let chunks_returned = u32::try_from(hits.len()).unwrap_or(u32::MAX);
         let top_score = hits.first().map_or(0.0, |h| h.retrieval.fusion_score);
@@ -356,8 +353,7 @@ impl RagPipeline {
         }
 
         // ── 4. Render prompt ───────────────────────────────────────────────
-        let system = system_prompt_for(&self.config.rag.prompt_template_version)?
-            .to_string();
+        let system = system_prompt_for(&self.config.rag.prompt_template_version)?.to_string();
         // p9-fb-15: prepend `[이전 대화]` block when history is
         // present. `serialize_history` enforces the spec §3.8
         // priority — system+question stay untouched, retrieved
@@ -373,9 +369,7 @@ impl RagPipeline {
         let user = if history_block.is_empty() {
             format!("[질문]\n{query}\n\n[근거]\n{packed_text}")
         } else {
-            format!(
-                "{history_block}\n\n[질문]\n{query}\n\n[근거]\n{packed_text}"
-            )
+            format!("{history_block}\n\n[질문]\n{query}\n\n[근거]\n{packed_text}")
         };
 
         // ── 5. Generate ────────────────────────────────────────────────────
@@ -472,14 +466,12 @@ impl RagPipeline {
         // observable in tracing so operators can distinguish "model
         // said `근거가 부족`" from "model produced unmarked/unknown
         // text" in logs without recomputing the regex downstream.
-        let refusal_phrase = REFUSAL_PHRASE.get_or_init(|| {
-            Regex::new(r"근거(가|이)\s*부족").expect("static regex compiles")
-        });
+        let refusal_phrase = REFUSAL_PHRASE
+            .get_or_init(|| Regex::new(r"근거(가|이)\s*부족").expect("static regex compiles"));
         let trimmed_answer = acc.trim();
         let matched_refusal_phrase = refusal_phrase.is_match(&acc);
-        let grounded_unaware = !trimmed_answer.is_empty()
-            && unknown_markers.is_empty()
-            && !extracted.is_empty();
+        let grounded_unaware =
+            !trimmed_answer.is_empty() && unknown_markers.is_empty() && !extracted.is_empty();
         // p9-fb-33: cancel takes priority over LlmSelfJudge — the
         // caller bailed mid-stream, so the recorded reason should
         // reflect that, not "model didn't cite".
@@ -580,9 +572,7 @@ impl RagPipeline {
         // p9-fb-33: emit final on the success path. On cancel we
         // skip Final — the receiver is gone and persistence still
         // records the partial answer below.
-        if !cancelled
-            && let Some(sink) = &opts.stream_sink
-        {
+        if !cancelled && let Some(sink) = &opts.stream_sink {
             let _ = sink.send(StreamEvent::Final {
                 answer: answer.clone(),
             });
@@ -605,8 +595,9 @@ impl RagPipeline {
         } else {
             None
         };
-        if let Err(e) =
-            self.docs.put_answer(&answer, query, packed_chunks_json.as_deref())
+        if let Err(e) = self
+            .docs
+            .put_answer(&answer, query, packed_chunks_json.as_deref())
         {
             tracing::warn!(
                 target: "kebab-rag",
@@ -689,14 +680,7 @@ impl RagPipeline {
             return self.refuse_no_chunks(query, &opts, k_effective, started, None);
         }
         if probe_hits[0].retrieval.fusion_score < self.config.rag.score_gate {
-            return self.refuse_score_gate(
-                query,
-                &opts,
-                &probe_hits,
-                k_effective,
-                started,
-                None,
-            );
+            return self.refuse_score_gate(query, &opts, &probe_hits, k_effective, started, None);
         }
 
         // probe_hits are inspected for the gate decision only — the
@@ -774,8 +758,7 @@ impl RagPipeline {
                     break;
                 }
             }
-            let chunks_added =
-                u32::try_from(pool.len() - pool_before).unwrap_or(u32::MAX);
+            let chunks_added = u32::try_from(pool.len() - pool_before).unwrap_or(u32::MAX);
 
             // Two caps that bypass the decide LLM call: hitting
             // `max_depth` (this iter is the last) and `max_pool_chunks`
@@ -785,43 +768,38 @@ impl RagPipeline {
             let forced_stop = depth_force_stop || pool_cap_hit;
 
             // Decide LLM call (skip when forced_stop OR pool empty).
-            let (new_sub_queries, decide_ms): (Vec<String>, u32) =
-                if forced_stop || pool.is_empty() {
-                    (Vec::new(), 0)
-                } else {
-                    // Snippet-based preview: each pool entry contributes
-                    // its `SearchHit.snippet` (already truncated upstream
-                    // by the retriever). `max_pool_chunks` acts as the
-                    // implicit cap on this string's length — the loop
-                    // breaks before we accumulate more pool entries.
-                    // We intentionally do NOT route this through
-                    // `pack_context` (no full chunk text fetch, no
-                    // marker numbering): decide only needs gist to
-                    // judge sufficiency, and full text is reserved for
-                    // the terminal synthesize call.
-                    let preview = pool
-                        .iter()
-                        .enumerate()
-                        .map(|(i, h)| format!("[{}] {}", i + 1, h.snippet))
-                        .collect::<Vec<_>>()
-                        .join("\n\n");
-                    let depth_remaining = max_depth - iter;
-                    let (decide_result, ms) = self.multi_hop_decide(
-                        query,
-                        &preview,
-                        pool.len(),
-                        depth_remaining,
-                        &opts,
-                    )?;
-                    // `parse_decompose_response` post-condition: when
-                    // it returns `Some(qs)`, `qs` is guaranteed
-                    // non-empty (and trimmed + hard-capped). `None`
-                    // covers both "parse failure" and "empty array
-                    // after trim" — both mean stop. Parse failure is
-                    // NOT a refusal here (spec §9 — graceful degrade
-                    // to early synthesize on the decide hop only).
-                    (decide_result.unwrap_or_default(), ms)
-                };
+            let (new_sub_queries, decide_ms): (Vec<String>, u32) = if forced_stop || pool.is_empty()
+            {
+                (Vec::new(), 0)
+            } else {
+                // Snippet-based preview: each pool entry contributes
+                // its `SearchHit.snippet` (already truncated upstream
+                // by the retriever). `max_pool_chunks` acts as the
+                // implicit cap on this string's length — the loop
+                // breaks before we accumulate more pool entries.
+                // We intentionally do NOT route this through
+                // `pack_context` (no full chunk text fetch, no
+                // marker numbering): decide only needs gist to
+                // judge sufficiency, and full text is reserved for
+                // the terminal synthesize call.
+                let preview = pool
+                    .iter()
+                    .enumerate()
+                    .map(|(i, h)| format!("[{}] {}", i + 1, h.snippet))
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                let depth_remaining = max_depth - iter;
+                let (decide_result, ms) =
+                    self.multi_hop_decide(query, &preview, pool.len(), depth_remaining, &opts)?;
+                // `parse_decompose_response` post-condition: when
+                // it returns `Some(qs)`, `qs` is guaranteed
+                // non-empty (and trimmed + hard-capped). `None`
+                // covers both "parse failure" and "empty array
+                // after trim" — both mean stop. Parse failure is
+                // NOT a refusal here (spec §9 — graceful degrade
+                // to early synthesize on the decide hop only).
+                (decide_result.unwrap_or_default(), ms)
+            };
 
             hops.push(HopRecord {
                 iter,
@@ -851,9 +829,7 @@ impl RagPipeline {
         // is ready. The downstream synthesize call still uses
         // `stream_sink` for token streaming if set.
         if let Some(sink) = &opts.stream_sink {
-            let _ = sink.send(StreamEvent::RetrievalDone {
-                hits: pool.clone(),
-            });
+            let _ = sink.send(StreamEvent::RetrievalDone { hits: pool.clone() });
         }
         let chunks_returned = u32::try_from(pool.len()).unwrap_or(u32::MAX);
         let top_score = pool.first().map_or(0.0, |h| h.retrieval.fusion_score);
@@ -863,23 +839,10 @@ impl RagPipeline {
         // a `--multi-hop` user can still see which decompose / decide
         // signals fired before the score-gate / no-chunks bailout.
         if pool.is_empty() {
-            return self.refuse_no_chunks(
-                query,
-                &opts,
-                k_effective,
-                started,
-                Some(hops),
-            );
+            return self.refuse_no_chunks(query, &opts, k_effective, started, Some(hops));
         }
         if top_score < self.config.rag.score_gate {
-            return self.refuse_score_gate(
-                query,
-                &opts,
-                &pool,
-                k_effective,
-                started,
-                Some(hops),
-            );
+            return self.refuse_score_gate(query, &opts, &pool, k_effective, started, Some(hops));
         }
 
         // ── 4. Pack context ────────────────────────────────────────────────
@@ -891,13 +854,7 @@ impl RagPipeline {
                 pool_size = pool.len(),
                 "kb-rag: multi-hop pool chunks all unfetchable; falling back to NoChunks"
             );
-            return self.refuse_no_chunks(
-                query,
-                &opts,
-                k_effective,
-                started,
-                Some(hops),
-            );
+            return self.refuse_no_chunks(query, &opts, k_effective, started, Some(hops));
         }
 
         // ── 5. Synthesize prompt ───────────────────────────────────────────
@@ -1008,14 +965,12 @@ impl RagPipeline {
             .filter(|n| !valid_markers.contains(n))
             .collect();
 
-        let refusal_phrase = REFUSAL_PHRASE.get_or_init(|| {
-            Regex::new(r"근거(가|이)\s*부족").expect("static regex compiles")
-        });
+        let refusal_phrase = REFUSAL_PHRASE
+            .get_or_init(|| Regex::new(r"근거(가|이)\s*부족").expect("static regex compiles"));
         let trimmed_answer = acc.trim();
         let matched_refusal_phrase = refusal_phrase.is_match(&acc);
-        let grounded_unaware = !trimmed_answer.is_empty()
-            && unknown_markers.is_empty()
-            && !extracted.is_empty();
+        let grounded_unaware =
+            !trimmed_answer.is_empty() && unknown_markers.is_empty() && !extracted.is_empty();
         let (grounded, refusal_reason) = if matches!(finish_reason, FinishReason::Cancelled) {
             (false, Some(RefusalReason::LlmStreamAborted))
         } else if grounded_unaware {
@@ -1125,8 +1080,7 @@ impl RagPipeline {
         // p9-fb-41 PR-3b: append the terminal Synthesize HopRecord
         // before building the Answer. `iter` is the position in the
         // hops vector (0=decompose, 1..N=decide, N+1=synthesize).
-        let synth_ms =
-            u32::try_from(synthesize_started.elapsed().as_millis()).unwrap_or(u32::MAX);
+        let synth_ms = u32::try_from(synthesize_started.elapsed().as_millis()).unwrap_or(u32::MAX);
         hops.push(HopRecord {
             iter: u32::try_from(hops.len()).unwrap_or(u32::MAX),
             kind: HopKind::Synthesize,
@@ -1182,9 +1136,7 @@ impl RagPipeline {
             "kb-rag: multi-hop ask done"
         );
 
-        if !cancelled
-            && let Some(sink) = &opts.stream_sink
-        {
+        if !cancelled && let Some(sink) = &opts.stream_sink {
             let _ = sink.send(StreamEvent::Final {
                 answer: answer.clone(),
             });
@@ -1205,7 +1157,10 @@ impl RagPipeline {
         } else {
             None
         };
-        if let Err(e) = self.docs.put_answer(&answer, query, packed_chunks_json.as_deref()) {
+        if let Err(e) = self
+            .docs
+            .put_answer(&answer, query, packed_chunks_json.as_deref())
+        {
             tracing::warn!(
                 target: "kebab-rag",
                 error = %e,
@@ -1403,8 +1358,7 @@ impl RagPipeline {
     fn pack_context(&self, query: &str, hits: &[SearchHit]) -> Result<PackedContext> {
         // Hard ceiling for the packed-context section in tokens (≈ chars / 4).
         let cap = self.config.rag.max_context_tokens;
-        let system_prompt_text =
-            system_prompt_for(&self.config.rag.prompt_template_version)?;
+        let system_prompt_text = system_prompt_for(&self.config.rag.prompt_template_version)?;
         let prompt_overhead_tokens = est_tokens(system_prompt_text) + est_tokens(query) + 64;
         let budget_tokens = cap.saturating_sub(prompt_overhead_tokens);
 
@@ -1417,7 +1371,9 @@ impl RagPipeline {
             let chunk_full =
                 <SqliteStore as kebab_core::DocumentStore>::get_chunk(&self.docs, &hit.chunk_id)
                     .context("kb-rag: docs.get_chunk")?;
-            let chunk_text = if let Some(c) = chunk_full { c.text } else {
+            let chunk_text = if let Some(c) = chunk_full {
+                c.text
+            } else {
                 tracing::warn!(
                     target: "kebab-rag",
                     chunk_id = %hit.chunk_id.0,
@@ -1543,9 +1499,7 @@ impl RagPipeline {
         let gate = self.config.rag.score_gate;
         let mut text = String::new();
         text.push_str("근거 부족. KB에 해당 내용 없음.\n");
-        text.push_str(&format!(
-            "가까운 후보 (모두 임계 {gate:.2} 미만):\n"
-        ));
+        text.push_str(&format!("가까운 후보 (모두 임계 {gate:.2} 미만):\n"));
         let preview: Vec<&SearchHit> = hits.iter().take(3).collect();
         for h in &preview {
             text.push_str(&format!(
@@ -1772,11 +1726,7 @@ fn embedding_ref_for(mode: SearchMode, cfg: &kebab_config::Config) -> Option<Mod
 /// behavioral contract: `now - indexed_at > threshold_days * 24h`,
 /// strict `>` so exactly-threshold hits stay fresh, and
 /// `threshold_days = 0` short-circuits to `false` (feature off).
-fn compute_stale(
-    indexed_at: OffsetDateTime,
-    now: OffsetDateTime,
-    threshold_days: u32,
-) -> bool {
+fn compute_stale(indexed_at: OffsetDateTime, now: OffsetDateTime, threshold_days: u32) -> bool {
     if threshold_days == 0 {
         return false;
     }
@@ -1934,9 +1884,9 @@ fn system_prompt_for(version: &str) -> anyhow::Result<&'static str> {
     match version {
         "rag-v1" => Ok(SYSTEM_PROMPT_RAG_V1),
         "rag-v2" => Ok(SYSTEM_PROMPT_RAG_V2),
-        other => anyhow::bail!(
-            "unknown prompt_template_version: {other:?} (expected rag-v1 or rag-v2)"
-        ),
+        other => {
+            anyhow::bail!("unknown prompt_template_version: {other:?} (expected rag-v1 or rag-v2)")
+        }
     }
 }
 
@@ -2031,8 +1981,8 @@ static MARKER_REGEX: OnceLock<Regex> = OnceLock::new();
 static REFUSAL_PHRASE: OnceLock<Regex> = OnceLock::new();
 
 fn extract_markers(s: &str) -> Vec<u32> {
-    let re = MARKER_REGEX
-        .get_or_init(|| Regex::new(r"\[#(\d{1,3})\]").expect("static regex compiles"));
+    let re =
+        MARKER_REGEX.get_or_init(|| Regex::new(r"\[#(\d{1,3})\]").expect("static regex compiles"));
     re.captures_iter(s)
         .filter_map(|c| c.get(1).and_then(|m| m.as_str().parse::<u32>().ok()))
         .collect()
@@ -2272,10 +2222,7 @@ mod tests {
         let h = vec![fake_turn("Q1", "first answer body")];
         let expanded = expand_query_with_history("follow-up", &h);
         assert!(expanded.starts_with("follow-up "), "got: {expanded}");
-        assert!(
-            expanded.contains("first answer body"),
-            "got: {expanded}"
-        );
+        assert!(expanded.contains("first answer body"), "got: {expanded}");
     }
 
     #[test]
@@ -2436,13 +2383,12 @@ mod compute_stale_mirror_tests {
 #[cfg(test)]
 mod stream_event_serde_tests {
     use super::*;
-    use kebab_core::{
-        AnswerRetrievalSummary, ChunkId, ChunkerVersion, Citation,
-        DocumentId, IndexVersion, ModelRef, RetrievalDetail, SearchHit, SearchMode,
-        TokenUsage, TraceId,
-    };
     use kebab_core::asset::WorkspacePath;
     use kebab_core::versions::PromptTemplateVersion;
+    use kebab_core::{
+        AnswerRetrievalSummary, ChunkId, ChunkerVersion, Citation, DocumentId, IndexVersion,
+        ModelRef, RetrievalDetail, SearchHit, SearchMode, TokenUsage, TraceId,
+    };
     use time::macros::datetime;
 
     fn mk_hit() -> SearchHit {
@@ -2481,7 +2427,10 @@ mod stream_event_serde_tests {
 
     #[test]
     fn stream_event_token_serializes_with_kind_discriminator() {
-        let ev = StreamEvent::Token { delta: "안녕".into(), turn_index: Some(0) };
+        let ev = StreamEvent::Token {
+            delta: "안녕".into(),
+            turn_index: Some(0),
+        };
         let v = serde_json::to_value(&ev).unwrap();
         assert_eq!(v["kind"], "token");
         assert_eq!(v["delta"], "안녕");
@@ -2490,7 +2439,9 @@ mod stream_event_serde_tests {
 
     #[test]
     fn stream_event_retrieval_done_serializes_hits() {
-        let ev = StreamEvent::RetrievalDone { hits: vec![mk_hit()] };
+        let ev = StreamEvent::RetrievalDone {
+            hits: vec![mk_hit()],
+        };
         let v = serde_json::to_value(&ev).unwrap();
         assert_eq!(v["kind"], "retrieval_done");
         assert_eq!(v["hits"].as_array().unwrap().len(), 1);
@@ -2503,16 +2454,27 @@ mod stream_event_serde_tests {
             citations: vec![],
             grounded: true,
             refusal_reason: None,
-            model: ModelRef { id: "m".into(), provider: "p".into(), dimensions: None },
+            model: ModelRef {
+                id: "m".into(),
+                provider: "p".into(),
+                dimensions: None,
+            },
             embedding: None,
             prompt_template_version: PromptTemplateVersion("rag-v2".into()),
             retrieval: AnswerRetrievalSummary {
                 trace_id: TraceId("t".into()),
                 mode: SearchMode::Hybrid,
-                k: 10, score_gate: 0.3, top_score: 0.5,
-                chunks_returned: 1, chunks_used: 1,
+                k: 10,
+                score_gate: 0.3,
+                top_score: 0.5,
+                chunks_returned: 1,
+                chunks_used: 1,
             },
-            usage: TokenUsage { prompt_tokens: 0, completion_tokens: 0, latency_ms: 0 },
+            usage: TokenUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                latency_ms: 0,
+            },
             created_at: datetime!(2026-05-09 12:00:00 UTC),
             conversation_id: None,
             turn_index: None,

@@ -3,9 +3,9 @@
 use std::path::PathBuf;
 
 use kebab_core::{
-    AssetId, AssetStorage, Block, CanonicalDocument, Checksum, CommonBlock, DocFilter,
-    DocumentId, DocumentStore, HeadingBlock, Lang, MediaType, Metadata, ParserVersion,
-    Provenance, RawAsset, SourceSpan, SourceType, SourceUri, TrustLevel, WorkspacePath,
+    AssetId, AssetStorage, Block, CanonicalDocument, Checksum, CommonBlock, DocFilter, DocumentId,
+    DocumentStore, HeadingBlock, Lang, MediaType, Metadata, ParserVersion, Provenance, RawAsset,
+    SourceSpan, SourceType, SourceUri, TrustLevel, WorkspacePath,
 };
 use kebab_store_sqlite::SqliteStore;
 use time::OffsetDateTime;
@@ -84,7 +84,13 @@ fn list_documents_filters_lang_and_tags() {
     store.run_migrations().unwrap();
 
     for (asset, doc) in [
-        make_doc('a', "notes/a.md", "en", vec!["rust", "kb"], TrustLevel::Primary),
+        make_doc(
+            'a',
+            "notes/a.md",
+            "en",
+            vec!["rust", "kb"],
+            TrustLevel::Primary,
+        ),
         make_doc('b', "notes/b.md", "ko", vec!["rust"], TrustLevel::Secondary),
         make_doc('c', "papers/c.md", "en", vec!["bio"], TrustLevel::Generated),
     ] {
