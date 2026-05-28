@@ -492,6 +492,64 @@ impl SqliteStore {
         Ok(out)
     }
 
+    /// V007 → V009 업그레이드 시 기존 chunks 의 `tokenized_korean_text` 가 NULL — 이
+    /// 메서드가 NULL 인 row 를 batch 로 읽어 `tokenize` 콜백으로 형태소 분해 후 UPDATE.
+    /// chunks_au trigger 가 chunks_fts 를 자동 재-index.
+    ///
+    /// - `tokenize`: `kebab_chunk::tokenize_korean_morphological` 등 `&str → Option<String>`.
+    ///   `None` 반환 시 row 를 skip (UPDATE 없음).
+    /// - `progress`: `(done, total)` 콜백. 1000 row 마다 발화.
+    /// - 반환값: lindera Some 으로 UPDATE 된 row 수 (idempotent — 이미 채워진 row 는 0).
+    /// - 실패 시 App open 을 block 하지 않도록 호출자가 `unwrap_or_else` 로 감쌀 것.
+    pub fn backfill_tokenized_korean_text<F, T>(&self, progress: F, tokenize: T) -> Result<u64>
+    where
+        F: Fn(u64, u64),
+        T: Fn(&str) -> Option<String>,
+    {
+        // 1. NULL 후보 수집.
+        let rows: Vec<(String, String)> = {
+            let conn = self.lock_conn();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT chunk_id, text FROM chunks \
+                     WHERE tokenized_korean_text IS NULL \
+                     ORDER BY chunk_id",
+                )
+                .map_err(StoreError::from)?;
+            let iter = stmt
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+                .map_err(StoreError::from)?;
+            let mut out = Vec::new();
+            for r in iter {
+                out.push(r.map_err(StoreError::from)?);
+            }
+            out
+        };
+
+        let total = rows.len() as u64;
+        let mut updated: u64 = 0;
+
+        // 2. 1000 row 마다 transaction 으로 batch UPDATE.
+        for chunk in rows.chunks(1000) {
+            let conn = self.lock_conn();
+            let tx = conn.unchecked_transaction().map_err(StoreError::from)?;
+            for (chunk_id, text) in chunk {
+                if let Some(tokenized) = tokenize(text) {
+                    tx.execute(
+                        "UPDATE chunks SET tokenized_korean_text = ?1 WHERE chunk_id = ?2",
+                        params![tokenized, chunk_id],
+                    )
+                    .map_err(StoreError::from)?;
+                    updated += 1;
+                }
+            }
+            tx.commit().map_err(StoreError::from)?;
+            progress(updated, total);
+        }
+
+        Ok(updated)
+    }
+
     /// v0.17.0 PR-B: sweep the SQLite document chain (`documents` →
     /// `blocks` / `chunks` / `embedding_records` via CASCADE) for every
     /// row at `workspace_path` whose `doc_id` differs from `keep_doc_id`.

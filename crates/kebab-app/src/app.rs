@@ -212,6 +212,34 @@ impl App {
         sqlite
             .run_migrations()
             .context("kb-app: run SqliteStore migrations")?;
+        // V009 의 tokenized_korean_text column 의 first-boot eager backfill.
+        // 신규 ingest 의 chunks_ai trigger 가 이미 채우므로 NULL row 가 없으면 즉시 0 반환 (idempotent).
+        // V007 → V009 업그레이드 시 KB 크기 비례 (~10000 chunk 당 ~30-60s).
+        let backfill_count = sqlite
+            .backfill_tokenized_korean_text(
+                |done, total| {
+                    if total > 0 && done % 500 == 0 {
+                        tracing::info!(
+                            target: "kebab-app",
+                            "korean tokenizer backfill: {done}/{total}"
+                        );
+                    }
+                },
+                kebab_chunk::tokenize_korean_morphological,
+            )
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    target: "kebab-app",
+                    "korean tokenizer backfill failed: {e}"
+                );
+                0
+            });
+        if backfill_count > 0 {
+            tracing::info!(
+                target: "kebab-app",
+                "korean tokenizer backfill complete: {backfill_count} chunks updated"
+            );
+        }
         // p9-fb-19: build the LRU cache from config. Capacity 0 →
         // `None` (cache disabled — every search hits the retrievers).
         let search_cache = NonZeroUsize::new(config.search.cache_capacity)
@@ -1177,7 +1205,7 @@ impl App {
                 .context("prepare ms query")?;
             stmt.query_map([], |r| r.get::<_, u64>(0))
                 .context("query ms")?
-                .filter_map(|r| r.ok())
+                .filter_map(Result::ok)
                 .collect()
         };
         let (p50_ms, p90_ms, p99_ms, max_ms) = percentiles(&samples);
@@ -1191,7 +1219,7 @@ impl App {
             let rows = stmt
                 .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
                 .context("query engine")?;
-            for row in rows.filter_map(|r| r.ok()) {
+            for row in rows.filter_map(Result::ok) {
                 by_engine.insert(row.0, row.1);
             }
         }
@@ -1219,7 +1247,7 @@ impl App {
                 })
             })
             .context("query by_doc")?
-            .filter_map(|r| r.ok())
+            .filter_map(Result::ok)
             .collect()
         };
 
@@ -1276,7 +1304,7 @@ impl App {
                 })
             })
             .context("query failures by doc_id")?
-            .filter_map(|r| r.ok())
+            .filter_map(Result::ok)
             .collect()
         } else {
             let mut stmt = conn
@@ -1298,7 +1326,7 @@ impl App {
                 })
             })
             .context("query failures corpus-wide")?
-            .filter_map(|r| r.ok())
+            .filter_map(Result::ok)
             .collect()
         };
         Ok(OcrFailuresV1 {

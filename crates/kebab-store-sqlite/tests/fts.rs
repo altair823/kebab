@@ -13,6 +13,7 @@
 //! that bypasses the `SqliteStore` mutex; that's fine because each test
 //! gets its own tempdir and no concurrent mutator is in flight.
 
+use kebab_chunk::tokenize_korean_morphological;
 use kebab_store_sqlite::{SqliteStore, rebuild_chunks_fts};
 use rusqlite::Connection;
 
@@ -451,6 +452,53 @@ fn v009_bumps_corpus_revision() {
         "corpus_revision must be ≥ 1 after V009 migration \
          (V004 seeds 0, V009 bumps to ≥ 1); got {rev}"
     );
+}
+
+// ── 5c. backfill_tokenized_korean_text ───────────────────────────────
+
+#[test]
+fn backfill_tokenized_korean_text_populates_nullable_rows() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config()).unwrap();
+    store.run_migrations().unwrap();
+
+    // chunks 에 한국어 row 두 개 INSERT (tokenized_korean_text 는 chunks_ai trigger
+    // 가 채우지만, 여기서는 raw_conn_no_fk 로 직접 INSERT 하므로 NULL 로 남음).
+    let conn = raw_conn_no_fk(&env);
+    insert_chunk(&conn, &"a".repeat(32), &"d".repeat(32), "[]", "한국 문화는 오래되었다");
+    insert_chunk(&conn, &"b".repeat(32), &"d".repeat(32), "[]", "서울특별시는 한국의 수도");
+    let null_count_before: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM chunks WHERE tokenized_korean_text IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(null_count_before, 2);
+    drop(conn);
+
+    // backfill 호출 → lindera 가 두 row 모두 분해 성공 → 2 반환.
+    let processed = store
+        .backfill_tokenized_korean_text(|_, _| {}, tokenize_korean_morphological)
+        .unwrap();
+    assert_eq!(processed, 2, "both rows should be populated by lindera");
+
+    let conn = raw_conn_no_fk(&env);
+    let null_count_after: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM chunks WHERE tokenized_korean_text IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(null_count_after, 0);
+
+    // idempotency: 두 번째 호출 → 0 (모든 row 가 이미 채워져 있음).
+    drop(conn);
+    let processed_again = store
+        .backfill_tokenized_korean_text(|_, _| {}, tokenize_korean_morphological)
+        .unwrap();
+    assert_eq!(processed_again, 0);
 }
 
 // ── 6. WAL cleanup: drop store before tempdir reaps WAL/SHM ──────────
