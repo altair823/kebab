@@ -685,13 +685,65 @@ ajv-cli validate -s docs/wire-schema/v1/<schema>.schema.json -d <output>
 
 ## §10 Eval (P5)
 
+### §10.1 Basic eval run
+
 ```bash
-"$RELEASE_BIN" eval --config "$DOGFOOD/config.toml"
+KEBAB_EVAL_GOLDEN=/build/dogfood/golden_queries.yaml \
+  "$RELEASE_BIN" --config "$DOGFOOD/config.toml" eval run --mode hybrid --k 10
 ```
 
 **verify**:
 - golden query suite 의 metrics (MRR / Recall / NDCG).
 - regression detection (snapshot 비교).
+- `eval aggregate <run_id> --json` 로 metric object 확인.
+
+### §10.2 검색 품질 baseline (v0.20.2 golden suite, spec §4.6)
+
+v0.20.2 dogfood 에서 확립한 baseline. eval `--config` facade 패치로 dogfood KB 를 직접 평가할 수 있게 됨.
+
+**실행 절차**:
+
+```bash
+# 1. eval run (hybrid + lexical 각각)
+KEBAB_EVAL_GOLDEN=/build/dogfood/golden_queries.yaml \
+  "$RELEASE_BIN" --config /build/dogfood/config.toml eval run --mode hybrid --k 10 --json \
+  | tee /build/dogfood/logs/eval-hybrid-$(date +%Y%m%d).json
+
+KEBAB_EVAL_GOLDEN=/build/dogfood/golden_queries.yaml \
+  "$RELEASE_BIN" --config /build/dogfood/config.toml eval run --mode lexical --k 10 --json \
+  | tee /build/dogfood/logs/eval-lexical-$(date +%Y%m%d).json
+
+# 2. aggregate
+RUN_ID=$(jq -r '.run_id' /build/dogfood/logs/eval-hybrid-$(date +%Y%m%d).json | head -1)
+"$RELEASE_BIN" --config /build/dogfood/config.toml eval aggregate "$RUN_ID" --json
+```
+
+**v0.20.2 metric baseline** (`/build/dogfood/golden_queries.yaml` 10 query):
+
+| Mode | hit@1 | hit@3 | hit@10 | MRR | recall@10 | empty |
+|------|-------|-------|--------|-----|-----------|-------|
+| hybrid | 0.7 | **1.0** | 1.0 | **0.833** | 1.0 | 0 |
+| lexical | 0.4 | 1.0 | 1.0 | 0.7 | 1.0 | 0 |
+
+**정성 체크리스트**:
+- [ ] 한국어 2자 정답 (`'한국'` / `'서울'` 등) 이 hit@3 이내에 등장.
+- [ ] `empty_result_rate = 0` — 10개 query 전부 ≥ 1 hit.
+- [ ] hybrid MRR ≥ 0.8 (baseline 0.833).
+- [ ] lexical MRR ≥ 0.65 (baseline 0.7).
+- [ ] `eval compare <run_a> <run_b>` 의 delta MRR 이 ±0.1 이내면 ranking 건강.
+
+**큐레이션 절차 (spec §4.6)**:
+- golden answer 는 "note 의 intent 와 가장 가까운 chunk" 가 아닌 "합리적으로 관련된 모든 doc" 포함 권장.
+- 코드와 note 가 동시에 정답일 수 있음 — eval 분해 후 vector hit 를 직접 확인해 golden 보완.
+- 초기 라벨링 후 `eval aggregate --json` 의 per-query breakdown 으로 false-negative 정정.
+- 정정 시 `hit@3` 등 상위 metric 이 0.9→1.0 수준으로 개선되면 curated golden 으로 확정.
+
+**인사이트**:
+- hybrid 가 vector 덕분에 top-1 정확도 우위 (0.7 vs lexical 0.4). hit@3 이후는 두 모드 모두 완벽.
+- lexical (V009 형태소) 이 짧은 한국어 토큰을 top-3 에 정확히 배치.
+- ranking 조정 없이 현재 hybrid RRF 가 baseline 달성 (`[[project_ranking_deferred]]` 결정 유효).
+
+Cross-link: `tasks/HOTFIXES.md` (2026-05-29 — 검색 품질 baseline entry), `/build/dogfood/golden_queries.yaml`, `/build/dogfood/logs/`.
 
 ---
 
