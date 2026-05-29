@@ -60,8 +60,11 @@ pub(crate) fn load_golden_set_validated(
 /// 전제하므로, 그룹 내 정답이 갈리면 측정이 무의미해진다 → bail.
 fn check_group_integrity(queries: &[GoldenQuery]) -> Result<()> {
     use std::collections::BTreeMap;
-    // group -> (대표 정답 집합, 대표 query id)
+    // group -> (대표 정답 집합, 대표 query id). 첫 멤버를 canonical 로 삼고
+    // 이후 멤버가 다른 expected 를 가지면 offender 로 기록한다.
     let mut canonical: BTreeMap<&str, (BTreeSet<String>, &str)> = BTreeMap::new();
+    // 그룹별 위반 메시지(정렬·dedup 위해 BTreeSet). canonical query id 와
+    // divergent query id 를 함께 담아 yaml 수정 시 바로 찾을 수 있게 한다.
     let mut offenders: BTreeSet<String> = BTreeSet::new();
     for q in queries {
         let Some(group) = q.group.as_deref() else {
@@ -72,8 +75,11 @@ fn check_group_integrity(queries: &[GoldenQuery]) -> Result<()> {
             None => {
                 canonical.insert(group, (docs, q.id.as_str()));
             }
-            Some((expected, _first)) if *expected != docs => {
-                offenders.insert(group.to_string());
+            Some((expected, first)) if *expected != docs => {
+                offenders.insert(format!(
+                    "group '{group}' (query '{}' differs from canonical '{first}')",
+                    q.id
+                ));
             }
             Some(_) => {}
         }
@@ -83,8 +89,8 @@ fn check_group_integrity(queries: &[GoldenQuery]) -> Result<()> {
     } else {
         let list: Vec<String> = offenders.into_iter().collect();
         Err(anyhow!(
-            "group(s) with divergent expected_doc_ids (same group must share one expected doc set): {}",
-            list.join(", ")
+            "same group must share one expected_doc_ids set, but found divergence — {}",
+            list.join("; ")
         ))
     }
 }
@@ -183,6 +189,42 @@ mod tests {
     use rusqlite::params;
     use std::fs;
     use tempfile::tempdir;
+
+    #[test]
+    fn group_integrity_flags_only_divergent_member_in_3plus_group() {
+        // g1(docA) canonical, g2(docB) divergent, g3(docA) matches canonical.
+        // Only g2 is an offender; g3 must pass. Error names g2, not g3.
+        let tmp = tempdir().unwrap();
+        let yaml_path = tmp.path().join("golden.yaml");
+        fs::write(
+            &yaml_path,
+            "- id: g1\n  query: a\n  group: gr\n  expected_doc_ids: [\"docA\"]\n\
+             - id: g2\n  query: b\n  group: gr\n  expected_doc_ids: [\"docB\"]\n\
+             - id: g3\n  query: c\n  group: gr\n  expected_doc_ids: [\"docA\"]\n",
+        )
+        .unwrap();
+        let err = load_golden_set(&yaml_path).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("'g2'"), "should name the divergent query g2: {msg}");
+        assert!(!msg.contains("'g3'"), "g3 matches canonical, must not be flagged: {msg}");
+    }
+
+    #[test]
+    fn ungrouped_queries_skip_group_integrity() {
+        // group=None entries mixed with a valid group must not interfere.
+        let tmp = tempdir().unwrap();
+        let yaml_path = tmp.path().join("golden.yaml");
+        fs::write(
+            &yaml_path,
+            "- id: solo1\n  query: x\n  expected_doc_ids: [\"docA\"]\n\
+             - id: g1\n  query: a\n  group: gr\n  expected_doc_ids: [\"docB\"]\n\
+             - id: solo2\n  query: y\n  expected_doc_ids: [\"docC\"]\n",
+        )
+        .unwrap();
+        let qs = load_golden_set(&yaml_path).unwrap();
+        assert_eq!(qs.len(), 3);
+        assert!(qs[0].group.is_none());
+    }
 
     #[test]
     fn rejects_unknown_expected_chunk_id() {
