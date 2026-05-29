@@ -14,6 +14,49 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-29 — v0.20.2 dogfood findings + 검색 품질 baseline
+
+**Trigger**: v0.20.2 release 준비 8-finding dogfood 라운드 (2026-05-29). 구현 + eval + 도그푸딩 전부 완료.
+
+### 8 findings 요약
+
+| # | Finding | 구현 범위 | Dogfood 결과 |
+|---|---------|----------|-------------|
+| 1 | Ask 응답언어 (rag-v3) | `SYSTEM_PROMPT_RAG_V3` 신설, config default rag-v2→rag-v3 | 영어 query→영어 응답 ✅ |
+| O-2 | Refusal 언어중립화 | 한국어 리터럴 → 언어중립 문구 | 중립 문구 확인 ✅ |
+| 2 | Bulk input schema | `bulk_search_input.schema.json` 15필드 + error shape hint | bulk ndjson 검증 ✅ |
+| 3 | List docs title 중복 | human-readable `doc_id \t title \t doc_path` | Registry java/kt 구분 ✅ |
+| 4 | doc.lang semantic | schema/README 에 `lang="und"` = code 정상 명시 (docs only) | docs 정합 확인 ✅ |
+| 5/6 | fusion_score/score_kind | README + `search_hit.schema.json` description 보강 | wire 정합 ✅ |
+| 7 | index_version 구분 | vector(LanceDB) vs FTS5 구분 README + schema 명시 | `schema --json` 확인 ✅ |
+| 8 | Ollama endpoint hint | `kebab init` 에 endpoint config 주석 힌트 추가 | init 출력 확인 ✅ |
+| - | eval `--config` facade | eval run/aggregate/compare 가 `--config` honor | dogfood KB eval 가능 ✅ |
+
+**Finding O-2 known limitation**: gemma4:e4b 같은 소형 모델은 refusal 메시지(근거 부족 시)의 언어가 query 언어와 불일치할 수 있음 (영어 query → 한국어 refusal 가능). refusal 판정 자체는 답변의 citation marker(`[#번호]`) 유무 기반(유효 marker 없으면 `LlmSelfJudge` 로 refuse 판정; pipeline.rs:463-486 — `근거가 부족` 정규식은 판정에 no-op, tracing 관찰용)이라 정확도 영향 없음. v0.20.2 known limitation 명시.
+
+### 검색 품질 baseline (golden suite, 2026-05-29)
+
+**Golden suite**: `/build/dogfood/golden_queries.yaml` (10 query, 다중 토픽 한국어+영어+코드). eval `--config /build/dogfood/config.toml` 로 dogfood KB 직접 평가 가능 (eval `--config` facade 패치 enabler).
+
+**Metric baseline** (v0.20.2 dogfood KB, 2026-05-29):
+
+| Mode | hit@1 | hit@3 | hit@10 | MRR | recall@10 | empty |
+|------|-------|-------|--------|-----|-----------|-------|
+| hybrid | 0.7 | **1.0** | 1.0 | **0.833** | 1.0 | 0 |
+| lexical | 0.4 | 1.0 | 1.0 | 0.7 | 1.0 | 0 |
+
+**인사이트**:
+- hybrid 가 vector 덕분에 top-1 정확도 우위 (0.7 vs lexical 0.4). hit@3 이후는 두 모드 모두 완벽.
+- lexical (V009 형태소) 이 짧은 한국어 토큰을 top-3 에 정확히 배치.
+- empty_result_rate = 0 — 10개 query 전부 ≥ 1 hit.
+- ranking 조정 없이 현재 hybrid RRF 가 baseline 달성 (`[[project_ranking_deferred]]` 결정 유효).
+
+**Golden 큐레이션 교훈 (v0.20.2)**: 초기 dispatch.py 정답을 note 로만 한정한 것이 오류였음. eval 분해 시 vector 가 영어 docstring dispatch.py 를 정상 top-1 으로 반환함을 발견, 정답에 `dispatch.py` 추가 정정 → hit@3 0.9→1.0 개선. **교훈**: golden answer 는 "note 의 intent" 뿐 아니라 "합리적으로 관련된 모든 doc" 을 포함해야 하며, 코드와 note 가 동시에 정답일 수 있다.
+
+Eval logs: `/build/dogfood/logs/eval-hybrid-v0.20.2.json` + `/build/dogfood/logs/eval-lexical-v0.20.2.json`.
+
+Cross-link: `docs/release-notes/v0.20.2-draft.md`, `docs/DOGFOOD.md` §3.6 + §10.2.
+
 ## 2026-05-28 — Bug #8 한국어 2자 query 해소 (V009 morphological tokenizer)
 
 **Discovered**: 도그푸딩 round 3/4 (2026-05-28). '한국' / '서울' 0-hit 반복.

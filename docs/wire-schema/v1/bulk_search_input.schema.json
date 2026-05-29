@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb.local/wire/v1/bulk_search_input.schema.json",
+  "title": "BulkSearchInput v1",
+  "description": "v0.20.2 (Todo #2): 한 줄(ndjson)당 하나의 bulk search query. `kebab search --bulk` 가 stdin 에서 줄 단위로 받는다. `query` 만 required (string — nested object 아님); 나머지는 optional. `kebab-app::bulk::parse_one` 이 source of truth.",
+  "type": "object",
+  "required": ["query"],
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "검색 텍스트. required. nested object ({\"text\":...}) 가 아니라 평문 string."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["lexical", "vector", "hybrid"],
+      "description": "검색 모드. optional, default `hybrid`."
+    },
+    "k": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "반환 hit 수. optional. 생략 또는 0 → app 이 config `search.default_k` (default 10) 로 해석."
+    },
+    "trust_min": {
+      "type": "string",
+      "enum": ["primary", "secondary", "generated"],
+      "description": "최소 trust level (해당 level 이상 포함). optional."
+    },
+    "ingested_after": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC3339 date-time. 이 시각 이후 ingest 된 문서만. optional."
+    },
+    "media": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "media kind OR 필터 (`md` → `markdown` alias 정규화). optional."
+    },
+    "tag": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "tag OR 필터. optional."
+    },
+    "lang": {
+      "type": "string",
+      "description": "ISO 언어 코드 필터. optional."
+    },
+    "path_glob": {
+      "type": "string",
+      "description": "doc_path glob 필터. optional (parse_one 추가 지원 필드)."
+    },
+    "doc_id": {
+      "type": "string",
+      "description": "특정 doc_id 로 제한. optional (parse_one 추가 지원 필드)."
+    },
+    "max_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "응답 JSON token budget (chars/4 근사). optional."
+    },
+    "snippet_chars": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "per-hit snippet 문자 cap. optional."
+    },
+    "cursor": {
+      "type": "string",
+      "description": "이전 응답의 opaque base64 cursor (pagination). optional."
+    },
+    "trace": {
+      "type": "boolean",
+      "description": "true 시 pipeline trace 캡처 (캐시 우회). optional, default false."
+    }
+  }
+}

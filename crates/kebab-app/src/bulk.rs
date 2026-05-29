@@ -126,7 +126,10 @@ fn parse_one(raw: &Value) -> Result<(SearchQuery, SearchOpts), String> {
     let text = obj
         .get("query")
         .and_then(|v| v.as_str())
-        .ok_or("missing required field: query")?
+        .ok_or(
+            "missing required field: query \
+             (expected {\"query\":\"<text>\",\"mode\":\"lexical|vector|hybrid\",\"k\":3,...})",
+        )?
         .to_string();
 
     let mode = match obj.get("mode").and_then(|v| v.as_str()) {
@@ -301,5 +304,18 @@ mod tests {
         // Second item: missing required field.
         assert!(items[1].error.is_some());
         assert_eq!(items[1].error.as_ref().unwrap()["code"], "invalid_input");
+    }
+
+    #[test]
+    fn missing_query_error_message_includes_shape_hint() {
+        let cfg = open_temp();
+        let raw = vec![serde_json::json!({"mode": "lexical"})];
+        let (items, _summary) = bulk_search_with_config(cfg, raw).unwrap();
+        let err = items[0].error.as_ref().unwrap();
+        let msg = err["message"].as_str().unwrap();
+        assert!(
+            msg.contains("query") && msg.contains("mode"),
+            "missing shape hint in error message: {msg}"
+        );
     }
 }

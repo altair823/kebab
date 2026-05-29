@@ -204,6 +204,13 @@ pub fn wire_fetch_result(r: &kebab_core::FetchResult) -> Value {
     tag_object(v, "fetch_result.v1")
 }
 
+/// v0.20.2 (Todo #3): one human-readable `kebab list docs` row.
+/// `doc_id \t title \t doc_path` — title 은 heading 기반이라 중복 가능하므로
+/// doc_path 를 함께 노출해 사용자가 동일 title 문서를 구분할 수 있게 한다.
+pub fn format_doc_row(d: &DocSummary) -> String {
+    format!("{}\t{}\t{}", d.doc_id, d.title, d.doc_path.0)
+}
+
 /// p9-fb-42: tag a `BulkSearchItem` (already serialized as a Value)
 /// as `bulk_search_item.v1`. The inner `query` / `response` / `error`
 /// fields stay verbatim — only the envelope gets the schema_version stamp.
@@ -455,5 +462,36 @@ mod tests {
         };
         let v = wire_search_response(&r);
         assert!(v.get("trace").is_none(), "trace field absent when None");
+    }
+
+    #[test]
+    fn format_doc_row_includes_title_and_path() {
+        use kebab_core::{
+            ChunkerVersion, DocSummary, DocumentId, Lang, ParserVersion, SourceType, TrustLevel,
+            WorkspacePath,
+        };
+        use time::macros::datetime;
+        let d = DocSummary {
+            doc_id: DocumentId("doc-abc".into()),
+            doc_path: WorkspacePath("src/Registry.java".into()),
+            title: "Registry".into(),
+            lang: Lang("und".into()),
+            tags: vec![],
+            trust_level: TrustLevel::Secondary,
+            source_type: SourceType::Markdown,
+            byte_len: 100,
+            chunk_count: 3,
+            created_at: datetime!(2026-05-28 12:00:00 UTC),
+            updated_at: datetime!(2026-05-28 12:00:00 UTC),
+            parser_version: ParserVersion("code-java-ast-v1".into()),
+            chunker_version: ChunkerVersion("code-java-ast-v1".into()),
+        };
+        let row = super::format_doc_row(&d);
+        assert!(row.contains("doc-abc"), "row missing doc_id: {row}");
+        assert!(row.contains("Registry"), "row missing title: {row}");
+        assert!(
+            row.contains("src/Registry.java"),
+            "row missing doc_path: {row}"
+        );
     }
 }

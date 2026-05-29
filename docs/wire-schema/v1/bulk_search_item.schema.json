@@ -7,7 +7,7 @@
   "required": ["schema_version", "query", "response", "error"],
   "properties": {
     "schema_version": { "const": "bulk_search_item.v1" },
-    "query":   { "type": "object", "description": "Input echo (verbatim JSON object)." },
+    "query":   { "type": "object", "description": "Input echo (verbatim JSON object). 입력 shape 는 bulk_search_input.schema.json 참조 — `query` (string) 만 required, 나머지 optional." },
     "response":{
       "type": ["object", "null"],
       "description": "search_response.v1 payload on success; null when error is non-null."

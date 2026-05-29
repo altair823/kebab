@@ -152,6 +152,29 @@ fn ask_with_rag_v2_uses_v2_system_prompt() {
 }
 
 #[test]
+fn ask_with_rag_v3_uses_v3_system_prompt() {
+    let (pipeline, captured, _env) = build_pipeline_with_template("rag-v3");
+    let _ = pipeline.ask("hello", lexical_opts());
+    let s = captured
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("system prompt captured");
+    assert!(
+        s.contains("로컬 KB 위에서 동작"),
+        "shared prefix expected, got: {s}"
+    );
+    assert!(
+        s.contains("학습 지식"),
+        "V3 must contain 학습 지식 rule, got: {s}"
+    );
+    assert!(
+        s.contains("원본 질문"),
+        "V3 must contain language-matching rule (v3-only), got: {s}"
+    );
+}
+
+#[test]
 fn ask_with_unknown_template_returns_early_error() {
     let (pipeline, _captured, _env) = build_pipeline_with_template("rag-v99");
     let result = pipeline.ask("hello", lexical_opts());

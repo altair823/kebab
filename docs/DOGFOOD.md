@@ -418,10 +418,15 @@ $KB search 'tokenizer' --mode lexical --json | jq '.hits | length' # ≥ 1 if co
 
 ### §2.7 Bulk search
 
-stdin queries 의 batch:
+stdin ndjson — 줄당 하나의 query object (`{"query":"<text>"}` 필수, 나머지 optional):
 ```bash
-echo -e "query 1\nquery 2\nquery 3" | "$RELEASE_BIN" search --bulk --json
+printf '%s\n' \
+  '{"query":"한국","mode":"lexical","k":3}' \
+  '{"query":"tokenizer","mode":"hybrid"}' \
+  '{"query":"lindera","mode":"vector","k":5}' \
+  | "$RELEASE_BIN" search --bulk --json
 ```
+기대: 줄당 `bulk_search_item.v1` (query echo + response 또는 error). `query` 누락 시 그 item 만 `error.v1` (code `invalid_input`, message 에 shape hint), 나머지 query 계속 진행. Cap 100.
 
 ---
 
@@ -442,6 +447,15 @@ echo -e "query 1\nquery 2\nquery 3" | "$RELEASE_BIN" search --bulk --json
 - 3.1.a in-corpus question (grounded=true).
 - 3.1.b out-of-corpus question (grounded=false + refusal).
 - 3.1.c hallucination check (paraphrase test, fb-41).
+
+### §3.6 응답 언어 자동 매칭 (v0.20.2 Todo #1)
+
+```bash
+"$RELEASE_BIN" ask --config "$DOGFOOD/config.toml" "What is the tokenizer?" --hide-citations  # 영어 응답 기대
+"$RELEASE_BIN" ask --config "$DOGFOOD/config.toml" "토크나이저가 뭐야?" --hide-citations        # 한국어 응답 기대
+```
+
+기대: query 언어 = response 언어 (`prompt_template_version = "rag-v3"` default). 큰따옴표 직접 인용은 원문 언어 보존. citation `[#번호]` 유지. 한국어 corpus 를 영어로 물으면 LLM 이 근거를 영어로 번역해 답함 (trade-off). `rag-v2` / `rag-v1` 로 pin 하면 legacy (질문 언어 무시) 동작.
 
 ### §3.2 Streaming ask (v0.17.1)
 
@@ -671,13 +685,65 @@ ajv-cli validate -s docs/wire-schema/v1/<schema>.schema.json -d <output>
 
 ## §10 Eval (P5)
 
+### §10.1 Basic eval run
+
 ```bash
-"$RELEASE_BIN" eval --config "$DOGFOOD/config.toml"
+KEBAB_EVAL_GOLDEN=/build/dogfood/golden_queries.yaml \
+  "$RELEASE_BIN" --config "$DOGFOOD/config.toml" eval run --mode hybrid --k 10
 ```
 
 **verify**:
 - golden query suite 의 metrics (MRR / Recall / NDCG).
 - regression detection (snapshot 비교).
+- `eval aggregate <run_id> --json` 로 metric object 확인.
+
+### §10.2 검색 품질 baseline (v0.20.2 golden suite, spec §4.6)
+
+v0.20.2 dogfood 에서 확립한 baseline. eval `--config` facade 패치로 dogfood KB 를 직접 평가할 수 있게 됨.
+
+**실행 절차**:
+
+```bash
+# 1. eval run (hybrid + lexical 각각)
+KEBAB_EVAL_GOLDEN=/build/dogfood/golden_queries.yaml \
+  "$RELEASE_BIN" --config /build/dogfood/config.toml eval run --mode hybrid --k 10 --json \
+  | tee /build/dogfood/logs/eval-hybrid-$(date +%Y%m%d).json
+
+KEBAB_EVAL_GOLDEN=/build/dogfood/golden_queries.yaml \
+  "$RELEASE_BIN" --config /build/dogfood/config.toml eval run --mode lexical --k 10 --json \
+  | tee /build/dogfood/logs/eval-lexical-$(date +%Y%m%d).json
+
+# 2. aggregate
+RUN_ID=$(jq -r '.run_id' /build/dogfood/logs/eval-hybrid-$(date +%Y%m%d).json | head -1)
+"$RELEASE_BIN" --config /build/dogfood/config.toml eval aggregate "$RUN_ID" --json
+```
+
+**v0.20.2 metric baseline** (`/build/dogfood/golden_queries.yaml` 10 query):
+
+| Mode | hit@1 | hit@3 | hit@10 | MRR | recall@10 | empty |
+|------|-------|-------|--------|-----|-----------|-------|
+| hybrid | 0.7 | **1.0** | 1.0 | **0.833** | 1.0 | 0 |
+| lexical | 0.4 | 1.0 | 1.0 | 0.7 | 1.0 | 0 |
+
+**정성 체크리스트**:
+- [ ] 한국어 2자 정답 (`'한국'` / `'서울'` 등) 이 hit@3 이내에 등장.
+- [ ] `empty_result_rate = 0` — 10개 query 전부 ≥ 1 hit.
+- [ ] hybrid MRR ≥ 0.8 (baseline 0.833).
+- [ ] lexical MRR ≥ 0.65 (baseline 0.7).
+- [ ] `eval compare <run_a> <run_b>` 의 delta MRR 이 ±0.1 이내면 ranking 건강.
+
+**큐레이션 절차 (spec §4.6)**:
+- golden answer 는 "note 의 intent 와 가장 가까운 chunk" 가 아닌 "합리적으로 관련된 모든 doc" 포함 권장.
+- 코드와 note 가 동시에 정답일 수 있음 — eval 분해 후 vector hit 를 직접 확인해 golden 보완.
+- 초기 라벨링 후 `eval aggregate --json` 의 per-query breakdown 으로 false-negative 정정.
+- 정정 시 `hit@3` 등 상위 metric 이 0.9→1.0 수준으로 개선되면 curated golden 으로 확정.
+
+**인사이트**:
+- hybrid 가 vector 덕분에 top-1 정확도 우위 (0.7 vs lexical 0.4). hit@3 이후는 두 모드 모두 완벽.
+- lexical (V009 형태소) 이 짧은 한국어 토큰을 top-3 에 정확히 배치.
+- ranking 조정 없이 현재 hybrid RRF 가 baseline 달성 (`[[project_ranking_deferred]]` 결정 유효).
+
+Cross-link: `tasks/HOTFIXES.md` (2026-05-29 — 검색 품질 baseline entry), `/build/dogfood/golden_queries.yaml`, `/build/dogfood/logs/`.
 
 ---
 

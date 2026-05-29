@@ -215,7 +215,7 @@ fn runner_records_config_snapshot_with_versions() {
     assert!(snap.pointer("/llm/model_id").is_some());
     assert_eq!(
         snap.pointer("/prompt_template_version"),
-        Some(&serde_json::Value::String("rag-v2".to_string())),
+        Some(&serde_json::Value::String("rag-v3".to_string())),
     );
     assert!(snap.pointer("/score_gate").is_some());
     assert!(snap.pointer("/rrf_k").is_some());
