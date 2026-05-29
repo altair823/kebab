@@ -672,7 +672,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     );
                 } else {
                     for d in &docs {
-                        println!("{}\t{}", d.doc_id, d.doc_path.0);
+                        println!("{}", wire::format_doc_row(d));
                     }
                 }
                 Ok(())
