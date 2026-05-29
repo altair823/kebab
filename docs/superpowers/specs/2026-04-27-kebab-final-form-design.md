@@ -299,6 +299,8 @@ Per-query failure 는 `bulk_search_item.v1.error` (error.v1) 에 격리, 다른 
 }
 ```
 
+> 위 `answer.v1` 예시는 historical snapshot (model `qwen2.5:14b-instruct`, `prompt_template_version: "rag-v1"`) — 현행 default (gemma4 계열 / rag-v3) 와 다를 수 있음. 형상(shape) 참조용이다.
+
 거절 시 `grounded=false`, `answer` 는 사람 친화 거절 문장, `refusal_reason ∈ {"score_gate","llm_self_judge","no_index","no_chunks"}`. `citations` 는 빈 배열 또는 가까운 후보 (marker null).
 
 **Multi-turn extension** (도그푸딩 후 추가 — 2026-05-02, p9-fb-15/16). 두 optional 필드:
@@ -896,7 +898,7 @@ prompt 빌드 priority (token budget = `cfg.rag.max_context_tokens`):
 - 근거가 모호하면 "확실하지 않다" 라고 명시한다.
 ```
 
-V1 은 legacy backwards-compat 으로 보존 — user TOML 에 `prompt_template_version = "rag-v1"` 명시 시 그대로.
+V1 / V2 는 legacy backwards-compat 으로 보존 — v0.20.2 부터 default 는 rag-v3 (query-언어 자동 매칭). user TOML 에 `prompt_template_version = "rag-v1"` 또는 `"rag-v2"` 명시 시 그대로 유지.
 
 **Multi-hop RAG + NLI verification** (도그푸딩 후 추가 — 2026-05-26, fb-41 v0.18.0 ship):
 
@@ -1346,7 +1348,7 @@ rrf_k         = 60
 snippet_chars = 220
 
 [rag]
-prompt_template_version = "rag-v2"          # default. "rag-v1" 명시 시 legacy.
+prompt_template_version = "rag-v3"          # default. "rag-v1" / "rag-v2" 명시 시 legacy.
 score_gate              = 0.30
 explain_default         = false
 max_context_tokens      = 8000
@@ -1530,7 +1532,7 @@ kebab-cli, kebab-tui, kebab-desktop
 | `embedding.dimensions` | 차원 변경 | 새 lance 테이블 강제 |
 | `index_version` | retrieval 형상 변화 | bump |
 | `corpus_revision` | ingest commit 발생 (ANY new/updated) | 모노토닉 u64, SQLite `kv['corpus_revision']` 에 영속. p9-fb-19 의 in-process LRU search cache 가 cache-key 에 snapshot 으로 포함 → 다음 lookup 에서 자동 무효화. |
-| `prompt_template_version` | template 변경 | 코드 상수 (`rag-v2`) |
+| `prompt_template_version` | template 변경 | 코드 상수 (`rag-v3`) |
 | `nli_model_version` | NLI 모델 교체 (fb-41 v0.18.0+) | `[models.nli].model` 의 HuggingFace repo id (예: `Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7`). 모델 교체 = cache_dir 다른 sanitized path. wire 미surface — v0.19+ 의 second adapter 도입 시 `answer.v1.verification` 에 `nli_model_version` field 추가 candidate. |
 | DB `schema_version` | DDL 변경 | 마이그레이션 정수 증가 |
 | wire schema (`*.v1`) | 깨는 변경 시 | `*.v2` 신설, v1 additive only |
