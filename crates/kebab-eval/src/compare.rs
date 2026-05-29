@@ -503,6 +503,7 @@ mod tests {
             must_contain: vec![],
             forbidden: vec![],
             difficulty: None,
+            group: None,
         };
         let g = Some(&g);
         // a miss, b hit → Win
