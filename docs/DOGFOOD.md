@@ -418,10 +418,15 @@ $KB search 'tokenizer' --mode lexical --json | jq '.hits | length' # ≥ 1 if co
 
 ### §2.7 Bulk search
 
-stdin queries 의 batch:
+stdin ndjson — 줄당 하나의 query object (`{"query":"<text>"}` 필수, 나머지 optional):
 ```bash
-echo -e "query 1\nquery 2\nquery 3" | "$RELEASE_BIN" search --bulk --json
+printf '%s\n' \
+  '{"query":"한국","mode":"lexical","k":3}' \
+  '{"query":"tokenizer","mode":"hybrid"}' \
+  '{"query":"lindera","mode":"vector","k":5}' \
+  | "$RELEASE_BIN" search --bulk --json
 ```
+기대: 줄당 `bulk_search_item.v1` (query echo + response 또는 error). `query` 누락 시 그 item 만 `error.v1` (code `invalid_input`, message 에 shape hint), 나머지 query 계속 진행. Cap 100.
 
 ---
 
