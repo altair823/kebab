@@ -48,7 +48,7 @@
         },
         "embedding_version": { "type": "string" },
         "prompt_template_version": { "type": "string" },
-        "index_version": { "type": "string" },
+        "index_version": { "type": "string", "description": "v0.20.2 (Todo #7): vector store (LanceDB) index version (예 \"v1\"). search_hit.v1 의 `index_version` (lexical FTS5, 예 \"fts5-v009-korean-morphological\") 과는 다른 의미 — version cascade 에서 별도 추적." },
         "corpus_revision": { "type": "integer", "minimum": 0 }
       }
     },
