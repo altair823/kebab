@@ -23,7 +23,7 @@
   "properties": {
     "schema_version": { "const": "search_hit.v1" },
     "rank":            { "type": "integer", "minimum": 1 },
-    "score":           { "type": "number" },
+    "score":           { "type": "number", "description": "canonical ranking score. 의미는 `score_kind` 가 선언 (rrf/bm25/cosine). single-mode 에서는 fusion 미실행 → `retrieval.fusion_score` 와 동일." },
     "score_kind": {
       "type": "string",
       "enum": ["rrf", "bm25", "cosine"],

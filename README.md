@@ -135,6 +135,16 @@ normalize: rrf_score = raw_rrf / (2 / (k_rrf + 1))
 
 agent 가 trust threshold 가 필요하면 top-level `score` 가 아닌 nested `retrieval.lexical_score` (BM25 raw) / `retrieval.vector_score` (cosine raw) 사용.
 
+#### `score` ↔ `retrieval.*` 구조 (v0.20.2 정정)
+
+`fusion_score` / `lexical_score` / `vector_score` / `lexical_rank` / `vector_rank` 는 모두 **`retrieval` object 내부**에 있다 (top-level 아님). top-level `score` 는 canonical ranking score 이며 그 의미는 `score_kind` 가 선언한다.
+
+- **hybrid**: `score == retrieval.fusion_score` (RRF normalized `[0,1]`), `score_kind = "rrf"`.
+- **lexical-only**: fusion 미실행 → `score == retrieval.fusion_score == retrieval.lexical_score` (raw BM25), `score_kind = "bm25"`.
+- **vector-only**: `score == retrieval.fusion_score == retrieval.vector_score` (raw cosine), `score_kind = "cosine"`.
+
+즉 single-mode 에서 `score`/`fusion_score`/(lexical|vector)_score 가 같은 값인 것은 fusion 단계가 없기 때문이며 정상이다 (Finding X).
+
 ## 논리 아키텍처
 
 ```mermaid
