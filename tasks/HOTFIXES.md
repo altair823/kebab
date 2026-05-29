@@ -32,7 +32,7 @@ git history.
 | 8 | Ollama endpoint hint | `kebab init` 에 endpoint config 주석 힌트 추가 | init 출력 확인 ✅ |
 | - | eval `--config` facade | eval run/aggregate/compare 가 `--config` honor | dogfood KB eval 가능 ✅ |
 
-**Finding O-2 known limitation**: gemma4:e4b 같은 소형 모델은 refusal 메시지(근거 부족 시)의 언어가 query 언어와 불일치할 수 있음 (영어 query → 한국어 refusal 가능). refusal 판정 자체는 `<REFUSE>` marker 기반이라 정확도 영향 없음. v0.20.2 known limitation 명시.
+**Finding O-2 known limitation**: gemma4:e4b 같은 소형 모델은 refusal 메시지(근거 부족 시)의 언어가 query 언어와 불일치할 수 있음 (영어 query → 한국어 refusal 가능). refusal 판정 자체는 답변의 citation marker(`[#번호]`) 유무 기반(유효 marker 없으면 `LlmSelfJudge` 로 refuse 판정; pipeline.rs:463-486 — `근거가 부족` 정규식은 판정에 no-op, tracing 관찰용)이라 정확도 영향 없음. v0.20.2 known limitation 명시.
 
 ### 검색 품질 baseline (golden suite, 2026-05-29)
 
