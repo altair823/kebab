@@ -1337,93 +1337,96 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             app.run()
         }
 
-        Cmd::Eval { what } => match what {
-            EvalWhat::Run {
-                suite,
-                mode,
-                k,
-                with_rag,
-                temperature,
-                seed,
-            } => {
-                let opts = kebab_eval::EvalRunOpts {
-                    suite: suite.clone(),
-                    mode: (*mode).into(),
-                    with_rag: *with_rag,
-                    k: *k,
-                    temperature: *temperature,
-                    seed: *seed,
-                };
-                let run = kebab_eval::run_eval(&opts)?;
-                if cli.json {
-                    println!("{}", serde_json::to_string_pretty(&run)?);
-                } else {
-                    println!("run_id: {}", run.run_id);
-                    println!("queries: {}", run.per_query.len());
-                    let failed = run.per_query.iter().filter(|q| q.error.is_some()).count();
-                    println!("failed:  {failed}");
-                }
-                Ok(())
-            }
-
-            EvalWhat::Aggregate { run_id } => {
-                let agg = kebab_eval::compute_aggregate(run_id)?;
-                kebab_eval::store_aggregate(run_id, &agg)?;
-                if cli.json {
-                    println!("{}", serde_json::to_string_pretty(&agg)?);
-                } else {
-                    println!("run_id: {run_id}");
-                    println!(
-                        "queries: {} ({} failed)",
-                        agg.total_queries, agg.failed_queries
-                    );
-                    println!(
-                        "hit@1:   {:.4}",
-                        agg.hit_at_k.get(&1).copied().unwrap_or(0.0)
-                    );
-                    println!(
-                        "hit@5:   {:.4}",
-                        agg.hit_at_k.get(&5).copied().unwrap_or(0.0)
-                    );
-                    println!("MRR:     {:.4}", agg.mrr);
-                }
-                Ok(())
-            }
-
-            EvalWhat::Compare {
-                run_a,
-                run_b,
-                strict_chunker_version,
-                write_report,
-            } => {
-                let cfg = kebab_config::Config::load(None)?;
-                let opts = kebab_eval::CompareOpts {
-                    strict_chunker_version: *strict_chunker_version,
-                };
-                let report = kebab_eval::compare_runs_with_config(&cfg, run_a, run_b, &opts)?;
-                let md = kebab_eval::render_report_md(&report);
-                if cli.json {
-                    println!("{}", serde_json::to_string_pretty(&report)?);
-                } else {
-                    print!("{md}");
-                }
-                if *write_report {
-                    let resolved_data_dir = kebab_config::expand_path(&cfg.storage.data_dir, "");
-                    let runs_dir = kebab_config::expand_path(
-                        &cfg.storage.runs_dir,
-                        &resolved_data_dir.to_string_lossy(),
-                    );
-                    let dir = runs_dir.join(run_b);
-                    std::fs::create_dir_all(&dir)?;
-                    let path = dir.join("report.md");
-                    std::fs::write(&path, &md)?;
-                    if !cli.json {
-                        eprintln!("wrote {}", path.display());
+        Cmd::Eval { what } => {
+            let cfg = kebab_config::Config::load(cli.config.as_deref())?;
+            match what {
+                EvalWhat::Run {
+                    suite,
+                    mode,
+                    k,
+                    with_rag,
+                    temperature,
+                    seed,
+                } => {
+                    let opts = kebab_eval::EvalRunOpts {
+                        suite: suite.clone(),
+                        mode: (*mode).into(),
+                        with_rag: *with_rag,
+                        k: *k,
+                        temperature: *temperature,
+                        seed: *seed,
+                    };
+                    let run = kebab_eval::run_eval_with_config(&cfg, &opts)?;
+                    if cli.json {
+                        println!("{}", serde_json::to_string_pretty(&run)?);
+                    } else {
+                        println!("run_id: {}", run.run_id);
+                        println!("queries: {}", run.per_query.len());
+                        let failed = run.per_query.iter().filter(|q| q.error.is_some()).count();
+                        println!("failed:  {failed}");
                     }
+                    Ok(())
                 }
-                Ok(())
+
+                EvalWhat::Aggregate { run_id } => {
+                    let agg = kebab_eval::compute_aggregate_with_config(&cfg, run_id)?;
+                    kebab_eval::store_aggregate_with_config(&cfg, run_id, &agg)?;
+                    if cli.json {
+                        println!("{}", serde_json::to_string_pretty(&agg)?);
+                    } else {
+                        println!("run_id: {run_id}");
+                        println!(
+                            "queries: {} ({} failed)",
+                            agg.total_queries, agg.failed_queries
+                        );
+                        println!(
+                            "hit@1:   {:.4}",
+                            agg.hit_at_k.get(&1).copied().unwrap_or(0.0)
+                        );
+                        println!(
+                            "hit@5:   {:.4}",
+                            agg.hit_at_k.get(&5).copied().unwrap_or(0.0)
+                        );
+                        println!("MRR:     {:.4}", agg.mrr);
+                    }
+                    Ok(())
+                }
+
+                EvalWhat::Compare {
+                    run_a,
+                    run_b,
+                    strict_chunker_version,
+                    write_report,
+                } => {
+                    let opts = kebab_eval::CompareOpts {
+                        strict_chunker_version: *strict_chunker_version,
+                    };
+                    let report = kebab_eval::compare_runs_with_config(&cfg, run_a, run_b, &opts)?;
+                    let md = kebab_eval::render_report_md(&report);
+                    if cli.json {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else {
+                        print!("{md}");
+                    }
+                    if *write_report {
+                        let resolved_data_dir =
+                            kebab_config::expand_path(&cfg.storage.data_dir, "");
+                        let runs_dir = kebab_config::expand_path(
+                            &cfg.storage.runs_dir,
+                            &resolved_data_dir.to_string_lossy(),
+                        );
+                        let dir = runs_dir.join(run_b);
+                        std::fs::create_dir_all(&dir)?;
+                        let path = dir.join("report.md");
+                        std::fs::write(&path, &md)?;
+                        if !cli.json {
+                            eprintln!("wrote {}", path.display());
+                        }
+                    }
+                    Ok(())
+                }
             }
-        },
+        }
 
         Cmd::IngestFile { path } => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
