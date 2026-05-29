@@ -103,6 +103,12 @@ kebab doctor
 
 글로벌 플래그: `--readonly` (또는 `KEBAB_READONLY=1`) — 모든 write-path 명령 (`ingest` / `ingest-file` / `ingest-stdin` / `reset`) 을 비활성화, exit 1. `--quiet` — 진행 바 / hint 등 human-readable stderr 억제 (exit code / stdout 출력은 그대로). `KEBAB_PROGRESS=plain` — TTY 가 없는 환경에서도 진행 상황을 plain-text 한 줄씩 stderr 로 출력 (spinner 대신).
 
+### `lang` vs `code_lang` (v0.20.2)
+
+- `doc.lang` / search hit 의 `lang` 은 **자연어 prose** 의 언어 (lingua 감지 — Markdown / PDF 본문). 감지 불가 / 자연어 아님 → `"und"`.
+- 소스코드 문서는 자연어 감지를 하지 않으므로 `lang = "und"` 가 정상이다. 소스 언어는 별도 `code_lang` (`rust` / `python` / ...) 에 담긴다.
+- `schema --json` 의 `lang_breakdown` 에서 `und` 비중이 높은 것은 보통 code 문서 비중 때문 — `code_lang_breakdown` / `code_lang_chunk_breakdown` 로 소스 언어 분포를 확인한다.
+
 ### Score 해석 (fb-38)
 
 `search_hit.v1.score` 는 **ranking signal** 이지 confidence 가 아니다. `score_kind` 필드로 의미 선언:
