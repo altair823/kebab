@@ -219,7 +219,7 @@ flowchart TB
   - `max_file_bytes = 262144` (256 KiB) / `max_file_lines = 5000` — 파일당 cap, 초과 시 skip.
   - `extra_skip_globs = []` — 사용자 추가 skip 패턴 (`.gitignore` 문법).
   - `.gitignore` honor: 자동 적용. `.kebabignore` 는 추가 layer. 우선순위: built-in safety net (`node_modules/` / `target/` / `__pycache__/` / `.venv/` / `venv/` / `env/`) > `.gitignore` > `.kebabignore`.
-- `[rag] prompt_template_version` (default `"rag-v2"`) — RAG system prompt version. `"rag-v1"` 은 legacy backwards-compat (사용자 명시 시 유지). v2 강화 규칙: (1) fact 인용 시 [#번호] 앞에 chunk 속 원문 큰따옴표 표기, (2) 학습 지식 동원 금지, (3) 근거 모호 시 "확실하지 않다" 명시.
+- `[rag] prompt_template_version` (default `"rag-v3"`) — RAG system prompt version. `"rag-v1"` / `"rag-v2"` 은 legacy backwards-compat (명시 시 유지). v2 강화 규칙: (1) fact 인용 시 [#번호] 앞에 chunk 속 원문 큰따옴표 표기, (2) 학습 지식 동원 금지, (3) 근거 모호 시 "확실하지 않다" 명시. **v3 추가 규칙 (v0.20.2)**: 답변 언어 = 질문 언어 (query 가 영어면 영어로, 한국어면 한국어로). 근거 부족 refusal 문구도 언어중립화. **Known limitation**: gemma4:e4b 같은 소형 모델은 refusal 메시지의 언어가 query 언어와 불일치할 수 있음 — refusal 판정(marker 기반)은 정상, 표시 문구만 해당. v2 고정: `[rag] prompt_template_version = "rag-v2"`.
 - `--config <path>` flag — 임시 워크스페이스 / 격리 테스트 시 사용. CLI / TUI 모두 honor.
 - `KEBAB_*` env — 일부 키 override (`KEBAB_RAG_SCORE_GATE`, `KEBAB_EVAL_GOLDEN`, `KEBAB_COMMIT_HASH` 등).
 - XDG layout: `~/.config/kebab/`, `~/.local/share/kebab/`, `~/.cache/kebab/`, `~/.local/state/kebab/`.
