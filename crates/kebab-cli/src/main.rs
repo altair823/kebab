@@ -578,6 +578,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     kebab_config::Config::xdg_state_dir().display()
                 );
                 println!("hint     edit the config above, then `kebab ingest`");
+                println!(
+                    "hint     remote Ollama 사용 시 config 의 `[models.llm] endpoint` 를 갱신 (기본 http://127.0.0.1:11434)"
+                );
             }
             Ok(())
         }
