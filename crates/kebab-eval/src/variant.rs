@@ -74,6 +74,9 @@ pub struct VariantConsistencyReport {
     pub a_dominant_groups: u32,
     /// missing>0 && missing>mis_ranked 인 그룹 수 (쿼리 확장 처방 우선).
     pub b_dominant_groups: u32,
+    /// 관찰된 최대 rank 가 POOL_K 미만일 때 true — eval run 의 --k 가
+    /// POOL_K 보다 작아 pool 이 절단됐을 수 있음. MisRanked(A) 판정 불가.
+    pub pool_possibly_truncated: bool,
 }
 
 /// 저장된 run을 그룹으로 묶어 변형 일관성 리포트를 만든다.
@@ -87,9 +90,15 @@ pub fn compute_variant_consistency(
         queries.iter().map(|q| (q.id.as_str(), q)).collect();
 
     let mut grouped: BTreeMap<String, Vec<VariantResult>> = BTreeMap::new();
+    let mut observed_max_rank: u32 = 0;
+    let mut has_hits = false;
     for row in rows {
         let qr: QueryResult = serde_json::from_str(&row.result_json)
             .with_context(|| format!("parse result_json for {}", row.query_id))?;
+        for hit in &qr.hits_top_k {
+            has_hits = true;
+            observed_max_rank = observed_max_rank.max(hit.rank);
+        }
         let Some(gq) = golden_by_id.get(qr.query_id.as_str()) else {
             continue;
         };
@@ -97,10 +106,18 @@ pub fn compute_variant_consistency(
             continue;
         };
         let (recall_narrow, recall_pool) = recall_narrow_pool(&qr, &gq.expected_doc_ids);
-        let answer_ok = qr.answer.as_ref().map(|a| {
-            gq.must_contain.iter().all(|s| a.answer.contains(s))
-                && !gq.forbidden.iter().any(|s| a.answer.contains(s))
-        });
+        // Mirrors metrics.rs groundedness guards: skip errored rows and
+        // vacuous-true (no must_contain/forbidden configured).
+        let answer_ok = if qr.error.is_some()
+            || (gq.must_contain.is_empty() && gq.forbidden.is_empty())
+        {
+            None
+        } else {
+            qr.answer.as_ref().map(|a| {
+                gq.must_contain.iter().all(|s| a.answer.contains(s))
+                    && !gq.forbidden.iter().any(|s| a.answer.contains(s))
+            })
+        };
         let class = classify(&gq.expected_doc_ids, recall_narrow, recall_pool);
         grouped.entry(group).or_default().push(VariantResult {
             query_id: qr.query_id.clone(),
@@ -136,6 +153,7 @@ pub fn compute_variant_consistency(
         groups.iter().map(|g| g.recall_spread_narrow).sum::<f32>() / groups.len() as f32
     };
 
+    let pool_possibly_truncated = has_hits && observed_max_rank < POOL_K;
     Ok(VariantConsistencyReport {
         groups,
         mean_recall_spread_narrow,
@@ -143,6 +161,7 @@ pub fn compute_variant_consistency(
         total_groups,
         a_dominant_groups,
         b_dominant_groups,
+        pool_possibly_truncated,
     })
 }
 
@@ -165,6 +184,8 @@ fn recall_narrow_pool(qr: &QueryResult, expected: &[DocumentId]) -> (f32, f32) {
     (cover(NARROW_K), cover(POOL_K))
 }
 
+// Single label per query: when multiple expected docs produce mixed classes (e.g. one
+// MisRanked + one Missing), recall_pool > recall_narrow (A: MisRanked) takes priority.
 fn classify(expected: &[DocumentId], recall_narrow: f32, recall_pool: f32) -> VariantClass {
     if expected.is_empty() {
         VariantClass::NoExpected
@@ -184,6 +205,9 @@ fn rollup_group(group: String, variants: Vec<VariantResult>) -> VariantGroupRepo
         .map(|v| v.recall_narrow)
         .collect();
     let (recall_spread_narrow, worst_recall_narrow) = if measurable.is_empty() {
+        // All variants have no expected docs: spread=0/worst=NaN is intentional.
+        // This group won't match fully_consistent (NaN != 1.0) or A/B (both 0) —
+        // it's counted in total_groups but sits in a silent "limbo" bucket.
         (0.0, f32::NAN)
     } else {
         let max = measurable.iter().copied().fold(f32::MIN, f32::max);
@@ -217,8 +241,22 @@ pub fn compute_variant_consistency_with_config(
 ) -> Result<VariantConsistencyReport> {
     let store = SqliteStore::open(cfg).context("open SqliteStore for variant consistency")?;
     store.run_migrations().context("run migrations")?;
-    if store.load_eval_run(run_id).context("load eval_runs row")?.is_none() {
-        anyhow::bail!("compute_variant_consistency: no eval_runs row for run_id {run_id}");
+    let run_record = store
+        .load_eval_run(run_id)
+        .context("load eval_runs row")?
+        .ok_or_else(|| {
+            anyhow::anyhow!("compute_variant_consistency: no eval_runs row for run_id {run_id}")
+        })?;
+    let snapshot: serde_json::Value =
+        serde_json::from_str(&run_record.config_snapshot_json).unwrap_or(serde_json::Value::Null);
+    if let Some(eval_k) = snapshot["eval_k"].as_u64() {
+        let eval_k = eval_k as u32;
+        if eval_k < POOL_K {
+            anyhow::bail!(
+                "variant consistency needs the run to retrieve >= {POOL_K} candidates, \
+                 but run used k={eval_k}; re-run `kebab eval run --k {POOL_K}` (or higher)"
+            );
+        }
     }
     let rows = store
         .load_eval_query_results(run_id)
@@ -235,14 +273,22 @@ pub fn render_variants_md(rep: &VariantConsistencyReport) -> String {
     let _ = writeln!(s, "# Variant consistency\n");
     let _ = writeln!(
         s,
-        "groups={} fully_consistent={} A_dominant={} B_dominant={} mean_spread@{}={:.3}\n",
+        "groups={} fully_consistent={} A_dominant={} B_dominant={} mean_spread@{}={:.3} pool=top-{}\n",
         rep.total_groups,
         rep.fully_consistent_groups,
         rep.a_dominant_groups,
         rep.b_dominant_groups,
         NARROW_K,
         rep.mean_recall_spread_narrow,
+        POOL_K,
     );
+    if rep.pool_possibly_truncated {
+        let _ = writeln!(
+            s,
+            "WARNING: max observed rank < {POOL_K} — pool possibly truncated. \
+             MisRanked(A) diagnoses may be suppressed. Re-run `kebab eval run --k {POOL_K}` (or higher).\n"
+        );
+    }
     for g in &rep.groups {
         let ac = match g.answer_consistency {
             Some(true) => "all-ok",
@@ -386,5 +432,99 @@ mod tests {
         q.group = None;
         let rep = compute_variant_consistency(&[q], &[row("solo", vec![hit("docX", 1)])]).unwrap();
         assert_eq!(rep.total_groups, 0);
+    }
+
+    fn row_with_answer(
+        query_id: &str,
+        hits: Vec<kebab_core::SearchHit>,
+        answer_text: &str,
+        error: Option<&str>,
+    ) -> EvalQueryResultRecord {
+        let hits_json = serde_json::to_value(&hits).unwrap();
+        let error_json =
+            error.map_or(serde_json::Value::Null, |e| serde_json::Value::String(e.into()));
+        let qr_json = serde_json::json!({
+            "query_id": query_id,
+            "query": query_id,
+            "mode": "vector",
+            "hits_top_k": hits_json,
+            "answer": {
+                "answer": answer_text,
+                "citations": [],
+                "grounded": false,
+                "refusal_reason": null,
+                "model": {"id": "test-model", "provider": "test", "dimensions": null},
+                "embedding": null,
+                "prompt_template_version": "v1",
+                "retrieval": {
+                    "trace_id": "t0",
+                    "mode": "vector",
+                    "k": 10,
+                    "score_gate": 0.0,
+                    "top_score": 0.0,
+                    "chunks_returned": 0,
+                    "chunks_used": 0
+                },
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "latency_ms": 0},
+                "created_at": "1970-01-01T00:00:00Z"
+            },
+            "elapsed_ms": 0,
+            "error": error_json
+        });
+        EvalQueryResultRecord {
+            query_id: query_id.into(),
+            result_json: serde_json::to_string(&qr_json).unwrap(),
+        }
+    }
+
+    /// H1 회귀: eval k=10 으로 실행 시 모든 hit rank ≤ NARROW_K →
+    /// pool_possibly_truncated 플래그로 사용자에게 경고해야 한다.
+    #[test]
+    fn pool_truncation_flag_when_all_hits_within_narrow_k() {
+        let queries = vec![gq("v1", "g", "docX"), gq("v2", "g", "docX")];
+        let rows = vec![
+            row("v1", vec![hit("docX", 1)]),
+            row("v2", vec![hit("other", 7)]), // rank 7 ≤ NARROW_K=10
+        ];
+        let rep = compute_variant_consistency(&queries, &rows).unwrap();
+        assert!(rep.pool_possibly_truncated, "all ranks ≤ NARROW_K must set pool_possibly_truncated");
+        // v2 misses docX, pool also has no rank>10 → classified Missing, not MisRanked
+        assert_eq!(rep.a_dominant_groups, 0);
+        assert_eq!(rep.b_dominant_groups, 1);
+    }
+
+    /// M1a: must_contain/forbidden 둘 다 빈 golden → vacuous-true 방지,
+    /// answer_ok = None (answer 있어도).
+    /// M1b: qr.error=Some → answer 있어도 answer_ok = None.
+    #[test]
+    fn answer_ok_vacuous_and_error_guarded() {
+        // M1a: gq() helper already has empty must_contain + forbidden
+        let gq_no_check = gq("v1", "g1", "docX");
+        let row_v1 = row_with_answer("v1", vec![], "any text", None);
+        let rep = compute_variant_consistency(&[gq_no_check], &[row_v1]).unwrap();
+        let v = &rep.groups[0].variants[0];
+        assert_eq!(v.answer_ok, None, "vacuous-true guard: no checks → answer_ok = None");
+        assert_eq!(rep.groups[0].answer_consistency, None);
+
+        // M1b: must_contain present but error is also set
+        let mut gq_check = gq("v2", "g2", "docY");
+        gq_check.must_contain = vec!["expected text".to_string()];
+        let row_v2 = row_with_answer("v2", vec![], "expected text", Some("llm error"));
+        let rep2 = compute_variant_consistency(&[gq_check], &[row_v2]).unwrap();
+        let v2 = &rep2.groups[0].variants[0];
+        assert_eq!(v2.answer_ok, None, "error guard: qr.error present → answer_ok = None");
+    }
+
+    /// N1 순수 B: 두 변형 모두 pool 에서도 정답 없음 → b_dominant=1, a_dominant=0.
+    #[test]
+    fn pure_b_dominant_group() {
+        let queries = vec![gq("v1", "g", "docX"), gq("v2", "g", "docX")];
+        let rows = vec![
+            row("v1", vec![hit("other1", 1)]), // docX 없음 → Missing (B)
+            row("v2", vec![hit("other2", 1)]), // docX 없음 → Missing (B)
+        ];
+        let rep = compute_variant_consistency(&queries, &rows).unwrap();
+        assert_eq!(rep.b_dominant_groups, 1);
+        assert_eq!(rep.a_dominant_groups, 0);
     }
 }

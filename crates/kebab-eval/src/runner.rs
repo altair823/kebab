@@ -67,7 +67,7 @@ pub fn run_eval_with_config(cfg: &kebab_config::Config, opts: &EvalRunOpts) -> R
         .context("run migrations for run_eval")?;
 
     // ── 3. Build config_snapshot_json ─────────────────────────────────────
-    let config_snapshot_json = build_config_snapshot(cfg)?;
+    let config_snapshot_json = build_config_snapshot(cfg, opts.k)?;
     let config_snapshot_text =
         serde_json::to_string(&config_snapshot_json).context("serialize config_snapshot_json")?;
 
@@ -215,10 +215,11 @@ fn execute_query(app: &App, gq: &GoldenQuery, opts: &EvalRunOpts) -> QueryResult
 /// stable run-time property of the config alone. P5-2 may compose it
 /// from `embedding.{model,version,dimensions}` if it needs the field
 /// for compare reports.
-fn build_config_snapshot(cfg: &kebab_config::Config) -> Result<serde_json::Value> {
+fn build_config_snapshot(cfg: &kebab_config::Config, eval_k: usize) -> Result<serde_json::Value> {
     let cfg_value = serde_json::to_value(cfg).context("serialize Config")?;
     Ok(serde_json::json!({
         "config": cfg_value,
+        "eval_k": eval_k,
         "chunker_version": cfg.chunking.chunker_version,
         "embedding": {
             "model": cfg.models.embedding.model,
