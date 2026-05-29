@@ -11,8 +11,8 @@
 //!    until the `max_context_tokens` budget is exhausted (estimated at
 //!    ~4 chars / token, matching the kb-chunk convention).
 //! 4. Render the configured `prompt_template_version` prompt (system +
-//!    user) verbatim per design — `rag-v1` legacy or `rag-v2` (default,
-//!    fb-40) selected via `system_prompt_for`.
+//!    user) verbatim per design — `rag-v3` (default), `rag-v1`/`rag-v2`
+//!    legacy, selected via `system_prompt_for`.
 //! 5. Generate via `LanguageModel::generate_stream`. The token loop runs
 //!    on the calling thread; `opts.stream_sink` (if any) emits
 //!    `StreamEvent::RetrievalDone` once after retrieve+stale-stamp,

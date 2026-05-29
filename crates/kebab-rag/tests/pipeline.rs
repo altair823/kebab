@@ -675,7 +675,7 @@ fn ask_with_multi_hop_false_keeps_single_pass_path() {
     assert_eq!(
         answer.prompt_template_version.0,
         // Single-pass stamps the config's prompt_template_version
-        // (config default = "rag-v2"), NOT "rag-multi-hop-v1".
+        // (config default = "rag-v3"), NOT "rag-multi-hop-v1".
         env.config.rag.prompt_template_version,
         "multi_hop=false must keep the config's prompt template (single-pass)"
     );
