@@ -53,34 +53,44 @@ ingest_one_asset (kebab-app/src/lib.rs:~1253)
     │
     ├─ [NEW] if config.ingest.expansion.enabled:
     │     for chunk in &mut chunks:
-    │       aliases = ExpansionGenerator.generate(chunk.text)?   # gemma 1회/청크
+    │       aliases = ExpansionGenerator.generate(chunk)?         # gemma 1회/청크
     │       chunk.aliases = Some(aliases)                         # 상한·형식검증 적용
     │
   app.sqlite.put_chunks(doc_id, &chunks)?    # chunks.aliases 컬럼 저장
     │
-  (V010 trigger) → chunks_fts.aliases 컬럼 색인
+  (V010 chunk_aliases_au/ai trigger) → chunk_aliases_fts 별도 테이블 색인
     │
   embedder.embed(...) → vec_store.upsert(...)  # dense는 body text 기준 (변경 없음)
 
-검색 (kebab-search/src/hybrid.rs fuse):
-  body-lex  = chunks_fts MATCH on text 컬럼     (rank_body)
-  alias-lex = chunks_fts MATCH on aliases 컬럼  (rank_alias)   # [NEW]
-  vec       = LanceDB e5-dense                  (rank_vec)
-  RRF: score(c) = 1/(k+rank_body) + 1/(k+rank_alias) + 1/(k+rank_vec)
+검색 (kebab-search/src/lexical.rs run_query — body ∪ alias 한 SQL):
+  body  = chunks_fts MATCH ?          (bm25)         ┐ UNION ALL → GROUP BY chunk_id
+  alias = chunk_aliases_fts MATCH ?   (bm25)         ┘ → 단일 lexical 결과 (rank 부여)
+    │
+  HybridRetriever.fuse: RRF(lexical, vector)   # 2채널 그대로 — RetrievalDetail/wire 무변경
 ```
+
+**왜 lexical 내부 UNION 인가 (3채널 RRF 대신):** `RetrievalDetail` 은 `lexical_score`/
+`vector_score`/`*_rank` 만 보유하고 wire schema `search_hit.v1` 가 이를 그대로 노출한다. 정통
+3채널 RRF 는 `RetrievalDetail` + wire schema + `HybridRetriever` 시그니처 + 다수 테스트를 침습
+변경한다. alias-only 청크가 lexical 결과(→ hybrid pool)에 진입하기만 하면 pool-rescue 목적은
+동일하게 달성되므로, **`LexicalRetriever` 내부에서 body+alias 를 UNION** 해 단일 lexical 결과로
+내보낸다. `chunk_aliases_fts` 가 비면(flag off / 미생성) UNION 둘째 절이 0행 → 기존 동작과
+비트 단위로 동일 → **search-side 는 flag 게이트 불필요, ingest-side 만 게이트**.
 
 ### 3.2 컴포넌트 (단위별 책임)
 
-- **`ExpansionGenerator`** (kebab-app, LLM trait 경계로 mock 가능)
-  - 입력: 청크 본문(+ heading_path 컨텍스트), config(model, max_aliases, prompt_version).
-  - 출력: 검증된 별칭 문자열(개행/공백 join). 빈 출력·과길이 drop, 개수 상한 적용.
-  - 의존: `kebab_llm::LanguageModel` (기존 `OllamaLanguageModel` 재사용). LLM 호출 실패 시
-    해당 청크는 별칭 없이 진행(ingest 비중단 — fail-soft).
-- **V010 migration** — `chunks.aliases TEXT` 컬럼 + `chunks_fts` 에 `aliases` 컬럼 + trigger 3종
-  (`chunks_ai/ad/au`) 개정. 한국어 별칭도 본문과 동일 토크나이즈 정책 적용(V009 호환).
-- **`fuse` 3채널 확장** (kebab-search/hybrid.rs) — 기존 2채널 → 3채널. alias 채널은
-  `chunks_fts` 의 `aliases` 컬럼만 MATCH(FTS5 column filter). 별칭 없는 청크는 alias 채널에서
-  안 잡힘 → additive 보장.
+- **`ExpansionGenerator`** (kebab-app, `kebab_llm::LanguageModel` trait 경계로 mock 가능)
+  - 입력: 청크(본문 + heading_path 컨텍스트), config(model, max_aliases, prompt_version).
+  - 출력: 검증된 별칭 문자열(개행 join). 빈 출력·과길이 drop, 개수 상한 적용.
+  - 의존: `LanguageModel::generate_stream`(스트림을 모아 문자열). 기존 `OllamaLanguageModel`
+    재사용. LLM 호출 실패/빈 결과 시 해당 청크는 별칭 없이 진행(ingest 비중단 — **fail-soft**).
+- **V010 migration** — `chunks.aliases TEXT` 컬럼 + **별도 `chunk_aliases_fts` virtual table**
+  + 별도 trigger 3종(`chunk_aliases_ai/ad/au`). 기존 `chunks_fts` / `chunks_ai/ad/au`(§5.5
+    verbatim CI 대상)는 **무수정**. tokenizer `unicode61`(V009 동일).
+- **`LexicalRetriever.run_query` UNION 확장** (kebab-search/lexical.rs) — `chunks_fts` 와
+  `chunk_aliases_fts` 를 `UNION ALL` 서브쿼리로 검색 후 `GROUP BY chunk_id`(같은 청크가 양쪽
+  매칭 시 더 좋은=작은 bm25 채택), `chunks`/`documents` JOIN 으로 snippet·메타 보강. alias-only
+  청크도 결과에 진입. `chunk_aliases_fts` 가 비면 UNION 둘째 절 0행 → 기존과 동일(회귀 안전).
 - **config `[ingest.expansion]`** — `IngestExpansionCfg`:
   - `enabled: bool` (default **false**)
   - `model: String` (default = `models.llm.model`)
@@ -91,56 +101,54 @@ ingest_one_asset (kebab-app/src/lib.rs:~1253)
 
 ### 3.3 격리 / 코드 식별자 보존 (load-bearing)
 
-- `text`(body) 컬럼은 **verbatim 유지**. 별칭은 `aliases` 별도 컬럼/채널 → body BM25 매칭과
-  RRF 채널이 독립. 코드 식별자(`Vec::with_capacity`)의 정확매칭이 별칭 노이즈에 오염되지 않음.
+- `chunks_fts.text`(body) 는 **verbatim 유지**, 별칭은 **별도 테이블** `chunk_aliases_fts`.
+  UNION 후 GROUP BY 라도 body 매칭의 bm25 가 그대로 보존되어, 코드 식별자(`Vec::with_capacity`)
+  정확매칭이 별칭 노이즈에 희석되지 않음.
 - dense(e5) 임베딩은 **body text 기준 그대로** — 별칭을 임베딩에 넣지 않음(research: e5 dense
   유지, bge-m3 dense 는 실측 더 나빴음). 별칭은 lexical 채널에만 기여.
 
 ## 4. 스키마 / migration (V010)
 
-현재 최신 = V009. 신규 = **V010__chunk_aliases.sql**.
+현재 최신 = V009. 신규 = **V010__chunk_aliases.sql**. 기존 `chunks_fts` / `chunks_ai/ad/au`
+(§5.5 verbatim CI `fts_v009_matches_design_section_5_5_verbatim` 대상)는 **건드리지 않는다.**
 
 ```sql
--- 1) chunks 테이블에 별칭 컬럼
-ALTER TABLE chunks ADD COLUMN aliases TEXT;   -- nullable; 미생성/flag off = NULL
+-- 1) chunks 테이블에 별칭 컬럼 (nullable; 미생성/flag off = NULL)
+ALTER TABLE chunks ADD COLUMN aliases TEXT;
 
--- 2) FTS5 가상 테이블에 aliases 컬럼 추가
---    (FTS5 는 ALTER ADD COLUMN 미지원 → drop & recreate & rebuild)
-DROP TABLE chunks_fts;
-CREATE VIRTUAL TABLE chunks_fts USING fts5(
-  chunk_id     UNINDEXED,
-  doc_id       UNINDEXED,
-  heading_path,
-  text,
-  aliases,                                 -- [NEW] 별도 lexical 채널
-  tokenize = 'unicode61'                   -- V009 와 동일
+-- 2) 별도 FTS5 가상 테이블 (body 와 분리된 lexical 채널)
+CREATE VIRTUAL TABLE chunk_aliases_fts USING fts5(
+  chunk_id  UNINDEXED,
+  doc_id    UNINDEXED,
+  aliases,
+  tokenize = 'unicode61'                   -- V009 본문과 동일 tokenizer
 );
 
--- 3) trigger 3종 개정 (aliases 포함; body 는 V009 의 tokenized_korean 합성 유지)
-DROP TRIGGER chunks_ai; DROP TRIGGER chunks_ad; DROP TRIGGER chunks_au;
-CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
-  INSERT INTO chunks_fts(chunk_id, doc_id, heading_path, text, aliases)
-  VALUES (new.chunk_id, new.doc_id, new.heading_path_json,
-          CASE WHEN new.tokenized_korean_text IS NOT NULL
-               THEN new.tokenized_korean_text || ' ' || new.text
-               ELSE new.text END,
-          COALESCE(new.aliases, ''));
+-- 3) 별도 sync trigger 3종 (aliases NULL 이면 색인 안 함)
+CREATE TRIGGER chunk_aliases_ai AFTER INSERT ON chunks WHEN new.aliases IS NOT NULL BEGIN
+  INSERT INTO chunk_aliases_fts(chunk_id, doc_id, aliases)
+  VALUES (new.chunk_id, new.doc_id, new.aliases);
 END;
--- chunks_ad: DELETE FROM chunks_fts WHERE chunk_id = old.chunk_id;
--- chunks_au: ad + ai 합성 (DELETE then INSERT)
+CREATE TRIGGER chunk_aliases_ad AFTER DELETE ON chunks BEGIN
+  DELETE FROM chunk_aliases_fts WHERE chunk_id = old.chunk_id;
+END;
+CREATE TRIGGER chunk_aliases_au AFTER UPDATE ON chunks BEGIN
+  DELETE FROM chunk_aliases_fts WHERE chunk_id = old.chunk_id;
+  INSERT INTO chunk_aliases_fts(chunk_id, doc_id, aliases)
+    SELECT new.chunk_id, new.doc_id, new.aliases WHERE new.aliases IS NOT NULL;
+END;
 
--- 4) 기존 행 재색인 (aliases 는 전부 NULL→'' 이므로 본문 색인 동일, 무영향)
-INSERT INTO chunks_fts(chunk_id, doc_id, heading_path, text, aliases)
-  SELECT chunk_id, doc_id, heading_path_json,
-         CASE WHEN tokenized_korean_text IS NOT NULL
-              THEN tokenized_korean_text || ' ' || text ELSE text END,
-         COALESCE(aliases, '')
-  FROM chunks;
+-- 4) backfill 불필요: 기존 행 aliases 전부 NULL → chunk_aliases_fts 빈 채로 시작.
+
+-- 5) corpus_revision bump (in-process search cache 무효화; V009 와 동일 패턴)
+UPDATE kv SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'corpus_revision';
 ```
 
+- `put_chunks` 의 DELETE-then-INSERT(documents.rs:101) 는 `chunk_aliases_ad`(DELETE) +
+  `chunk_aliases_ai`(INSERT) 를 발화 → 별칭 동기화 자동. INSERT 문에 `aliases` 컬럼만 추가.
 - migration 은 refinery 자동 embed/apply. **migration = breaking schema change** → CLAUDE.md
   §Release / Dogfood trigger 발동(V010, dogfood + release notes).
-- `kebab_core::Chunk` 에 `aliases: Option<String>` 필드 추가. `put_chunks` INSERT 에 컬럼 추가.
+- `kebab_core::Chunk` 에 `aliases: Option<String>` 필드 추가(`#[serde(default)]`).
 
 ## 5. gemma 프롬프트 (expansion-v1)
 
@@ -190,10 +198,11 @@ KEBAB_EVAL_GOLDEN=/build/dogfood/golden_queries.yaml \
 
 - migration: V010 적용 후 `chunks.aliases` + `chunks_fts.aliases` 존재, 기존 행 본문 색인 동일.
 - `put_chunks`/`get` round-trip: `aliases=Some(..)` 저장·조회.
-- FTS5 alias 검색: aliases 에만 있는 term 으로 MATCH 시 해당 chunk 회수.
-- RRF 3채널: alias 채널에만 매칭되는 청크가 fused 결과 pool 에 진입(additive 효과 핵심 회귀).
+- FTS5 alias 검색: `chunk_aliases_fts` 의 term 으로 MATCH 시 해당 chunk 회수.
+- lexical UNION: body 에 없고 alias 에만 있는 term 으로 검색 시 alias-only 청크가 `LexicalRetriever`
+  결과(→ hybrid pool)에 진입(pool-rescue 핵심 회귀). 양쪽 매칭 청크는 중복 없이 1개.
 - `ExpansionGenerator`(LLM mock): 프롬프트→파싱, 상한 N 적용, 빈/과길이 drop, LLM 실패 시 fail-soft.
-- flag off 회귀: expansion disabled 시 색인·검색 결과가 V009 와 동일(별칭 컬럼 NULL, 채널 무영향).
+- 회귀: `chunk_aliases_fts` 빈 상태에서 `run_query` 결과가 V009 와 동일(UNION 둘째 절 0행).
 
 ## 10. PR / 문서 동기화
 
