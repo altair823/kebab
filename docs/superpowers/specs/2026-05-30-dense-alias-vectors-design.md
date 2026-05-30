@@ -78,6 +78,36 @@ ingest_one_asset (embed + upsert):
   없어 stale 목록에 안 잡히므로 명시 추가 — 안 하면 orphan 별칭 벡터 누적.)
 - **config**: `IngestExpansionCfg.embed_aliases: bool`(default false) + `KEBAB_INGEST_EXPANSION_EMBED_ALIASES`.
 
+### 3.5 인프라 제약 — embedding_records FK + filter_chunks (구현 중 발견, 2026-05-30)
+
+sentinel chunk_id 는 chunks 테이블에 **없는** id 라, 다음 두 인프라가 sentinel 벡터를 막는다. 둘 다
+수정해야 별도 벡터가 동작한다(PoC 측정으로 확인된 차단 요인).
+
+1. **embedding_records FK (breaking schema, V0XX)** — `embedding_records.chunk_id TEXT NOT NULL
+   REFERENCES chunks(chunk_id) ON DELETE CASCADE`(V001__init.sql:100). LanceVectorStore.upsert 의
+   phase 1(`put_embedding_records_pending`)이 sentinel chunk_id 를 INSERT 하면 **FK 위반(SQLite 787)**
+   → ingest 전체 에러. SQLite 는 ALTER 로 FK 제거 불가 → `embedding_records` **테이블 재생성**
+   (rename + recreate without FK + data copy + index 재생성). V003 의 `status`/`vector_committed`
+   컬럼 + `idx_embed_*` 인덱스 보존. **breaking → 버전 bump + dogfood**. (V003 주석이 "GC 스케줄러
+   구현 시 이 CASCADE 제거 예정"을 이미 예고 — 프로젝트 로드맵과 정합.)
+
+2. **CASCADE 대체 (orphan 정리)** — FK 의 `ON DELETE CASCADE` 가 사라지면 chunk DELETE 시
+   embedding_records 가 자동 정리 안 됨. `put_chunks`(DELETE-then-INSERT) + purge 경로
+   (`purge_orphan_at_workspace_path` / `purge_deleted_workspace_path`)에 **명시
+   `DELETE FROM embedding_records WHERE chunk_id IN (...)`**(원본 + `{id}#alias`) 추가. V003 의
+   `chunks_bd_tombstone_embeddings` BEFORE-DELETE trigger 는 FK 제거 후 오히려 tombstone 을 보존하므로,
+   명시 DELETE 와 함께 정책 일관성 확인(tombstone 누적 시 GC 는 P+ 로드맵).
+
+3. **filter_chunks sentinel strip (검색 차단)** — `filter_chunks`(filters.rs:81)가 LanceDB 후보를
+   `embedding_records er JOIN chunks c ON c.chunk_id = er.chunk_id WHERE er.status='committed'` 로
+   필터한다. sentinel chunk_id 는 chunks 에 JOIN 안 돼 **버려짐** → VectorRetriever 의 strip(§3.3)
+   이전에 이미 탈락. 따라서 filter_chunks 도 candidate 의 sentinel 을 **원본으로 strip 해 JOIN**
+   (committed 통과)하도록 수정. 원본 chunk 가 committed 면 sentinel 후보도 통과시킴.
+
+> **PoC 근거**: 별칭-문서(별칭 순수 벡터 근사)로 영어 설명형이 rank 7~30 으로 잡힘(concat 은 본문
+> 희석으로 미회복). golden 의 특정 영어 표현은 무관 영어 코드 문서 경쟁으로 경계선 — 별도 벡터 정식
+> 구현 후 golden variants 로 회복 정도 측정. (한국어 설명형은 concat·별도 둘 다 회복.)
+
 ### 3.4 격리 / 회귀 안전
 
 - body 벡터(chunk.text 임베딩) **불변** → 기존 명사형/본문 dense 매칭 회귀 0(concat 과 달리).
@@ -87,7 +117,10 @@ ingest_one_asset (embed + upsert):
 
 - 별칭 dense 는 additive(별도 벡터). `try_skip_unchanged` 의 기존 5버전 판단 무변경(별칭 부재가 자동
   재색인 트리거 안 함). 재생성은 `--force-reingest`.
-- embed_aliases flag 토글은 임베딩 정책 변경이나 별도 벡터라 body 임베딩 version 불변. wire 무변경(flag off).
+- embed_aliases flag 토글은 임베딩 정책 변경이나 별도 벡터라 body 임베딩 version 불변. flag off 면 wire 무변경.
+- **§3.5-1 의 embedding_records FK 제거(V0XX)는 breaking schema** → CLAUDE.md §Release 트리거: 워크스페이스
+  `version` bump + 새 release cut + dogfood evidence. 기존 release binary 는 새 embedding_records 스키마와
+  호환되나(FK 만 제거, 컬럼 동일), migration 자동 적용. wire schema 자체는 불변(search_hit.v1 그대로).
 
 ## 5. 측정 (§4.6)
 

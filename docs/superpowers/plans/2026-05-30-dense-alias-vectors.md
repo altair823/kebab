@@ -260,6 +260,116 @@ fn alias_vector_hit_strips_to_original_and_dedupes() {
 
 ---
 
+## Task 4.5: V0XX — embedding_records FK 제거 (breaking) + CASCADE 대체
+
+**배경 (spec §3.5)**: sentinel chunk_id 는 chunks 에 없어 `embedding_records.chunk_id REFERENCES
+chunks(chunk_id) ON DELETE CASCADE`(V001:100) FK 를 위반(SQLite 787) → ingest 에러. SQLite 는 ALTER
+로 FK 못 지워 테이블 재생성. CASCADE 사라지면 orphan 정리를 명시 DELETE 로 대체.
+
+**Files:** Create `migrations/V010__drop_embedding_records_fk.sql` (또는 현재 최신 번호+1 확인:
+`ls migrations/` → 최신이 V010__chunk_aliases.sql 이면 **V011**), Modify `crates/kebab-store-sqlite/src/documents.rs`(put_chunks), `crates/kebab-store-sqlite/src/store.rs`(purge 경로)
+
+- [ ] **Step 1: 최신 migration 번호 확인** — `ls migrations/`. doc-side expansion 이 V010__chunk_aliases.sql
+  을 추가했으므로 신규는 **V011**. 파일명 `V011__drop_embedding_records_fk.sql`.
+
+- [ ] **Step 2: migration 작성** — `embedding_records` 를 FK 없이 재생성(V003 의 status/vector_committed
+  컬럼 + 모든 인덱스 보존). FK 외 스키마는 동일:
+
+```sql
+-- V011__drop_embedding_records_fk.sql — embedding_records.chunk_id FK 제거.
+-- sentinel chunk_id({orig}#alias, chunks 에 없는 id) 벡터를 허용하기 위함
+-- (설계 spec 2026-05-30-dense-alias-vectors-design.md §3.5-1). SQLite 는 ALTER
+-- 로 FK 제거 불가 → 테이블 재생성. status/vector_committed(V003) + 인덱스 보존.
+-- CASCADE 제거분은 put_chunks/purge 의 명시 DELETE 로 대체(§3.5-2).
+PRAGMA foreign_keys=OFF;
+
+CREATE TABLE embedding_records_new (
+  embedding_id   TEXT PRIMARY KEY,
+  chunk_id       TEXT NOT NULL,                 -- FK 제거 (was REFERENCES chunks ON DELETE CASCADE)
+  model_id       TEXT NOT NULL,
+  model_version  TEXT NOT NULL,
+  dimensions     INTEGER NOT NULL,
+  lance_table    TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'pending',
+  vector_committed INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(chunk_id, model_id, model_version, dimensions)
+);
+INSERT INTO embedding_records_new
+  SELECT embedding_id, chunk_id, model_id, model_version, dimensions,
+         lance_table, created_at, status, vector_committed
+    FROM embedding_records;
+DROP TABLE embedding_records;
+ALTER TABLE embedding_records_new RENAME TO embedding_records;
+CREATE INDEX idx_embed_chunk  ON embedding_records(chunk_id);
+CREATE INDEX idx_embed_model  ON embedding_records(model_id, model_version, dimensions);
+CREATE INDEX idx_embed_status ON embedding_records(status);
+
+PRAGMA foreign_keys=ON;
+
+UPDATE kv SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'corpus_revision';
+```
+
+> ⚠️ `chunks_bd_tombstone_embeddings` trigger(V003)는 그대로 유지. FK 제거 후 tombstone 이 실제 보존됨
+> (CASCADE 가 즉시 안 지움) — 명시 DELETE(Step 3)가 정리를 담당.
+
+- [ ] **Step 3: CASCADE 대체 — 명시 DELETE** — chunk 삭제 경로에서 embedding_records 를 명시 정리.
+  `crates/kebab-store-sqlite/src/documents.rs` `put_chunks`(DELETE-then-INSERT, 라인 101 `DELETE FROM
+  chunks WHERE doc_id=?` 직전/직후): 해당 doc 의 chunk_id + `{id}#alias` embedding_records 삭제:
+```rust
+  // CASCADE 제거(V011) 대체: 이 doc 의 chunk 임베딩 레코드를 명시 정리.
+  // 원본 + sentinel({id}#alias) 둘 다. (별칭 벡터는 chunks FK 가 없어 자동 정리 안 됨.)
+  tx.execute(
+      "DELETE FROM embedding_records WHERE chunk_id IN \
+       (SELECT chunk_id FROM chunks WHERE doc_id=?1 \
+        UNION SELECT chunk_id||'#alias' FROM chunks WHERE doc_id=?1)",
+      params![doc.0],
+  ).map_err(StoreError::from)?;
+```
+  (이 DELETE 는 `DELETE FROM chunks` **전에** 실행 — chunks 가 지워지면 서브쿼리가 빈 결과.)
+  `crates/kebab-store-sqlite/src/store.rs` 의 `purge_orphan_at_workspace_path`(라인 ~631 `DELETE FROM
+  documents`)·`purge_deleted_workspace_path` 도 동일하게, chunks 삭제 전 수집한 chunk_id + sentinel 을
+  `DELETE FROM embedding_records WHERE chunk_id IN (...)` 로 정리. (`grep -n "DELETE FROM documents\|DELETE
+  FROM chunks" crates/kebab-store-sqlite/src/store.rs` 로 경로 확인.)
+
+- [ ] **Step 4: 테스트** — `crates/kebab-store-sqlite/tests/` 에:
+  - sentinel chunk_id embedding_records INSERT 가 FK 위반 없이 성공(V011 후).
+  - put_chunks 재호출 시 기존 embedding_records(원본+sentinel) 정리 → orphan 0.
+  Run: `CARGO_TARGET_DIR=/build/out/cargo-target/target cargo test -p kebab-store-sqlite -j 4 > /tmp/dv-t45.log 2>&1; echo "EXIT=$?"` EXIT=0 + 기존 corpus_revision baseline(V011 bump 로 +1) 갱신 필요 시 갱신.
+
+- [ ] **Step 5: 커밋** — `git add migrations/V011__drop_embedding_records_fk.sql crates/kebab-store-sqlite && git commit -m "feat(store): V011 embedding_records FK 제거 + CASCADE 대체 명시 DELETE (sentinel 별칭 벡터)"`
+
+---
+
+## Task 4.6: filter_chunks sentinel strip
+
+**배경 (spec §3.5-3)**: `filter_chunks`(filters.rs:81)가 `embedding_records er JOIN chunks c ON
+c.chunk_id=er.chunk_id WHERE er.status='committed'` 로 LanceDB 후보를 필터. sentinel chunk_id 는 chunks
+JOIN 에서 버려져 VectorRetriever strip 이전에 탈락. sentinel candidate 를 원본으로 strip 해 JOIN 통과시킴.
+
+**Files:** Modify `crates/kebab-store-sqlite/src/filters.rs` (`filter_chunks`)
+
+- [ ] **Step 1: 실패 테스트** — committed 원본 chunk 의 sentinel candidate(`{orig}#alias`)가
+  filter_chunks 결과에 (원본 또는 sentinel 로) 통과하는지. (기존 filters 테스트 패턴 따라.)
+
+- [ ] **Step 2: 구현** — `filter_chunks(chunk_ids, filters)` 가 candidate `chunk_ids` 중 sentinel
+  (`#alias` 접미)을 **원본으로 strip 해 IN-list/JOIN** 에 넣되, **반환은 입력 candidate 형태(sentinel
+  유지)** 로 — VectorRetriever 가 그 sentinel 을 받아 strip+dedup(Task 4)하기 때문. 즉:
+  - IN-list 바인딩: 각 candidate 를 `strip_alias_suffix` 한 원본 chunk_id 로 JOIN(committed 판정은
+    원본 chunk 기준). 원본이 committed 면 그 candidate(원본 or sentinel) 통과.
+  - 반환: 통과한 **원본 candidate 문자열 그대로**(sentinel 포함) — store.search 가 그대로 VectorRetriever 로.
+  - 구현 주의: 현재 `er.chunk_id IN (?)` 가 candidate 직접 매칭. sentinel 은 embedding_records 에는
+    있으나(V011 후) chunks JOIN 실패. 두 방법 중 택1 — (a) JOIN 을 `c.chunk_id = strip(er.chunk_id)` 로
+    (SQL 에서 `#alias` 제거: `replace(er.chunk_id,'#alias','')` 또는 `rtrim`), 또는 (b) Rust 에서
+    candidate 를 원본으로 strip 해 IN-list 구성 후, 결과를 원본 candidate 와 매핑해 반환. **(b) 권장**
+    (SQL replace 보다 명확). `kebab_core::strip_alias_suffix` 사용.
+
+- [ ] **Step 3: 테스트 통과 + 회귀** — `cargo test -p kebab-store-sqlite -p kebab-search -j 4 > /tmp/dv-t46.log 2>&1; echo "EXIT=$?"` EXIT=0.
+
+- [ ] **Step 4: 커밋** — `git add crates/kebab-store-sqlite/src/filters.rs && git commit -m "feat(store): filter_chunks sentinel 별칭 candidate strip (committed 통과)"`
+
+---
+
 ## Task 5: 측정 + 문서
 
 - [ ] **Step 1: clippy** — `cargo clippy --workspace --all-targets -j 4 -- -D warnings > /tmp/dv-clippy.log 2>&1; echo "EXIT=$?"` EXIT=0.
