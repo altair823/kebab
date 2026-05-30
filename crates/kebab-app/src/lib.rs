@@ -62,6 +62,7 @@ pub mod cursor;
 pub mod doctor_signal;
 pub mod error_signal;
 pub mod error_wire;
+pub mod expansion;
 pub mod external;
 pub mod fetch;
 pub mod ingest_log;
