@@ -69,19 +69,35 @@ impl<'a> ExpansionGenerator<'a> {
     }
 }
 
+/// 줄 선두의 목록 마커만 1회 제거한다. **마커 뒤 공백이 필수** — 별칭 내용이
+/// 숫자/하이픈/별표로 시작하는 경우(예: "3D 렌더링", "-fast", "2단계")는 보존한다.
+/// (Task 4 리뷰 MAJOR-1: 탐욕적 `trim_start_matches` 가 정당한 별칭을 손상시키던 버그 수정.)
+fn strip_list_marker(s: &str) -> &str {
+    // 1) 머리기호 + 공백 ("- " / "* " / "• ").
+    for marker in ["- ", "* ", "• "] {
+        if let Some(rest) = s.strip_prefix(marker) {
+            return rest.trim_start();
+        }
+    }
+    // 2) 번호 + ('.' | ')') + 공백 ("1. " / "2) "). 마커 뒤 공백이 없으면
+    //    ("3D", "2단계") 번호가 아니라 내용으로 보고 보존.
+    let digit_end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+    if digit_end > 0 {
+        let after = &s[digit_end..];
+        if let Some(rest) = after.strip_prefix(". ").or_else(|| after.strip_prefix(") ")) {
+            return rest.trim_start();
+        }
+    }
+    s
+}
+
 /// LLM 출력 문자열 → 검증된 별칭 리스트.
-/// 줄 단위 split → trim → 번호/머리기호 접두 제거 → 빈 줄·과길이 drop →
+/// 줄 단위 split → trim → 목록 마커 1회 제거 → 빈 줄·과길이 drop →
 /// 중복 제거 → 상한 N.
 fn parse_aliases(raw: &str, max_aliases: usize) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for line in raw.lines() {
-        let t = line.trim();
-        // 번호("1." "1)") / 머리기호("- " "* ") 접두 제거.
-        let t = t
-            .trim_start_matches(|c: char| {
-                c.is_ascii_digit() || c == '.' || c == ')' || c == '-' || c == '*'
-            })
-            .trim();
+        let t = strip_list_marker(line.trim());
         if t.is_empty() || t.chars().count() > MAX_ALIAS_CHARS {
             continue;
         }
@@ -156,5 +172,29 @@ mod tests {
         let llm = mock("   \n\n");
         let generator = ExpansionGenerator::new(&llm, 8);
         assert_eq!(generator.generate(&mk_chunk("t")), None);
+    }
+
+    /// Task 4 리뷰 MAJOR-1 회귀: 숫자/하이픈/별표로 시작하는 정당한 별칭은
+    /// 손상 없이 보존돼야 한다(목록 마커는 마커 뒤 공백이 있을 때만 제거).
+    #[test]
+    fn preserves_numeric_and_dash_leading_aliases() {
+        let llm = mock("3D 렌더링\n2단계 커밋\n-fast 플래그\n- 메모리 안전성\n1. 첫 항목");
+        let generator = ExpansionGenerator::new(&llm, 8);
+        let out = generator.generate(&mk_chunk("graphics")).unwrap();
+        // 마커 없는 선두 숫자/하이픈은 보존; "- "/"1. " 만 마커로 제거.
+        assert_eq!(out, "3D 렌더링\n2단계 커밋\n-fast 플래그\n메모리 안전성\n첫 항목");
+    }
+
+    #[test]
+    fn strip_list_marker_unit() {
+        assert_eq!(strip_list_marker("- 메모리"), "메모리");
+        assert_eq!(strip_list_marker("* 소유권"), "소유권");
+        assert_eq!(strip_list_marker("1. who owns"), "who owns");
+        assert_eq!(strip_list_marker("2) 항목"), "항목");
+        // 마커 뒤 공백 없음 → 보존.
+        assert_eq!(strip_list_marker("3D 렌더링"), "3D 렌더링");
+        assert_eq!(strip_list_marker("-fast"), "-fast");
+        assert_eq!(strip_list_marker("2단계"), "2단계");
+        assert_eq!(strip_list_marker("2.0 릴리스"), "2.0 릴리스");
     }
 }
