@@ -95,6 +95,24 @@ impl OllamaLanguageModel {
             default_seed: llm.seed,
         })
     }
+
+    /// `new` 와 동일하되 모델 ID 만 override. doc-side expansion(Task 5)이
+    /// `[ingest.expansion].model` 을 쓸 수 있게 한다. 빈 문자열이면 호출측이
+    /// `new` 를 쓰도록 분기(여기선 비어있지 않은 model_id 를 신뢰).
+    pub fn with_model(config: &kebab_config::Config, model_id: &str) -> anyhow::Result<Self> {
+        let llm = &config.models.llm;
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(llm.request_timeout_secs))
+            .build()?;
+        Ok(Self {
+            client,
+            endpoint: llm.endpoint.clone(),
+            model_id: model_id.to_string(),
+            context_tokens: llm.context_tokens,
+            default_temperature: llm.temperature,
+            default_seed: llm.seed,
+        })
+    }
 }
 
 impl LanguageModel for OllamaLanguageModel {

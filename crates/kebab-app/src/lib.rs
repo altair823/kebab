@@ -1251,9 +1251,34 @@ fn ingest_one_asset(
         build_canonical_document(asset, metadata, parsed_blocks, parser_version, all_warnings)
             .context("kb-parse-md::build_canonical_document")?;
 
-    let chunks = MdHeadingV1Chunker
+    let mut chunks = MdHeadingV1Chunker
         .chunk(&canonical, chunk_policy)
         .context("kb-chunk::MdHeadingV1Chunker::chunk")?;
+
+    // Phase 2 doc-side expansion: flag on 이면 청크당 별칭 생성 (fail-soft).
+    if app.config.ingest.expansion.enabled {
+        let exp = &app.config.ingest.expansion;
+        let llm_built = if exp.model.is_empty() {
+            OllamaLanguageModel::new(&app.config)
+        } else {
+            OllamaLanguageModel::with_model(&app.config, &exp.model)
+        };
+        match llm_built {
+            Ok(llm) => {
+                let generator =
+                    crate::expansion::ExpansionGenerator::new(&llm, exp.max_aliases_per_chunk);
+                for chunk in &mut chunks {
+                    chunk.aliases = generator.generate(chunk);
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "kebab-app", error = %e,
+                    "kb-app::ingest: expansion LLM 빌드 실패 — 별칭 없이 진행"
+                );
+            }
+        }
+    }
 
     // Stamp chunker + embedding versions so Task 7's skip detection has
     // data on the second run.
