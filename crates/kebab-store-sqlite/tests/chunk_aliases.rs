@@ -161,3 +161,60 @@ fn none_aliases_not_indexed() {
         "aliases=None 이면 chunk_aliases_fts 에 행이 없어야 한다"
     );
 }
+
+/// Task 2 리뷰 M2: 같은 doc 을 두 번 `put_chunks` 해도 `chunk_aliases_fts`
+/// 행이 중복되지 않아야 한다. put_chunks 의 DELETE-then-INSERT 가
+/// chunk_aliases_ad → chunk_aliases_ai 를 발화해 멱등 재동기화하는지 검증.
+#[test]
+fn reput_keeps_single_alias_row() {
+    let env = common::TestEnv::new();
+    let store = open_store_with_document(&env);
+    let doc = DocumentId("d".repeat(32));
+    let mk = || base_chunk(&"e".repeat(32), &doc, Some("메모리 안전성".into()));
+
+    store.put_chunks(&doc, &[mk()]).unwrap();
+    store.put_chunks(&doc, &[mk()]).unwrap(); // 같은 doc 재-put
+
+    let n: i64 = env.with_conn(|c| {
+        c.query_row("SELECT count(*) FROM chunk_aliases_fts", [], |r| r.get(0))
+    });
+    assert_eq!(n, 1, "재색인 후에도 별칭 행은 1개여야 한다 (중복/누락 없음)");
+}
+
+/// Task 2 리뷰 N1: 별칭 term 이 본문 `chunks_fts` 로 새지 않아야 한다(§3.3 격리).
+/// 본문엔 없고 별칭에만 있는 한국어 term 으로 chunks_fts 를 MATCH 하면 0행.
+#[test]
+fn aliases_dont_leak_into_body_fts() {
+    let env = common::TestEnv::new();
+    let store = open_store_with_document(&env);
+    let doc = DocumentId("d".repeat(32));
+    // 본문 "Rust ownership and borrowing" 에 "메모리" 없음, 별칭에만 있음.
+    let chunk = base_chunk(&"e".repeat(32), &doc, Some("메모리 안전성".into()));
+    store.put_chunks(&doc, &[chunk]).unwrap();
+
+    let body_hits: i64 = env.with_conn(|c| {
+        c.query_row(
+            "SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH 'text : (\"메모리\")'",
+            [],
+            |r| r.get(0),
+        )
+    });
+    assert_eq!(body_hits, 0, "별칭 term 이 본문 chunks_fts 로 누출되면 안 된다");
+}
+
+/// Task 2 리뷰 M1: 빈 문자열 별칭은 색인하지 않는다(trigger 가드
+/// `AND new.aliases <> ''`). producer 가 Some("") 를 넘겨도 무용한 행이
+/// chunk_aliases_fts 에 쌓이지 않아야 한다.
+#[test]
+fn empty_string_alias_not_indexed() {
+    let env = common::TestEnv::new();
+    let store = open_store_with_document(&env);
+    let doc = DocumentId("d".repeat(32));
+    let chunk = base_chunk(&"e".repeat(32), &doc, Some(String::new()));
+    store.put_chunks(&doc, &[chunk]).unwrap();
+
+    let n: i64 = env.with_conn(|c| {
+        c.query_row("SELECT count(*) FROM chunk_aliases_fts", [], |r| r.get(0))
+    });
+    assert_eq!(n, 0, "빈 문자열 별칭은 chunk_aliases_fts 에 색인되면 안 된다");
+}

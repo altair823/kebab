@@ -16,7 +16,10 @@ CREATE VIRTUAL TABLE chunk_aliases_fts USING fts5(
   tokenize = 'unicode61'
 );
 
-CREATE TRIGGER chunk_aliases_ai AFTER INSERT ON chunks WHEN new.aliases IS NOT NULL BEGIN
+-- 가드 `IS NOT NULL AND <> ''`: producer 가 Some("") 를 넘겨도 내용 없는
+-- 행이 chunk_aliases_fts 에 쌓이지 않게 한다(Task 2 리뷰 M1).
+CREATE TRIGGER chunk_aliases_ai AFTER INSERT ON chunks
+  WHEN new.aliases IS NOT NULL AND new.aliases <> '' BEGIN
   INSERT INTO chunk_aliases_fts(chunk_id, doc_id, aliases)
   VALUES (new.chunk_id, new.doc_id, new.aliases);
 END;
@@ -26,7 +29,8 @@ END;
 CREATE TRIGGER chunk_aliases_au AFTER UPDATE ON chunks BEGIN
   DELETE FROM chunk_aliases_fts WHERE chunk_id = old.chunk_id;
   INSERT INTO chunk_aliases_fts(chunk_id, doc_id, aliases)
-    SELECT new.chunk_id, new.doc_id, new.aliases WHERE new.aliases IS NOT NULL;
+    SELECT new.chunk_id, new.doc_id, new.aliases
+    WHERE new.aliases IS NOT NULL AND new.aliases <> '';
 END;
 
 -- in-process LRU search cache 무효화 (V009 와 동일 패턴).
