@@ -595,6 +595,8 @@ impl UiCfg {
 #[serde(default)]
 pub struct IngestCfg {
     pub code: IngestCodeCfg,
+    #[serde(default)]
+    pub expansion: IngestExpansionCfg,
 }
 
 /// p10-1A-1: settings for the code ingest pipeline. All fields have
@@ -631,6 +633,31 @@ impl Default for IngestCodeCfg {
             ast_chunk_max_lines: 200,
             fallback_lines_per_chunk: 80,
             fallback_lines_overlap: 20,
+        }
+    }
+}
+
+/// doc-side expansion config. Default: disabled (requires explicit opt-in).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IngestExpansionCfg {
+    /// Whether doc-side alias expansion is enabled during ingest.
+    pub enabled: bool,
+    /// Ollama model used for alias generation (empty = use LLM default).
+    pub model: String,
+    /// Maximum aliases generated per chunk.
+    pub max_aliases_per_chunk: usize,
+    /// Prompt template version tag.
+    pub prompt_version: String,
+}
+
+impl Default for IngestExpansionCfg {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            model: String::new(),
+            max_aliases_per_chunk: 8,
+            prompt_version: "expansion-v1".to_string(),
         }
     }
 }
@@ -1117,6 +1144,22 @@ impl Config {
                 }
                 "KEBAB_PDF_OCR_LANG_HINT" => {
                     self.pdf.ocr.lang_hint = if v.is_empty() { None } else { Some(v.clone()) };
+                }
+
+                // ingest.expansion
+                "KEBAB_INGEST_EXPANSION_ENABLED" => {
+                    self.ingest.expansion.enabled = parse_bool(v);
+                }
+                "KEBAB_INGEST_EXPANSION_MODEL" => {
+                    self.ingest.expansion.model = v.clone();
+                }
+                "KEBAB_INGEST_EXPANSION_MAX_ALIASES" => {
+                    if let Ok(n) = v.parse::<usize>() {
+                        self.ingest.expansion.max_aliases_per_chunk = n;
+                    }
+                }
+                "KEBAB_INGEST_EXPANSION_PROMPT_VERSION" => {
+                    self.ingest.expansion.prompt_version = v.clone();
                 }
 
                 // Unknown KEBAB_* keys are silently ignored — see
@@ -1845,6 +1888,28 @@ max_context_tokens = 8000
         toml_text = toml_text.replace("max_file_bytes = 262144", "max_file_bytes = 524288");
         let cfg: Config = toml::from_str(&toml_text).unwrap();
         assert_eq!(cfg.ingest.code.max_file_bytes, 524_288);
+    }
+
+    #[test]
+    fn expansion_defaults_off() {
+        let cfg = Config::defaults();
+        assert!(!cfg.ingest.expansion.enabled);
+        assert_eq!(cfg.ingest.expansion.max_aliases_per_chunk, 8);
+        assert_eq!(cfg.ingest.expansion.prompt_version, "expansion-v1");
+    }
+
+    #[test]
+    fn expansion_env_override() {
+        let mut env = HashMap::new();
+        env.insert("KEBAB_INGEST_EXPANSION_ENABLED".into(), "true".into());
+        env.insert("KEBAB_INGEST_EXPANSION_MODEL".into(), "gemma3:4b".into());
+        env.insert("KEBAB_INGEST_EXPANSION_MAX_ALIASES".into(), "12".into());
+        env.insert("KEBAB_INGEST_EXPANSION_PROMPT_VERSION".into(), "expansion-v2".into());
+        let c = Config::defaults().apply_env(&env);
+        assert!(c.ingest.expansion.enabled);
+        assert_eq!(c.ingest.expansion.model, "gemma3:4b");
+        assert_eq!(c.ingest.expansion.max_aliases_per_chunk, 12);
+        assert_eq!(c.ingest.expansion.prompt_version, "expansion-v2");
     }
 }
 
