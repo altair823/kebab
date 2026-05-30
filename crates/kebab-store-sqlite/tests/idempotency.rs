@@ -98,6 +98,7 @@ fn make_chunks(doc_id: &DocumentId) -> Vec<Chunk> {
         chunker_version: ChunkerVersion("md-heading-v1".into()),
         policy_hash: "deadbeefdeadbeef".into(),
         tokenized_korean_text: None,
+        aliases: None,
     }]
 }
 

@@ -250,6 +250,7 @@ impl kebab_core::DocumentStore for SqliteStore {
             chunker_version: kebab_core::ChunkerVersion(row.chunker_version),
             policy_hash: row.policy_hash,
             tokenized_korean_text: row.tokenized_korean_text,
+            aliases: None,
         }))
     }
 

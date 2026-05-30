@@ -196,5 +196,6 @@ fn build_chunk_from_span(
         token_estimate,
         chunker_version: chunker_version.clone(),
         policy_hash: base_policy_hash.to_string(),
+        aliases: None,
     }
 }
