@@ -58,6 +58,15 @@ fn validate_hex32(s: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
+/// Suffix appended to a chunk's vector ID to mark an alias embedding row.
+pub const ALIAS_SUFFIX: &str = "#alias";
+
+/// Strip `#alias` suffix from `id`, returning the bare chunk ID.
+/// If `id` does not end with `ALIAS_SUFFIX`, returns `id` unchanged.
+pub fn strip_alias_suffix(id: &str) -> &str {
+    id.strip_suffix(ALIAS_SUFFIX).unwrap_or(id)
+}
+
 /// Canonical-JSON + blake3 + hex prefix 32. Per design §4.2.
 pub fn id_from<T: Serialize>(tuple: T) -> String {
     let bytes = serde_json_canonicalizer::to_vec(&tuple)
@@ -428,6 +437,16 @@ mod tests {
 
         let id = id_for_embedding(&chunk, &model, &version, 384);
         assert_eq!(id.0, "71992c457a5da39880a6d17d646ed0fd");
+    }
+
+    #[test]
+    fn strip_alias_suffix_roundtrip() {
+        let bare = "0123456789abcdef0123456789abcdef";
+        let with_suffix = format!("{}{}", bare, ALIAS_SUFFIX);
+        assert_eq!(strip_alias_suffix(&with_suffix), bare);
+        assert_eq!(strip_alias_suffix(bare), bare);
+        assert_eq!(strip_alias_suffix(""), "");
+        assert_eq!(strip_alias_suffix("#alias"), "");
     }
 
     /// Independent pin for id_for_index.
