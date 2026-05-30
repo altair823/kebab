@@ -442,7 +442,7 @@ mod tests {
     #[test]
     fn strip_alias_suffix_roundtrip() {
         let bare = "0123456789abcdef0123456789abcdef";
-        let with_suffix = format!("{}{}", bare, ALIAS_SUFFIX);
+        let with_suffix = format!("{bare}{ALIAS_SUFFIX}");
         assert_eq!(strip_alias_suffix(&with_suffix), bare);
         assert_eq!(strip_alias_suffix(bare), bare);
         assert_eq!(strip_alias_suffix(""), "");
