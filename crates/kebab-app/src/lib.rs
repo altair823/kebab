@@ -1341,7 +1341,53 @@ fn ingest_one_asset(
                     dimensions,
                 })
                 .collect();
-            vec_store.upsert(&records).context("VectorStore::upsert")?;
+            // dense 별칭(별도 벡터, sentinel chunk_id). embed_aliases on +
+            // 별칭 있는 청크만. 본문 records 는 위에서 이미 생성됨(불변).
+            let mut all_records = records;
+            if app.config.ingest.expansion.embed_aliases {
+                let alias_chunks: Vec<&kebab_core::Chunk> = chunks
+                    .iter()
+                    .filter(|c| c.aliases.as_deref().is_some_and(|a| !a.is_empty()))
+                    .collect();
+                if !alias_chunks.is_empty() {
+                    let alias_inputs: Vec<EmbeddingInput<'_>> = alias_chunks
+                        .iter()
+                        .map(|c| EmbeddingInput {
+                            text: c.aliases.as_deref().unwrap(),
+                            kind: EmbeddingKind::Document,
+                        })
+                        .collect();
+                    let alias_vectors = emb
+                        .embed(&alias_inputs)
+                        .context("Embedder::embed (alias vectors)")?;
+                    for (c, v) in alias_chunks.iter().zip(alias_vectors) {
+                        let alias_chunk_id = kebab_core::ChunkId(format!(
+                            "{}{}",
+                            c.chunk_id.0,
+                            kebab_core::ALIAS_SUFFIX
+                        ));
+                        all_records.push(VectorRecord {
+                            embedding_id: kebab_core::id_for_embedding(
+                                &alias_chunk_id,
+                                &model_id,
+                                &model_version,
+                                dimensions,
+                            ),
+                            chunk_id: alias_chunk_id,
+                            vector: v,
+                            doc_id: canonical.doc_id.clone(),
+                            text: c.aliases.clone().unwrap_or_default(),
+                            heading_path: c.heading_path.clone(),
+                            model_id: model_id.clone(),
+                            model_version: model_version.clone(),
+                            dimensions,
+                        });
+                    }
+                }
+            }
+            vec_store
+                .upsert(&all_records)
+                .context("VectorStore::upsert")?;
         }
     }
 
@@ -1687,8 +1733,14 @@ fn purge_workspace_path_for_parser_bump(app: &App, asset: &RawAsset) -> anyhow::
     if !stale.is_empty() {
         if let Some(vec_store) = app.vector().context("App::vector")? {
             use kebab_core::VectorStore as _;
+            // sentinel 별칭 벡터(`{id}#alias`)는 SQLite chunks 에 없어 stale 에
+            // 안 잡힌다 → 명시적으로 함께 삭제(orphan 누적 방지).
+            let mut to_delete = stale.clone();
+            to_delete.extend(stale.iter().map(|id| {
+                kebab_core::ChunkId(format!("{}{}", id.0, kebab_core::ALIAS_SUFFIX))
+            }));
             vec_store
-                .delete_by_chunk_ids(&stale)
+                .delete_by_chunk_ids(&to_delete)
                 .context("VectorStore::delete_by_chunk_ids (parser-bump orphans)")?;
         }
     }
@@ -1732,8 +1784,14 @@ fn purge_vector_orphans_for_workspace_path(
         return Ok(());
     }
     use kebab_core::VectorStore as _;
+    // sentinel 별칭 벡터(`{id}#alias`)는 SQLite chunks 에 없어 stale 에
+    // 안 잡힌다 → 명시적으로 함께 삭제(orphan 누적 방지).
+    let mut to_delete = stale.clone();
+    to_delete.extend(stale.iter().map(|id| {
+        kebab_core::ChunkId(format!("{}{}", id.0, kebab_core::ALIAS_SUFFIX))
+    }));
     vec_store
-        .delete_by_chunk_ids(&stale)
+        .delete_by_chunk_ids(&to_delete)
         .context("VectorStore::delete_by_chunk_ids (orphan vector cleanup)")?;
     tracing::debug!(
         target: "kebab-app",
@@ -1833,7 +1891,13 @@ fn sweep_deleted_files(
         if let Some(vec) = vector_store {
             if !chunk_ids.is_empty() {
                 use kebab_core::VectorStore as _;
-                if let Err(e) = vec.delete_by_chunk_ids(&chunk_ids) {
+                // sentinel 별칭 벡터(`{id}#alias`)는 SQLite chunks 에 없어
+                // chunk_ids 에 안 잡힌다 → 명시적으로 함께 삭제(orphan 누적 방지).
+                let mut to_delete = chunk_ids.clone();
+                to_delete.extend(chunk_ids.iter().map(|id| {
+                    kebab_core::ChunkId(format!("{}{}", id.0, kebab_core::ALIAS_SUFFIX))
+                }));
+                if let Err(e) = vec.delete_by_chunk_ids(&to_delete) {
                     tracing::warn!(
                         target: "kebab-app",
                         path = %stored_path.0,
