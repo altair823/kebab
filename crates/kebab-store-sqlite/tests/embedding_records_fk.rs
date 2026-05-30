@@ -162,3 +162,48 @@ fn put_chunks_cleans_original_and_sentinel_embeddings() {
         "sentinel embedding_records must be cleaned on re-ingest (no chunks FK → explicit DELETE)"
     );
 }
+
+/// Task 4.5 리뷰 MAJOR: `purge_document_at_workspace_path_except_doc_id`
+/// (parser-bump 재인제스트 경로)도 원본 + sentinel embedding_records 를
+/// 명시 DELETE 로 정리해 orphan 0 이어야 한다. (이 경로 누락 시 tombstone 누적.)
+#[test]
+fn purge_except_doc_id_cleans_original_and_sentinel_embeddings() {
+    let tmp = TempDir::new().unwrap();
+    let store = open_store(&tmp);
+    let c1 = "11111111111111111111111111111111";
+    seed_chunk(&store, c1); // doc DOC_ID @ workspace 'x.md'
+    let sentinel = format!("{c1}{}", kebab_core::ALIAS_SUFFIX);
+
+    store
+        .put_embedding_records_pending(&[
+            embed_row("e_orig_000000000000000000000000000", c1),
+            embed_row("e_sentinel_0000000000000000000000", &sentinel),
+        ])
+        .unwrap();
+    store
+        .mark_embedding_records_committed(&[
+            "e_orig_000000000000000000000000000".to_string(),
+            "e_sentinel_0000000000000000000000".to_string(),
+        ])
+        .unwrap();
+    assert_eq!(embed_count(&store, c1), 1);
+    assert_eq!(embed_count(&store, &sentinel), 1);
+
+    // workspace 'x.md' 에서 DOC_ID(=현재 문서) 외 문서만 보존 → DOC_ID 가
+    // 삭제 대상(parser-bump: 같은 path 의 옛 doc_id 정리). keep_doc_id 를
+    // DOC_ID 와 다른 값으로 주면 DOC_ID 문서 + 그 chunk embedding 이 정리돼야.
+    store
+        .purge_document_at_workspace_path_except_doc_id("x.md", "0000000000000000000000000000ffff")
+        .unwrap();
+
+    assert_eq!(
+        embed_count(&store, c1),
+        0,
+        "purge_except_doc_id: 원본 embedding_records 정리 (CASCADE 대체)"
+    );
+    assert_eq!(
+        embed_count(&store, &sentinel),
+        0,
+        "purge_except_doc_id: sentinel embedding_records 정리 (chunks FK 없음 → 명시 DELETE)"
+    );
+}

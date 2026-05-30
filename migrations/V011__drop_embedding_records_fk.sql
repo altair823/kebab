@@ -3,6 +3,10 @@
 -- (설계 spec 2026-05-30-dense-alias-vectors-design.md §3.5-1). SQLite 는 ALTER
 -- 로 FK 제거 불가 → 테이블 재생성. status/vector_committed(V003) + 인덱스 보존.
 -- CASCADE 제거분은 put_chunks/purge 의 명시 DELETE 로 대체(§3.5-2).
+-- NOTE: PRAGMA foreign_keys 는 refinery 가 마이그레이션을 트랜잭션으로 감싸므로
+-- 트랜잭션 내에서 no-op(SQLite: "FK enforcement may only be changed when no
+-- transaction is pending"). 실제 안전장치는 아래 legacy_alter_table — trigger
+-- 재파싱 회피가 본 마이그레이션의 핵심 보호다. (Task 4.5 리뷰 NIT.)
 PRAGMA foreign_keys=OFF;
 -- legacy_alter_table=ON: DROP embedding_records 직후 V003 의
 -- chunks_bd_tombstone_embeddings trigger 가 (아직 존재하는 chunks 위에서)
@@ -21,7 +25,8 @@ CREATE TABLE embedding_records_new (
   dimensions     INTEGER NOT NULL,
   lance_table    TEXT NOT NULL,
   created_at     TEXT NOT NULL,
-  status         TEXT NOT NULL DEFAULT 'pending',
+  status         TEXT NOT NULL DEFAULT 'pending'
+                 CHECK (status IN ('pending','committed','tombstone')),  -- V003 와 동일 무결성 가드 보존
   vector_committed INTEGER NOT NULL DEFAULT 0,
   UNIQUE(chunk_id, model_id, model_version, dimensions)
 );

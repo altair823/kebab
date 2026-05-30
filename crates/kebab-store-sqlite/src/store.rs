@@ -570,6 +570,20 @@ impl SqliteStore {
         keep_doc_id: &str,
     ) -> Result<()> {
         let conn = self.lock_conn();
+        // CASCADE 제거(V011) 대체: documents→chunks CASCADE 가 chunks 를 지우기 전에
+        // 원본 + sentinel({id}#alias) embedding_records 를 명시 정리. 별칭 dense
+        // 벡터는 chunks FK 가 없어 자동 정리되지 않으므로 chunks 가 살아있는 동안
+        // 직접 지운다(안 하면 tombstone trigger 가 남긴 행이 누적). 설계 spec
+        // 2026-05-30-dense-alias-vectors-design.md §3.5-2. (Task 4.5 리뷰 MAJOR.)
+        conn.execute(
+            "DELETE FROM embedding_records WHERE chunk_id IN \
+             (SELECT chunk_id FROM chunks WHERE doc_id IN \
+                (SELECT doc_id FROM documents WHERE workspace_path = ?1 AND doc_id != ?2) \
+              UNION SELECT chunk_id || '#alias' FROM chunks WHERE doc_id IN \
+                (SELECT doc_id FROM documents WHERE workspace_path = ?1 AND doc_id != ?2))",
+            params![workspace_path, keep_doc_id],
+        )
+        .map_err(StoreError::from)?;
         conn.execute(
             "DELETE FROM documents WHERE workspace_path = ?1 AND doc_id != ?2",
             params![workspace_path, keep_doc_id],
