@@ -649,6 +649,8 @@ pub struct IngestExpansionCfg {
     pub max_aliases_per_chunk: usize,
     /// Prompt template version tag.
     pub prompt_version: String,
+    /// Whether alias embeddings are stored as separate dense vectors.
+    pub embed_aliases: bool,
 }
 
 impl Default for IngestExpansionCfg {
@@ -658,6 +660,7 @@ impl Default for IngestExpansionCfg {
             model: String::new(),
             max_aliases_per_chunk: 8,
             prompt_version: "expansion-v1".to_string(),
+            embed_aliases: false,
         }
     }
 }
@@ -1160,6 +1163,9 @@ impl Config {
                 }
                 "KEBAB_INGEST_EXPANSION_PROMPT_VERSION" => {
                     self.ingest.expansion.prompt_version = v.clone();
+                }
+                "KEBAB_INGEST_EXPANSION_EMBED_ALIASES" => {
+                    self.ingest.expansion.embed_aliases = parse_bool(v);
                 }
 
                 // Unknown KEBAB_* keys are silently ignored — see
@@ -1910,6 +1916,20 @@ max_context_tokens = 8000
         assert_eq!(c.ingest.expansion.model, "gemma3:4b");
         assert_eq!(c.ingest.expansion.max_aliases_per_chunk, 12);
         assert_eq!(c.ingest.expansion.prompt_version, "expansion-v2");
+    }
+
+    #[test]
+    fn embed_aliases_defaults_off() {
+        let cfg = Config::defaults();
+        assert!(!cfg.ingest.expansion.embed_aliases);
+    }
+
+    #[test]
+    fn embed_aliases_env_override() {
+        let mut env = HashMap::new();
+        env.insert("KEBAB_INGEST_EXPANSION_EMBED_ALIASES".into(), "true".into());
+        let c = Config::defaults().apply_env(&env);
+        assert!(c.ingest.expansion.embed_aliases);
     }
 }
 
