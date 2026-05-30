@@ -89,6 +89,22 @@ raw search 독립 검증: `kebab search "역전파 알고리즘" --k 50` → bac
 - 미결: 확장/번역의 형태(쿼리→영어 번역 후 retrieve, 양쪽 retrieve 합집합, HyDE 류 등),
   latency·품질 trade-off, default on/off. → Phase 2 brainstorm/spec 에서.
 
+## Phase 2 방향 — 딥리서치 + PoC (2026-05-30)
+
+- **딥리서치** (`docs/superpowers/research/2026-05-30-vocabulary-gap-recall-fix-research.md`, 104 agent,
+  22 confirmed/3 killed): 어휘격차 pool-miss 최선책 = **색인시 doc-side expansion(doc2query)**.
+  pool 자체를 키우고(rerank 아님), per-query 지연 ~0(색인시 1회 → 사용자가 거부한 per-query LLM 아님),
+  정확매칭 보존(별도 필드 append). 단 vanilla mt5 doc2query 는 같은언어라 한/영 갭은 색인시 KO↔EN
+  대체 query 생성 필요. query-side(HyDE=거부된 per-query LLM, Vector-PRF=recall 주장 0-3 기각) 부적합.
+  learned-sparse(SPLADE/MILCO)는 CPU/Rust 경로 없거나 교차언어 약함.
+- **PoC 확인** (`/build/dogfood/logs/2026-05-30-docexpansion-poc-result.md`): dogfood KB(3940 doc)에
+  backprop/raft 별칭추가판 ingest → recall@50=0 이던 3쿼리 전부 **rank 1~2 로 부활**(hybrid+vector),
+  별칭은 골든쿼리 verbatim 아님(일반화 확인). **딥리서치의 핵심 미검증 고리를 실 corpus 로 정량 확인.**
+  - ⚠️ dogfood KB 현재 3942 doc (PoC 2개 잔존, corpus/_poc 는 삭제). variant 골든은 원본 doc_id
+    타겟이라 baseline eval 무영향. pristine 필요 시 `kebab reset` + reingest.
+- **Phase 2 권고**: 색인시 doc-side expansion(같은언어 + KO↔EN 번역 별칭, 로컬 gemma 색인시 1회) →
+  별도 FTS5 필드 → RRF. flag off 기본. 효과는 `kebab eval variants` 로 재측정. brainstorm→spec→plan.
+
 ## 다음 세션 첫 작업
 
 1. 사용자와 Phase 2 방향 확정 (쿼리 확장/번역 설계 brainstorm).
