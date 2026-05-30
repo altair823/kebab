@@ -106,8 +106,8 @@ impl kebab_core::DocumentStore for SqliteStore {
                     chunk_id, doc_id, text, heading_path_json,
                     section_label, source_spans_json, token_estimate,
                     chunker_version, policy_hash, block_ids_json, created_at,
-                    tokenized_korean_text
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    tokenized_korean_text, aliases
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .map_err(StoreError::from)?;
         for chunk in chunks {
@@ -136,6 +136,7 @@ impl kebab_core::DocumentStore for SqliteStore {
                 block_ids,
                 now,
                 chunk.tokenized_korean_text.as_deref(),
+                chunk.aliases.as_deref(),
             ])
             .map_err(StoreError::from)?;
         }
