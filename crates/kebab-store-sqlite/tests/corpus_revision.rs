@@ -20,26 +20,26 @@ fn open_store(tmp: &TempDir) -> SqliteStore {
     store
 }
 
-/// Fresh store baseline: V004 seeds `corpus_revision = 0`, then both V009
-/// and V010 migrations bump it by one each to invalidate any stale LRU
-/// cache — so a fresh store after `run_migrations()` reads back as `2`.
+/// Fresh store baseline: V004 seeds `corpus_revision = 0`, then V009,
+/// V010, and V011 migrations bump it by one each to invalidate any stale
+/// LRU cache — so a fresh store after `run_migrations()` reads back as `3`.
 #[test]
 fn fresh_store_starts_at_post_migration_baseline() {
     let tmp = TempDir::new().unwrap();
     let store = open_store(&tmp);
-    assert_eq!(store.corpus_revision(), 2);
+    assert_eq!(store.corpus_revision(), 3);
 }
 
 /// Each `bump_corpus_revision` returns the new value monotonically
-/// from the post-migration baseline (V009 + V010 → 2).
+/// from the post-migration baseline (V009 + V010 + V011 → 3).
 #[test]
 fn bump_increments_monotonically() {
     let tmp = TempDir::new().unwrap();
     let store = open_store(&tmp);
-    assert_eq!(store.bump_corpus_revision().unwrap(), 3);
     assert_eq!(store.bump_corpus_revision().unwrap(), 4);
     assert_eq!(store.bump_corpus_revision().unwrap(), 5);
-    assert_eq!(store.corpus_revision(), 5);
+    assert_eq!(store.bump_corpus_revision().unwrap(), 6);
+    assert_eq!(store.corpus_revision(), 6);
 }
 
 /// `corpus_revision` survives a store re-open (persisted in SQLite).
@@ -52,6 +52,6 @@ fn revision_persists_across_reopen() {
         store.bump_corpus_revision().unwrap();
     } // store dropped — file closed
     let store = open_store(&tmp);
-    assert_eq!(store.corpus_revision(), 4);
-    assert_eq!(store.bump_corpus_revision().unwrap(), 5);
+    assert_eq!(store.corpus_revision(), 5);
+    assert_eq!(store.bump_corpus_revision().unwrap(), 6);
 }

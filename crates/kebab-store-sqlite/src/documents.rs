@@ -98,6 +98,18 @@ impl kebab_core::DocumentStore for SqliteStore {
             .context("format chunk created_at")?;
         let mut conn = self.lock_conn();
         let tx = conn.transaction().map_err(StoreError::from)?;
+        // CASCADE 제거(V011) 대체: 이 doc 의 chunk 임베딩 레코드를 명시 정리.
+        // 원본 + sentinel({id}#alias) 둘 다. 별칭 dense 벡터(sentinel chunk_id)는
+        // chunks FK 가 없어 CASCADE 로 자동 정리되지 않으므로 여기서 직접 지운다.
+        // chunks 행이 살아있는 동안(아래 DELETE FROM chunks 직전) 실행해야 서브쿼리가
+        // chunk_id 를 본다. 설계 spec 2026-05-30-dense-alias-vectors-design.md §3.5-2.
+        tx.execute(
+            "DELETE FROM embedding_records WHERE chunk_id IN \
+             (SELECT chunk_id FROM chunks WHERE doc_id = ?1 \
+              UNION SELECT chunk_id || '#alias' FROM chunks WHERE doc_id = ?1)",
+            params![doc.0],
+        )
+        .map_err(StoreError::from)?;
         tx.execute("DELETE FROM chunks WHERE doc_id = ?", params![doc.0])
             .map_err(StoreError::from)?;
         let mut stmt = tx

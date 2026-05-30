@@ -627,7 +627,20 @@ pub(crate) fn purge_orphan_at_workspace_path(
         return Ok(());
     };
 
-    // documents → blocks / chunks / embedding_records via CASCADE.
+    // CASCADE 제거(V011) 대체: 이 asset 의 문서 chunk 임베딩 레코드를 명시 정리.
+    // 원본 + sentinel({id}#alias) 둘 다. 별칭 dense 벡터는 chunks FK 가 없어
+    // documents→chunks CASCADE 로 자동 정리되지 않으므로 chunks 가 살아있는 동안
+    // 직접 지운다. 설계 spec 2026-05-30-dense-alias-vectors-design.md §3.5-2.
+    conn.execute(
+        "DELETE FROM embedding_records WHERE chunk_id IN \
+         (SELECT chunk_id FROM chunks WHERE doc_id IN \
+            (SELECT doc_id FROM documents WHERE asset_id = ?1) \
+          UNION SELECT chunk_id || '#alias' FROM chunks WHERE doc_id IN \
+            (SELECT doc_id FROM documents WHERE asset_id = ?1))",
+        params![stale_asset_id],
+    )
+    .map_err(StoreError::from)?;
+    // documents → blocks / chunks via CASCADE.
     conn.execute(
         "DELETE FROM documents WHERE asset_id = ?",
         params![stale_asset_id],
@@ -706,8 +719,20 @@ pub fn purge_deleted_workspace_path(
         .map_err(StoreError::from)?;
     drop(stmt);
 
-    // 2. DELETE the document row (CASCADE clears blocks / chunks /
-    //    embedding_records via the FK constraints in V001).
+    // 1b. CASCADE 제거(V011) 대체: chunk 임베딩 레코드를 명시 정리(원본 +
+    //     sentinel {id}#alias). 별칭 dense 벡터는 chunks FK 가 없어
+    //     documents→chunks CASCADE 로 자동 정리되지 않는다. chunks 가
+    //     살아있는 동안(2번 DELETE 직전) 실행. spec §3.5-2.
+    conn.execute(
+        "DELETE FROM embedding_records WHERE chunk_id IN \
+         (SELECT chunk_id FROM chunks WHERE doc_id = ?1 \
+          UNION SELECT chunk_id || '#alias' FROM chunks WHERE doc_id = ?1)",
+        rusqlite::params![doc_id],
+    )
+    .map_err(StoreError::from)?;
+
+    // 2. DELETE the document row (CASCADE clears blocks / chunks via the
+    //    FK constraints in V001; embedding_records handled above).
     conn.execute(
         "DELETE FROM documents WHERE doc_id = ?",
         rusqlite::params![doc_id],
