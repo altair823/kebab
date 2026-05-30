@@ -62,20 +62,26 @@ ingest_one_asset (kebab-app/src/lib.rs:~1253)
     │
   embedder.embed(...) → vec_store.upsert(...)  # dense는 body text 기준 (변경 없음)
 
-검색 (kebab-search/src/lexical.rs run_query — body ∪ alias 한 SQL):
-  body  = chunks_fts MATCH ?          (bm25)         ┐ UNION ALL → GROUP BY chunk_id
-  alias = chunk_aliases_fts MATCH ?   (bm25)         ┘ → 단일 lexical 결과 (rank 부여)
-    │
+검색 (kebab-search/src/lexical.rs — body·alias 두 쿼리 + Rust merge):
+  body  = run_query(chunks_fts MATCH 'text : (..)')          (bm25 asc)  ┐ merge_body_alias:
+  alias = run_alias_query(chunk_aliases_fts MATCH 'aliases : (..)')      ┘ body 우선 + alias-only append
+    │                                                          → 단일 lexical 결과 (rank 부여)
   HybridRetriever.fuse: RRF(lexical, vector)   # 2채널 그대로 — RetrievalDetail/wire 무변경
 ```
 
-**왜 lexical 내부 UNION 인가 (3채널 RRF 대신):** `RetrievalDetail` 은 `lexical_score`/
+**왜 lexical 내부 병합인가 (3채널 RRF 대신):** `RetrievalDetail` 은 `lexical_score`/
 `vector_score`/`*_rank` 만 보유하고 wire schema `search_hit.v1` 가 이를 그대로 노출한다. 정통
 3채널 RRF 는 `RetrievalDetail` + wire schema + `HybridRetriever` 시그니처 + 다수 테스트를 침습
 변경한다. alias-only 청크가 lexical 결과(→ hybrid pool)에 진입하기만 하면 pool-rescue 목적은
-동일하게 달성되므로, **`LexicalRetriever` 내부에서 body+alias 를 UNION** 해 단일 lexical 결과로
-내보낸다. `chunk_aliases_fts` 가 비면(flag off / 미생성) UNION 둘째 절이 0행 → 기존 동작과
-비트 단위로 동일 → **search-side 는 flag 게이트 불필요, ingest-side 만 게이트**.
+동일하게 달성되므로, **`LexicalRetriever` 내부에서 body+alias 를 병합**해 단일 lexical 결과로
+내보낸다. `chunk_aliases_fts` 가 비면(flag off / 미생성) alias 쿼리가 0행 → merge no-op → 기존
+동작과 동일 → **search-side 는 flag 게이트 불필요, ingest-side 만 게이트**.
+
+> **구현 메커니즘 (shipped):** 단일 `UNION ALL + GROUP BY` SQL 이 아니라 **두 쿼리(`run_query` +
+> `run_alias_query`) + Rust `merge_body_alias`(body 우선, body 에 없는 alias-only 만 append,
+> `fetch_limit` 절단)**. 서로 다른 FTS 테이블의 bm25 절대값을 `GROUP BY MIN` 으로 비교하는 것은
+> 무의미하므로 body-우선 Rust 병합이 의미상 더 깨끗하다(§3.3 body 보존과도 일치). raw 모드
+> (작은따옴표 식)는 body-only 컬럼 참조 가능성 때문에 alias 채널에서 제외한다(방어 가드).
 
 ### 3.2 컴포넌트 (단위별 책임)
 
@@ -87,10 +93,11 @@ ingest_one_asset (kebab-app/src/lib.rs:~1253)
 - **V010 migration** — `chunks.aliases TEXT` 컬럼 + **별도 `chunk_aliases_fts` virtual table**
   + 별도 trigger 3종(`chunk_aliases_ai/ad/au`). 기존 `chunks_fts` / `chunks_ai/ad/au`(§5.5
     verbatim CI 대상)는 **무수정**. tokenizer `unicode61`(V009 동일).
-- **`LexicalRetriever.run_query` UNION 확장** (kebab-search/lexical.rs) — `chunks_fts` 와
-  `chunk_aliases_fts` 를 `UNION ALL` 서브쿼리로 검색 후 `GROUP BY chunk_id`(같은 청크가 양쪽
-  매칭 시 더 좋은=작은 bm25 채택), `chunks`/`documents` JOIN 으로 snippet·메타 보강. alias-only
-  청크도 결과에 진입. `chunk_aliases_fts` 가 비면 UNION 둘째 절 0행 → 기존과 동일(회귀 안전).
+- **`LexicalRetriever` body+alias 병합** (kebab-search/lexical.rs) — 기존 `run_query`(body) +
+  신규 `run_alias_query`(`chunk_aliases_fts` MATCH, `chunks`/`documents` JOIN, snippet 은 본문
+  `substr(c.text,1,?)`) 를 각각 실행하고 `merge_body_alias`(body 우선, body 에 없는 alias-only 만
+  append, `fetch_limit` 절단)로 합친다. `build_match_string` 은 컬럼 파라미터화(`text :` / `aliases :`).
+  alias-only 청크가 결과에 진입. `chunk_aliases_fts` 가 비면 alias 쿼리 0행 → 기존과 동일(회귀 안전).
 - **config `[ingest.expansion]`** — `IngestExpansionCfg`:
   - `enabled: bool` (default **false**)
   - `model: String` (default = `models.llm.model`)
@@ -102,7 +109,7 @@ ingest_one_asset (kebab-app/src/lib.rs:~1253)
 ### 3.3 격리 / 코드 식별자 보존 (load-bearing)
 
 - `chunks_fts.text`(body) 는 **verbatim 유지**, 별칭은 **별도 테이블** `chunk_aliases_fts`.
-  UNION 후 GROUP BY 라도 body 매칭의 bm25 가 그대로 보존되어, 코드 식별자(`Vec::with_capacity`)
+  body-우선 merge 라 body 매칭이 항상 alias-only 보다 앞서 보존되어, 코드 식별자(`Vec::with_capacity`)
   정확매칭이 별칭 노이즈에 희석되지 않음.
 - dense(e5) 임베딩은 **body text 기준 그대로** — 별칭을 임베딩에 넣지 않음(research: e5 dense
   유지, bge-m3 dense 는 실측 더 나빴음). 별칭은 lexical 채널에만 기여.
@@ -202,7 +209,7 @@ KEBAB_EVAL_GOLDEN=/build/dogfood/golden_queries.yaml \
 - lexical UNION: body 에 없고 alias 에만 있는 term 으로 검색 시 alias-only 청크가 `LexicalRetriever`
   결과(→ hybrid pool)에 진입(pool-rescue 핵심 회귀). 양쪽 매칭 청크는 중복 없이 1개.
 - `ExpansionGenerator`(LLM mock): 프롬프트→파싱, 상한 N 적용, 빈/과길이 drop, LLM 실패 시 fail-soft.
-- 회귀: `chunk_aliases_fts` 빈 상태에서 `run_query` 결과가 V009 와 동일(UNION 둘째 절 0행).
+- 회귀: `chunk_aliases_fts` 빈 상태에서 lexical 결과가 V009 와 동일(alias 쿼리 0행 → merge no-op).
 
 ## 10. PR / 문서 동기화
 
