@@ -25,6 +25,7 @@ mod loader;
 mod metrics;
 mod runner;
 mod types;
+mod variant;
 
 pub use compare::{
     CompareOpts, CompareReport, ComparisonKind, QueryComparison, compare_runs,
@@ -37,3 +38,7 @@ pub use metrics::{
 };
 pub use runner::{run_eval, run_eval_with_config};
 pub use types::{EvalRun, EvalRunOpts, GoldenQuery, QueryResult};
+pub use variant::{
+    VariantClass, VariantConsistencyReport, VariantGroupReport, VariantResult,
+    compute_variant_consistency, compute_variant_consistency_with_config, render_variants_md,
+};

@@ -422,6 +422,14 @@ enum EvalWhat {
     /// into `eval_runs.aggregate_json` (P5-2).
     Aggregate { run_id: String },
 
+    /// Compute variant-consistency metrics for a stored run and print
+    /// a Markdown report (or JSON with `--json`).
+    Variants {
+        run_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Diff two stored runs (P5-2). Default output is a Markdown
     /// summary; use `--json` (top-level flag) for the raw report.
     Compare {
@@ -1388,6 +1396,16 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                             agg.hit_at_k.get(&5).copied().unwrap_or(0.0)
                         );
                         println!("MRR:     {:.4}", agg.mrr);
+                    }
+                    Ok(())
+                }
+
+                EvalWhat::Variants { run_id, json } => {
+                    let rep = kebab_eval::compute_variant_consistency_with_config(&cfg, run_id)?;
+                    if *json {
+                        println!("{}", serde_json::to_string_pretty(&rep)?);
+                    } else {
+                        print!("{}", kebab_eval::render_variants_md(&rep));
                     }
                     Ok(())
                 }

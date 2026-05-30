@@ -165,7 +165,7 @@ pub(crate) fn resolve_golden_path() -> PathBuf {
     }
 }
 
-fn load_golden_for_metrics() -> Result<Vec<GoldenQuery>> {
+pub(crate) fn load_golden_for_metrics() -> Result<Vec<GoldenQuery>> {
     let path = resolve_golden_path();
     load_golden_set(&path).with_context(|| {
         format!(
@@ -456,6 +456,7 @@ mod tests {
             must_contain: vec![],
             forbidden: vec![],
             difficulty: None,
+            group: None,
         }
     }
 

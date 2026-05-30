@@ -26,6 +26,11 @@ pub struct GoldenQuery {
     pub forbidden: Vec<String>,
     #[serde(default)]
     pub difficulty: Option<String>,
+    /// 같은 의미의 여러 표현(동의어·다른 어휘·풀어쓴 문장·한/영)을 묶는
+    /// 의도 그룹 id. 같은 그룹의 모든 변형은 동일한 `expected_doc_ids`(집합)를
+    /// 공유해야 한다(loader가 강제). `None`이면 단독 쿼리(기존 동작 불변).
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 fn default_lang() -> Lang {
