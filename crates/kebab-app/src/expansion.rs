@@ -21,8 +21,8 @@ impl<'a> ExpansionGenerator<'a> {
         Self { llm, max_aliases }
     }
 
-    /// gemma 프롬프트(expansion-v1)를 구성한다.
-    fn build_request(&self, chunk: &Chunk) -> GenerateRequest {
+    /// gemma 프롬프트(expansion-v1)를 구성한다. (self 미사용 — associated fn.)
+    fn build_request(chunk: &Chunk) -> GenerateRequest {
         let heading = chunk.heading_path.join(" > ");
         let system = "당신은 검색 색인용 별칭 생성기다. 주어진 문단을 찾을 사용자가 \
 입력할 법한 짧은 검색어/질문을 생성한다. 동의어·풀어쓴 표현을 포함하라. \
@@ -45,7 +45,7 @@ impl<'a> ExpansionGenerator<'a> {
     }
 
     pub fn generate(&self, chunk: &Chunk) -> Option<String> {
-        let req = self.build_request(chunk);
+        let req = Self::build_request(chunk);
         let raw = match self.llm.generate_stream(req) {
             Ok(iter) => {
                 let mut acc = String::new();
