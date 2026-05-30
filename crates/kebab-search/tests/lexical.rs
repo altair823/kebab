@@ -144,6 +144,42 @@ fn insert_chunk(
     .expect("insert chunk");
 }
 
+/// Like [`insert_chunk`] but also writes the `chunks.aliases` column so the
+/// `chunk_aliases_ai` trigger (V010) mirrors the row into `chunk_aliases_fts`.
+/// `aliases=None` leaves the column NULL (trigger skips → no alias row).
+#[allow(clippy::too_many_arguments)]
+fn insert_chunk_with_aliases(
+    conn: &Connection,
+    chunk_id: &str,
+    doc_id: &str,
+    text: &str,
+    heading_path: &[&str],
+    section_label: Option<&str>,
+    source_spans_json: &str,
+    chunker_version: &str,
+    aliases: Option<&str>,
+) {
+    let heading_json = serde_json::to_string(heading_path).unwrap();
+    conn.execute(
+        "INSERT INTO chunks (
+            chunk_id, doc_id, text, heading_path_json, section_label,
+            source_spans_json, token_estimate, chunker_version,
+            policy_hash, block_ids_json, created_at, aliases
+        ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'h', '[]', '2024-01-01T00:00:00Z', ?)",
+        rusqlite::params![
+            chunk_id,
+            doc_id,
+            text,
+            heading_json,
+            section_label,
+            source_spans_json,
+            chunker_version,
+            aliases,
+        ],
+    )
+    .expect("insert chunk with aliases");
+}
+
 /// Pad a short ID to the 32-hex shape kebab_core newtypes expect.
 fn id32(prefix: &str) -> String {
     let mut s = prefix.to_string();
@@ -1251,5 +1287,89 @@ fn lexical_raw_mode_can_opt_into_heading_path_filter() {
         hits.len(),
         1,
         "raw-mode heading_path filter must hit the seeded chunk"
+    );
+}
+
+// ── doc-side expansion (V010) — body+alias merged search ──────────────────
+
+/// pool-rescue core: a term present ONLY in `chunks.aliases` (not in the
+/// body) must still recall the chunk via the `chunk_aliases_fts` channel.
+/// Body is English ("backpropagation…"); the Korean term "역전파" lives only
+/// in the alias text, so the body `chunks_fts` MATCH alone would miss it.
+#[test]
+fn alias_only_term_recalls_chunk() {
+    let env = Env::new();
+    let conn = env.raw_conn();
+    insert_document(&conn, &id32("d"), "notes/nn.md", "NN", "en", "primary", &[]);
+    insert_chunk_with_aliases(
+        &conn,
+        &id32("c1"),
+        &id32("d"),
+        "backpropagation computes gradients",
+        &["NN"],
+        None,
+        r#"[{"kind":"line","start":1,"end":1}]"#,
+        "v1",
+        Some("역전파\n신경망 오차 역전달"),
+    );
+    drop(conn);
+
+    let r = env.retriever();
+    let hits = r
+        .search(&SearchQuery {
+            text: "역전파".to_string(),
+            mode: SearchMode::Lexical,
+            k: 10,
+            filters: SearchFilters::default(),
+        })
+        .unwrap();
+    assert!(
+        hits.iter().any(|h| h.chunk_id.0 == id32("c1")),
+        "별칭에만 있는 term 으로도 청크가 회수돼야 한다 (pool-rescue); got {:?}",
+        hits.iter().map(|h| h.chunk_id.0.clone()).collect::<Vec<_>>()
+    );
+}
+
+/// Regression-safety: with every chunk's `aliases=NULL` the
+/// `chunk_aliases_fts` table is empty, so the alias channel yields 0 rows
+/// and the body search result is identical to the pre-expansion behavior.
+#[test]
+fn empty_aliases_table_matches_baseline() {
+    let env = Env::new();
+    let conn = env.raw_conn();
+    insert_document(
+        &conn,
+        &id32("d"),
+        "notes/own.md",
+        "Own",
+        "en",
+        "primary",
+        &[],
+    );
+    // aliases=None → no chunk_aliases_fts row; body channel only.
+    insert_chunk(
+        &conn,
+        &id32("c1"),
+        &id32("d"),
+        "rust ownership and borrow checker",
+        &["Own"],
+        None,
+        r#"[{"kind":"line","start":1,"end":1}]"#,
+        "v1",
+    );
+    drop(conn);
+
+    let r = env.retriever();
+    let hits = r
+        .search(&SearchQuery {
+            text: "ownership".to_string(),
+            mode: SearchMode::Lexical,
+            k: 10,
+            filters: SearchFilters::default(),
+        })
+        .unwrap();
+    assert!(
+        hits.iter().any(|h| h.chunk_id.0 == id32("c1")),
+        "aliases 빈 상태에서 본문 매칭 청크가 정상 회수돼야 한다 (회귀 안전)"
     );
 }

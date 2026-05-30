@@ -123,7 +123,29 @@ impl Retriever for LexicalRetriever {
         };
 
         let conn = self.store.read_conn();
-        let raw_rows = run_query(&conn, &match_str, self.snippet_words, filters, fetch_limit)?;
+        let body_rows = run_query(&conn, &match_str, self.snippet_words, filters, fetch_limit)?;
+        // doc-side expansion (V010): re-run the same query against the
+        // `aliases` column of `chunk_aliases_fts`. Empty table → 0 rows →
+        // `body_rows` unchanged (regression-safe). body wins; alias-only
+        // chunks are appended so a term present only in a chunk's aliases
+        // still enters the pool.
+        //
+        // Raw mode (`'...'`) is a body-FTS5 escape hatch and may reference
+        // body-only columns (e.g. `heading_path : ...`) that don't exist on
+        // `chunk_aliases_fts`. Running such an expression against the alias
+        // table is a hard FTS5 error, so we skip the alias channel for raw
+        // queries — they target the body intentionally.
+        let alias_rows = if strip_single_quotes(query.text.trim()).is_some() {
+            Vec::new()
+        } else {
+            match build_match_string_for_column(&query.text, "aliases") {
+                Some(alias_match) => {
+                    run_alias_query(&conn, &alias_match, self.snippet_chars, fetch_limit)?
+                }
+                None => Vec::new(),
+            }
+        };
+        let raw_rows = merge_body_alias(body_rows, alias_rows, fetch_limit);
 
         let mut hits: Vec<SearchHit> = Vec::with_capacity(raw_rows.len().min(k));
         let mut rank: u32 = 0;
@@ -206,6 +228,16 @@ impl Retriever for LexicalRetriever {
 ///   match is scoped to the body column. FTS5's column-filter syntax
 ///   accepts an arbitrary OR/AND sub-expression inside the parens.
 fn build_match_string(text: &str) -> Option<String> {
+    build_match_string_for_column(text, "text")
+}
+
+/// Column-parameterized variant of [`build_match_string`]. `column` is the
+/// FTS5 column-filter prefix the combined expression is scoped to — `"text"`
+/// for the body channel (`chunks_fts`) or `"aliases"` for the doc-side
+/// expansion channel (`chunk_aliases_fts`, V010). Raw mode (`'...'`) is still
+/// passed through verbatim without any column scoping, so an explicit
+/// user-supplied column filter is honored unchanged.
+fn build_match_string_for_column(text: &str, column: &str) -> Option<String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return None;
@@ -242,7 +274,7 @@ fn build_match_string(text: &str) -> Option<String> {
         (Some(w), Some(a)) if w == a => w,
         (Some(w), Some(a)) => format!("({w}) OR ({a})"),
     };
-    Some(format!("text : ({expression})"))
+    Some(format!("{column} : ({expression})"))
 }
 
 /// Return `Some(inner)` if `s` is wrapped in a matching pair of single
@@ -478,6 +510,77 @@ fn row_from_sql(row: &Row<'_>) -> rusqlite::Result<RawRow> {
         workspace_path: row.get(8)?,
         updated_at: row.get(9)?,
     })
+}
+
+/// Search the doc-side expansion channel (`chunk_aliases_fts`, V010) and
+/// build [`RawRow`]s with the **same 10-column shape** as [`run_query`] so
+/// `row_from_sql` / `build_hit` can be reused verbatim. The snippet is taken
+/// from the body (`substr(c.text, 1, ?)`) rather than the alias text so the
+/// rendered hit stays consistent with the body channel. When
+/// `chunk_aliases_fts` is empty (no chunk carries aliases) this returns 0
+/// rows, making the merge a no-op (regression-safe).
+///
+/// 1차는 filters 미적용 — body 채널이 필터를 적용하고, 별칭 경로는 pool 진입
+/// (회수)이 목적이다(측정 후 필요 시 filters 공유). `bm25(chunk_aliases_fts)`
+/// 오름차순 + `af.chunk_id` tie-break 로 결정적 순서.
+fn run_alias_query(
+    conn: &Connection,
+    match_str: &str,
+    snippet_chars: usize,
+    fetch_limit: usize,
+) -> Result<Vec<RawRow>> {
+    let sql = "SELECT \
+            af.chunk_id, af.doc_id, \
+            bm25(chunk_aliases_fts) AS score, \
+            substr(c.text, 1, ?) AS snippet, \
+            c.heading_path_json, c.section_label, c.source_spans_json, \
+            c.chunker_version, \
+            d.workspace_path, d.updated_at \
+         FROM chunk_aliases_fts af \
+         JOIN chunks c    ON c.chunk_id = af.chunk_id \
+         JOIN documents d ON d.doc_id = af.doc_id \
+         WHERE chunk_aliases_fts MATCH ? \
+         ORDER BY score, af.chunk_id LIMIT ?";
+    let params: Vec<Box<dyn ToSql>> = vec![
+        Box::new(snippet_chars as i64),
+        Box::new(match_str.to_owned()),
+        Box::new(i64::try_from(fetch_limit).unwrap_or(i64::MAX)),
+    ];
+    let mut stmt = conn
+        .prepare(sql)
+        .context("kb-search lexical: prepare alias FTS5 statement")?;
+    let rows = stmt
+        .query_map(
+            params_from_iter(params.iter().map(std::convert::AsRef::as_ref)),
+            row_from_sql,
+        )
+        .context("kb-search lexical: execute alias FTS5 query")?;
+    let mut out: Vec<RawRow> = Vec::new();
+    for r in rows {
+        out.push(r.context("kb-search lexical: read alias row")?);
+    }
+    Ok(out)
+}
+
+/// Merge body + alias rows: body rows first (already bm25-ordered), then
+/// any alias-only chunk (not already present in the body result) appended in
+/// alias-relevance order. Capped at `limit`. An empty `alias` slice leaves
+/// `body` unchanged, so an empty `chunk_aliases_fts` reproduces the
+/// pre-expansion behavior exactly.
+fn merge_body_alias(body: Vec<RawRow>, alias: Vec<RawRow>, limit: usize) -> Vec<RawRow> {
+    use std::collections::HashSet;
+    let mut seen: HashSet<String> = body.iter().map(|r| r.chunk_id.clone()).collect();
+    let mut out = body;
+    for r in alias {
+        if out.len() >= limit {
+            break;
+        }
+        if seen.insert(r.chunk_id.clone()) {
+            out.push(r);
+        }
+    }
+    out.truncate(limit);
+    out
 }
 
 // ── Hit construction ─────────────────────────────────────────────────────
