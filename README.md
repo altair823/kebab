@@ -1,151 +1,132 @@
-# kebab — Local-first Knowledge Base
+# kebab — Local-first Knowledge Base + RAG
 
-`kebab` 는 개인용 로컬 knowledge base + RAG 도구다. Markdown / PDF / 이미지를 한 곳에 색인하고, 의미 검색 + page-단위 citation 포함 LLM 답변을 단일 binary 로 제공한다. 모든 추론은 로컬 (Ollama / fastembed) 에서 돌아간다. 대상 하드웨어: M4 48GB MacBook 1대, 사용자 1명.
-
-## 사전 요구
-
-- **Rust toolchain** ≥ 1.85 (workspace 가 edition 2024 + resolver 3 사용). [rustup](https://rustup.rs) 권장.
-- **Ollama** — `kebab ask` 와 이미지 OCR/caption 가 사용. `https://ollama.com/download` 에서 설치 후 `ollama serve` 실행. 기본 LLM 은 gemma4 계열 (`ollama pull gemma4:e4b`) — OCR / caption 도 같은 family 라 모델 하나만 pull 하면 됨. 더 큰 variant 원하면 `gemma4:26b` 등으로 config override. config 의 `[models.llm].endpoint` 에 host:port 명시.
-  - **CPU only / RAM ≤ 16 GB 환경 권장 모델**: gemma4:e4b (8B) 는 CPU 추론에 무거워 RAG 한 답변이 5분을 넘기기 쉽다 — `[models.llm] request_timeout_secs` 의 기본 300 s 한도에 걸려 `error: kb-rag: llm.generate_stream` 으로 떨어진다 (HOTFIXES 2026-05-25). `gemma3:4b` / `qwen2.5:3b` / `phi3:mini` 같은 ≤ 4B Q4 모델로 바꾸면 답변 1-3 분에 안정 동작 (확장 도그푸딩에서 검증). 모델 storage 가 부담이면 `OLLAMA_MODELS=/path` env 로 위치 분리 가능.
-  - **`request_timeout_secs` 노브 (v0.17.0)**: `[models.llm] request_timeout_secs = 1200` (또는 `KEBAB_MODELS_LLM_REQUEST_TIMEOUT_SECS=1200`) 로 한도를 늘려 큰 모델도 시도 가능. 단 응답 동안 RAM 점유가 길어진다. **`= 0` 은 disable 이 아니라 "즉시 timeout"** (reqwest 의 의미상) — "사실상 무제한" 의도면 `u64::MAX` 또는 `86400` 같이 큰 finite 값 사용.
-  - **sudo 없이 설치 (격리 디렉토리 사용)**: `install.sh` 가 `/usr/local/bin/ollama` + `systemd` 유닛까지 건드리는 게 부담이면 binary tarball 만 받아 사용자 디렉토리에 풀고 env 로 모델 위치 분리하면 된다.
-    ```bash
-    mkdir -p /opt/ollama/{models,logs}
-    curl -fL https://ollama.com/download/ollama-linux-amd64.tar.zst -o /tmp/ollama.tar.zst
-    zstd -d /tmp/ollama.tar.zst -o /tmp/ollama.tar && tar -xf /tmp/ollama.tar -C /opt/ollama/
-    # bin/ollama + lib/ollama/ 가 풀린다. 모델 디렉토리는 OLLAMA_MODELS 로 분리.
-    OLLAMA_MODELS=/opt/ollama/models OLLAMA_HOST=127.0.0.1:11434 \
-        /opt/ollama/bin/ollama serve > /opt/ollama/logs/serve.log 2>&1 &
-    /opt/ollama/bin/ollama pull gemma3:4b
-    ```
-    루트 디스크 부담을 분리하고 싶을 때 (`~/.ollama/models` 가 기본) 그대로 활용. systemd 가 없는 컨테이너 / WSL2 / 회사 머신 등에서 유용.
-  - **`kebab ask --stream` 권장 (fb-33)**: 모델 cold start 가 길 때 (8B+ 또는 첫 호출) `--stream` 으로 토큰을 stderr 에 ndjson 으로 흘려 받으면 5 분 timeout 한도 안에서도 첫 토큰이 빨리 보여 사용자 체감이 개선된다. 동일 inference 시간이라도 wait-and-pray 보다 progressive 가 안정적. CLI: `kebab ask "..." --stream 2> events.ndjson > final.json`. MCP host 도 `streaming_ask` capability flag 가 `true` 면 자동 사용 권장.
-- **빌드 디스크** — 첫 빌드 시 `target/` 가 6–10 GB (Lance + DataFusion + fastembed). 여유 확인.
-- **fastembed 모델** — 첫 `kebab ingest` 시 `multilingual-e5-large` (~1.3 GB, fb-39b) 자동 다운로드. `config.toml` 에서 `model = "multilingual-e5-small"` 로 명시하면 이전 모델 사용.
-
-## 설치
-
-표준 경로는 `cargo install` — `~/.cargo/bin/kebab` 가 PATH 에 있는지만 확인하면 끝.
-
-```bash
-# 1) repo clone
-git clone https://gitea.altair823.xyz/altair823-org/kebab.git
-cd kebab
-
-# 2) binary 빌드 + 설치 (~/.cargo/bin/kebab)
-cargo install --path crates/kebab-cli --locked
-
-# 3) PATH 확인 (아직 추가 안 했으면 ~/.bashrc / ~/.zshrc 에 추가)
-which kebab          # → /Users/<you>/.cargo/bin/kebab 같은 경로
-kebab --version      # → kebab 0.1.0
-```
-
-git URL 직접 install 도 가능 (clone 없이):
-
-```bash
-cargo install --git https://gitea.altair823.xyz/altair823-org/kebab.git --bin kebab --locked
-```
-
-업데이트는 `git pull && cargo install --path crates/kebab-cli --locked --force` 또는 git URL 형식의 경우 `cargo install --git ... --force`.
-
-제거는 `cargo uninstall kebab-cli`. 이 명령은 binary 만 지우고 워크스페이스 데이터는 그대로 남는다. 데이터까지 정리하려면 `kebab reset --all --yes` (config + data + cache + state 4 개 XDG 경로 모두 wipe — **irreversible**, 재시작 시 `kebab init` 다시 실행). 부분 wipe 는 `kebab reset --data-only` (config 보존), `kebab reset --vector-only` (Lance + `embedding_records` 만, 다음 ingest 가 re-embed), **`kebab reset --orphans-only`** (현재 walker scope 밖에 있는 stored doc 만 정리 — `config.workspace.include` 좁히거나 sub-dir 옮긴 후 explicit reconcile; fs 의 file 은 건드리지 않음) 등.
+`kebab` 는 개인용 로컬 knowledge base + RAG 도구다. Markdown · PDF · 이미지 · 소스코드를 한 곳에 색인하고, 하이브리드 의미 검색과 근거 인용을 포함한 LLM 답변을 **단일 binary** 로 제공한다. 모든 추론은 로컬 (Ollama + fastembed) 에서 돌아간다.
 
 ## Quick start
 
+사전 요구는 두 가지뿐이다.
+
+- **Rust toolchain** ≥ 1.85 (workspace 가 edition 2024 사용). [rustup](https://rustup.rs).
+- **Ollama** — `kebab ask` 와 이미지/PDF OCR 가 사용. [공식 설치 안내](https://ollama.com/download) 참고 후 `ollama serve` 실행. 기본 LLM family 는 gemma4 (`ollama pull gemma4:e4b`) — OCR/caption 도 같은 family 라 모델 하나면 된다. CPU-only 환경이면 소형 모델 (예: `gemma3:4b`) 을 권장.
+
 ```bash
-# 첫 실행 — XDG 경로에 데이터 디렉토리 + config.toml 생성
+# 1) 빌드 + 설치 (~/.cargo/bin/kebab)
+git clone https://gitea.altair823.xyz/altair823-org/kebab.git
+cd kebab
+cargo install --path crates/kebab-cli --locked
+
+# 2) 데이터 디렉토리 + config.toml 생성 (XDG 경로)
 kebab init
 
-# config 손보고 — workspace.root, 모델 endpoint 등 설정 (지원 형식: md / png / jpg / pdf / rs / py / ts / js / go)
+# 3) config 최소 손보기 — workspace.root (색인할 폴더) 와 LLM endpoint
 ${EDITOR:-vi} ~/.config/kebab/config.toml
 
-# 색인 (Markdown / 이미지 / PDF 모두 한 번에)
+# 4) 색인 (Markdown · PDF · 이미지 · 소스코드 한 번에)
 kebab ingest
 
-# 검색 (citation 의 source_span 이 매체별로 line / region / page)
-kebab search "Markdown chunking 규칙" --mode hybrid
+# 5) 검색 (hybrid = lexical + vector RRF, citation 포함)
+kebab search "Markdown chunking 규칙"
 
-# 질문 (Ollama 필요, PDF 인용 시 page 번호 surface)
+# 6) 질문 (RAG 답변 + 근거 인용, Ollama 필요)
 kebab ask "내 KB 설계에서 저장소 전략은?"
-
-# Ratatui 셸 (Library + Search + Ask + Inspect 패널, desktop 진행 중)
-kebab tui
-
-# 헬스 체크 (config 경로 / 데이터 디렉토리 쓰기 가능 여부)
-kebab doctor
 ```
 
-격리된 임시 워크스페이스로 돌려보는 절차는 [docs/SMOKE.md](docs/SMOKE.md) — `--config <path>` 로 분리. 이미지 / PDF fixture 가 필요하면 두 example 바이너리 (`cargo run --release --example gen_smoke_pdf -p kebab-parse-pdf` / `gen_smoke_png -p kebab-parse-image`) 로 시스템 dep 없이 in-tree 생성 가능.
+clone 없이 git URL 로 바로 설치할 수도 있다: `cargo install --git https://gitea.altair823.xyz/altair823-org/kebab.git --bin kebab --locked`. 업데이트는 동일 명령에 `--force`. 제거는 `cargo uninstall kebab-cli` (데이터는 보존 — 데이터까지 지우려면 `kebab reset --all --yes`).
 
-설치 없이 dev 흐름으로 돌려볼 때는 `cargo run --release -p kebab-cli -- <subcommand>` 또는 `cargo build --release && ./target/release/kebab <subcommand>`.
+설치 없이 dev 흐름으로 돌려볼 때는 `cargo run --release -p kebab-cli -- <subcommand>`. 격리된 임시 워크스페이스로 검증하는 절차는 [docs/SMOKE.md](docs/SMOKE.md) (`--config <path>` 로 분리).
+
+## 핵심 기능
+
+### 하이브리드 검색 + citation
+
+lexical (FTS5 BM25) 과 vector (cosine) 두 채널을 **RRF fusion** 으로 합쳐 검색한다. 모든 hit 은 출처 위치를 매체별로 정확히 담는다 — Markdown/코드는 line, 이미지는 region, PDF 는 page. `--tag` · `--media` · `--lang` · `--path-glob` 등 다양한 필터와 `--max-tokens` · `--cursor` 같은 agent budget flag 를 지원한다.
+
+### doc-side expansion 별칭 (opt-in)
+
+색인 시 각 청크에 대해 "같은 의미의 다른 표현"(동의어 · 약어 · 한↔영 번역 · 풀어쓴 설명) 별칭을 LLM 으로 생성해 별도 dense 벡터로 색인한다. 설명형 query 나 cross-lingual query 의 검색 일관성을 높인다 (나무위키 ~1000 문서 CS corpus 측정: 변형 일관성 14/18 → 16/18, 대조군 false-positive 미유발). 청크당 LLM 호출이 들어 비용이 크므로 **default off** — `[ingest.expansion] enabled = true` 로 opt-in.
+
+### 파생물 캐시 (자동)
+
+embedding 벡터와 별칭 LLM 결과를 청크 **내용 해시** 로 캐싱한다 (`derivation_cache`). 재색인·갱신 시 내용이 같은 청크는 재계산을 건너뛴다 (측정: cold 1879s → warm 13s ≈ 145배). 캐시 키에 모델·프롬프트·차원 버전이 포함돼 버전 변경 시 자동 무효화된다 (cascade 안전). 별도 설정 없이 투명하게 동작한다. (현재 TTL/LRU 자동 정리는 미구현 — 누적된 캐시는 `kebab reset` 으로만 정리.)
+
+### 외부 계산 + 로컬 검색 워크플로
+
+search/ask 는 asset 파일 없이 `kebab.sqlite` + `lancedb` 만으로 동작한다. 비싼 색인(임베딩·OCR·별칭 생성)을 성능 좋은 서버에서 수행한 뒤, 이 두 산출물만 로컬로 복사하면 그대로 검색·질문할 수 있다.
+
+### 멀티미디어 색인
+
+Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go/Java/Kotlin/C/C++ AST) · 리소스(YAML/Dockerfile/TOML/JSON/XML 등)를 확장자에 따라 자동으로 적절한 chunker 에 라우팅한다. embedded text 가 없는 scanned PDF 는 `[pdf.ocr]` 로 page-단위 OCR (opt-in). 전체 확장자→chunker 매핑은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+### RAG (근거 인용 + 거절)
+
+검색 결과를 근거로 LLM 답변을 생성하고 [#번호] 인용을 단다. 근거가 부족하면 답을 지어내지 않고 거절한다. compound 질문은 `--multi-hop` 으로 분해→synthesize. 답변의 groundedness 는 mDeBERTa XNLI 로 검증할 수 있다 (`[rag] nli_threshold`, default off).
+
+### TUI
+
+`kebab tui` 는 Ratatui 셸 — Library / Search / Ask / Inspect 패널을 vim-style 모드로 다룬다. 키 매핑은 앱 내 `F1` cheatsheet 가 권위 소스다.
 
 ## 명령
 
 | 명령 | 동작 |
 |------|------|
 | `kebab init` | XDG 경로에 데이터 디렉토리 + config.toml 생성 |
-| `kebab ingest [<path>]` | 워크스페이스를 스캔해 새/변경 문서를 색인 (idempotent, **incremental** — 변하지 않은 doc 의 parse/chunk/embed/upsert 자동 skip, `--force-reingest` 로 강제 재처리). 지원 형식: Markdown · 이미지(OCR+caption) · PDF · 소스코드(Rust/Python/TS/JS/Go/Java/Kotlin/C/C++ AST) · 리소스(YAML·Dockerfile·TOML·JSON·XML 등) — 확장자→chunker 전체 매핑·symbol 형식은 [ARCHITECTURE](docs/ARCHITECTURE.md) 「핵심 기술 결정」 표. TTY 면 진행 바, `--json` 은 `ingest_progress.v1` 스트리밍 후 `ingest_report.v1`. Ctrl-C 한 번은 graceful abort (부분 commit 보존). 미지원 확장자는 자동 skip (`IngestReport.skipped_by_extension`). |
-| `kebab search --mode {lexical,vector,hybrid} "<query>" [flags]` | 검색 (hybrid = RRF fusion, citation 포함). 주요 flag: 필터 `--tag`/`--media`/`--lang`/`--path-glob`/`--trust-min`/`--doc-id`/`--repo`/`--code-lang`/`--ingested-after` (flag 간 AND, 반복·comma 는 OR), agent budget `--max-tokens`/`--snippet-chars`/`--cursor`(`search_response.v1` 페이징), `--trace`(pre-fusion 후보 + per-stage timing), `--bulk`(stdin ndjson 다중 query, cap 100). 같은 query 는 in-process LRU 캐시 (`--no-cache` 로 bypass, ingest 시 자동 stale). **V009 (v0.20.1):** 한국어 2자/형태소 query 지원, 영어는 whole-token 매칭 (substring recall 은 vector/hybrid 권장). 전체 flag·wire 의미는 `kebab search --help` 와 [docs/wire-schema/v1/](docs/wire-schema/v1/). |
-| `kebab list docs` | 색인된 문서 목록. human-readable 출력은 `doc_id \t title \t doc_path` (title 은 heading 기반이라 중복 가능 — doc_path 로 구분). `--json` 은 `doc_summary.v1` array (title / doc_path 모두 포함, wire schema 불변). |
-| `kebab inspect doc <id>` / `kebab inspect chunk <id>` | raw record 보기 |
-| `kebab fetch chunk <id> [--context N]` / `kebab fetch doc <id> [--max-tokens N]` / `kebab fetch span <doc_id> <ls> <le> [--max-tokens N]` | (p9-fb-35) verbatim text fetch from indexed corpus. wire = `fetch_result.v1` (kind discriminator). chunk: target + ±N ordinal-context chunks. doc: full normalized markdown. span: 1-based line range (PDF/audio rejected as `error.v1.code = span_not_supported`). chars/4 budget on doc/span. |
-| `kebab ask "<query>" [flags]` | RAG 답변 + 근거 인용 (근거 부족 시 거절, Ollama 필요). `--hide-citations`, `--session <id>`(multi-turn — prior turns 를 history 로), `--stream`(ndjson `answer_event.v1`), `--multi-hop`(decompose→decide→synthesize N-hop, compound 질문용). 답변 groundedness 는 mDeBERTa XNLI 가 검증 — `[rag] nli_threshold > 0` (default 0 = off, production 권장 0.5) 일 때 활성, 첫 호출 시 ~280MB ONNX 다운로드. 전체 옵션은 `kebab ask --help`. |
-| `kebab doctor` | 설정/모델/DB 헬스 체크 |
-| `kebab tui` | Ratatui 셸 — Library / Search / Ask / Inspect 패널 (vim-style NORMAL/INSERT 모드, header 우측에 현재 모드 표시). **키 매핑은 앱 내 `F1` cheatsheet 가 권위 소스** (pane 별 키 + global 토글). Library `r` 로 background ingest, Search 는 200ms debounce 후 background 검색 (입력 중 freeze 없음), Ask 는 multi-turn + markdown 렌더 (`Ctrl-L` 로 새 conversation), Search `g` 로 `$EDITOR` 에서 citation 위치 열기. CJK 제목/입력 caret 폭 정렬, 하단 상태바 `kebab v<version> │ <pane> │ <docs> docs │ <state>`. |
-| `kebab reset [--all / --data-only / --vector-only / --config-only] [--yes]` | XDG 데이터 wipe. **Irreversible.** TTY 면 confirm prompt, 아니면 `--yes` 필수. `--vector-only` 는 SQLite `embedding_records` 도 함께 truncate (orphan 방지) |
-| `kebab eval run / aggregate / compare / variants` | golden query 회귀 측정 (`run` 실행 → `aggregate` 집계 → `compare` run 비교) + `variants <run_id>` 는 같은 의미의 여러 표현(동의어·풀어쓴 문장·한/영) 간 검색 일관성 진단 — `recall@10` vs `recall@50` 대비로 순위출렁(A)/어휘격차(B) 분류, `--json` 지원 |
-| `kebab schema [--json]` | introspection — wire schemas / capabilities / models / stats 한 번에. `--json` 은 `schema.v1` wire; 사람 모드는 서식 출력. **stats 에 (p9-fb-37) `media_breakdown` (5 keys: markdown / pdf / image / audio / other) + `lang_breakdown` (BCP-47 코드, NULL 은 literal `"null"`) + `index_bytes` (sqlite + lancedb on-disk 합계) + `stale_doc_count` (`config.search.stale_threshold_days` 초과 doc 수) 추가.** **`index_version` 두 곳 주의 (v0.20.2):** `schema.v1.models.index_version` = vector store (LanceDB) version, `search_hit.v1.index_version` = lexical (FTS5) version — 서로 다른 축, cascade 에서 별도 추적. |
-| `kebab ingest-file <path>` | 단일 파일 ingest (workspace 외부 가능). 바이트는 `<workspace.root>/_external/<hash12>.<ext>` 로 copy. `.kebabignore` 매치 시 stderr warn 후 진행 (explicit ingest 가 bypass intent). |
-| `kebab ingest-stdin --title <T> [--source-uri <URI>]` | stdin 의 markdown 본문 ingest. frontmatter (title + source_uri) 자동 prepend. v1 markdown only. |
-| `kebab mcp` | MCP (Model Context Protocol) stdio server. agent host (Claude Code / Cursor / OpenAI Agents) 가 spawn 하여 tool 호출 (`search` / `bulk_search` / `ask` / `fetch` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`). `--config` honor. |
+| `kebab ingest [<path>]` | 워크스페이스 스캔 후 새/변경 문서 색인 (idempotent · incremental, `--force-reingest` 로 강제 재처리). 미지원 확장자는 자동 skip |
+| `kebab ingest-file <path>` | 단일 파일 ingest (workspace 외부 가능 — `_external/` 로 deterministic copy) |
+| `kebab ingest-stdin --title <T>` | stdin 의 markdown 본문 ingest |
+| `kebab search --mode {lexical,vector,hybrid} "<query>" [flags]` | 검색 (default hybrid = RRF fusion, citation 포함). 필터/budget flag 는 `--help` |
+| `kebab ask "<query>" [flags]` | RAG 답변 + 근거 인용 (Ollama 필요). `--session` (multi-turn) · `--stream` · `--multi-hop` |
+| `kebab list docs` | 색인된 문서 목록 |
+| `kebab inspect doc <id>` / `inspect chunk <id>` | raw record 보기 |
+| `kebab fetch chunk\|doc\|span <id> [flags]` | indexed corpus 에서 verbatim text fetch |
+| `kebab eval run \| aggregate \| compare \| variants` | golden query 회귀 측정 + 변형 일관성 진단 |
+| `kebab schema [--json]` | introspection — wire schemas / capabilities / models / stats |
+| `kebab doctor` | 설정 / 모델 / DB 헬스 체크 |
+| `kebab tui` | Ratatui 셸 (Library / Search / Ask / Inspect) |
+| `kebab mcp` | MCP stdio server (`search` / `bulk_search` / `ask` / `fetch` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`) |
+| `kebab reset [--all \| --data-only \| --vector-only \| --config-only \| --orphans-only] [--yes]` | XDG 데이터 wipe (**irreversible**) |
 
-모든 명령에 `--json` 플래그. 출력은 frozen wire schema v1 (`schema_version` 항상 포함, 예: `ingest_report.v1`, `ingest_progress.v1`, `search_hit.v1`, `answer.v1`, `doctor.v1`, `reset_report.v1`, `schema.v1`). `--json` 모드에서 fatal error 는 stderr 에 `error.v1` ndjson 으로 emit (exit code 0/1/2/3 unchanged).
+모든 명령에 `--json` 플래그가 있고, 출력은 frozen **wire schema v1** 을 따른다 (`schema_version` 항상 포함). `--json` 모드에서 fatal error 는 stderr 에 `error.v1` ndjson 으로 emit (exit code 0/1/2/3 불변). 글로벌 flag: `--readonly` (write-path 비활성화), `--quiet` (human stderr 억제), env `KEBAB_PROGRESS=plain`. 전체 flag·wire 의미는 `kebab <cmd> --help` 와 [docs/wire-schema/v1/](docs/wire-schema/v1/). 외부 agent 통합(Claude Code skill / MCP)은 [docs/mcp-usage.md](docs/mcp-usage.md) 와 [integrations/](integrations/).
 
-글로벌 플래그: `--readonly` (또는 `KEBAB_READONLY=1`) — 모든 write-path 명령 (`ingest` / `ingest-file` / `ingest-stdin` / `reset`) 을 비활성화, exit 1. `--quiet` — 진행 바 / hint 등 human-readable stderr 억제 (exit code / stdout 출력은 그대로). `KEBAB_PROGRESS=plain` — TTY 가 없는 환경에서도 진행 상황을 plain-text 한 줄씩 stderr 로 출력 (spinner 대신).
+## Configuration
 
-### `lang` vs `code_lang` (v0.20.2)
+`~/.config/kebab/config.toml` 은 `kebab init` 가 XDG 경로에 생성한다. 핵심 노브만 정리한다 (전체 절은 생성된 파일 주석 참고, 예시는 [docs/SMOKE.md](docs/SMOKE.md)).
 
-- `doc.lang` / search hit 의 `lang` 은 **자연어 prose** 의 언어 (lingua 감지 — Markdown / PDF 본문). 감지 불가 / 자연어 아님 → `"und"`.
-- 소스코드 문서는 자연어 감지를 하지 않으므로 `lang = "und"` 가 정상이다. 소스 언어는 별도 `code_lang` (`rust` / `python` / ...) 에 담긴다.
-- `schema --json` 의 `lang_breakdown` 에서 `und` 비중이 높은 것은 보통 code 문서 비중 때문 — `code_lang_breakdown` / `code_lang_chunk_breakdown` 로 소스 언어 분포를 확인한다.
+```toml
+[workspace]
+root = "~/KnowledgeBase"   # 색인할 폴더. 절대 / tilde / env / 상대 경로 가능.
+                          # 상대 경로의 base 는 config.toml 위치 (cwd 무관).
 
-### Score 해석 (fb-38)
+[models.embedding]
+model = "multilingual-e5-large"   # 다국어 sentence embedding (1024-dim).
+                                  # 첫 ingest 시 ONNX (~1.3GB) 자동 다운로드.
+dimensions = 1024                 # config 와 LanceDB stored dim 불일치 시 검색 0건.
 
-`search_hit.v1.score` 는 **ranking signal** 이지 confidence 가 아니다. `score_kind` 필드로 의미 선언:
+[models.llm]
+endpoint = "http://localhost:11434"   # Ollama host:port
+model = "gemma4:e4b"
+# request_timeout_secs = 300          # 큰 모델은 늘림. 0 은 disable 이 아니라 "즉시 timeout".
 
-| `score_kind` | 의미 | 범위 |
-|--------------|------|------|
-| `rrf` (hybrid) | RRF normalized | `[0, 1]`, ceiling = 1.0 (양 채널 rank=1) |
-| `bm25` (lexical) | raw BM25 | unbounded (≥ 0) |
-| `cosine` (vector) | cosine sim | `[-1, 1]` |
+[ingest.expansion]        # doc-side expansion 별칭 (opt-in)
+enabled = false           # true 면 청크당 LLM 호출로 별칭 생성 — 비용 큼.
+embed_aliases = true      # 별칭을 줄별 개별 dense 벡터로 색인.
+max_aliases_per_chunk = 8
 
-#### RRF 수식 (hybrid mode)
+[search]
+stale_threshold_days = 30   # search hit / citation 의 stale 플래그 기준 (0 = off).
 
+[rag]
+prompt_template_version = "rag-v3"   # 답변 언어 = 질문 언어. rag-v1/v2 는 legacy.
+nli_threshold = 0.0                  # >0 (예: 0.5) 면 mDeBERTa XNLI groundedness 검증.
 ```
-chunk c 의 raw RRF = Σ_m  1 / (k_rrf + rank_m(c))
 
-여기서 m ∈ {lexical, vector}, k_rrf = config.search.rrf_k (default 60).
-양 채널 모두 rank=1 일 때 raw RRF = 2 / (k_rrf + 1) ≈ 0.0328.
+- **파생물 캐시** — embedding·별칭 결과를 내용 해시로 자동 캐싱한다 (위 「핵심 기능」 참고). 설정 항목 없음.
+- **`[ingest.code]`** — code ingest 의 skip 정책 (`skip_generated_header`, `max_file_bytes`, `extra_skip_globs`). `.gitignore` 자동 honor, `.kebabignore` 는 추가 layer.
+- **`[pdf.ocr]`** — scanned PDF 의 page-단위 OCR (default off / opt-in, page 당 ~수십 초 cost). 활성화 후 v0.19 시절 색인분은 `kebab ingest --force-reingest` 로 재처리.
+- **`--config <path>`** — 임시 워크스페이스 / 격리 테스트용 (CLI · TUI 모두 honor).
+- **`KEBAB_*` env** — 일부 키 override (`KEBAB_RAG_SCORE_GATE`, `KEBAB_EVAL_GOLDEN` 등).
+- **XDG layout**: `~/.config/kebab/`, `~/.local/share/kebab/`, `~/.cache/kebab/`, `~/.local/state/kebab/`.
 
-normalize: rrf_score = raw_rrf / (2 / (k_rrf + 1))
-       → rrf_score ∈ [0, 1]. 양쪽 rank=1 → 1.0, 한 쪽만 등장 → ≈ 0.5 천장.
-```
-
-`rrf_score = 0.5` 의 의미: chunk 가 한 채널 (lexical 또는 vector) 에서만 rank 1 로 등장. confidence 50% 가 아님 — RRF 수식의 산술적 천장.
-
-agent 가 trust threshold 가 필요하면 top-level `score` 가 아닌 nested `retrieval.lexical_score` (BM25 raw) / `retrieval.vector_score` (cosine raw) 사용.
-
-#### `score` ↔ `retrieval.*` 구조 (v0.20.2 정정)
-
-`fusion_score` / `lexical_score` / `vector_score` / `lexical_rank` / `vector_rank` 는 모두 **`retrieval` object 내부**에 있다 (top-level 아님). top-level `score` 는 canonical ranking score 이며 그 의미는 `score_kind` 가 선언한다.
-
-- **hybrid**: `score == retrieval.fusion_score` (RRF normalized `[0,1]`), `score_kind = "rrf"`.
-- **lexical-only**: fusion 미실행 → `score == retrieval.fusion_score == retrieval.lexical_score` (raw BM25), `score_kind = "bm25"`.
-- **vector-only**: `score == retrieval.fusion_score == retrieval.vector_score` (raw cosine), `score_kind = "cosine"`.
-
-즉 single-mode 에서 `score`/`fusion_score`/(lexical|vector)_score 가 같은 값인 것은 fusion 단계가 없기 때문이며 정상이다 (Finding X).
-
-## 논리 아키텍처
+## 아키텍처
 
 ```mermaid
 flowchart TB
@@ -162,7 +143,7 @@ flowchart TB
 
     subgraph Pipeline["도메인 + 파이프라인"]
         parse["parse-md / parse-pdf / parse-image / parse-code"]
-        chunker["chunker (md-heading-v1, pdf-page-v1, code-{rust,python,ts,js,go,java,kotlin,c,cpp}-ast-v1, k8s-manifest-resource-v1, dockerfile-file-v1, manifest-file-v1, code-text-paragraph-v1)"]
+        chunker["chunker (md / pdf / code-AST / manifest)"]
         embedder["embedder (fastembed multilingual-e5-large)"]
         retriever["retriever (lexical / vector / hybrid RRF)"]
         rag["RAG pipeline"]
@@ -204,98 +185,22 @@ flowchart TB
     rag --> ollama
 ```
 
-`kebab-app` 가 facade — UI binary 가 store / parse / search / llm / rag 를 직접 참조하지 않는다 (frozen 설계 §8). 자세한 crate-level 의존성 + 디렉토리 + 핵심 기술 결정은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+v0.21.0 기준 핵심 설계:
 
-## Configuration
+- **crate facade** — `kebab-app` 가 유일한 facade다. UI binary (`kebab-cli` / `kebab-tui`) 는 store / parse / search / llm / rag 를 직접 참조하지 않는다 (frozen 설계 §8). 각 user-facing 엔트리는 `*_with_config(cfg, …)` 동반 함수로 explicit config 를 thread 한다.
+- **chunk_id 는 위치 기반** — chunk 의 정체성은 문서 내 위치(ordinal + span)다. 반면 파생물 캐시 키는 **내용 해시**라, 내용이 같으면 위치·문서가 달라도 동일 캐시를 재사용한다.
+- **wire schema v1** — 모든 `--json` 출력은 `schema_version` 을 담는 frozen contract다. 깨는 변경은 `*.v2` major bump을 요구한다.
+- **versioning cascade** — `parser_version` / `chunker_version` / `embedding_version` / `prompt_template_version` / `index_version` 변경은 downstream record(청크·임베딩·캐시·eval)를 무효화한다.
 
-- `~/.config/kebab/config.toml` — `kebab init` 가 XDG 경로에 생성. `[workspace]` (root, exclude — include 필드는 제거됨, 지원 형식은 자동 결정), `[storage]`, `[chunking]`, `[models.embedding]`, `[models.llm]`, `[image.ocr]`, `[image.caption]`, `[pdf.ocr]`, `[search]`, `[rag]`, `[ui]` 절. 
-  - `[models.embedding]` — 
-    - `model` (default `"multilingual-e5-large"`, fb-39b) — 다국어 sentence embedding 모델. 1024-dim. ONNX (~1.3 GB) 첫 실행 시 fastembed cache (`config.storage.model_dir/fastembed/`) 에 자동 다운로드. `"multilingual-e5-small"` (384 dim) 는 backwards-compat 으로 사용 가능 — TOML 에 명시.
-    - `dimensions` (default `1024`) — 모델의 embedding 차원. config 와 LanceDB stored dim 불일치 시 검색 결과 0 건 (orphan table). 모델 변경 시 `kebab reset --vector-only && kebab ingest` 로 vector index 재구축 권장.
-  - `[ui] theme = "dark" | "light"` 로 TUI 팔레트 선택 (default `"dark"`, 알 수 없는 값은 dark fallback). 
-  - `[search] stale_threshold_days = 30` (p9-fb-32) — search hit / RAG citation 의 `stale` 플래그 기준 (default 30 일, `0` 으로 비활성화). 옛 config 의 `workspace.include = [...]` 은 silently 무시 + 단발 deprecation warning (p9-fb-25).
-- `[ingest.code]` (p10-1A-1) — code ingest 의 skip 정책 + chunker 기본값.
-  - `skip_generated_header = true` — 첫 ~512 byte 의 generated marker (`@generated` / `DO NOT EDIT` 등) 감지 시 skip.
-  - `max_file_bytes = 262144` (256 KiB) / `max_file_lines = 5000` — 파일당 cap, 초과 시 skip.
-  - `extra_skip_globs = []` — 사용자 추가 skip 패턴 (`.gitignore` 문법).
-  - `.gitignore` honor: 자동 적용. `.kebabignore` 는 추가 layer. 우선순위: built-in safety net (`node_modules/` / `target/` / `__pycache__/` / `.venv/` / `venv/` / `env/`) > `.gitignore` > `.kebabignore`.
-- `[ingest.expansion]` — **doc-side expansion (별칭 색인)**. 색인 시 각 청크에 대해 LLM 이 "같은 의미의 다른 표현"(동의어·약어·한↔영 번역·풀어쓴 설명) 별칭을 생성해, 설명형·cross-lingual query 의 검색 일관성을 높인다. **default off (opt-in)** — 청크당 LLM 호출이라 비용이 크다.
-  - `enabled = false` — opt-in. `embed_aliases = true` 면 별칭을 줄별 **개별 dense 벡터**(sentinel `{chunk}#alias#N`)로 색인하고 본문 벡터는 그대로 둔다. 검색 시 별칭 hit 는 원본 문서로 매핑돼 "query 표현 ↔ 문서 용어"의 다리 역할을 한다.
-  - `max_aliases_per_chunk = 8` / `prompt_version = "expansion-v1"` / `model = ""`(빈 값 = `models.llm` 기본).
-  - 효과 측정(나무위키 ~1000 문서 CS corpus): 변형 일관성 14/18 → 16/18 (설명형·cross-lingual 회복), 대조군 false-positive 미유발. 상세: [docs/superpowers/handoffs/2026-05-31-namu-wiki-alias-cache-study.md](docs/superpowers/handoffs/2026-05-31-namu-wiki-alias-cache-study.md).
-- **파생물 캐시 (`derivation_cache`, V012)** — embedding 벡터와 별칭 LLM 결과를 청크 **내용 해시**로 캐싱한다. 문서 재색인·갱신 시 내용이 같은 청크는 재계산을 건너뛴다(측정: 별칭 18문서 재색인 2.5h → ~80s). 캐시 키에 모델·프롬프트·차원 버전이 포함돼 버전 변경 시 자동 무효화(cascade 안전). 비싼 계산은 자동·투명하게 캐시되며 별도 설정이 없다. 응용: 비싼 색인을 외부 서버에서 수행한 뒤 `kebab.sqlite`+`lancedb` 만 복사해 로컬에서 검색할 수 있다(search/ask 는 asset 파일이 필요 없다).
-- `[rag] prompt_template_version` (default `"rag-v3"`) — RAG system prompt version. `"rag-v1"` / `"rag-v2"` 은 legacy backwards-compat (명시 시 유지). v2 강화 규칙: (1) fact 인용 시 [#번호] 앞에 chunk 속 원문 큰따옴표 표기, (2) 학습 지식 동원 금지, (3) 근거 모호 시 "확실하지 않다" 명시. **v3 추가 규칙 (v0.20.2)**: 답변 언어 = 질문 언어 (query 가 영어면 영어로, 한국어면 한국어로). 근거 부족 refusal 문구도 언어중립화. **Known limitation**: gemma4:e4b 같은 소형 모델은 refusal 메시지의 언어가 query 언어와 불일치할 수 있음 — refusal 판정(marker 기반)은 정상, 표시 문구만 해당. v2 고정: `[rag] prompt_template_version = "rag-v2"`.
-- `--config <path>` flag — 임시 워크스페이스 / 격리 테스트 시 사용. CLI / TUI 모두 honor.
-- `KEBAB_*` env — 일부 키 override (`KEBAB_RAG_SCORE_GATE`, `KEBAB_EVAL_GOLDEN`, `KEBAB_COMMIT_HASH` 등).
-- XDG layout: `~/.config/kebab/`, `~/.local/share/kebab/`, `~/.cache/kebab/`, `~/.local/state/kebab/`.
-- `workspace.root` 경로 형식: 절대 (`/foo/bar`) / tilde (`~/KnowledgeBase`, default) / env (`${XDG_DATA_HOME}/kebab`) / 상대 (`./notes`, `notes`, `../shared/x`) 모두 가능. **상대 경로의 base 는 config.toml 자체가 위치한 디렉토리** — 사용자의 `cwd` 와 무관 (`--config /tmp/cfg.toml` + `root = "kb"` → `/tmp/kb`). p9-fb-05 정책.
-
-config 예시는 [docs/SMOKE.md](docs/SMOKE.md) 의 `/tmp/kebab-smoke/config.toml` 블록 참조.
-
-### `[pdf.ocr]` — scanned PDF OCR (v0.20.0+)
-
-embedded text 가 없는 scanned PDF (책 스캔, 영수증, 카메라 page 등) 의 OCR 활성화. **default off (opt-in)** — OCR 한 page 당 ~45-100s (qwen2.5vl:3b on CPU) 의 cost 때문에 책 / 논문 archive 등 명시적 KB 에만 활성화.
-
-```toml
-[pdf.ocr]
-enabled = false              # opt-in: 책 / 논문 archive KB 에서 true
-always_on = false            # true 시 vector PDF page 도 dual-block OCR (confidence boost)
-engine = "ollama-vision"
-model = "qwen2.5vl:3b"       # PoC alnum 94.79% page1 / 81.56% 받침 (vs gemma4:e4b 의 27%)
-# endpoint = "http://localhost:11434"   # 미명시 시 models.llm.endpoint fallback
-languages = ["eng", "kor"]
-max_pixels = 2048
-request_timeout_secs = 600
-valid_ratio_threshold = 0.5  # text-detect threshold — mojibake / scanned 판정 boundary
-min_char_count = 20
-lang_hint = "kor"
-```
-
-env override: `KEBAB_PDF_OCR_*` 11 변수 (예: `KEBAB_PDF_OCR_ENABLED=true kebab ingest`).
-
-**v0.20 upgrade after**: scanned PDF 가 v0.19 에 빈 block + warning 으로 indexed 된 경우 자동으로 OCR 재실행 안 됨 (parser_version `"pdf-text-v1"` 보존). 명시적 재처리: `kebab ingest --force-reingest`.
-
-## 외부 AI 통합
-
-`--json` 출력 + frozen wire schema v1 가 stable contract. 통합 옵션:
-
-- **Claude Code skill** — repo 의 [`integrations/claude-code/`](integrations/claude-code/) 가 ship-ready skill. `cp -r integrations/claude-code/kebab ~/.claude/skills/` 한 번이면 새 Claude Code 세션부터 자동 trigger (내부 시스템 / 위키 lookup / 사내 runbook 질문). multi-turn 은 `kebab ask --session <id> --json` 으로 영속 — skill 이 conversation id 관리하면 외부 agent 도 `--repl` 없이 stateful 대화 가능 (p9-fb-18).
-- **Codex / 기타 agent host** — `--json` + frozen wire schema v1 가 stable contract. 동일 패턴으로 ~50줄 wrapper 작성 가능. `integrations/<host>/` 에 추가 PR 환영.
-- **MCP server** — stdio JSON-RPC 로 `kebab-app` facade 1:1 노출. `kebab mcp` 참조.
-- **HTTP wrapper** — `kebab serve --bind 127.0.0.1:7711` (P+, local-only 가치 신중).
-
-## MCP 사용
-
-`kebab mcp` 가 stdio MCP server. 8 tool: `search` / `bulk_search` (p9-fb-42 — N query 한 번에) / `ask` / `fetch` (p9-fb-35) / `schema` / `doctor` / `ingest_file` / `ingest_stdin`.
-
-Claude Code 빠른 등록 (`~/.claude/mcp.json` 또는 host 동등 위치):
-
-```json
-{
-  "mcpServers": {
-    "kebab": {
-      "command": "kebab",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-자세한 사용법 (Cursor / OpenAI Agents / Copilot CLI config, per-tool 입출력 예시, troubleshooting, multi-turn ask + session 관리, performance / security) — **[docs/mcp-usage.md](docs/mcp-usage.md)** 참조.
+crate-level 의존성 그래프 · 디렉토리 트리 · 확장자→chunker 전체 매핑 · 핵심 기술 결정은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), 진척도는 [HANDOFF.md](HANDOFF.md).
 
 ## 비-목표
 
-다중 사용자 SaaS / K8s / 원격 vector DB / enterprise RBAC / 실시간 협업 / 모든 파일 포맷의 완벽한 parsing / agent 임의 파일 수정 / multi-workspace / LLM-as-judge eval / CLIP 시각 embedding / `kebab://` protocol handler — frozen 설계 §11 / §0 참조.
+다중 사용자 SaaS / K8s / 원격 vector DB / enterprise RBAC / 실시간 협업 / agent 임의 파일 수정 / multi-workspace / LLM-as-judge eval / CLIP 시각 embedding — frozen 설계 §0 / §11 참조.
 
-## 라이선스
+## 버전 / 라이선스 / 참고
 
-`MIT OR Apache-2.0` (workspace `Cargo.toml` 의 `license` 필드).
-
-## 참고
-
-- 진척도: [HANDOFF.md](HANDOFF.md)
-- 아키텍처: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Frozen 설계: [docs/superpowers/specs/2026-04-27-kebab-final-form-design.md](docs/superpowers/specs/2026-04-27-kebab-final-form-design.md)
-- Task 인덱스: [tasks/INDEX.md](tasks/INDEX.md)
-- 머지 후 hotfix 로그: [tasks/HOTFIXES.md](tasks/HOTFIXES.md)
-- Smoke 절차: [docs/SMOKE.md](docs/SMOKE.md)
+- **버전**: v0.21.0 (`kebab --version` 으로 확인).
+- **라이선스**: `MIT OR Apache-2.0`.
+- 진척도: [HANDOFF.md](HANDOFF.md) · 아키텍처: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Frozen 설계: [docs/superpowers/specs/2026-04-27-kebab-final-form-design.md](docs/superpowers/specs/2026-04-27-kebab-final-form-design.md)
+- Task 인덱스: [tasks/INDEX.md](tasks/INDEX.md) · Hotfix 로그: [tasks/HOTFIXES.md](tasks/HOTFIXES.md) · Smoke 절차: [docs/SMOKE.md](docs/SMOKE.md) · MCP 사용: [docs/mcp-usage.md](docs/mcp-usage.md)
