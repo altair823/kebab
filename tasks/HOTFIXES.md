@@ -14,6 +14,38 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-31 — doc-side expansion 별칭 개선 + 파생물 캐시(V012)
+
+**Trigger**: Phase 2 doc-side expansion(별칭) 효과를 실사용 규모(한국어 나무위키 ~1000 문서 CS corpus)로 검증하고, 그 과정에서 드러난 별칭 생성 비용을 "내용 해시 기반 파생물 캐시"로 해소. v0.21.0 cut. 측정 상세: `docs/superpowers/handoffs/2026-05-31-namu-wiki-alias-cache-study.md`, 설계: `docs/superpowers/specs/2026-05-31-derivation-cache-design.md`.
+
+### (a) 별칭 개별 dense 벡터 + boilerplate skip
+
+초기 별도-벡터(청크당 별칭 8개를 줄바꿈으로 묶어 한 벡터로 임베딩) 방식은 평균화로 특정 표현이 **희석**되고 나무위키 메뉴(boilerplate) 청크에도 별칭이 생성돼 **오히려 회귀**(13/18). 개선판은 별칭을 줄별 **개별 sentinel 벡터**(`{chunk}#alias#N`)로 색인하고 본문 벡터는 그대로 두며, boilerplate 청크는 별칭 생성을 skip 한다. `kebab-core::strip_alias_suffix` 가 suffix 형(`{orig}#alias`)과 per-alias 형(`{orig}#alias#N`) 둘 다 처리(bare chunk_id 는 `#` 없는 blake3 32-hex 라 첫 `#alias` 가 경계).
+
+| 구성 | fully_consistent | mean_spread@10 |
+|------|------------------|----------------|
+| baseline (별칭 off) | 14/18 | 0.222 |
+| 별도-벡터 (별칭 묶음 1벡터) | 13/18 | 0.278 (악화) |
+| **개선 (별칭 개별 벡터 + boilerplate skip)** | **16/18** | **0.111** |
+
+baseline 약점은 전부 "설명형" 변형(용어·약어·영어는 18그룹 완벽) = 자연어 설명과 문서 전문용어의 "어휘 격차". 개선판이 linked_list·sorting 회복 + tcp 회귀 복구. 파일: `crates/kebab-core/src/ids.rs` (`strip_alias_suffix` find 기반), `crates/kebab-app/src/lib.rs`, `crates/kebab-app/src/expansion.rs`. `[ingest.expansion]` default off (opt-in).
+
+### (b) 대조군 false-positive — 별칭 무죄
+
+대조군(정답 없는 질문) 10개 RAG run 에서 refusal 0.6 (4개 grounded). false-positive 4개(graphql·oauth·react·grpc)의 인용 출처는 **전부 노이즈 본문**(GitHub_Mobile·API·Svelte 등), **별칭 sentinel 인용 0** → 별칭이 false-positive 를 유발하지 않음(별칭 무죄, default-on 안전성 근거).
+
+### (c) 파생물 캐시 145배 + 외부 계산 이식 워크플로
+
+별칭 18문서 재생성 2.5시간이 근본 병목. `chunk_id` 가 위치(`ordinal+span`) 기반이라 chunk_id 캐싱은 중간 수정 시 무력 → 청크 text **내용 해시**를 키로 한 범용 캐시(V012). `cache_key = blake3(kind ‖ text_blake3 ‖ version_key)[:32]`, version_key 에 model/prompt/dimensions 포함 → §9 cascade 와 자동 정합(버전 bump 시 자동 miss). embedding(본문 + 별칭 벡터 양쪽) + 별칭 LLM 결과 캐싱. **측정: 정답 3개 cold 1879s → warm 13s ≈ 145배**(18문서 환산 2.5h → ~80s). `corpus_revision` 은 bump 안 함(순수 가산). 파일: `migrations/V012__derivation_cache.sql`, `crates/kebab-core/src/derivation.rs`, `crates/kebab-store-sqlite/src/derivation_cache.rs`, `crates/kebab-app/src/derivation_payload.rs`.
+
+**이식**: search/ask 는 `kebab.sqlite` + `lancedb` 만으로 동작(`storage_path` asset 은 search/ask 경로에서 사용처 0). 비싼 색인(별칭 LLM + embedding)을 외부 CPU ollama 서버에서 돌린 뒤 sqlite(+derivation_cache) + lancedb 만 로컬로 복사하면 동일 동작 + 증분 캐시 히트가 머신 독립적으로 적용.
+
+### Known limitation
+
+- **stack·svm 설명형 잔존**: 개선 후에도 2개 설명형 변형은 별칭으로 못 메움(추가 개선 보류).
+- **grounded/refusal 오분류**: answer 가 "근거에서 찾을 수 없다"고 정직히 거부했는데도 부분 언급 인용이 있으면 grounded 로 오분류 → 실제 refusal 은 0.6 보다 높음. kebab grounded/refusal 판정의 별도 개선 여지(후속 후보).
+- **korean_tokens 캐시 / export-import 명령 / 별칭 default-on**: 보류.
+
 ## 2026-05-29 — v0.20.2 dogfood findings + 검색 품질 baseline
 
 **Trigger**: v0.20.2 release 준비 8-finding dogfood 라운드 (2026-05-29). 구현 + eval + 도그푸딩 전부 완료.

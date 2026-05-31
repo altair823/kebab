@@ -11,6 +11,7 @@ pub mod answer;
 pub mod asset;
 pub mod chunk;
 pub mod citation;
+pub mod derivation;
 pub mod document;
 pub mod errors;
 pub mod fetch;
@@ -35,6 +36,7 @@ pub use answer::{
 pub use asset::{AssetStorage, RawAsset, SourceUri, WorkspacePath};
 pub use chunk::Chunk;
 pub use citation::Citation;
+pub use derivation::derivation_cache_key;
 pub use document::{
     AudioRefBlock, Block, CanonicalDocument, CodeBlock, CommonBlock, HeadingBlock, ImageRefBlock,
     Inline, ListBlock, ModelCaption, OcrRegion, OcrText, SourceSpan, TableBlock, TextBlock,

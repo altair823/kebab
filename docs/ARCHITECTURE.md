@@ -32,6 +32,8 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 | citation 형식 | URI fragment (`path#L12-L34` / `path#p=12` / `path#xywh=0,0,100,50`, W3C Media Fragments) |
 | ID 생성 | `blake3(canonical_json(tuple))[..32]` hex |
 | RRF fusion_score | `[0, 1]` 정규화 — `2 / (k_rrf + 1)` 로 나눠 mode 간 비교 가능 (post-merge hotfix) |
+| doc-side expansion 별칭 (v0.21.0) | 색인 시 LLM 이 청크별 "같은 의미 다른 표현" 별칭 생성. 별칭은 줄별 **개별 dense 벡터**(sentinel `{chunk}#alias#N`)로 색인하고 본문 벡터는 그대로 둠 (묶음 1벡터는 평균화로 희석 → 회귀, HOTFIXES 2026-05-31). boilerplate 청크는 별칭 skip. 검색 시 별칭 hit 는 `kebab-core::strip_alias_suffix` 로 원본 chunk_id 에 매핑. `[ingest.expansion]` default off (opt-in, 청크당 LLM 비용). |
+| 파생물 캐시 `derivation_cache` (V012, v0.21.0) | 비싼 ingest 파생물(embedding 벡터 / 별칭 LLM 결과)을 청크 **내용 해시** 키로 SQLite 에 캐싱 → 재색인 시 내용 불변 청크는 재계산 skip. `cache_key = blake3(kind ‖ text_blake3 ‖ version_key)[:32]`; version_key 에 model/prompt/dimensions 포함 → §9 cascade 와 정합(버전 bump 시 자동 miss). 위치 기반 `chunk_id` 와 달리 내용이 같으면 문서·위치 무관 동일 키. 순수 가산 — `corpus_revision` bump 안 함, 손상/삭제돼도 정확성 영향 0(miss → 재계산). search/ask 는 `kebab.sqlite`+`lancedb` 만으로 동작하므로 외부 서버 색인 후 DB 만 복사하는 이식 워크플로 가능 (HOTFIXES 2026-05-31). |
 | layout | XDG (`~/.local/share/kebab/`, `~/.config/kebab/`, …) |
 
 전체 frozen 설계는 [docs/superpowers/specs/2026-04-27-kebab-final-form-design.md](superpowers/specs/2026-04-27-kebab-final-form-design.md) 12 sections 참조.
@@ -162,7 +164,7 @@ kebab/
 │   ├── p8/p8-1, p8-2                               # (2 — 보류)
 │   └── p9/p9-1 … p9-5                              # (5)
 ├── crates/
-│   ├── kebab-core/  kebab-config/                     # 도메인 + 설정 (P0)
+│   ├── kebab-core/  kebab-config/                     # 도메인 + 설정 (P0). kebab-core/src/derivation.rs = 파생물 캐시 키 순수 함수 (blake3 내용 해시, v0.21.0)
 │   ├── kebab-source-fs/                               # 워크스페이스 walk + checksum (P1-1)
 │   ├── kebab-parse-md/                                # Markdown frontmatter + blocks + types + ParsedBlock → CanonicalDocument lift (P1-2/3/4 — v0.19.0 흡수)
 │   ├── kebab-chunk/                                   # heading-aware + pdf-page-v1 + code-*-ast-v1 (Tier 1) + k8s-manifest-resource-v1 + dockerfile-file-v1 + manifest-file-v1 + tier2_shared (P10-2) + code-text-paragraph-v1 (P10-3) chunker (P1-5, P7-2, P10-1A-2, P10-1B, P10-1C-Go, P10-1C-JK, P10-2, P10-3, P10-1D)
@@ -175,7 +177,7 @@ kebab/
 │   │       ├── manifest_file_v1.rs           # Tier 2 (p10-2): whole-file Cargo.toml / go.mod / .json / .xml / .groovy
 │   │       ├── code_text_paragraph_v1.rs     # Tier 3 (p10-3): blank-line paragraph + 80/20 line-window fallback
 │   │       └── tier2_shared.rs               # Tier 2 (p10-2): shared oversize fallback + Chunk builder helpers
-│   ├── kebab-store-sqlite/                            # SQLite + FTS5 (V001/V002/V003) (P1-6, P2-1, P3-3)
+│   ├── kebab-store-sqlite/                            # SQLite + FTS5 (V001/V002/V003) (P1-6, P2-1, P3-3). src/derivation_cache.rs = derivation_cache 테이블 저장소 (V012, v0.21.0)
 │   ├── kebab-search/                                  # Lexical + Vector + Hybrid retriever (P2-2, P3-4)
 │   ├── kebab-embed/  kebab-embed-local/                  # Embedder trait + fastembed adapter (P3-1, P3-2)
 │   ├── kebab-store-vector/                            # LanceDB VectorStore (P3-3, P7-3 follow-up)
@@ -186,11 +188,11 @@ kebab/
 │   ├── kebab-parse-image/                             # ImageExtractor + Ollama OCR + caption (P6)
 │   ├── kebab-parse-pdf/                               # lopdf per-page text extractor (P7-1)
 │   ├── kebab-parse-code/                              # tree-sitter AST extractors: Rust (P10-1A-2), Python + TypeScript + JavaScript (P10-1B), Go (P10-1C-Go), Java + Kotlin (P10-1C-JK — java.rs + kotlin.rs), C + C++ (P10-1D — c.rs + cpp.rs); chunker lives in kebab-chunk
-│   ├── kebab-app/                                     # facade (P0 시그니처 + P3-5/P6-4/P7-3 본체)
+│   ├── kebab-app/                                     # facade (P0 시그니처 + P3-5/P6-4/P7-3 본체). src/expansion.rs = 별칭 생성, src/derivation_payload.rs = 캐시 payload 인코딩 (v0.21.0)
 │   ├── kebab-tui/                                     # Ratatui shell + Library 패널 (P9-1)
 │   ├── kebab-mcp/                                     # stdio MCP server — tools: schema, doctor, search, ask (P9-FB-30)
 │   └── kebab-cli/                                     # binary (P0 → 핫픽스로 --config flag wiring 강화)
-├── migrations/                                     # SQLite refinery V001/V002/V003
+├── migrations/                                     # SQLite refinery V001..V012 (V012 = derivation_cache, v0.21.0)
 └── fixtures/                                       # 테스트 fixture 트리
 ```
 

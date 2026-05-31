@@ -7,6 +7,11 @@ use kebab_core::{Chunk, GenerateRequest, LanguageModel};
 /// 별칭 1줄의 최대 글자 수(이 이상은 문장형/환각으로 보고 drop).
 const MAX_ALIAS_CHARS: usize = 120;
 
+/// 별칭 프롬프트 템플릿 버전. derivation cache 의 alias version_key 에 포함되어
+/// (§3.1), 프롬프트를 바꾸면 bump 해 캐시를 무효화한다(전부 miss → 재생성).
+/// `build_request` 의 gemma 프롬프트와 한 쌍 — 프롬프트 수정 시 함께 bump.
+pub const PROMPT_VERSION: &str = "expansion-v1";
+
 /// 청크당 검색용 별칭을 생성한다.
 ///
 /// 반환: 검증·상한 적용된 별칭들을 개행 join 한 문자열. 생성 0개 / LLM
@@ -45,6 +50,11 @@ impl<'a> ExpansionGenerator<'a> {
     }
 
     pub fn generate(&self, chunk: &Chunk) -> Option<String> {
+        // 나무위키 네비게이션 boilerplate 청크는 LLM 호출 없이 skip — 별칭
+        // 생성 가치가 없고 노이즈 sentinel 벡터만 만든다.
+        if is_nav_boilerplate(chunk) {
+            return None;
+        }
         let req = Self::build_request(chunk);
         let raw = match self.llm.generate_stream(req) {
             Ok(iter) => {
@@ -67,6 +77,26 @@ impl<'a> ExpansionGenerator<'a> {
             Some(aliases.join("\n"))
         }
     }
+}
+
+/// 나무위키 네비게이션 boilerplate 청크 판정.
+///
+/// heading_path 가 비어 있고(문서 본문 섹션이 아닌 머리/꼬리 nav), text 앞부분에
+/// nav 키워드("최근 변경" 등)가 하나라도 있으면 boilerplate 로 본다. 둘 다
+/// 만족할 때만 true — 정상 본문(heading 있음, 또는 nav 키워드 없음)은 false.
+pub fn is_nav_boilerplate(chunk: &Chunk) -> bool {
+    const NAV_KEYWORDS: [&str; 5] = [
+        "최근 변경",
+        "Recent changes",
+        "최근 토론",
+        "특수 기능",
+        "편집 토론 역사",
+    ];
+    if !chunk.heading_path.is_empty() {
+        return false;
+    }
+    let head: String = chunk.text.chars().take(200).collect();
+    NAV_KEYWORDS.iter().any(|kw| head.contains(kw))
 }
 
 /// 줄 선두의 목록 마커만 1회 제거한다. **마커 뒤 공백이 필수** — 별칭 내용이
@@ -183,6 +213,50 @@ mod tests {
         let out = generator.generate(&mk_chunk("graphics")).unwrap();
         // 마커 없는 선두 숫자/하이픈은 보존; "- "/"1. " 만 마커로 제거.
         assert_eq!(out, "3D 렌더링\n2단계 커밋\n-fast 플래그\n메모리 안전성\n첫 항목");
+    }
+
+    fn mk_chunk_nav(text: &str, heading: Vec<String>) -> Chunk {
+        let mut c = mk_chunk(text);
+        c.heading_path = heading;
+        c
+    }
+
+    #[test]
+    fn nav_boilerplate_skips_alias_generation() {
+        // heading 없음 + nav 키워드 → boilerplate → LLM 호출 전에 None.
+        let llm = mock("별칭1\n별칭2");
+        let generator = ExpansionGenerator::new(&llm, 8);
+        let chunk = mk_chunk_nav("최근 변경 최근 토론 특수 기능", vec![]);
+        assert_eq!(generator.generate(&chunk), None);
+    }
+
+    #[test]
+    fn normal_body_chunk_generates_aliases() {
+        // heading 없지만 nav 키워드도 없음 → 정상 본문 → 별칭 생성.
+        let llm = mock("별칭1\n별칭2");
+        let generator = ExpansionGenerator::new(&llm, 8);
+        let chunk = mk_chunk_nav("러스트의 소유권과 빌림 검사기 개요", vec![]);
+        assert_eq!(generator.generate(&chunk).unwrap(), "별칭1\n별칭2");
+    }
+
+    #[test]
+    fn nav_keyword_with_heading_is_not_boilerplate() {
+        // nav 키워드가 있어도 heading 이 있으면 본문 섹션 → 생성.
+        let llm = mock("별칭1");
+        let generator = ExpansionGenerator::new(&llm, 8);
+        let chunk = mk_chunk_nav("최근 변경 내역 설명", vec!["문서 변경사항".into()]);
+        assert_eq!(generator.generate(&chunk).unwrap(), "별칭1");
+    }
+
+    #[test]
+    fn is_nav_boilerplate_unit() {
+        assert!(is_nav_boilerplate(&mk_chunk_nav("Recent changes list", vec![])));
+        assert!(is_nav_boilerplate(&mk_chunk_nav("편집 토론 역사", vec![])));
+        assert!(!is_nav_boilerplate(&mk_chunk_nav("일반 본문 텍스트", vec![])));
+        assert!(!is_nav_boilerplate(&mk_chunk_nav(
+            "최근 변경",
+            vec!["섹션".into()]
+        )));
     }
 
     #[test]

@@ -61,10 +61,18 @@ fn validate_hex32(s: &str) -> Result<(), CoreError> {
 /// Suffix appended to a chunk's vector ID to mark an alias embedding row.
 pub const ALIAS_SUFFIX: &str = "#alias";
 
-/// Strip `#alias` suffix from `id`, returning the bare chunk ID.
-/// If `id` does not end with `ALIAS_SUFFIX`, returns `id` unchanged.
+/// Strip the alias marker from `id`, returning the bare chunk ID.
+///
+/// Returns everything before the first occurrence of `ALIAS_SUFFIX`. This
+/// handles both the suffix form `{orig}#alias` and the per-alias form
+/// `{orig}#alias#N`. A bare chunk ID is blake3 hex (32 chars, no `#`), so the
+/// first `#alias` always marks the boundary. If `id` contains no `ALIAS_SUFFIX`,
+/// returns `id` unchanged.
 pub fn strip_alias_suffix(id: &str) -> &str {
-    id.strip_suffix(ALIAS_SUFFIX).unwrap_or(id)
+    match id.find(ALIAS_SUFFIX) {
+        Some(pos) => &id[..pos],
+        None => id,
+    }
 }
 
 /// Canonical-JSON + blake3 + hex prefix 32. Per design §4.2.
@@ -447,6 +455,10 @@ mod tests {
         assert_eq!(strip_alias_suffix(bare), bare);
         assert_eq!(strip_alias_suffix(""), "");
         assert_eq!(strip_alias_suffix("#alias"), "");
+        // Per-alias form `{orig}#alias#N` strips to the bare chunk ID.
+        assert_eq!(strip_alias_suffix(&format!("{bare}{ALIAS_SUFFIX}#3")), bare);
+        assert_eq!(strip_alias_suffix(&format!("{bare}{ALIAS_SUFFIX}#0")), bare);
+        assert_eq!(strip_alias_suffix("#alias#3"), "");
     }
 
     /// Independent pin for id_for_index.

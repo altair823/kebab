@@ -109,10 +109,11 @@ fn first_ingest_bumps_corpus_revision() {
     let env = TestEnv::lexical_only();
     let store_before = kebab_store_sqlite::SqliteStore::open(&env.config).unwrap();
     store_before.run_migrations().unwrap();
-    // V004 seeds 0; V009 + V010 migrations each bump by 1 to invalidate
-    // stale LRU caches (spec §5.2). Baseline before ingest = 2.
+    // V004 seeds 0; V009 + V010 + V011 migrations each bump by 1 to
+    // invalidate stale LRU caches (spec §5.2). Baseline before ingest = 3.
+    // (V012 derivation_cache is purely additive — does NOT bump.)
     let baseline = store_before.corpus_revision();
-    assert_eq!(baseline, 2, "fresh store post-V010 baseline = 2");
+    assert_eq!(baseline, 3, "fresh store post-V011 baseline = 3");
 
     let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
     assert!(

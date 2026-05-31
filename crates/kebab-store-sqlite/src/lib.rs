@@ -19,6 +19,7 @@
 
 mod answers;
 mod chat_sessions;
+mod derivation_cache;
 mod documents;
 mod embeddings;
 mod error;
