@@ -108,6 +108,7 @@ const WIRE_SCHEMAS: &[&str] = &[
     "doc_summary.v1",
     "chunk_inspection.v1",
     "doctor.v1",
+    "config_migration.v1",
     "ingest_report.v1",
     "ingest_progress.v1",
     "reset_report.v1",

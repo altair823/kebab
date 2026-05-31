@@ -60,6 +60,12 @@ enum Cmd {
         force: bool,
     },
 
+    /// config.toml 관리 (스키마 마이그레이션 등).
+    Config {
+        #[command(subcommand)]
+        what: ConfigWhat,
+    },
+
     /// Scan the workspace and ingest new/updated documents.
     Ingest {
         /// Workspace root override.
@@ -343,6 +349,16 @@ enum Cmd {
         /// Source URI — optional, written to frontmatter when present.
         #[arg(long)]
         source_uri: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ConfigWhat {
+    /// 기존 config.toml 을 새 스키마로 마이그레이션(빠진 섹션 추가 + 멱등 + .bak 백업).
+    Migrate {
+        /// 변경만 출력하고 파일은 수정하지 않는다.
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -1309,6 +1325,42 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             }
             Ok(())
         }
+
+        Cmd::Config { what } => match what {
+            ConfigWhat::Migrate { dry_run } => {
+                let report =
+                    kebab_app::config_migrate_with_config_path(cli.config.as_deref(), *dry_run)?;
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&wire::wire_config_migration(&report))?
+                    );
+                } else if !report.changed {
+                    println!(
+                        "config 이미 최신입니다 (schema v{}).",
+                        report.to_schema_version
+                    );
+                } else {
+                    let verb = if report.dry_run { "변경 예정" } else { "적용됨" };
+                    println!(
+                        "config 마이그레이션 {verb}: v{} → v{} ({} changes)",
+                        report.from_schema_version,
+                        report.to_schema_version,
+                        report.changes.len()
+                    );
+                    for c in &report.changes {
+                        println!("  - [{:?}] {} — {}", c.kind, c.path, c.detail);
+                    }
+                    if let Some(bak) = &report.backup_path {
+                        println!("백업: {bak}");
+                    }
+                    if report.dry_run {
+                        println!("(--dry-run: 파일 미수정. 적용하려면 --dry-run 없이 재실행)");
+                    }
+                }
+                Ok(())
+            }
+        },
 
         Cmd::Doctor => {
             let report = kebab_app::doctor_with_config_path(cli.config.as_deref())?;
