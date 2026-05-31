@@ -52,7 +52,12 @@ const HEADER: &str = "\
 #
 # `workspace.root` accepts: 절대 / tilde(~) / env(${VAR}) / 상대 경로.
 #   상대 경로의 base 는 cwd 가 아니라 THIS config 파일의 디렉토리.
-# 처리 형식(extractor 자동 결정): Markdown(.md) / 이미지(.png .jpg) / PDF(.pdf).
+#
+# 처리 가능한 형식 (extractor 가 자동 결정 — config 에 명시할 수 없음):
+#   • Markdown: .md
+#   • 이미지:   .png .jpg .jpeg  (OCR + caption)
+#   • PDF:      .pdf
+#
 # 런타임 override: `KEBAB_*` env (예: KEBAB_WORKSPACE_ROOT=/tmp kebab ingest).
 #
 # 이 파일은 `kebab config migrate` 로 새 스키마에 맞춰 갱신할 수 있다
