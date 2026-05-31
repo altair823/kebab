@@ -79,9 +79,15 @@ chunk_id 캐싱은 중간 수정 시 무력 → **청크 text 내용 해시**를
 - `derivation_cache(cache_key, kind, payload, created_at, last_used_at)` (SQLite, V012).
 - `cache_key = blake3(kind ‖ text_blake3 ‖ version_key)`. version_key 에 model/prompt/
   dimensions 포함 → §9 cascade 와 정합(버전 bump 시 자동 miss).
+- **위치 밀림에도 캐시가 듣는 이유**: chunk_id 는 위치(ordinal+span) 기반이라 문서 중간
+  삽입 시 뒤 청크의 chunk_id 가 바뀌어 row 가 재작성되지만(싼 DB write), cache_key 는
+  *내용 해시*라 내용 불변 청크는 히트 → 비싼 재계산(embedding/LLM) 0. chunk_id 와
+  cache_key 가 별개라는 게 핵심. 설계 근거·동작은 spec §1 / §3.4 참조.
 - 적용: embedding(본문 + 별칭 벡터 양쪽) + 별칭 LLM. korean_tokens 는 우선순위 낮아 보류.
 - **측정: 정답 3개 cold 1879초(31분) → warm 13초 ≈ 145배.** 18문서 환산 시 2.5h → ~80s.
   derivation_cache 1237 엔트리(alias 140 + embedding 1097).
+- 기존 KB 호환성(본문 재색인 불필요 / V012 가산 / 이전 binary mismatch / 별칭 재생성은
+  선택)은 설계 spec §7 참조 — 이 handoff 는 측정 과정·결과만 담는다.
 
 ## 5. KB 이식성 (외부 계산 워크플로)
 
