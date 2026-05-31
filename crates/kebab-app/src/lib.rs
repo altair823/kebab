@@ -1349,9 +1349,17 @@ fn ingest_one_asset(
                         &chunk.text,
                         &alias_version_key,
                     );
-                    if let Some(payload) = app.sqlite.derivation_cache_get(&key)? {
+                    // 히트 = 캐시에 있고 payload 가 정상 UTF-8 로 디코드되는
+                    // 경우만. 손상(비-UTF8) payload 는 미스로 강등해 재생성
+                    // 분기로 보낸다(embedding 경로의 decode-실패→미스 강등과
+                    // 동작 일치, 정확성 우선 §3.5).
+                    let cached_aliases = app
+                        .sqlite
+                        .derivation_cache_get(&key)?
+                        .and_then(|payload| String::from_utf8(payload).ok());
+                    if let Some(aliases) = cached_aliases {
                         // 히트: 저장된 별칭(UTF-8) 재사용. LLM 호출 없음.
-                        chunk.aliases = String::from_utf8(payload).ok();
+                        chunk.aliases = Some(aliases);
                         alias_cache_hit += 1;
                         alias_touch_keys.push(key);
                     } else if crate::expansion::is_nav_boilerplate(chunk) {
@@ -1411,10 +1419,15 @@ fn ingest_one_asset(
             let model_id = emb.model_id();
             let model_version = emb.model_version();
             let dimensions = emb.dimensions();
-            // derivation cache(§3.4): embedding version_key = {model_id}|{model_version}|{dimensions}.
+            // derivation cache(§3.4): embedding version_key =
+            // {kind}|{model_id}|{model_version}|{dimensions}.
             // 본문 청크 + 별칭 문자열 양쪽이 같은 메커니즘(같은 text → 같은 캐시).
+            // kind 토큰("doc") 을 맨 앞에 둔다: 임베더가 kind 별 프리픽스
+            // (Document=`passage:`, Query=`query:`)를 붙여 같은 text 라도 벡터가
+            // 달라지므로, 미래에 query 임베딩이 같은 캐시를 타도 충돌하지 않도록
+            // 방어적으로 분리(현재 ingest 는 Document 고정이라 live 버그 없음).
             let emb_version_key =
-                format!("{}|{}|{}", model_id.0, model_version.0, dimensions);
+                format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
             let mut emb_touch_keys: Vec<String> = Vec::new();
             // 본문 청크 text 로 캐시 조회 → 미스만 embed → 원래 순서로 합침.
             let body_texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
@@ -1857,6 +1870,49 @@ fn record_image_analysis_failure(
     warning_notes.push(note);
 }
 
+/// Expand a set of body `chunk_id`s into every per-alias sentinel
+/// `chunk_id` that orphan cleanup must also delete.
+///
+/// PR #195 review (MAJOR): alias dense vectors moved from a single
+/// legacy sentinel `{orig}#alias` to per-line sentinels
+/// `{orig}#alias#0`, `{orig}#alias#1`, … (one VectorRecord per alias
+/// line). These sentinel chunk_ids never appear in SQLite `chunks`, so
+/// they are absent from the stale-set the cleanup paths SELECT. Because
+/// `delete_by_chunk_ids` matches on exact `chunk_id IN (...)` (not a
+/// prefix), deleting only `{orig}#alias` leaked `{orig}#alias#N` rows
+/// into LanceDB — stale aliases could still hit search.
+///
+/// We reuse the existing exact-match delete infra (approach A): for each
+/// body id emit `{id}#alias` (legacy, backward-compat) plus
+/// `{id}#alias#0` .. `{id}#alias#{max-1}`. `max` is
+/// `expansion.max_aliases_per_chunk`, which is the hard cap
+/// `parse_aliases` enforces (it `break`s once `out.len() >= max`), so no
+/// index ≥ max is ever produced at ingest time. Indices that were never
+/// written are harmless no-ops in an `IN (...)` delete.
+fn alias_sentinel_ids_to_delete(
+    body_ids: &[kebab_core::ChunkId],
+    max_aliases_per_chunk: usize,
+) -> Vec<kebab_core::ChunkId> {
+    let mut out = body_ids.to_vec();
+    for id in body_ids {
+        // Legacy single sentinel (docs ingested before per-line split).
+        out.push(kebab_core::ChunkId(format!(
+            "{}{}",
+            id.0,
+            kebab_core::ALIAS_SUFFIX
+        )));
+        for i in 0..max_aliases_per_chunk {
+            out.push(kebab_core::ChunkId(format!(
+                "{}{}#{}",
+                id.0,
+                kebab_core::ALIAS_SUFFIX,
+                i
+            )));
+        }
+    }
+    out
+}
+
 /// v0.17.0 PR-B: parser-bump cascade. When a code extractor ships a
 /// new `PARSER_VERSION` (e.g. `code-c-v1` → `code-c-v2`), the same
 /// (workspace_path, asset_id) pair re-emerges with a fresh `doc_id`.
@@ -1884,12 +1940,13 @@ fn purge_workspace_path_for_parser_bump(app: &App, asset: &RawAsset) -> anyhow::
     if !stale.is_empty() {
         if let Some(vec_store) = app.vector().context("App::vector")? {
             use kebab_core::VectorStore as _;
-            // sentinel 별칭 벡터(`{id}#alias`)는 SQLite chunks 에 없어 stale 에
-            // 안 잡힌다 → 명시적으로 함께 삭제(orphan 누적 방지).
-            let mut to_delete = stale.clone();
-            to_delete.extend(stale.iter().map(|id| {
-                kebab_core::ChunkId(format!("{}{}", id.0, kebab_core::ALIAS_SUFFIX))
-            }));
+            // per-alias sentinel 벡터(`{id}#alias#N`)는 SQLite chunks 에 없어
+            // stale 에 안 잡힌다 → 본문 + 모든 별칭 sentinel 을 명시적으로 함께
+            // 삭제(orphan 누적 방지, PR #195 MAJOR).
+            let to_delete = alias_sentinel_ids_to_delete(
+                &stale,
+                app.config.ingest.expansion.max_aliases_per_chunk,
+            );
             vec_store
                 .delete_by_chunk_ids(&to_delete)
                 .context("VectorStore::delete_by_chunk_ids (parser-bump orphans)")?;
@@ -1935,12 +1992,13 @@ fn purge_vector_orphans_for_workspace_path(
         return Ok(());
     }
     use kebab_core::VectorStore as _;
-    // sentinel 별칭 벡터(`{id}#alias`)는 SQLite chunks 에 없어 stale 에
-    // 안 잡힌다 → 명시적으로 함께 삭제(orphan 누적 방지).
-    let mut to_delete = stale.clone();
-    to_delete.extend(stale.iter().map(|id| {
-        kebab_core::ChunkId(format!("{}{}", id.0, kebab_core::ALIAS_SUFFIX))
-    }));
+    // per-alias sentinel 벡터(`{id}#alias#N`)는 SQLite chunks 에 없어 stale 에
+    // 안 잡힌다 → 본문 + 모든 별칭 sentinel 을 명시적으로 함께 삭제(orphan
+    // 누적 방지, PR #195 MAJOR).
+    let to_delete = alias_sentinel_ids_to_delete(
+        &stale,
+        app.config.ingest.expansion.max_aliases_per_chunk,
+    );
     vec_store
         .delete_by_chunk_ids(&to_delete)
         .context("VectorStore::delete_by_chunk_ids (orphan vector cleanup)")?;
@@ -2042,12 +2100,13 @@ fn sweep_deleted_files(
         if let Some(vec) = vector_store {
             if !chunk_ids.is_empty() {
                 use kebab_core::VectorStore as _;
-                // sentinel 별칭 벡터(`{id}#alias`)는 SQLite chunks 에 없어
-                // chunk_ids 에 안 잡힌다 → 명시적으로 함께 삭제(orphan 누적 방지).
-                let mut to_delete = chunk_ids.clone();
-                to_delete.extend(chunk_ids.iter().map(|id| {
-                    kebab_core::ChunkId(format!("{}{}", id.0, kebab_core::ALIAS_SUFFIX))
-                }));
+                // per-alias sentinel 벡터(`{id}#alias#N`)는 SQLite chunks 에 없어
+                // chunk_ids 에 안 잡힌다 → 본문 + 모든 별칭 sentinel 을 명시적으로
+                // 함께 삭제(orphan 누적 방지, PR #195 MAJOR).
+                let to_delete = alias_sentinel_ids_to_delete(
+                    &chunk_ids,
+                    app.config.ingest.expansion.max_aliases_per_chunk,
+                );
                 if let Err(e) = vec.delete_by_chunk_ids(&to_delete) {
                     tracing::warn!(
                         target: "kebab-app",
@@ -3308,4 +3367,50 @@ fn check_kebabignore_match(
     matcher
         .matched(source_path, source_path.is_dir())
         .is_ignore()
+}
+
+#[cfg(test)]
+mod orphan_cleanup_tests {
+    use super::alias_sentinel_ids_to_delete;
+    use kebab_core::ChunkId;
+
+    /// PR #195 MAJOR: alias dense 벡터가 줄별 `{id}#alias#N` sentinel 로 색인되므로
+    /// orphan cleanup 의 LanceDB delete-set 은 본문 + legacy `{id}#alias` +
+    /// `{id}#alias#0` .. `{id}#alias#{max-1}` 를 모두 포함해야 한다. 이전 코드는
+    /// 단일 `{id}#alias` 만 넣어 per-line sentinel 을 LanceDB 에 누수시켰다.
+    #[test]
+    fn expands_body_legacy_and_per_alias_sentinels() {
+        let body = ChunkId("aabbccddeeff00112233445566778899".to_string());
+        let max = 3;
+        let out = alias_sentinel_ids_to_delete(std::slice::from_ref(&body), max);
+        let ids: Vec<&str> = out.iter().map(|c| c.0.as_str()).collect();
+
+        assert!(ids.contains(&body.0.as_str()), "본문 chunk_id 포함");
+        assert!(
+            ids.contains(&"aabbccddeeff00112233445566778899#alias"),
+            "하위호환 legacy 단일 sentinel 포함"
+        );
+        for i in 0..max {
+            let expected = format!("aabbccddeeff00112233445566778899#alias#{i}");
+            assert!(
+                ids.contains(&expected.as_str()),
+                "per-alias sentinel #{i} 포함 (max={max})"
+            );
+        }
+        // body(1) + legacy(1) + per-alias(max) = max + 2.
+        assert_eq!(out.len(), max + 2, "정확히 max+2 개 id");
+        // max 상한과 일치: #alias#{max} 는 절대 생성 안 함(parse_aliases 가 cap).
+        assert!(
+            !ids.contains(&"aabbccddeeff00112233445566778899#alias#3"),
+            "상한(max) 이상 인덱스는 생성하지 않음"
+        );
+    }
+
+    /// max=0 (확장 비활성 동등) 이면 per-alias sentinel 없이 본문 + legacy 만.
+    #[test]
+    fn zero_max_emits_body_and_legacy_only() {
+        let body = ChunkId("00000000000000000000000000000000".to_string());
+        let out = alias_sentinel_ids_to_delete(std::slice::from_ref(&body), 0);
+        assert_eq!(out.len(), 2, "본문 + legacy sentinel 만");
+    }
 }

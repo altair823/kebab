@@ -571,16 +571,20 @@ impl SqliteStore {
     ) -> Result<()> {
         let conn = self.lock_conn();
         // CASCADE 제거(V011) 대체: documents→chunks CASCADE 가 chunks 를 지우기 전에
-        // 원본 + sentinel({id}#alias) embedding_records 를 명시 정리. 별칭 dense
-        // 벡터는 chunks FK 가 없어 자동 정리되지 않으므로 chunks 가 살아있는 동안
-        // 직접 지운다(안 하면 tombstone trigger 가 남긴 행이 누적). 설계 spec
-        // 2026-05-30-dense-alias-vectors-design.md §3.5-2. (Task 4.5 리뷰 MAJOR.)
+        // 원본 + per-alias sentinel({id}#alias#N) embedding_records 를 명시 정리.
+        // 별칭 dense 벡터는 줄별 sentinel chunk_id 로 색인되며 chunks FK 가 없어
+        // 자동 정리되지 않으므로 chunks 가 살아있는 동안 직접 지운다(안 하면
+        // tombstone trigger 가 남긴 행이 누적). 정확 일치(|| '#alias')는 per-line
+        // sentinel 을 놓치므로(PR #195 MAJOR) `{id}#alias%` 프리픽스를 LIKE 로 매칭.
+        // 설계 spec 2026-05-30-dense-alias-vectors-design.md §3.5-2. (Task 4.5 리뷰 MAJOR.)
         conn.execute(
             "DELETE FROM embedding_records WHERE chunk_id IN \
              (SELECT chunk_id FROM chunks WHERE doc_id IN \
-                (SELECT doc_id FROM documents WHERE workspace_path = ?1 AND doc_id != ?2) \
-              UNION SELECT chunk_id || '#alias' FROM chunks WHERE doc_id IN \
-                (SELECT doc_id FROM documents WHERE workspace_path = ?1 AND doc_id != ?2))",
+                (SELECT doc_id FROM documents WHERE workspace_path = ?1 AND doc_id != ?2)) \
+             OR EXISTS (SELECT 1 FROM chunks \
+               WHERE chunks.doc_id IN \
+                 (SELECT doc_id FROM documents WHERE workspace_path = ?1 AND doc_id != ?2) \
+                 AND embedding_records.chunk_id LIKE chunks.chunk_id || '#alias%')",
             params![workspace_path, keep_doc_id],
         )
         .map_err(StoreError::from)?;
@@ -642,15 +646,19 @@ pub(crate) fn purge_orphan_at_workspace_path(
     };
 
     // CASCADE 제거(V011) 대체: 이 asset 의 문서 chunk 임베딩 레코드를 명시 정리.
-    // 원본 + sentinel({id}#alias) 둘 다. 별칭 dense 벡터는 chunks FK 가 없어
-    // documents→chunks CASCADE 로 자동 정리되지 않으므로 chunks 가 살아있는 동안
-    // 직접 지운다. 설계 spec 2026-05-30-dense-alias-vectors-design.md §3.5-2.
+    // 원본 + per-alias sentinel({id}#alias#N) 모두. 별칭 dense 벡터는 줄별
+    // sentinel chunk_id 로 색인되며 chunks FK 가 없어 documents→chunks CASCADE 로
+    // 자동 정리되지 않으므로 chunks 가 살아있는 동안 직접 지운다. 정확
+    // 일치(|| '#alias')는 per-line sentinel 을 놓치므로(PR #195 MAJOR) `{id}#alias%`
+    // 프리픽스를 LIKE 로 매칭. 설계 spec 2026-05-30-dense-alias-vectors-design.md §3.5-2.
     conn.execute(
         "DELETE FROM embedding_records WHERE chunk_id IN \
          (SELECT chunk_id FROM chunks WHERE doc_id IN \
-            (SELECT doc_id FROM documents WHERE asset_id = ?1) \
-          UNION SELECT chunk_id || '#alias' FROM chunks WHERE doc_id IN \
-            (SELECT doc_id FROM documents WHERE asset_id = ?1))",
+            (SELECT doc_id FROM documents WHERE asset_id = ?1)) \
+         OR EXISTS (SELECT 1 FROM chunks \
+           WHERE chunks.doc_id IN \
+             (SELECT doc_id FROM documents WHERE asset_id = ?1) \
+             AND embedding_records.chunk_id LIKE chunks.chunk_id || '#alias%')",
         params![stale_asset_id],
     )
     .map_err(StoreError::from)?;
@@ -734,13 +742,17 @@ pub fn purge_deleted_workspace_path(
     drop(stmt);
 
     // 1b. CASCADE 제거(V011) 대체: chunk 임베딩 레코드를 명시 정리(원본 +
-    //     sentinel {id}#alias). 별칭 dense 벡터는 chunks FK 가 없어
-    //     documents→chunks CASCADE 로 자동 정리되지 않는다. chunks 가
+    //     per-alias sentinel {id}#alias#N). 별칭 dense 벡터는 줄별 sentinel
+    //     chunk_id 로 색인되며 chunks FK 가 없어 documents→chunks CASCADE 로
+    //     자동 정리되지 않는다. 정확 일치(|| '#alias')는 per-line sentinel 을
+    //     놓치므로(PR #195 MAJOR) `{id}#alias%` 프리픽스를 LIKE 로 매칭. chunks 가
     //     살아있는 동안(2번 DELETE 직전) 실행. spec §3.5-2.
     conn.execute(
         "DELETE FROM embedding_records WHERE chunk_id IN \
-         (SELECT chunk_id FROM chunks WHERE doc_id = ?1 \
-          UNION SELECT chunk_id || '#alias' FROM chunks WHERE doc_id = ?1)",
+         (SELECT chunk_id FROM chunks WHERE doc_id = ?1) \
+         OR EXISTS (SELECT 1 FROM chunks \
+           WHERE chunks.doc_id = ?1 \
+             AND embedding_records.chunk_id LIKE chunks.chunk_id || '#alias%')",
         rusqlite::params![doc_id],
     )
     .map_err(StoreError::from)?;

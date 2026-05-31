@@ -99,14 +99,19 @@ impl kebab_core::DocumentStore for SqliteStore {
         let mut conn = self.lock_conn();
         let tx = conn.transaction().map_err(StoreError::from)?;
         // CASCADE 제거(V011) 대체: 이 doc 의 chunk 임베딩 레코드를 명시 정리.
-        // 원본 + sentinel({id}#alias) 둘 다. 별칭 dense 벡터(sentinel chunk_id)는
-        // chunks FK 가 없어 CASCADE 로 자동 정리되지 않으므로 여기서 직접 지운다.
-        // chunks 행이 살아있는 동안(아래 DELETE FROM chunks 직전) 실행해야 서브쿼리가
+        // 원본 + per-alias sentinel({id}#alias#N) 모두. 별칭 dense 벡터는 줄별
+        // sentinel chunk_id(`{orig}#alias#0`, `#alias#1`, …)로 색인되는데 chunks
+        // FK 가 없어 CASCADE 로 자동 정리되지 않으므로 여기서 직접 지운다. 정확
+        // 일치(|| '#alias')는 per-line sentinel 을 놓치므로(PR #195 MAJOR) 본문
+        // chunk_id 와 그 `{id}#alias%` 프리픽스를 LIKE 로 함께 매칭한다. chunks
+        // 행이 살아있는 동안(아래 DELETE FROM chunks 직전) 실행해야 서브쿼리가
         // chunk_id 를 본다. 설계 spec 2026-05-30-dense-alias-vectors-design.md §3.5-2.
         tx.execute(
             "DELETE FROM embedding_records WHERE chunk_id IN \
-             (SELECT chunk_id FROM chunks WHERE doc_id = ?1 \
-              UNION SELECT chunk_id || '#alias' FROM chunks WHERE doc_id = ?1)",
+             (SELECT chunk_id FROM chunks WHERE doc_id = ?1) \
+             OR EXISTS (SELECT 1 FROM chunks \
+               WHERE chunks.doc_id = ?1 \
+                 AND embedding_records.chunk_id LIKE chunks.chunk_id || '#alias%')",
             params![doc.0],
         )
         .map_err(StoreError::from)?;

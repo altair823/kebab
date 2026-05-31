@@ -83,6 +83,19 @@ fn embed_count(store: &SqliteStore, chunk_id: &str) -> i64 {
     .unwrap()
 }
 
+/// Count embedding rows whose chunk_id begins with `prefix`. Used to
+/// assert that *every* per-alias sentinel (`{id}#alias#0`, `#alias#1`, …)
+/// is gone, not just the legacy single `{id}#alias`.
+fn embed_count_prefix(store: &SqliteStore, prefix: &str) -> i64 {
+    let conn = store.read_conn();
+    conn.query_row(
+        "SELECT COUNT(*) FROM embedding_records WHERE chunk_id LIKE ? || '%'",
+        params![prefix],
+        |r| r.get::<_, i64>(0),
+    )
+    .unwrap()
+}
+
 /// V011 후 sentinel chunk_id(`chunks` 에 없는 id)로 `embedding_records` 를
 /// INSERT 해도 FK 위반 없이 성공해야 한다.
 #[test]
@@ -205,5 +218,123 @@ fn purge_except_doc_id_cleans_original_and_sentinel_embeddings() {
         embed_count(&store, &sentinel),
         0,
         "purge_except_doc_id: sentinel embedding_records 정리 (chunks FK 없음 → 명시 DELETE)"
+    );
+}
+
+/// Seed body chunk + its per-line alias sentinel embedding rows
+/// (`{c1}#alias#0`, `{c1}#alias#1`) plus the legacy `{c1}#alias`. Returns
+/// the chunk's bare id. Used by the PR #195 per-alias orphan regressions.
+fn seed_body_and_alias_sentinels(store: &SqliteStore, c1: &str) {
+    seed_chunk(store, c1);
+    store
+        .put_embedding_records_pending(&[
+            embed_row("e_orig_000000000000000000000000000", c1),
+            embed_row("e_alias0_00000000000000000000000", &format!("{c1}#alias#0")),
+            embed_row("e_alias1_00000000000000000000000", &format!("{c1}#alias#1")),
+            // legacy single sentinel (docs ingested before per-line split).
+            embed_row("e_alias_legacy_00000000000000000", &format!("{c1}#alias")),
+        ])
+        .unwrap();
+    store
+        .mark_embedding_records_committed(&[
+            "e_orig_000000000000000000000000000".to_string(),
+            "e_alias0_00000000000000000000000".to_string(),
+            "e_alias1_00000000000000000000000".to_string(),
+            "e_alias_legacy_00000000000000000".to_string(),
+        ])
+        .unwrap();
+}
+
+/// PR #195 MAJOR regression: alias dense 벡터가 단일 `{id}#alias` 에서 줄별
+/// `{id}#alias#0`, `#alias#1`, … 로 바뀐 뒤, `put_chunks` 재인제스트 시 명시
+/// DELETE 가 본문 + **모든** per-alias sentinel embedding_records 를 정리해야
+/// 한다. 이전 코드(`|| '#alias'` 정확 일치)는 `#alias#N` 을 놓쳐 누수했다.
+#[test]
+fn put_chunks_cleans_per_alias_sentinel_embeddings() {
+    let tmp = TempDir::new().unwrap();
+    let store = open_store(&tmp);
+    let c1 = "11111111111111111111111111111111";
+    seed_body_and_alias_sentinels(&store, c1);
+    assert_eq!(embed_count(&store, c1), 1);
+    assert_eq!(embed_count_prefix(&store, &format!("{c1}#alias")), 3);
+
+    let doc_id = DocumentId(DOC_ID.to_string());
+    let chunk = Chunk {
+        chunk_id: ChunkId(c1.to_string()),
+        doc_id: doc_id.clone(),
+        block_ids: Vec::new(),
+        text: "hi".to_string(),
+        heading_path: Vec::new(),
+        source_spans: Vec::new(),
+        token_estimate: 1,
+        chunker_version: ChunkerVersion("v1".to_string()),
+        policy_hash: "h".to_string(),
+        tokenized_korean_text: None,
+        aliases: None,
+    };
+    store.put_chunks(&doc_id, std::slice::from_ref(&chunk)).unwrap();
+
+    assert_eq!(
+        embed_count(&store, c1),
+        0,
+        "본문 embedding_records 정리 (CASCADE 대체)"
+    );
+    assert_eq!(
+        embed_count_prefix(&store, &format!("{c1}#alias")),
+        0,
+        "모든 per-alias sentinel embedding_records 정리 (#alias#N + legacy #alias)"
+    );
+}
+
+/// PR #195 MAJOR regression: parser-bump 재인제스트 경로
+/// (`purge_document_at_workspace_path_except_doc_id`)도 본문 + 모든 per-alias
+/// sentinel embedding_records 를 정리해야 한다.
+#[test]
+fn purge_except_doc_id_cleans_per_alias_sentinel_embeddings() {
+    let tmp = TempDir::new().unwrap();
+    let store = open_store(&tmp);
+    let c1 = "11111111111111111111111111111111";
+    seed_body_and_alias_sentinels(&store, c1); // doc DOC_ID @ 'x.md'
+    assert_eq!(embed_count(&store, c1), 1);
+    assert_eq!(embed_count_prefix(&store, &format!("{c1}#alias")), 3);
+
+    store
+        .purge_document_at_workspace_path_except_doc_id("x.md", "0000000000000000000000000000ffff")
+        .unwrap();
+
+    assert_eq!(embed_count(&store, c1), 0, "본문 정리");
+    assert_eq!(
+        embed_count_prefix(&store, &format!("{c1}#alias")),
+        0,
+        "모든 per-alias sentinel 정리 (#alias#N + legacy #alias)"
+    );
+}
+
+/// PR #195 MAJOR regression: 파일 삭제 sweep 경로
+/// (`purge_deleted_workspace_path`)도 본문 + 모든 per-alias sentinel
+/// embedding_records 를 정리해야 한다.
+#[test]
+fn purge_deleted_workspace_path_cleans_per_alias_sentinel_embeddings() {
+    let tmp = TempDir::new().unwrap();
+    let store = open_store(&tmp);
+    let c1 = "11111111111111111111111111111111";
+    seed_body_and_alias_sentinels(&store, c1); // doc DOC_ID @ 'x.md'
+    assert_eq!(embed_count(&store, c1), 1);
+    assert_eq!(embed_count_prefix(&store, &format!("{c1}#alias")), 3);
+
+    let returned = kebab_store_sqlite::purge_deleted_workspace_path(
+        &store,
+        &kebab_core::WorkspacePath("x.md".to_string()),
+    )
+    .unwrap();
+    // 반환된 body chunk_ids 는 kebab-app 이 LanceDB 측 별칭 sentinel 까지
+    // 삭제하는 데 쓰인다(`alias_sentinel_ids_to_delete`). 본문 1개.
+    assert_eq!(returned.len(), 1);
+
+    assert_eq!(embed_count(&store, c1), 0, "본문 정리");
+    assert_eq!(
+        embed_count_prefix(&store, &format!("{c1}#alias")),
+        0,
+        "모든 per-alias sentinel 정리 (#alias#N + legacy #alias)"
     );
 }
