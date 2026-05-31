@@ -683,6 +683,20 @@ ajv-cli validate -s docs/wire-schema/v1/<schema>.schema.json -d <output>
 
 ---
 
+### config migrate (스키마 마이그레이션, v0.21.1)
+
+```bash
+# 옛 스키마 흉내(섹션 누락 + deprecated) 후 migrate.
+printf 'schema_version = 1\n\n[workspace]\nroot = "~/MyNotes"\ninclude = ["*.md"]\n\n[search]\ndefault_k = 25\n' \
+  > "$DOGFOOD/old.toml"
+"$RELEASE_BIN" --config "$DOGFOOD/old.toml" config migrate --dry-run    # 미리보기, 파일 미수정
+"$RELEASE_BIN" --config "$DOGFOOD/old.toml" config migrate              # .bak + 빠진 섹션 주석과 함께 추가
+"$RELEASE_BIN" --config "$DOGFOOD/old.toml" config migrate              # 멱등
+"$RELEASE_BIN" --config "$DOGFOOD/old.toml" doctor | grep config_migration  # ok 확인
+```
+
+기대: dry-run 파일 미수정 → apply 시 `old.toml.bak`(원본 byte-identical) + `[ingest.expansion]`·`[logging]`·`[pdf.ocr]` 가시화 + 손본 `default_k`/주석 보존 + `workspace.include` 제거 → 재실행 멱등 → doctor `config_migration` ok. v0.21.1 evidence 는 `tasks/HOTFIXES.md` 2026-05-31.
+
 ## §10 Eval (P5)
 
 ### §10.1 Basic eval run

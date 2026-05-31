@@ -690,6 +690,20 @@ KB --json schema | jq '.stats.code_lang_breakdown'
 - OCR / caption 부분 실패는 `errors` 카운터 미증가 — `kebab inspect doc <id>` 의 Provenance Warning 이벤트 또는 `--debug` 로그에서만 확인.
 - (P7-3) `*.pdf` 자산을 워크스페이스에 두면 `kebab ingest` 출력에 PDF 도 `new` 카운터에 포함. `kebab inspect doc <pdf_doc_id>` 가 `parser_version = "pdf-text-v1"` + 페이지마다 `Block::Paragraph` + `SourceSpan::Page { page, char_start, char_end }`. 본문에 등장하는 단어로 `kebab search --mode hybrid` 시 PDF chunk 가 결과에 포함되고 `source_span.kind = "page"` 면 wiring 정상. 암호화 PDF 는 `errors+=1` 로 분류되며 `error` 필드에 `qpdf --decrypt` 안내 보존. 빈/스캔 페이지 (PDF 가 텍스트를 추출하지 못한 페이지) 는 0 chunk + `Provenance::Warning` ("scanned candidate") 로 표시 — P+ scanned-PDF OCR fallback 까지는 검색 불가.
 
+## config migrate (마이그레이션)
+
+```bash
+# 옛 스키마처럼 섹션이 빠진 config 를 흉내내 migrate 동작 확인.
+printf 'schema_version = 1\n\n[workspace]\nroot = "/tmp/kb"\ninclude = ["*.md"]\n' \
+  > /tmp/kebab-smoke/old.toml
+kebab --config /tmp/kebab-smoke/old.toml config migrate --dry-run   # 변경 미리보기 (파일 미수정)
+kebab --config /tmp/kebab-smoke/old.toml config migrate             # 적용 (.bak 백업)
+kebab --config /tmp/kebab-smoke/old.toml config migrate             # 멱등: "config 이미 최신입니다"
+kebab --config /tmp/kebab-smoke/old.toml --json config migrate --dry-run | jq .schema_version
+```
+
+기대: dry-run 은 추가될 섹션(`[ingest.expansion]`·`[logging]` 등)과 제거될 `workspace.include` 를 출력하고 **파일을 수정하지 않는다**. 적용 시 `old.toml.bak`(원본과 동일)이 생기고 빠진 섹션이 주석과 함께 추가되며 사용자가 손본 값·주석은 보존된다. 재실행은 멱등(`config 이미 최신입니다`), `--json` 은 `config_migration.v1`.
+
 ## 정리
 
 ```bash
