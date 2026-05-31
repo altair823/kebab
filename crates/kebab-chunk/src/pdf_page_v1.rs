@@ -177,6 +177,7 @@ impl Chunker for PdfPageV1Chunker {
                     token_estimate,
                     chunker_version: chunker_version.clone(),
                     policy_hash: base_policy_hash.clone(),
+                    aliases: None,
                 });
             }
         }

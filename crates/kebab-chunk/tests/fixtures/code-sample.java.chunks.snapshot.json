@@ -1,5 +1,6 @@
 [
   {
+    "aliases": null,
     "block_ids": [
       "03d62d5e6fe70e2b05546e2e65001238"
     ],
@@ -22,6 +23,7 @@
     "tokenized_korean_text": "import java . util . List ; import java . util . Map ; import java . util . ArrayList ; import java . util . HashMap ; import java . util . stream . Collectors ;"
   },
   {
+    "aliases": null,
     "block_ids": [
       "bbd220978bbe6cf920664d0d4007a1eb"
     ],
@@ -44,6 +46,7 @@
     "tokenized_korean_text": "public static double computeMRR ( List < Double > scores ) { if ( scores . isEmpty ( ) ) { return 0 . 0 ; } return 1 . 0 / scores . size (); }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "484d1abcad06dabb45c81284ad887a25"
     ],
@@ -66,6 +69,7 @@
     "tokenized_korean_text": "public class MetricsCollector { private List < Double > scores ; private List < String > labels ; private Map < String , Integer > counts ; private Map < String , Double > totals ; private List < String > tags ; }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "8b1cb841f509de0ce14425e09bd959ad"
     ],
@@ -88,6 +92,7 @@
     "tokenized_korean_text": "public class BaseEvaluator { private String name ; public BaseEvaluator ( String name ) { this . name = name ; } public void evaluate ( List < String > data ) throws Exception { String joined = String . join (\",\", data ); } }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "761545865918f8f5e94aa346c9bb2012"
     ],
@@ -110,6 +115,7 @@
     "tokenized_korean_text": "public void run ( List < Double > inputs ) { for ( Double inp : inputs ) { scores . add ( inp ); } }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "bc2f4d65b9b2d43adbfb352e6e0d4d3c"
     ],
@@ -132,6 +138,7 @@
     "tokenized_korean_text": "public Map < String , Object > report ( ) { Map < String , Object > result = new HashMap <>(); result . put (\" mean \", 0 . 0 ); result . put (\" count \", scores . size ()); result . put (\" tags \", tags ); return result ; }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "f22ed2da0b1c3d24cc606aebd24bf6d1"
     ],
@@ -154,6 +161,7 @@
     "tokenized_korean_text": "public class BigCompute { public int compute ( int [ ] data ) { int v 0 = 0 < data . length ? data [ 0 ] : 0 ; int v 1 = 1 < data . length ? data [ 1 ] : 0 ; int v 2 = 2 < data . length ? data [ 2 ] : 0 ; int v 3 = 3 < data . length ? data [ 3 ] : 0 ; int v 4 = 4 < data . length ? data [ 4 ] : 0 ; int v 5 = 5 < data . length ? data [ 5 ] : 0 ; int v 6 = 6 < data . length ? data [ 6 ] : 0 ; int v 7 = 7 < data . length ? data [ 7 ] : 0 ; int v 8 = 8 < data . length ? data [ 8 ] : 0 ; int v 9 = 9 < data . length ? data [ 9 ] : 0 ; int v 10 = 10 < data . length ? data [ 10 ] : 0 ; int v 11 = 11 < data . length ? data [ 11 ] : 0 ; int v 12 = 12 < data . length ? data [ 12 ] : 0 ; int v 13 = 13 < data . length ? data [ 13 ] : 0 ; int v 14 = 14 < data . length ? data [ 14 ] : 0 ; int v 15 = 15 < data . length ? data [ 15 ] : 0 ; int v 16 = 16 < data . length ? data [ 16 ] : 0 ; int v 17 = 17 < data . length ? data [ 17 ] : 0 ; int v 18 = 18 < data . length ? data [ 18 ] : 0 ; int v 19 = 19 < data . length ? data [ 19 ] : 0 ; int v 20 = 20 < data . length ? data [ 20 ] : 0 ; int v 21 = 21 < data . length ? data [ 21 ] : 0 ; int v 22 = 22 < data . length ? data [ 22 ] : 0 ; int v 23 = 23 < data . length ? data [ 23 ] : 0 ; int v 24 = 24 < data . length ? data [ 24 ] : 0 ; int v 25 = 25 < data . length ? data [ 25 ] : 0 ; int v 26 = 26 < data . length ? data [ 26 ] : 0 ; int v 27 = 27 < data . length ? data [ 27 ] : 0 ; int v 28 = 28 < data . length ? data [ 28 ] : 0 ; int v 29 = 29 < data . length ? data [ 29 ] : 0 ; int v 30 = 30 < data . length ? data [ 30 ] : 0 ; int v 31 = 31 < data . length ? data [ 31 ] : 0 ; int v 32 = 32 < data . length ? data [ 32 ] : 0 ; int v 33 = 33 < data . length ? data [ 33 ] : 0 ; int v 34 = 34 < data . length ? data [ 34 ] : 0 ; int v 35 = 35 < data . length ? data [ 35 ] : 0 ; int v 36 = 36 < data . length ? data [ 36 ] : 0 ; int v 37 = 37 < data . length ? data [ 37 ] : 0 ; int v 38 = 38 < data . length ? data [ 38 ] : 0 ; int v 39 = 39 < data . length ? data [ 39 ] : 0 ; int v 40 = 40 < data . length ? data [ 40 ] : 0 ; int v 41 = 41 < data . length ? data [ 41 ] : 0 ; int v 42 = 42 < data . length ? data [ 42 ] : 0 ; int v 43 = 43 < data . length ? data [ 43 ] : 0 ; int v 44 = 44 < data . length ? data [ 44 ] : 0 ; int v 45 = 45 < data . length ? data [ 45 ] : 0 ; int v 46 = 46 < data . length ? data [ 46 ] : 0 ; int v 47 = 47 < data . length ? data [ 47 ] : 0 ; int v 48 = 48 < data . length ? data [ 48 ] : 0 ; int v 49 = 49 < data . length ? data [ 49 ] : 0 ; int v 50 = 50 < data . length ? data [ 50 ] : 0 ; int v 51 = 51 < data . length ? data [ 51 ] : 0 ; int v 52 = 52 < data . length ? data [ 52 ] : 0 ; int v 53 = 53 < data . length ? data [ 53 ] : 0 ; int v 54 = 54 < data . length ? data [ 54 ] : 0 ; int v 55 = 55 < data . length ? data [ 55 ] : 0 ; int v 56 = 56 < data . length ? data [ 56 ] : 0 ; int v 57 = 57 < data . length ? data [ 57 ] : 0 ; int v 58 = 58 < data . length ? data [ 58 ] : 0 ; int v 59 = 59 < data . length ? data [ 59 ] : 0 ; int v 60 = 60 < data . length ? data [ 60 ] : 0 ; int v 61 = 61 < data . length ? data [ 61 ] : 0 ; int v 62 = 62 < data . length ? data [ 62 ] : 0 ; int v 63 = 63 < data . length ? data [ 63 ] : 0 ; int v 64 = 64 < data . length ? data [ 64 ] : 0 ; int v 65 = 65 < data . length ? data [ 65 ] : 0 ; int v 66 = 66 < data . length ? data [ 66 ] : 0 ; int v 67 = 67 < data . length ? data [ 67 ] : 0 ; int v 68 = 68 < data . length ? data [ 68 ] : 0 ; int v 69 = 69 < data . length ? data [ 69 ] : 0 ; int v 70 = 70 < data . length ? data [ 70 ] : 0 ; int v 71 = 71 < data . length ? data [ 71 ] : 0 ; int v 72 = 72 < data . length ? data [ 72 ] : 0 ; int v 73 = 73 < data . length ? data [ 73 ] : 0 ; int v 74 = 74 < data . length ? data [ 74 ] : 0 ; int v 75 = 75 < data . length ? data [ 75 ] : 0 ; int v 76 = 76 < data . length ? data [ 76 ] : 0 ; int v 77 = 77 < data . length ? data [ 77 ] : 0 ; int v 78 = 78 < data . length ? data [ 78 ] : 0 ; int v 79 = 79 < data . length ? data [ 79 ] : 0 ; int v 80 = 80 < data . length ? data [ 80 ] : 0 ; int v 81 = 81 < data . length ? data [ 81 ] : 0 ; int v 82 = 82 < data . length ? data [ 82 ] : 0 ; int v 83 = 83 < data . length ? data [ 83 ] : 0 ; int v 84 = 84 < data . length ? data [ 84 ] : 0 ; int v 85 = 85 < data . length ? data [ 85 ] : 0 ; int v 86 = 86 < data . length ? data [ 86 ] : 0 ; int v 87 = 87 < data . length ? data [ 87 ] : 0 ; int v 88 = 88 < data . length ? data [ 88 ] : 0 ; int v 89 = 89 < data . length ? data [ 89 ] : 0 ; int v 90 = 90 < data . length ? data [ 90 ] : 0 ; int v 91 = 91 < data . length ? data [ 91 ] : 0 ; int v 92 = 92 < data . length ? data [ 92 ] : 0 ; int v 93 = 93 < data . length ? data [ 93 ] : 0 ; int v 94 = 94 < data . length ? data [ 94 ] : 0 ; int v 95 = 95 < data . length ? data [ 95 ] : 0 ; int v 96 = 96 < data . length ? data [ 96 ] : 0 ; int v 97 = 97 < data . length ? data [ 97 ] : 0 ; int v 98 = 98 < data . length ? data [ 98 ] : 0 ; int v 99 = 99 < data . length ? data [ 99 ] : 0 ; int v 100 = 100 < data . length ? data [ 100 ] : 0 ; int v 101 = 101 < data . length ? data [ 101 ] : 0 ; int v 102 = 102 < data . length ? data [ 102 ] : 0 ; int v 103 = 103 < data . length ? data [ 103 ] : 0 ; int v 104 = 104 < data . length ? data [ 104 ] : 0 ; int v 105 = 105 < data . length ? data [ 105 ] : 0 ; int v 106 = 106 < data . length ? data [ 106 ] : 0 ; int v 107 = 107 < data . length ? data [ 107 ] : 0 ; int v 108 = 108 < data . length ? data [ 108 ] : 0 ; int v 109 = 109 < data . length ? data [ 109 ] : 0 ; int v 110 = 110 < data . length ? data [ 110 ] : 0 ; int v 111 = 111 < data . length ? data [ 111 ] : 0 ; int v 112 = 112 < data . length ? data [ 112 ] : 0 ; int v 113 = 113 < data . length ? data [ 113 ] : 0 ; int v 114 = 114 < data . length ? data [ 114 ] : 0 ; int v 115 = 115 < data . length ? data [ 115 ] : 0 ; int v 116 = 116 < data . length ? data [ 116 ] : 0 ; int v 117 = 117 < data . length ? data [ 117 ] : 0 ; int v 118 = 118 < data . length ? data [ 118 ] : 0 ; int v 119 = 119 < data . length ? data [ 119 ] : 0 ; int v 120 = 120 < data . length ? data [ 120 ] : 0 ; int v 121 = 121 < data . length ? data [ 121 ] : 0 ; int v 122 = 122 < data . length ? data [ 122 ] : 0 ; int v 123 = 123 < data . length ? data [ 123 ] : 0 ; int v 124 = 124 < data . length ? data [ 124 ] : 0 ; int v 125 = 125 < data . length ? data [ 125 ] : 0 ; int v 126 = 126 < data . length ? data [ 126 ] : 0 ; int v 127 = 127 < data . length ? data [ 127 ] : 0 ; int v 128 = 128 < data . length ? data [ 128 ] : 0 ; int v 129 = 129 < data . length ? data [ 129 ] : 0 ; int v 130 = 130 < data . length ? data [ 130 ] : 0 ; int v 131 = 131 < data . length ? data [ 131 ] : 0 ; int v 132 = 132 < data . length ? data [ 132 ] : 0 ; int v 133 = 133 < data . length ? data [ 133 ] : 0 ; int v 134 = 134 < data . length ? data [ 134 ] : 0 ; int v 135 = 135 < data . length ? data [ 135 ] : 0 ; int v 136 = 136 < data . length ? data [ 136 ] : 0 ; int v 137 = 137 < data . length ? data [ 137 ] : 0 ; int v 138 = 138 < data . length ? data [ 138 ] : 0 ; int v 139 = 139 < data . length ? data [ 139 ] : 0 ; int v 140 = 140 < data . length ? data [ 140 ] : 0 ; int v 141 = 141 < data . length ? data [ 141 ] : 0 ; int v 142 = 142 < data . length ? data [ 142 ] : 0 ; int v 143 = 143 < data . length ? data [ 143 ] : 0 ; int v 144 = 144 < data . length ? data [ 144 ] : 0 ; int v 145 = 145 < data . length ? data [ 145 ] : 0 ; int v 146 = 146 < data . length ? data [ 146 ] : 0 ; int v 147 = 147 < data . length ? data [ 147 ] : 0 ; int v 148 = 148 < data . length ? data [ 148 ] : 0 ; int v 149 = 149 < data . length ? data [ 149 ] : 0 ; int v 150 = 150 < data . length ? data [ 150 ] : 0 ; int v 151 = 151 < data . length ? data [ 151 ] : 0 ; int v 152 = 152 < data . length ? data [ 152 ] : 0 ; int v 153 = 153 < data . length ? data [ 153 ] : 0 ; int v 154 = 154 < data . length ? data [ 154 ] : 0 ; int v 155 = 155 < data . length ? data [ 155 ] : 0 ; int v 156 = 156 < data . length ? data [ 156 ] : 0 ; int v 157 = 157 < data . length ? data [ 157 ] : 0 ; int v 158 = 158 < data . length ? data [ 158 ] : 0 ; int v 159 = 159 < data . length ? data [ 159 ] : 0 ; int v 160 = 160 < data . length ? data [ 160 ] : 0 ; int v 161 = 161 < data . length ? data [ 161 ] : 0 ; int v 162 = 162 < data . length ? data [ 162 ] : 0 ; int v 163 = 163 < data . length ? data [ 163 ] : 0 ; int v 164 = 164 < data . length ? data [ 164 ] : 0 ; int v 165 = 165 < data . length ? data [ 165 ] : 0 ; int v 166 = 166 < data . length ? data [ 166 ] : 0 ; int v 167 = 167 < data . length ? data [ 167 ] : 0 ; int v 168 = 168 < data . length ? data [ 168 ] : 0 ; int v 169 = 169 < data . length ? data [ 169 ] : 0 ; int v 170 = 170 < data . length ? data [ 170 ] : 0 ; int v 171 = 171 < data . length ? data [ 171 ] : 0 ; int v 172 = 172 < data . length ? data [ 172 ] : 0 ; int v 173 = 173 < data . length ? data [ 173 ] : 0 ; int v 174 = 174 < data . length ? data [ 174 ] : 0 ; int v 175 = 175 < data . length ? data [ 175 ] : 0 ; int v 176 = 176 < data . length ? data [ 176 ] : 0 ; int v 177 = 177 < data . length ? data [ 177 ] : 0 ; int v 178 = 178 < data . length ? data [ 178 ] : 0 ; int v 179 = 179 < data . length ? data [ 179 ] : 0 ; int v 180 = 180 < data . length ? data [ 180 ] : 0 ; int v 181 = 181 < data . length ? data [ 181 ] : 0 ; int v 182 = 182 < data . length ? data [ 182 ] : 0 ; int v 183 = 183 < data . length ? data [ 183 ] : 0 ; int v 184 = 184 < data . length ? data [ 184 ] : 0 ; int v 185 = 185 < data . length ? data [ 185 ] : 0 ; int v 186 = 186 < data . length ? data [ 186 ] : 0 ; int v 187 = 187 < data . length ? data [ 187 ] : 0 ; int v 188 = 188 < data . length ? data [ 188 ] : 0 ; int v 189 = 189 < data . length ? data [ 189 ] : 0 ; int v 190 = 190 < data . length ? data [ 190 ] : 0 ; int v 191 = 191 < data . length ? data [ 191 ] : 0 ; int v 192 = 192 < data . length ? data [ 192 ] : 0 ; int v 193 = 193 < data . length ? data [ 193 ] : 0 ; int v 194 = 194 < data . length ? data [ 194 ] : 0 ; int v 195 = 195 < data . length ? data [ 195 ] : 0 ; int v 196 = 196 < data . length ? data [ 196 ] : 0 ; int v 197 = 197 < data . length ? data [ 197 ] : 0 ;"
   },
   {
+    "aliases": null,
     "block_ids": [
       "f22ed2da0b1c3d24cc606aebd24bf6d1"
     ],

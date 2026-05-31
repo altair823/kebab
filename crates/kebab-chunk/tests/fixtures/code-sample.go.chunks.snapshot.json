@@ -1,5 +1,6 @@
 [
   {
+    "aliases": null,
     "block_ids": [
       "c182bf37e32c7fc1b868bd617f8eaf66"
     ],
@@ -22,6 +23,7 @@
     "tokenized_korean_text": "import ( \" fmt \" \" os \" \" strings \" )"
   },
   {
+    "aliases": null,
     "block_ids": [
       "c9992cdcfdf3c2a7700a4abc4782a8a4"
     ],
@@ -44,6 +46,7 @@
     "tokenized_korean_text": "func ComputeMRR ( scores [ ] float 64 ) float 64 { if len ( scores ) == 0 { return 0 . 0 } _ = fmt . Sprintf (\"% v \", scores ) return 1 . 0 / float 64 ( len ( scores ) ) }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "5f18dc3e79fe946ba05d32c3bfc00684"
     ],
@@ -66,6 +69,7 @@
     "tokenized_korean_text": "type MetricsCollector struct { Scores [ ] float 64 Labels [ ] string Counts map [ string ] int Totals map [ string ] float 64 Tags [ ] string }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "3009cc022ca832c323393e4f9bcdb388"
     ],
@@ -88,6 +92,7 @@
     "tokenized_korean_text": "type BaseEvaluator struct { Name string } func ( e * BaseEvaluator ) Evaluate ( data [ ] string ) error { _ = os . Stderr _ = strings . Join ( data , \",\") return nil }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "e0e83d1d7f9327a1902ae9a8f67c1f1c"
     ],
@@ -110,6 +115,7 @@
     "tokenized_korean_text": "func ( m * MetricsCollector ) Run ( inputs [ ] float 64 ) { for _, inp := range inputs { m . Scores = append ( m . Scores , inp , ) } }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "0e6a572bc3fe2bd6d173fe614bd1b763"
     ],
@@ -132,6 +138,7 @@
     "tokenized_korean_text": "func ( m * MetricsCollector ) Report ( ) map [ string ] interface {} { return map [ string ] interface {}{ \" mean \": 0 . 0 , \" count \": len ( m . Scores ) , \" tags \": m . Tags , } }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "5d269745b2e5dbdcbef0c09ba54b0bd6"
     ],
@@ -154,6 +161,7 @@
     "tokenized_korean_text": "func BigCompute ( data [ ] int ) int { v 0 := 0 if 0 < len ( data ) { v 0 = data [ 0 ] } v 1 := 0 if 1 < len ( data ) { v 1 = data [ 1 ] } v 2 := 0 if 2 < len ( data ) { v 2 = data [ 2 ] } v 3 := 0 if 3 < len ( data ) { v 3 = data [ 3 ] } v 4 := 0 if 4 < len ( data ) { v 4 = data [ 4 ] } v 5 := 0 if 5 < len ( data ) { v 5 = data [ 5 ] } v 6 := 0 if 6 < len ( data ) { v 6 = data [ 6 ] } v 7 := 0 if 7 < len ( data ) { v 7 = data [ 7 ] } v 8 := 0 if 8 < len ( data ) { v 8 = data [ 8 ] } v 9 := 0 if 9 < len ( data ) { v 9 = data [ 9 ] } v 10 := 0 if 10 < len ( data ) { v 10 = data [ 10 ] } v 11 := 0 if 11 < len ( data ) { v 11 = data [ 11 ] } v 12 := 0 if 12 < len ( data ) { v 12 = data [ 12 ] } v 13 := 0 if 13 < len ( data ) { v 13 = data [ 13 ] } v 14 := 0 if 14 < len ( data ) { v 14 = data [ 14 ] } v 15 := 0 if 15 < len ( data ) { v 15 = data [ 15 ] } v 16 := 0 if 16 < len ( data ) { v 16 = data [ 16 ] } v 17 := 0 if 17 < len ( data ) { v 17 = data [ 17 ] } v 18 := 0 if 18 < len ( data ) { v 18 = data [ 18 ] } v 19 := 0 if 19 < len ( data ) { v 19 = data [ 19 ] } v 20 := 0 if 20 < len ( data ) { v 20 = data [ 20 ] } v 21 := 0 if 21 < len ( data ) { v 21 = data [ 21 ] } v 22 := 0 if 22 < len ( data ) { v 22 = data [ 22 ] } v 23 := 0 if 23 < len ( data ) { v 23 = data [ 23 ] } v 24 := 0 if 24 < len ( data ) { v 24 = data [ 24 ] } v 25 := 0 if 25 < len ( data ) { v 25 = data [ 25 ] } v 26 := 0 if 26 < len ( data ) { v 26 = data [ 26 ] } v 27 := 0 if 27 < len ( data ) { v 27 = data [ 27 ] } v 28 := 0 if 28 < len ( data ) { v 28 = data [ 28 ] } v 29 := 0 if 29 < len ( data ) { v 29 = data [ 29 ] } v 30 := 0 if 30 < len ( data ) { v 30 = data [ 30 ] } v 31 := 0 if 31 < len ( data ) { v 31 = data [ 31 ] } v 32 := 0 if 32 < len ( data ) { v 32 = data [ 32 ] } v 33 := 0 if 33 < len ( data ) { v 33 = data [ 33 ] } v 34 := 0 if 34 < len ( data ) { v 34 = data [ 34 ] } v 35 := 0 if 35 < len ( data ) { v 35 = data [ 35 ] } v 36 := 0 if 36 < len ( data ) { v 36 = data [ 36 ] } v 37 := 0 if 37 < len ( data ) { v 37 = data [ 37 ] } v 38 := 0 if 38 < len ( data ) { v 38 = data [ 38 ] } v 39 := 0 if 39 < len ( data ) { v 39 = data [ 39 ] } v 40 := 0 if 40 < len ( data ) { v 40 = data [ 40 ] } v 41 := 0 if 41 < len ( data ) { v 41 = data [ 41 ] } v 42 := 0 if 42 < len ( data ) { v 42 = data [ 42 ] } v 43 := 0 if 43 < len ( data ) { v 43 = data [ 43 ] } v 44 := 0 if 44 < len ( data ) { v 44 = data [ 44 ] } v 45 := 0 if 45 < len ( data ) { v 45 = data [ 45 ] } v 46 := 0 if 46 < len ( data ) { v 46 = data [ 46 ] } v 47 := 0 if 47 < len ( data ) { v 47 = data [ 47 ] } v 48 := 0 if 48 < len ( data ) { v 48 = data [ 48 ] } v 49 := 0 if 49 < len ( data ) { v 49 = data [ 49 ]"
   },
   {
+    "aliases": null,
     "block_ids": [
       "5d269745b2e5dbdcbef0c09ba54b0bd6"
     ],
@@ -176,6 +184,7 @@
     "tokenized_korean_text": "} v 50 := 0 if 50 < len ( data ) { v 50 = data [ 50 ] } v 51 := 0 if 51 < len ( data ) { v 51 = data [ 51 ] } v 52 := 0 if 52 < len ( data ) { v 52 = data [ 52 ] } v 53 := 0 if 53 < len ( data ) { v 53 = data [ 53 ] } v 54 := 0 if 54 < len ( data ) { v 54 = data [ 54 ] } v 55 := 0 if 55 < len ( data ) { v 55 = data [ 55 ] } v 56 := 0 if 56 < len ( data ) { v 56 = data [ 56 ] } v 57 := 0 if 57 < len ( data ) { v 57 = data [ 57 ] } v 58 := 0 if 58 < len ( data ) { v 58 = data [ 58 ] } v 59 := 0 if 59 < len ( data ) { v 59 = data [ 59 ] } v 60 := 0 if 60 < len ( data ) { v 60 = data [ 60 ] } v 61 := 0 if 61 < len ( data ) { v 61 = data [ 61 ] } v 62 := 0 if 62 < len ( data ) { v 62 = data [ 62 ] } v 63 := 0 if 63 < len ( data ) { v 63 = data [ 63 ] } v 64 := 0 if 64 < len ( data ) { v 64 = data [ 64 ] } v 65 := 0 if 65 < len ( data ) { v 65 = data [ 65 ] } v 66 := 0 if 66 < len ( data ) { v 66 = data [ 66 ] } v 67 := 0 if 67 < len ( data ) { v 67 = data [ 67 ] } v 68 := 0 if 68 < len ( data ) { v 68 = data [ 68 ] } v 69 := 0 if 69 < len ( data ) { v 69 = data [ 69 ] } v 70 := 0 if 70 < len ( data ) { v 70 = data [ 70 ] } v 71 := 0 if 71 < len ( data ) { v 71 = data [ 71 ] } v 72 := 0 if 72 < len ( data ) { v 72 = data [ 72 ] } v 73 := 0 if 73 < len ( data ) { v 73 = data [ 73 ] } v 74 := 0 if 74 < len ( data ) { v 74 = data [ 74 ] } v 75 := 0 if 75 < len ( data ) { v 75 = data [ 75 ] } v 76 := 0 if 76 < len ( data ) { v 76 = data [ 76 ] } v 77 := 0 if 77 < len ( data ) { v 77 = data [ 77 ] } v 78 := 0 if 78 < len ( data ) { v 78 = data [ 78 ] } v 79 := 0 if 79 < len ( data ) { v 79 = data [ 79 ] } v 80 := 0 if 80 < len ( data ) { v 80 = data [ 80 ] } v 81 := 0 if 81 < len ( data ) { v 81 = data [ 81 ] } v 82 := 0 if 82 < len ( data ) { v 82 = data [ 82 ] } v 83 := 0 if 83 < len ( data ) { v 83 = data [ 83 ] } v 84 := 0 if 84 < len ( data ) { v 84 = data [ 84 ] } v 85 := 0 if 85 < len ( data ) { v 85 = data [ 85 ] } v 86 := 0 if 86 < len ( data ) { v 86 = data [ 86 ] } v 87 := 0 if 87 < len ( data ) { v 87 = data [ 87 ] } v 88 := 0 if 88 < len ( data ) { v 88 = data [ 88 ] } v 89 := 0 if 89 < len ( data ) { v 89 = data [ 89 ] } v 90 := 0 if 90 < len ( data ) { v 90 = data [ 90 ] } v 91 := 0 if 91 < len ( data ) { v 91 = data [ 91 ] } v 92 := 0 if 92 < len ( data ) { v 92 = data [ 92 ] } v 93 := 0 if 93 < len ( data ) { v 93 = data [ 93 ] } v 94 := 0 if 94 < len ( data ) { v 94 = data [ 94 ] } v 95 := 0 if 95 < len ( data ) { v 95 = data [ 95 ] } v 96 := 0 if 96 < len ( data ) { v 96 = data [ 96 ] } v 97 := 0 if 97 < len ( data ) { v 97 = data [ 97 ] } v 98 := 0 if 98 < len ( data ) { v 98 = data [ 98 ] } v 99 := 0 if 99 < len ( data ) { v 99 = data [ 99 ]"
   },
   {
+    "aliases": null,
     "block_ids": [
       "5d269745b2e5dbdcbef0c09ba54b0bd6"
     ],
@@ -198,6 +207,7 @@
     "tokenized_korean_text": "} v 100 := 0 if 100 < len ( data ) { v 100 = data [ 100 ] } v 101 := 0 if 101 < len ( data ) { v 101 = data [ 101 ] } v 102 := 0 if 102 < len ( data ) { v 102 = data [ 102 ] } v 103 := 0 if 103 < len ( data ) { v 103 = data [ 103 ] } v 104 := 0 if 104 < len ( data ) { v 104 = data [ 104 ] } v 105 := 0 if 105 < len ( data ) { v 105 = data [ 105 ] } v 106 := 0 if 106 < len ( data ) { v 106 = data [ 106 ] } v 107 := 0 if 107 < len ( data ) { v 107 = data [ 107 ] } v 108 := 0 if 108 < len ( data ) { v 108 = data [ 108 ] } v 109 := 0 if 109 < len ( data ) { v 109 = data [ 109 ] } v 110 := 0 if 110 < len ( data ) { v 110 = data [ 110 ] } v 111 := 0 if 111 < len ( data ) { v 111 = data [ 111 ] } v 112 := 0 if 112 < len ( data ) { v 112 = data [ 112 ] } v 113 := 0 if 113 < len ( data ) { v 113 = data [ 113 ] } v 114 := 0 if 114 < len ( data ) { v 114 = data [ 114 ] } v 115 := 0 if 115 < len ( data ) { v 115 = data [ 115 ] } v 116 := 0 if 116 < len ( data ) { v 116 = data [ 116 ] } v 117 := 0 if 117 < len ( data ) { v 117 = data [ 117 ] } v 118 := 0 if 118 < len ( data ) { v 118 = data [ 118 ] } v 119 := 0 if 119 < len ( data ) { v 119 = data [ 119 ] } v 120 := 0 if 120 < len ( data ) { v 120 = data [ 120 ] } v 121 := 0 if 121 < len ( data ) { v 121 = data [ 121 ] } v 122 := 0 if 122 < len ( data ) { v 122 = data [ 122 ] } v 123 := 0 if 123 < len ( data ) { v 123 = data [ 123 ] } v 124 := 0 if 124 < len ( data ) { v 124 = data [ 124 ] } v 125 := 0 if 125 < len ( data ) { v 125 = data [ 125 ] } v 126 := 0 if 126 < len ( data ) { v 126 = data [ 126 ] } v 127 := 0 if 127 < len ( data ) { v 127 = data [ 127 ] } v 128 := 0 if 128 < len ( data ) { v 128 = data [ 128 ] } v 129 := 0 if 129 < len ( data ) { v 129 = data [ 129 ] } v 130 := 0 if 130 < len ( data ) { v 130 = data [ 130 ] } v 131 := 0 if 131 < len ( data ) { v 131 = data [ 131 ] } v 132 := 0 if 132 < len ( data ) { v 132 = data [ 132 ] } v 133 := 0 if 133 < len ( data ) { v 133 = data [ 133 ] } v 134 := 0 if 134 < len ( data ) { v 134 = data [ 134 ] } v 135 := 0 if 135 < len ( data ) { v 135 = data [ 135 ] } v 136 := 0 if 136 < len ( data ) { v 136 = data [ 136 ] } v 137 := 0 if 137 < len ( data ) { v 137 = data [ 137 ] } v 138 := 0 if 138 < len ( data ) { v 138 = data [ 138 ] } v 139 := 0 if 139 < len ( data ) { v 139 = data [ 139 ] } v 140 := 0 if 140 < len ( data ) { v 140 = data [ 140 ] } v 141 := 0 if 141 < len ( data ) { v 141 = data [ 141 ] } v 142 := 0 if 142 < len ( data ) { v 142 = data [ 142 ] } v 143 := 0 if 143 < len ( data ) { v 143 = data [ 143 ] } v 144 := 0 if 144 < len ( data ) { v 144 = data [ 144 ] } v 145 := 0 if 145 < len ( data ) { v 145 = data [ 145 ] } v 146 := 0 if 146 < len ( data ) { v 146 = data [ 146 ] } v 147 := 0 if 147 < len ( data ) { v 147 = data [ 147 ] } v 148 := 0 if 148 < len ( data ) { v 148 = data [ 148 ] } v 149 := 0 if 149 < len ( data ) { v 149 = data [ 149 ]"
   },
   {
+    "aliases": null,
     "block_ids": [
       "5d269745b2e5dbdcbef0c09ba54b0bd6"
     ],
@@ -220,6 +230,7 @@
     "tokenized_korean_text": "} v 150 := 0 if 150 < len ( data ) { v 150 = data [ 150 ] } v 151 := 0 if 151 < len ( data ) { v 151 = data [ 151 ] } v 152 := 0 if 152 < len ( data ) { v 152 = data [ 152 ] } v 153 := 0 if 153 < len ( data ) { v 153 = data [ 153 ] } v 154 := 0 if 154 < len ( data ) { v 154 = data [ 154 ] } v 155 := 0 if 155 < len ( data ) { v 155 = data [ 155 ] } v 156 := 0 if 156 < len ( data ) { v 156 = data [ 156 ] } v 157 := 0 if 157 < len ( data ) { v 157 = data [ 157 ] } v 158 := 0 if 158 < len ( data ) { v 158 = data [ 158 ] } v 159 := 0 if 159 < len ( data ) { v 159 = data [ 159 ] } v 160 := 0 if 160 < len ( data ) { v 160 = data [ 160 ] } v 161 := 0 if 161 < len ( data ) { v 161 = data [ 161 ] } v 162 := 0 if 162 < len ( data ) { v 162 = data [ 162 ] } v 163 := 0 if 163 < len ( data ) { v 163 = data [ 163 ] } v 164 := 0 if 164 < len ( data ) { v 164 = data [ 164 ] } v 165 := 0 if 165 < len ( data ) { v 165 = data [ 165 ] } v 166 := 0 if 166 < len ( data ) { v 166 = data [ 166 ] } v 167 := 0 if 167 < len ( data ) { v 167 = data [ 167 ] } v 168 := 0 if 168 < len ( data ) { v 168 = data [ 168 ] } v 169 := 0 if 169 < len ( data ) { v 169 = data [ 169 ] } v 170 := 0 if 170 < len ( data ) { v 170 = data [ 170 ] } v 171 := 0 if 171 < len ( data ) { v 171 = data [ 171 ] } v 172 := 0 if 172 < len ( data ) { v 172 = data [ 172 ] } v 173 := 0 if 173 < len ( data ) { v 173 = data [ 173 ] } v 174 := 0 if 174 < len ( data ) { v 174 = data [ 174 ] } v 175 := 0 if 175 < len ( data ) { v 175 = data [ 175 ] } v 176 := 0 if 176 < len ( data ) { v 176 = data [ 176 ] } v 177 := 0 if 177 < len ( data ) { v 177 = data [ 177 ] } v 178 := 0 if 178 < len ( data ) { v 178 = data [ 178 ] } v 179 := 0 if 179 < len ( data ) { v 179 = data [ 179 ] } v 180 := 0 if 180 < len ( data ) { v 180 = data [ 180 ] } v 181 := 0 if 181 < len ( data ) { v 181 = data [ 181 ] } v 182 := 0 if 182 < len ( data ) { v 182 = data [ 182 ] } v 183 := 0 if 183 < len ( data ) { v 183 = data [ 183 ] } v 184 := 0 if 184 < len ( data ) { v 184 = data [ 184 ] } v 185 := 0 if 185 < len ( data ) { v 185 = data [ 185 ] } v 186 := 0 if 186 < len ( data ) { v 186 = data [ 186 ] } v 187 := 0 if 187 < len ( data ) { v 187 = data [ 187 ] } v 188 := 0 if 188 < len ( data ) { v 188 = data [ 188 ] } v 189 := 0 if 189 < len ( data ) { v 189 = data [ 189 ] } v 190 := 0 if 190 < len ( data ) { v 190 = data [ 190 ] } v 191 := 0 if 191 < len ( data ) { v 191 = data [ 191 ] } v 192 := 0 if 192 < len ( data ) { v 192 = data [ 192 ] } v 193 := 0 if 193 < len ( data ) { v 193 = data [ 193 ] } v 194 := 0 if 194 < len ( data ) { v 194 = data [ 194 ] } v 195 := 0 if 195 < len ( data ) { v 195 = data [ 195 ] } v 196 := 0 if 196 < len ( data ) { v 196 = data [ 196 ] } v 197 := 0 if 197 < len ( data ) { v 197 = data [ 197 ] } v 198 := 0 if 198 < len ( data ) { v 198 = data [ 198 ] } v 199 := 0 if 199 < len ( data ) { v 199 = data [ 199 ]"
   },
   {
+    "aliases": null,
     "block_ids": [
       "5d269745b2e5dbdcbef0c09ba54b0bd6"
     ],

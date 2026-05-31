@@ -1,5 +1,6 @@
 [
   {
+    "aliases": null,
     "block_ids": [
       "29c56554514c80a92a9d12410056e168"
     ],
@@ -22,6 +23,7 @@
     "tokenized_korean_text": "import { readFileSync } from ' fs '; import { join } from ' path '; import type { Config } from './ config '; import { Logger } from './ logger '; import { EventEmitter } from ' events ';"
   },
   {
+    "aliases": null,
     "block_ids": [
       "e3f542c4928032926a1e21a159686a34"
     ],
@@ -44,6 +46,7 @@
     "tokenized_korean_text": "export function parseInput ( raw : string ) : number | null { const trimmed = raw . trim (); const n = Number ( trimmed ); if ( isNaN ( n ) ) return null ; return n ; }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "77d7f5ea7af7be27611adcbcee7c2e8f"
     ],
@@ -66,6 +69,7 @@
     "tokenized_korean_text": "export interface Frobable { frob ( ) : string ; frobTwice ( ) : string ; readonly name : string ; readonly tags : string []; count : number ; reset ( ) : void ; }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "ee878891c19c9bacebe2e2d262c2ea77"
     ],
@@ -88,6 +92,7 @@
     "tokenized_korean_text": "export class Foo implements Frobable { constructor ( public readonly name : string , public value : number , public tags : string [ ] = [ ] , ) {} frob ( ) : string { return this . name ; } frobTwice ( ) : string { return this . name . repeat ( 2 ); } reset ( ) : void { this . value = 0 ; } }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "df08aa572f5c85d0e5d28d6490acc7bc"
     ],
@@ -110,6 +115,7 @@
     "tokenized_korean_text": "export class Foo { double ( ) : number { const result = this . value * 2 ; if ( result > Number . MAX _ SAFE _ INTEGER ) { return Number . MAX _ SAFE _ INTEGER ; } return result ; } }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "91aadf18fa97c1d7c94019e0968bc9c8"
     ],
@@ -132,6 +138,7 @@
     "tokenized_korean_text": "export class Foo { triple ( ) : number { const result = this . value * 3 ; if ( result > Number . MAX _ SAFE _ INTEGER ) { return Number . MAX _ SAFE _ INTEGER ; } return result ; } }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "d719400f1d79b522d0a1267331966be0"
     ],
@@ -154,6 +161,7 @@
     "tokenized_korean_text": "export class BigProcessor { process ( items : string [ ] ) : string [ ] { const v 0 = items [ 0 ] ?? ''; const v 1 = items [ 1 ] ?? ''; const v 2 = items [ 2 ] ?? ''; const v 3 = items [ 3 ] ?? ''; const v 4 = items [ 4 ] ?? ''; const v 5 = items [ 5 ] ?? ''; const v 6 = items [ 6 ] ?? ''; const v 7 = items [ 7 ] ?? ''; const v 8 = items [ 8 ] ?? ''; const v 9 = items [ 9 ] ?? ''; const v 10 = items [ 10 ] ?? ''; const v 11 = items [ 11 ] ?? ''; const v 12 = items [ 12 ] ?? ''; const v 13 = items [ 13 ] ?? ''; const v 14 = items [ 14 ] ?? ''; const v 15 = items [ 15 ] ?? ''; const v 16 = items [ 16 ] ?? ''; const v 17 = items [ 17 ] ?? ''; const v 18 = items [ 18 ] ?? ''; const v 19 = items [ 19 ] ?? ''; const v 20 = items [ 20 ] ?? ''; const v 21 = items [ 21 ] ?? ''; const v 22 = items [ 22 ] ?? ''; const v 23 = items [ 23 ] ?? ''; const v 24 = items [ 24 ] ?? ''; const v 25 = items [ 25 ] ?? ''; const v 26 = items [ 26 ] ?? ''; const v 27 = items [ 27 ] ?? ''; const v 28 = items [ 28 ] ?? ''; const v 29 = items [ 29 ] ?? ''; const v 30 = items [ 30 ] ?? ''; const v 31 = items [ 31 ] ?? ''; const v 32 = items [ 32 ] ?? ''; const v 33 = items [ 33 ] ?? ''; const v 34 = items [ 34 ] ?? ''; const v 35 = items [ 35 ] ?? ''; const v 36 = items [ 36 ] ?? ''; const v 37 = items [ 37 ] ?? ''; const v 38 = items [ 38 ] ?? ''; const v 39 = items [ 39 ] ?? ''; const v 40 = items [ 40 ] ?? ''; const v 41 = items [ 41 ] ?? ''; const v 42 = items [ 42 ] ?? ''; const v 43 = items [ 43 ] ?? ''; const v 44 = items [ 44 ] ?? ''; const v 45 = items [ 45 ] ?? ''; const v 46 = items [ 46 ] ?? ''; const v 47 = items [ 47 ] ?? ''; const v 48 = items [ 48 ] ?? ''; const v 49 = items [ 49 ] ?? ''; const v 50 = items [ 50 ] ?? ''; const v 51 = items [ 51 ] ?? ''; const v 52 = items [ 52 ] ?? ''; const v 53 = items [ 53 ] ?? ''; const v 54 = items [ 54 ] ?? ''; const v 55 = items [ 55 ] ?? ''; const v 56 = items [ 56 ] ?? ''; const v 57 = items [ 57 ] ?? ''; const v 58 = items [ 58 ] ?? ''; const v 59 = items [ 59 ] ?? ''; const v 60 = items [ 60 ] ?? ''; const v 61 = items [ 61 ] ?? ''; const v 62 = items [ 62 ] ?? ''; const v 63 = items [ 63 ] ?? ''; const v 64 = items [ 64 ] ?? ''; const v 65 = items [ 65 ] ?? ''; const v 66 = items [ 66 ] ?? ''; const v 67 = items [ 67 ] ?? ''; const v 68 = items [ 68 ] ?? ''; const v 69 = items [ 69 ] ?? ''; const v 70 = items [ 70 ] ?? ''; const v 71 = items [ 71 ] ?? ''; const v 72 = items [ 72 ] ?? ''; const v 73 = items [ 73 ] ?? ''; const v 74 = items [ 74 ] ?? ''; const v 75 = items [ 75 ] ?? ''; const v 76 = items [ 76 ] ?? ''; const v 77 = items [ 77 ] ?? ''; const v 78 = items [ 78 ] ?? ''; const v 79 = items [ 79 ] ?? ''; const v 80 = items [ 80 ] ?? ''; const v 81 = items [ 81 ] ?? ''; const v 82 = items [ 82 ] ?? ''; const v 83 = items [ 83 ] ?? ''; const v 84 = items [ 84 ] ?? ''; const v 85 = items [ 85 ] ?? ''; const v 86 = items [ 86 ] ?? ''; const v 87 = items [ 87 ] ?? ''; const v 88 = items [ 88 ] ?? ''; const v 89 = items [ 89 ] ?? ''; const v 90 = items [ 90 ] ?? ''; const v 91 = items [ 91 ] ?? ''; const v 92 = items [ 92 ] ?? ''; const v 93 = items [ 93 ] ?? ''; const v 94 = items [ 94 ] ?? ''; const v 95 = items [ 95 ] ?? ''; const v 96 = items [ 96 ] ?? ''; const v 97 = items [ 97 ] ?? ''; const v 98 = items [ 98 ] ?? ''; const v 99 = items [ 99 ] ?? ''; const v 100 = items [ 100 ] ?? ''; const v 101 = items [ 101 ] ?? ''; const v 102 = items [ 102 ] ?? ''; const v 103 = items [ 103 ] ?? ''; const v 104 = items [ 104 ] ?? ''; const v 105 = items [ 105 ] ?? ''; const v 106 = items [ 106 ] ?? ''; const v 107 = items [ 107 ] ?? ''; const v 108 = items [ 108 ] ?? ''; const v 109 = items [ 109 ] ?? ''; const v 110 = items [ 110 ] ?? ''; const v 111 = items [ 111 ] ?? ''; const v 112 = items [ 112 ] ?? ''; const v 113 = items [ 113 ] ?? ''; const v 114 = items [ 114 ] ?? ''; const v 115 = items [ 115 ] ?? ''; const v 116 = items [ 116 ] ?? ''; const v 117 = items [ 117 ] ?? ''; const v 118 = items [ 118 ] ?? ''; const v 119 = items [ 119 ] ?? ''; const v 120 = items [ 120 ] ?? ''; const v 121 = items [ 121 ] ?? ''; const v 122 = items [ 122 ] ?? ''; const v 123 = items [ 123 ] ?? ''; const v 124 = items [ 124 ] ?? ''; const v 125 = items [ 125 ] ?? ''; const v 126 = items [ 126 ] ?? ''; const v 127 = items [ 127 ] ?? ''; const v 128 = items [ 128 ] ?? ''; const v 129 = items [ 129 ] ?? ''; const v 130 = items [ 130 ] ?? ''; const v 131 = items [ 131 ] ?? ''; const v 132 = items [ 132 ] ?? ''; const v 133 = items [ 133 ] ?? ''; const v 134 = items [ 134 ] ?? ''; const v 135 = items [ 135 ] ?? ''; const v 136 = items [ 136 ] ?? ''; const v 137 = items [ 137 ] ?? ''; const v 138 = items [ 138 ] ?? ''; const v 139 = items [ 139 ] ?? ''; const v 140 = items [ 140 ] ?? ''; const v 141 = items [ 141 ] ?? ''; const v 142 = items [ 142 ] ?? ''; const v 143 = items [ 143 ] ?? ''; const v 144 = items [ 144 ] ?? ''; const v 145 = items [ 145 ] ?? ''; const v 146 = items [ 146 ] ?? ''; const v 147 = items [ 147 ] ?? ''; const v 148 = items [ 148 ] ?? ''; const v 149 = items [ 149 ] ?? ''; const v 150 = items [ 150 ] ?? ''; const v 151 = items [ 151 ] ?? ''; const v 152 = items [ 152 ] ?? ''; const v 153 = items [ 153 ] ?? ''; const v 154 = items [ 154 ] ?? ''; const v 155 = items [ 155 ] ?? ''; const v 156 = items [ 156 ] ?? ''; const v 157 = items [ 157 ] ?? ''; const v 158 = items [ 158 ] ?? ''; const v 159 = items [ 159 ] ?? ''; const v 160 = items [ 160 ] ?? ''; const v 161 = items [ 161 ] ?? ''; const v 162 = items [ 162 ] ?? ''; const v 163 = items [ 163 ] ?? ''; const v 164 = items [ 164 ] ?? ''; const v 165 = items [ 165 ] ?? ''; const v 166 = items [ 166 ] ?? ''; const v 167 = items [ 167 ] ?? ''; const v 168 = items [ 168 ] ?? ''; const v 169 = items [ 169 ] ?? ''; const v 170 = items [ 170 ] ?? ''; const v 171 = items [ 171 ] ?? ''; const v 172 = items [ 172 ] ?? ''; const v 173 = items [ 173 ] ?? ''; const v 174 = items [ 174 ] ?? ''; const v 175 = items [ 175 ] ?? ''; const v 176 = items [ 176 ] ?? ''; const v 177 = items [ 177 ] ?? ''; const v 178 = items [ 178 ] ?? ''; const v 179 = items [ 179 ] ?? ''; const v 180 = items [ 180 ] ?? ''; const v 181 = items [ 181 ] ?? ''; const v 182 = items [ 182 ] ?? ''; const v 183 = items [ 183 ] ?? ''; const v 184 = items [ 184 ] ?? ''; const v 185 = items [ 185 ] ?? ''; const v 186 = items [ 186 ] ?? ''; const v 187 = items [ 187 ] ?? ''; const v 188 = items [ 188 ] ?? ''; const v 189 = items [ 189 ] ?? ''; const v 190 = items [ 190 ] ?? ''; const v 191 = items [ 191 ] ?? ''; const v 192 = items [ 192 ] ?? ''; const v 193 = items [ 193 ] ?? ''; const v 194 = items [ 194 ] ?? ''; const v 195 = items [ 195 ] ?? ''; const v 196 = items [ 196 ] ?? ''; const v 197 = items [ 197 ] ?? '';"
   },
   {
+    "aliases": null,
     "block_ids": [
       "d719400f1d79b522d0a1267331966be0"
     ],

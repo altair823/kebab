@@ -36,9 +36,13 @@ const DEFAULT_K: usize = 10;
 /// Over-fetch multiplier passed to `VectorStore::search` so that
 /// SQLite-side filter losses (tags / lang / trust / path_glob) still
 /// leave at least `k` candidates. The Lance store already applies the
-/// same filters internally; the extra `* 2` is the spec-mandated
-/// safety margin for the `Retriever` layer (§7.2 spec line 138).
-const VECTOR_OVERFETCH_MULTIPLIER: usize = 2;
+/// same filters internally; the extra margin is the spec-mandated
+/// safety for the `Retriever` layer (§7.2 spec line 138).
+///
+/// `3` (was `2`): dense 별칭 sentinel 벡터(`{orig}#alias`)가 같은 청크의
+/// body 벡터와 함께 raw_hits 에 들어올 수 있어, strip+dedup 후에도 `k` 개를
+///확보하도록 여유를 키운다(별칭 미사용 시에도 안전한 상한).
+const VECTOR_OVERFETCH_MULTIPLIER: usize = 3;
 
 /// Wraps a vector store + embedder into a [`Retriever`].
 ///
@@ -149,23 +153,34 @@ impl Retriever for VectorRetriever {
         }
 
         // 3. Hydrate metadata from SQLite for the candidate ids in
-        //    one round-trip. Order is preserved by the caller via the
-        //    HashMap lookup at hit-construction time.
-        let candidate_ids: Vec<&str> = raw_hits.iter().map(|h| h.chunk_id.0.as_str()).collect();
+        //    one round-trip. dense 별칭 벡터는 sentinel chunk_id
+        //    (`{orig}#alias`)로 색인되므로, 원본 chunk_id 로 strip 해
+        //    hydrate 한다(별칭 벡터는 chunks 테이블에 없음).
+        let candidate_ids: Vec<&str> = raw_hits
+            .iter()
+            .map(|h| kebab_core::strip_alias_suffix(h.chunk_id.0.as_str()))
+            .collect();
         let hydration = hydrate_chunks(&self.sqlite, &candidate_ids)
             .context("kb-search vector: hydrate chunk metadata")?;
 
         // 4. Build `SearchHit` for the first `k` raw hits that pass
-        //    hydration (a missing row would be a filter-induced drop —
-        //    Lance returned the chunk but SQLite filtered it out, or
-        //    the chunk was deleted between Lance's read and ours).
+        //    hydration. sentinel 별칭 hit 은 원본 chunk_id 로 strip 하고,
+        //    같은 원본이 body+alias 둘 다 hit 하면 첫(높은 score) 하나만
+        //    남긴다(dedup). raw_hits 는 score 순이라 첫 매칭이 최선.
         let model_id = self.embed.model_id();
         let mut hits: Vec<SearchHit> = Vec::with_capacity(k.min(raw_hits.len()));
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut rank: u32 = 0;
-        for hit in raw_hits {
-            let Some(meta) = hydration.get(hit.chunk_id.0.as_str()) else {
+        for mut hit in raw_hits {
+            let orig = kebab_core::strip_alias_suffix(hit.chunk_id.0.as_str()).to_string();
+            if !seen.insert(orig.clone()) {
+                continue; // body+alias 중복 → 첫 hit 유지
+            }
+            let Some(meta) = hydration.get(orig.as_str()) else {
                 continue;
             };
+            // build_hit 이 원본 chunk_id 를 쓰도록 sentinel 을 strip 본으로 교체.
+            hit.chunk_id = kebab_core::ChunkId(orig);
             rank = rank.saturating_add(1);
             hits.push(build_hit(
                 hit,

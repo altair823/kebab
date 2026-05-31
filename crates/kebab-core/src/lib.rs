@@ -11,6 +11,7 @@ pub mod answer;
 pub mod asset;
 pub mod chunk;
 pub mod citation;
+pub mod derivation;
 pub mod document;
 pub mod errors;
 pub mod fetch;
@@ -35,6 +36,7 @@ pub use answer::{
 pub use asset::{AssetStorage, RawAsset, SourceUri, WorkspacePath};
 pub use chunk::Chunk;
 pub use citation::Citation;
+pub use derivation::derivation_cache_key;
 pub use document::{
     AudioRefBlock, Block, CanonicalDocument, CodeBlock, CommonBlock, HeadingBlock, ImageRefBlock,
     Inline, ListBlock, ModelCaption, OcrRegion, OcrText, SourceSpan, TableBlock, TextBlock,
@@ -43,8 +45,9 @@ pub use document::{
 pub use errors::CoreError;
 pub use fetch::{FetchKind, FetchOpts, FetchQuery, FetchResult};
 pub use ids::{
-    AssetId, BlockId, ChunkId, DocumentId, EmbeddingId, IndexId, id_for_asset, id_for_block,
-    id_for_chunk, id_for_doc, id_for_embedding, id_for_index, id_from,
+    ALIAS_SUFFIX, AssetId, BlockId, ChunkId, DocumentId, EmbeddingId, IndexId, id_for_asset,
+    id_for_block, id_for_chunk, id_for_doc, id_for_embedding, id_for_index, id_from,
+    strip_alias_suffix,
 };
 pub use ingest::{IngestItem, IngestItemKind, IngestReport, SkipExamples};
 pub use jobs::{JobFilter, JobId, JobKind, JobRow, JobStatus};

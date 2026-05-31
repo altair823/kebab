@@ -59,15 +59,25 @@ impl SqliteStore {
             return Ok(Vec::new());
         }
 
-        // Deduplicate the IN-list so a pathological caller passing
-        // `[c1, c1, c1]` doesn't blow the SQL placeholder count.
+        // sentinel 별칭 candidate({orig}#alias)는 chunks 에 원본 chunk 가 없어
+        // (chunks JOIN 실패) committed 판정을 못 받는다. 후보를 원본 chunk_id 로
+        // strip 해 IN-list/JOIN 에 넣고(committed 판정은 원본 body chunk 기준),
+        // 통과 여부는 원본 기준으로 매핑하되 반환은 입력 candidate 형태(sentinel
+        // 유지) — VectorRetriever(Task 4)가 그 sentinel 을 받아 strip+dedup 한다.
+        // 설계 spec 2026-05-30-dense-alias-vectors-design.md §3.5-3.
+        //
+        // Deduplicate the IN-list (on the stripped original) so a
+        // pathological caller passing `[c1, c1, c1]` — or a body+alias
+        // pair `[c1, c1#alias]` that strips to the same original —
+        // doesn't blow the SQL placeholder count.
         let unique_ids: Vec<String> = {
             let mut seen = HashSet::new();
             chunk_ids
                 .iter()
                 .filter_map(|c| {
-                    if seen.insert(c.0.as_str()) {
-                        Some(c.0.clone())
+                    let orig = kebab_core::strip_alias_suffix(c.0.as_str());
+                    if seen.insert(orig.to_string()) {
+                        Some(orig.to_string())
                     } else {
                         None
                     }
@@ -242,7 +252,11 @@ impl SqliteStore {
 
         let mut out = Vec::with_capacity(chunk_ids.len());
         for cand in chunk_ids {
-            let workspace_path = match allowed.get(&cand.0) {
+            // committed 판정은 원본 chunk 기준(allowed 는 원본 chunk_id 로 키됨).
+            // candidate 가 sentinel 이면 strip 한 원본으로 조회하고, 통과 시
+            // 입력 candidate 형태 그대로 반환한다.
+            let orig = kebab_core::strip_alias_suffix(cand.0.as_str());
+            let workspace_path = match allowed.get(orig) {
                 Some(p) => p,
                 None => continue,
             };
@@ -556,6 +570,53 @@ mod tests {
             .filter_chunks(&[cid(c1), cid(c2)], &SearchFilters::default())
             .unwrap();
         assert_eq!(out, vec![cid(c1)]);
+    }
+
+    #[test]
+    fn filter_chunks_sentinel_alias_candidate_passes_via_original() {
+        // 별칭 dense 벡터 sentinel candidate({orig}#alias)는 원본 chunk 가
+        // committed 면 통과해야 한다(strip 해 JOIN). 반환은 입력 candidate
+        // 형태 그대로(sentinel 유지) — VectorRetriever 가 strip+dedup.
+        let tmp = TempDir::new().unwrap();
+        let store = open_store(&tmp);
+        let c1 = "11111111111111111111111111111111";
+        seed_committed(
+            &store,
+            c1,
+            "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+            "a.md",
+            "en",
+            &[],
+            "primary",
+        );
+
+        // sentinel candidate 단독 → 원본 c1 committed 라 통과, sentinel 형태 유지.
+        let sentinel = format!("{c1}{}", kebab_core::ALIAS_SUFFIX);
+        let out = store
+            .filter_chunks(&[cid(&sentinel)], &SearchFilters::default())
+            .unwrap();
+        assert_eq!(
+            out,
+            vec![cid(&sentinel)],
+            "sentinel candidate must pass via its committed original and be returned verbatim"
+        );
+
+        // body + sentinel 둘 다 입력 → 둘 다 통과, 입력 순서 보존.
+        let out = store
+            .filter_chunks(&[cid(c1), cid(&sentinel)], &SearchFilters::default())
+            .unwrap();
+        assert_eq!(out, vec![cid(c1), cid(&sentinel)]);
+
+        // 원본이 미존재(uncommitted)면 sentinel 도 탈락.
+        let orphan_sentinel =
+            format!("99999999999999999999999999999999{}", kebab_core::ALIAS_SUFFIX);
+        let out = store
+            .filter_chunks(&[cid(&orphan_sentinel)], &SearchFilters::default())
+            .unwrap();
+        assert!(
+            out.is_empty(),
+            "sentinel whose original is not committed must be dropped"
+        );
     }
 
     #[test]

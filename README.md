@@ -219,6 +219,11 @@ flowchart TB
   - `max_file_bytes = 262144` (256 KiB) / `max_file_lines = 5000` — 파일당 cap, 초과 시 skip.
   - `extra_skip_globs = []` — 사용자 추가 skip 패턴 (`.gitignore` 문법).
   - `.gitignore` honor: 자동 적용. `.kebabignore` 는 추가 layer. 우선순위: built-in safety net (`node_modules/` / `target/` / `__pycache__/` / `.venv/` / `venv/` / `env/`) > `.gitignore` > `.kebabignore`.
+- `[ingest.expansion]` — **doc-side expansion (별칭 색인)**. 색인 시 각 청크에 대해 LLM 이 "같은 의미의 다른 표현"(동의어·약어·한↔영 번역·풀어쓴 설명) 별칭을 생성해, 설명형·cross-lingual query 의 검색 일관성을 높인다. **default off (opt-in)** — 청크당 LLM 호출이라 비용이 크다.
+  - `enabled = false` — opt-in. `embed_aliases = true` 면 별칭을 줄별 **개별 dense 벡터**(sentinel `{chunk}#alias#N`)로 색인하고 본문 벡터는 그대로 둔다. 검색 시 별칭 hit 는 원본 문서로 매핑돼 "query 표현 ↔ 문서 용어"의 다리 역할을 한다.
+  - `max_aliases_per_chunk = 8` / `prompt_version = "expansion-v1"` / `model = ""`(빈 값 = `models.llm` 기본).
+  - 효과 측정(나무위키 ~1000 문서 CS corpus): 변형 일관성 14/18 → 16/18 (설명형·cross-lingual 회복), 대조군 false-positive 미유발. 상세: [docs/superpowers/handoffs/2026-05-31-namu-wiki-alias-cache-study.md](docs/superpowers/handoffs/2026-05-31-namu-wiki-alias-cache-study.md).
+- **파생물 캐시 (`derivation_cache`, V012)** — embedding 벡터와 별칭 LLM 결과를 청크 **내용 해시**로 캐싱한다. 문서 재색인·갱신 시 내용이 같은 청크는 재계산을 건너뛴다(측정: 별칭 18문서 재색인 2.5h → ~80s). 캐시 키에 모델·프롬프트·차원 버전이 포함돼 버전 변경 시 자동 무효화(cascade 안전). 비싼 계산은 자동·투명하게 캐시되며 별도 설정이 없다. 응용: 비싼 색인을 외부 서버에서 수행한 뒤 `kebab.sqlite`+`lancedb` 만 복사해 로컬에서 검색할 수 있다(search/ask 는 asset 파일이 필요 없다).
 - `[rag] prompt_template_version` (default `"rag-v3"`) — RAG system prompt version. `"rag-v1"` / `"rag-v2"` 은 legacy backwards-compat (명시 시 유지). v2 강화 규칙: (1) fact 인용 시 [#번호] 앞에 chunk 속 원문 큰따옴표 표기, (2) 학습 지식 동원 금지, (3) 근거 모호 시 "확실하지 않다" 명시. **v3 추가 규칙 (v0.20.2)**: 답변 언어 = 질문 언어 (query 가 영어면 영어로, 한국어면 한국어로). 근거 부족 refusal 문구도 언어중립화. **Known limitation**: gemma4:e4b 같은 소형 모델은 refusal 메시지의 언어가 query 언어와 불일치할 수 있음 — refusal 판정(marker 기반)은 정상, 표시 문구만 해당. v2 고정: `[rag] prompt_template_version = "rag-v2"`.
 - `--config <path>` flag — 임시 워크스페이스 / 격리 테스트 시 사용. CLI / TUI 모두 honor.
 - `KEBAB_*` env — 일부 키 override (`KEBAB_RAG_SCORE_GATE`, `KEBAB_EVAL_GOLDEN`, `KEBAB_COMMIT_HASH` 등).

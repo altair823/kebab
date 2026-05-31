@@ -1,5 +1,6 @@
 [
   {
+    "aliases": null,
     "block_ids": [
       "53292605459065d170cd36c118e20546"
     ],
@@ -22,6 +23,7 @@
     "tokenized_korean_text": "# include < string > # include < vector > namespace kebab {"
   },
   {
+    "aliases": null,
     "block_ids": [
       "f349acad94c9fa4cf9ad1c0a93e83610"
     ],
@@ -44,6 +46,7 @@
     "tokenized_korean_text": "class MdHeadingV 1 Chunker { public : MdHeadingV 1 Chunker ( ) = default ; ~ MdHeadingV 1 Chunker ( ) = default ; std : : string chunk _ doc ( const std : : string & doc ) { return doc ; } int operator ( ) ( int x ) const { return x * 2 ; } private : int counter _ = 0 ; };"
   },
   {
+    "aliases": null,
     "block_ids": [
       "8b9811387717d0bd4abf84abcc35b8b1"
     ],
@@ -66,6 +69,7 @@
     "tokenized_korean_text": "template < typename T > T identity ( T value ) { return value ; }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "1754cb6b971f6a4cb292f144a4f0570b"
     ],
@@ -88,6 +92,7 @@
     "tokenized_korean_text": "void global _ helper ( ) { / / free function in kebab namespace }"
   },
   {
+    "aliases": null,
     "block_ids": [
       "14b5f3393d6d25f822f5b70763d24acd"
     ],
