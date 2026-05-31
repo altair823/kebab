@@ -670,7 +670,7 @@ impl Config {
     /// Defaults per design §6.4.
     pub fn defaults() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: crate::migrate::CURRENT_SCHEMA_VERSION,
             workspace: WorkspaceCfg {
                 root: "~/KnowledgeBase".to_string(),
                 exclude: vec![
