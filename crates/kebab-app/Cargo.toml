@@ -71,6 +71,7 @@ base64               = { workspace = true }
 rusqlite             = { workspace = true }
 
 [dev-dependencies]
+kebab-config = { path = "../kebab-config" }
 # doc-side expansion (Phase 2) Task 4: ExpansionGenerator unit tests build
 # MockLanguageModel (gated behind kebab-llm's `mock` feature, default OFF in
 # [dependencies]). Enabling it here turns it on for the test build only.

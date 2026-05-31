@@ -225,6 +225,12 @@ pub fn wire_bulk_search_item(item: &kebab_core::BulkSearchItem) -> Value {
     v
 }
 
+/// `config_migration.v1` 직렬화. `ConfigMigrationReport` 가 `schema_version`
+/// 필드를 자체 보유하므로(doctor 와 동일) 그대로 직렬화한다.
+pub fn wire_config_migration(r: &kebab_app::ConfigMigrationReport) -> Value {
+    serde_json::to_value(r).expect("ConfigMigrationReport serializes")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -143,40 +143,10 @@ pub fn init_workspace(force: bool) -> anyhow::Result<()> {
     std::fs::create_dir_all(&workspace_root)?;
 
     if !cfg_path.exists() || force {
-        let cfg = kebab_config::Config::defaults();
-        let toml_text = toml::to_string_pretty(&cfg)?;
-        // p9-fb-05: prepend a header comment documenting the path
-        // policy so a user editing this file knows what's allowed
-        // for `workspace.root` (and how relative paths resolve).
-        // The actual key lives inside `[workspace]` further down;
-        // we keep the explanation up top because users skim header
-        // comments first.
-        let header = "\
-# kebab config — `~/.config/kebab/config.toml`.
-#
-# `workspace.root` accepts:
-#   • absolute paths       (`/home/me/KnowledgeBase`)
-#   • tilde                (`~/KnowledgeBase`)         ← default
-#   • env vars             (`${XDG_DATA_HOME}/kebab`)
-#   • relative paths       (`./notes`, `notes`, `../shared/x`)
-#     — relative paths resolve against the directory of THIS
-#       config file, NOT the user's `cwd` at invocation time.
-#
-# 처리 가능한 형식 (extractor 가 자동 결정 — config 에 명시할 수 없음):
-#   • Markdown: .md
-#   • 이미지:   .png .jpg .jpeg  (OCR + caption)
-#   • PDF:      .pdf
-# 다른 확장자는 ingest 시 자동 skip + warning. 처리 대상 폴더의
-# 일부만 ingest 하고 싶으면 `kebab ingest <path>` 로 root 명시
-# 또는 `.kebabignore` 파일 / 본 `workspace.exclude` 로 denylist.
-#
-# Override individual keys at runtime with `KEBAB_*` env vars
-# (e.g. `KEBAB_WORKSPACE_ROOT=/tmp/test kebab ingest`).
-\n";
-        let mut combined = String::with_capacity(header.len() + toml_text.len());
-        combined.push_str(header);
-        combined.push_str(&toml_text);
-        std::fs::write(&cfg_path, combined)?;
+        // init 과 migrate 가 동일한 "주석 달린 default" 문서를 공유한다
+        // (주석 카탈로그·헤더의 단일 원천 = kebab_config::migrate).
+        let doc = kebab_config::migrate::annotated_default_document();
+        std::fs::write(&cfg_path, doc.to_string())?;
     }
 
     Ok(())
@@ -3211,6 +3181,48 @@ pub fn doctor_with_config_path(
         hint: data_hint,
     });
 
+    // config_migration — 사용자 파일이 새 스키마와 동기인지(dry-run 마이그레이션).
+    // 파일이 존재할 때만 점검(없으면 defaults 사용 중이라 마이그레이션 무의미).
+    if cfg_path.exists() {
+        if let Ok(text) = std::fs::read_to_string(&cfg_path) {
+            let outcome = kebab_config::migrate::migrate_document(&text);
+            let (mok, detail, hint) = if outcome.changed() {
+                let added = outcome
+                    .changes
+                    .iter()
+                    .filter(|c| {
+                        matches!(
+                            c.kind,
+                            kebab_config::migrate::ChangeKind::AddedSection
+                                | kebab_config::migrate::ChangeKind::AddedKey
+                        )
+                    })
+                    .count();
+                let removed = outcome.changes.len() - added;
+                (
+                    false,
+                    format!(
+                        "{} pending changes (added {added}, removed {removed} deprecated)",
+                        outcome.changes.len()
+                    ),
+                    Some("run `kebab config migrate` to update your config.toml".to_string()),
+                )
+            } else {
+                (
+                    true,
+                    format!("config up to date (schema v{})", outcome.to_schema_version),
+                    None,
+                )
+            };
+            checks.push(DoctorCheck {
+                name: "config_migration".to_string(),
+                ok: mok,
+                detail,
+                hint,
+            });
+        }
+    }
+
     let ok = checks.iter().all(|c| c.ok);
     Ok(DoctorReport {
         schema_version: "doctor.v1".to_string(),
@@ -3225,6 +3237,66 @@ pub fn doctor_with_config_path(
 /// or smoke harnesses).
 pub fn doctor() -> anyhow::Result<DoctorReport> {
     doctor_with_config_path(None)
+}
+
+/// `kebab config migrate` 의 결과(wire `config_migration.v1` 소스).
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct ConfigMigrationReport {
+    /// 항상 `"config_migration.v1"`.
+    pub schema_version: String,
+    pub config_path: String,
+    pub dry_run: bool,
+    pub from_schema_version: u32,
+    pub to_schema_version: u32,
+    pub changed: bool,
+    pub backup_path: Option<String>,
+    pub changes: Vec<kebab_config::migrate::MigrationChange>,
+}
+
+/// 사용자 config.toml 을 새 스키마로 마이그레이션한다(facade).
+/// `config_path` 미지정 시 XDG 기본. `dry_run=true` 면 파일·백업 미변경.
+/// 안전: 변경 시 `.bak` 백업 후 tmp 에 쓰고 round-trip 검증 → atomic rename.
+pub fn config_migrate_with_config_path(
+    config_path: Option<&std::path::Path>,
+    dry_run: bool,
+) -> anyhow::Result<ConfigMigrationReport> {
+    let path: PathBuf = match config_path {
+        Some(p) => p.to_path_buf(),
+        None => kebab_config::Config::xdg_config_path(),
+    };
+    if !path.exists() {
+        anyhow::bail!(
+            "config 파일이 없습니다: {} — 먼저 `kebab init` 을 실행하세요.",
+            path.display()
+        );
+    }
+    let text = std::fs::read_to_string(&path)?;
+    let outcome = kebab_config::migrate::migrate_document(&text);
+
+    let mut backup_path = None;
+    if !dry_run && outcome.changed() {
+        let bak = path.with_extension("toml.bak");
+        std::fs::copy(&path, &bak)?;
+        backup_path = Some(bak.display().to_string());
+        let tmp = path.with_extension("toml.tmp");
+        std::fs::write(&tmp, &outcome.new_text)?;
+        if kebab_config::Config::from_file(&tmp).is_err() {
+            std::fs::remove_file(&tmp).ok();
+            anyhow::bail!("마이그레이션 결과가 유효하지 않아 원본을 보존합니다.");
+        }
+        std::fs::rename(&tmp, &path)?;
+    }
+
+    Ok(ConfigMigrationReport {
+        schema_version: "config_migration.v1".to_string(),
+        config_path: path.display().to_string(),
+        dry_run,
+        from_schema_version: outcome.from_schema_version,
+        to_schema_version: outcome.to_schema_version,
+        changed: outcome.changed(),
+        backup_path,
+        changes: outcome.changes,
+    })
 }
 
 /// Single-file ingest (p9-fb-31). Copies the file to

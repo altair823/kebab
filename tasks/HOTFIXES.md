@@ -14,6 +14,36 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-05-31 — config 마이그레이션 (`kebab config migrate`)
+
+**Trigger**: config.toml 스키마가 진화해도(v0.21.0 의 `[ingest.expansion]` 등) 기존 사용자 파일은 serde default 로 *동작*만 호환될 뿐 새 섹션이 파일에 안 써져 사용자가 노브의 존재를 알 수 없었다. DB 의 V00X refinery 와 달리 config 엔 마이그레이션 메커니즘이 없어 추가. 설계 `docs/superpowers/specs/2026-05-31-config-migration-design.md`, 계획 `docs/superpowers/plans/2026-05-31-config-migration.md`, PR #198.
+
+### 메커니즘
+
+`kebab config migrate` 가 (1) **reconciliation** — `Config::defaults()` 구조에 있고 사용자 파일에 없는 섹션/키를 주석과 함께 `toml_edit` 으로 추가(버전 무관·멱등) + (2) **step 체인** — `schema_version` 기반 non-additive 변환(첫 step v1→v2 = `workspace.include` 제거, p9-fb-25). `init` 과 migrate 가 `annotated_default_document()` 로 주석·헤더 단일 원천 공유 → init config 도 섹션 주석 보유. `schema_version` default 1→2(sync 마커+step 축). 안전 3축=멱등·백업(`.bak`, 원본 byte-identical)·dry-run + tmp atomic rename(round-trip 검증). 순수변환=`kebab-config/migrate.rs`, I/O facade=`kebab-app`.
+
+### 도그푸딩 evidence (v0.21.0 release 바이너리)
+
+옛 스키마 흉내(`schema_version=1`, `[workspace]`+`[search]`+`[rag]`, `workspace.include` 보유, 사용자가 `default_k=25`/`score_gate=0.8`+인라인 주석 손봄):
+
+| 시나리오 | 결과 |
+|----------|------|
+| `migrate --dry-run` | 22 changes 나열, **파일 미수정** |
+| `migrate` | 적용 v1→v2, `.bak` **원본과 byte-identical**(diff 0) |
+| 값·주석 보존 | `root="~/MyNotes" # 내가 직접 바꾼…`, `default_k=25`, `score_gate=0.8` 유지 |
+| deprecated 정리 | `workspace.include` 제거(grep 0) |
+| 가시화 | `[ingest.expansion]`·`[logging]`·`[pdf.ocr]` 등장 |
+| 멱등 | 재실행 → `config 이미 최신입니다 (schema v2)` |
+| doctor | `✓ config_migration  config up to date (schema v2)` |
+| `--json` | `config_migration.v1` (kind=added_section/removed_deprecated) |
+
+### 알려진 한계 / 결정
+
+- 누락 섹션은 테이블 끝 append(순서 미보존, 값·주석·기존순서는 보존).
+- 통째 누락 부모는 부모 경로 1건 기록, 부분 존재 부모는 leaf 경로 기록(재귀 깊이 차이).
+- doctor 의 `config_migration` ok=false 가 전체 `DoctorReport.ok` 를 false 로 만듦(의도; hint 가 교정 명령 제시, warn 상태 미도입).
+- `schema_version` bump(1→2)은 additive(데이터 무효화 아님, 읽기 호환 유지) → DB/wire breaking release 트리거 아님. 신규 CLI 서브커맨드+doctor 체크+init 출력 변경은 user-visible surface.
+
 ## 2026-05-31 — doc-side expansion 별칭 개선 + 파생물 캐시(V012)
 
 **Trigger**: Phase 2 doc-side expansion(별칭) 효과를 실사용 규모(한국어 나무위키 ~1000 문서 CS corpus)로 검증하고, 그 과정에서 드러난 별칭 생성 비용을 "내용 해시 기반 파생물 캐시"로 해소. v0.21.0 cut. 측정 상세: `docs/superpowers/handoffs/2026-05-31-namu-wiki-alias-cache-study.md`, 설계: `docs/superpowers/specs/2026-05-31-derivation-cache-design.md`.

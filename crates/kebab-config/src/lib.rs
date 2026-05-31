@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 mod paths;
+pub mod migrate;
 pub use paths::{expand_path, expand_path_with_base};
 
 /// Signal: `Config::from_file` / `Config::load` failed due to missing path,
@@ -669,7 +670,7 @@ impl Config {
     /// Defaults per design §6.4.
     pub fn defaults() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: crate::migrate::CURRENT_SCHEMA_VERSION,
             workspace: WorkspaceCfg {
                 root: "~/KnowledgeBase".to_string(),
                 exclude: vec![

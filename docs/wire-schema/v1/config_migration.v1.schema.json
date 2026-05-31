@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "config_migration.v1",
+  "description": "Result of `kebab config migrate` — schema reconciliation of a user's config.toml.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "config_path",
+    "dry_run",
+    "from_schema_version",
+    "to_schema_version",
+    "changed",
+    "changes"
+  ],
+  "properties": {
+    "schema_version": { "const": "config_migration.v1" },
+    "config_path": { "type": "string" },
+    "dry_run": { "type": "boolean" },
+    "from_schema_version": { "type": "integer" },
+    "to_schema_version": { "type": "integer" },
+    "changed": { "type": "boolean" },
+    "backup_path": { "type": ["string", "null"] },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "path", "detail"],
+        "properties": {
+          "kind": {
+            "enum": ["added_section", "added_key", "removed_deprecated"]
+          },
+          "path": { "type": "string" },
+          "detail": { "type": "string" }
+        }
+      }
+    }
+  }
+}

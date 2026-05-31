@@ -30,6 +30,8 @@ P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 
 ## 머지 후 발견된 버그 / 결정 (요약)
 
+- **config 마이그레이션** (2026-05-31, PR #198): `kebab config migrate` 추가 — 기존 config.toml 에 빠진 섹션을 주석과 함께 채우고 deprecated 정리(멱등·`.bak`·dry-run, 값/주석 보존). `schema_version` 1→2, `init` 도 섹션 주석 포함, doctor 에 `config_migration` 체크. 상세 HOTFIXES 동일 일자.
+
 머지 후 발견된 모든 deviation / hotfix 의 dated 로그는 [tasks/HOTFIXES.md](tasks/HOTFIXES.md). 본 요약은 \"누군가가 인수받을 때 알아두면 시간을 많이 절약하는\" 항목만:
 
 - **2026-05-31 Phase 2 doc-side expansion 별칭(개별 dense 벡터) + 파생물 캐시(V012)** — v0.21.0 cut. 색인 시 LLM 이 청크별 별칭("같은 의미 다른 표현")을 생성, 줄별 **개별 dense 벡터**(sentinel `{chunk}#alias#N`)로 색인 (묶음 1벡터는 평균화 희석으로 회귀 → 폐기) + boilerplate 청크 skip. `[ingest.expansion]` default off. 측정(나무위키 ~1000 문서 CS corpus): 변형 일관성 14/18 → **16/18**, spread 0.222→0.111, 대조군 false-positive 별칭 무죄. 비용 병목(별칭 18문서 2.5h)은 **파생물 캐시(V012, 청크 내용 해시 키)**로 해소 — 정답 3개 cold 1879s → warm 13s **≈ 145배**, embedding+별칭 LLM 캐싱, version_key cascade 정합. search/ask 가 `kebab.sqlite`+`lancedb` 만으로 동작 → 외부 서버 색인 후 DB 만 복사하는 이식 워크플로 가능. **결정/known limitation**: grounded/refusal 판정이 부분 인용을 grounded 로 오분류(정직한 거부가 false-positive 로 집계) — 별도 개선 후보. stack·svm 설명형 2개 잔존. 자세한 내용: `tasks/HOTFIXES.md` (2026-05-31), 측정: `docs/superpowers/handoffs/2026-05-31-namu-wiki-alias-cache-study.md`.
