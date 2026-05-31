@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 mod paths;
+pub mod migrate;
 pub use paths::{expand_path, expand_path_with_base};
 
 /// Signal: `Config::from_file` / `Config::load` failed due to missing path,
