@@ -14,6 +14,52 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-01 — candle 임베딩 provider (NUMA double-free 회피, opt-in)
+
+**무엇이 문제였나.** 듀얼소켓 NUMA 서버에서 `provider=fastembed`(onnxruntime)로
+대규모 ingest(5150-doc)를 돌리면 onnxruntime 가 intra-op 스레드를 48개로
+하드코딩해 NUMA 힙을 손상시키고 double-free 로 프로세스가 죽었다. 스레드 수를
+config 로 줄일 surface 가 없었고, fastembed 4.9 의 ORT 바인딩은 이를 노출하지
+않는다.
+
+**진단 / 결정 (사용자 승인 2026-06-01).** 같은 모델
+`intfloat/multilingual-e5-large` 를 **candle(순수 Rust)** 로 돌리는 임베딩
+provider 를 추가하기로 결정. candle 의 CPU 백엔드는 글로벌 rayon 풀 크기로
+스레드를 정하므로, 한 번의 `rayon::ThreadPoolBuilder::build_global` 캡으로
+스레드를 NUMA-안전한 수로 묶을 수 있다. **재색인 0 목표**(`embedding_version`
+유지) — Phase 0 스파이크(`SPIKE_REPORT.md`, 커밋 76841af)가 candle vs
+onnxruntime **코사인 1.000000** 패리티를 입증했고, 본 Track 1 구현의 패리티
+테스트로 차원별 max 절대오차를 재실측해 확정.
+
+**무엇을 건드렸나.**
+- 신규 crate `crates/kebab-embed-candle` — `kebab_core::Embedder` 구현
+  (`CandleEmbedder`). 스파이크 파이프라인(safetensors via hf-hub → XLM-RoBERTa
+  forward → attention-mask mean pooling → L2 → e5 prefix)을 production 으로
+  흡수. deps 는 candle 트리를 이 crate 에 격리 (core/config 외 다른 kebab-*
+  의존 0 — design §8 경계). 모델 캐시 `{model_dir}/candle/`.
+- 스레드 캡: `[models.embedding].num_threads`(u32, default 0=auto) + env
+  `KEBAB_EMBED_THREADS`(우선). `CandleEmbedder::new` 에서 n>0 이면 글로벌 rayon
+  풀 1회 캡(이미 init 시 no-op).
+- 주입 분기: `kebab-app::App::embedder()` 가 `config.models.embedding.provider`
+  분기 — `fastembed`/`onnx`/(빈값) → 기존 `FastembedEmbedder`(동작 불변),
+  `candle` → `CandleEmbedder`, 미지값 → 에러. `none` 은 기존 lexical-only 유지.
+- 스파이크 crate `crates/spike-embed-candle` 제거(학습은 production 으로 흡수됨).
+- 버전 0.21.1 → **0.22.0** (신규 config surface — pre-1.0 minor bump).
+
+**패리티 증거.** Phase 0 스파이크 cosine 1.000000 (10문장 한/영 혼합). 본
+Track 1 의 `#[ignore]` 패리티 테스트 결과(max abs diff)는
+`/build/out/kebab-worktrees/embed-candle/IMPL_REPORT.md` 에 기록.
+
+**호환성.** fastembed default 경로의 동작/벡터 불변. `embedding_version`
+유지 → 기존 색인 재사용(재색인 0). wire schema 변경 없음. 옛 config.toml 은
+`num_threads` 가 serde default(0)로 채워져 그대로 파싱.
+
+**잔여 게이트 (사용자 실행, Claude 불가).** 그 듀얼소켓 NUMA 서버에서
+`provider=candle` 로 5150-doc ingest 가 double-free 없이 EXIT=0 완주하는지
+PR 머지 전/후 검증 예약 (meta-spec §4.3).
+
+amends: `docs/superpowers/specs/2026-06-01-embed-candle-track-spec.md`.
+
 ## 2026-05-31 — config 마이그레이션 (`kebab config migrate`)
 
 **Trigger**: config.toml 스키마가 진화해도(v0.21.0 의 `[ingest.expansion]` 등) 기존 사용자 파일은 serde default 로 *동작*만 호환될 뿐 새 섹션이 파일에 안 써져 사용자가 노브의 존재를 알 수 없었다. DB 의 V00X refinery 와 달리 config 엔 마이그레이션 메커니즘이 없어 추가. 설계 `docs/superpowers/specs/2026-05-31-config-migration-design.md`, 계획 `docs/superpowers/plans/2026-05-31-config-migration.md`, PR #198.

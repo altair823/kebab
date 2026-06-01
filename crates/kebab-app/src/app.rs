@@ -43,6 +43,7 @@ use kebab_core::{
     Answer, DocumentStore, Embedder, ExtractContext, Extractor, IndexVersion, LanguageModel,
     MediaType, Retriever, SearchHit, SearchMode, SearchOpts, SearchQuery, VectorStore,
 };
+use kebab_embed_candle::CandleEmbedder;
 use kebab_embed_local::FastembedEmbedder;
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_parse_code::{
@@ -833,9 +834,26 @@ impl App {
         if let Some(e) = self.embedder.get() {
             return Ok(Some(e.clone()));
         }
-        let emb: Arc<dyn Embedder + Send + Sync> = Arc::new(
-            FastembedEmbedder::new(&self.config).context("kb-app: load FastembedEmbedder")?,
-        );
+        // Provider branch (Track 1 spec §3). `embeddings_disabled()` above
+        // already handled `"none"`; here we route the live providers.
+        // `fastembed`/`onnx`/(empty) keep the default onnxruntime path
+        // (vectors unchanged — `embedding_version` is preserved); `candle`
+        // selects the pure-Rust NUMA-safe backend.
+        let provider = self.config.models.embedding.provider.as_str();
+        let emb: Arc<dyn Embedder + Send + Sync> = match provider {
+            "fastembed" | "onnx" | "" => Arc::new(
+                FastembedEmbedder::new(&self.config).context("kb-app: load FastembedEmbedder")?,
+            ),
+            "candle" => Arc::new(
+                CandleEmbedder::new(&self.config).context("kb-app: load CandleEmbedder")?,
+            ),
+            other => {
+                return Err(anyhow!(
+                    "kb-app: unknown embedding provider {other:?}; expected one of \
+                     `fastembed` (default), `candle`, or `none` (lexical-only)"
+                ));
+            }
+        };
         // `set` returns Err if another thread won the race; in that case
         // the loser still returns the (now-cached) winner via `get()`.
         let _ = self.embedder.set(emb.clone());

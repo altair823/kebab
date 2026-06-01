@@ -1,0 +1,39 @@
+[package]
+name = "kebab-embed-candle"
+version       = { workspace = true }
+edition       = { workspace = true }
+rust-version  = { workspace = true }
+license       = { workspace = true }
+repository    = { workspace = true }
+description   = "Pure-Rust candle adapter implementing kb_core::Embedder (multilingual-e5-large, NUMA-safe thread cap)"
+
+[dependencies]
+kebab-core = { path = "../kebab-core" }
+kebab-config = { path = "../kebab-config" }
+# candle stack — pinned to the workspace-locked crates.io release (0.10.x),
+# same versions the Phase 0 spike compiled so build artifacts are reused.
+candle-core = "0.10.2"
+candle-nn = "0.10.2"
+candle-transformers = "0.10.2"
+tokenizers = "0.21"
+hf-hub = { version = "0.4", features = ["ureq"] }
+serde_json = { workspace = true }
+# Thread cap: a one-shot global rayon pool sizes candle's CPU threads
+# (the Phase 0 spike proved RAYON_NUM_THREADS caps candle), so a NUMA host
+# can keep onnxruntime's hard-coded 48-intra-op heap corruption at bay.
+rayon = "1"
+anyhow = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+# Integration-test binaries can only see the library's public API + these,
+# not the library's own (non-dev) dependencies — so rayon/kebab-config/kebab-core
+# are repeated here for tests/parity.rs and tests/thread_cap.rs.
+kebab-embed-local = { path = "../kebab-embed-local" }
+kebab-config = { path = "../kebab-config" }
+kebab-core = { path = "../kebab-core" }
+rayon = "1"
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
