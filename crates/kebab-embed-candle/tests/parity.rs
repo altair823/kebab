@@ -49,11 +49,14 @@ fn candle_matches_fastembed() {
     let candle = CandleEmbedder::new(&config).expect("build CandleEmbedder");
     let fastembed = FastembedEmbedder::new(&config).expect("build FastembedEmbedder");
 
+    // Cover BOTH prefix paths (`passage:` for Document, `query:` for Query) so
+    // a query-side prefix/pooling divergence can't slip through (reviewer note).
     let inputs: Vec<EmbeddingInput> = SENTENCES
         .iter()
-        .map(|s| EmbeddingInput {
-            text: s,
-            kind: EmbeddingKind::Document,
+        .flat_map(|s| {
+            [EmbeddingKind::Document, EmbeddingKind::Query]
+                .into_iter()
+                .map(move |kind| EmbeddingInput { text: s, kind })
         })
         .collect();
 
@@ -61,11 +64,12 @@ fn candle_matches_fastembed() {
     let fv = fastembed.embed(&inputs).expect("fastembed embed");
 
     assert_eq!(cv.len(), fv.len(), "embedding counts must match");
+    assert_eq!(cv.len(), inputs.len(), "one vector per input");
     assert_eq!(candle.dimensions(), 1024);
 
     let mut min_cos = f32::INFINITY;
     let mut max_abs_diff = 0f32;
-    for (i, s) in SENTENCES.iter().enumerate() {
+    for (i, inp) in inputs.iter().enumerate() {
         assert_eq!(cv[i].len(), 1024, "candle dim");
         assert_eq!(fv[i].len(), 1024, "fastembed dim");
         let c = cosine(&cv[i], &fv[i]);
@@ -76,8 +80,12 @@ fn candle_matches_fastembed() {
             .map(|(a, b)| (a - b).abs())
             .fold(0f32, f32::max);
         max_abs_diff = max_abs_diff.max(diff);
-        let preview: String = s.chars().take(40).collect();
-        println!("[{i:>2}] cos={c:.6} max_abs_diff={diff:.6e}  {preview}");
+        let kind = match inp.kind {
+            EmbeddingKind::Document => "doc",
+            EmbeddingKind::Query => "qry",
+        };
+        let preview: String = inp.text.chars().take(36).collect();
+        println!("[{i:>2}] {kind} cos={c:.6} max_abs_diff={diff:.6e}  {preview}");
     }
 
     println!("PARITY_SUMMARY cosine_min={min_cos:.6} max_abs_diff={max_abs_diff:.6e}");
