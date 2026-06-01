@@ -109,6 +109,9 @@ chunker_version = "md-heading-v1"
 [models.embedding]
 provider = "fastembed"               # "fastembed"(기본) / "candle"(순수 Rust, NUMA-안전)
                                      # / "none"(lexical-only — Ollama 불필요)
+                                     # ⚠ provider="candle" 사용 시 아래 model/dimensions 도
+                                     #   multilingual-e5-large / 1024 로 바꿔야 함
+                                     #   (candle 은 현재 e5-large 만 지원).
 model = "multilingual-e5-small"
 version = "v1"
 dimensions = 384
