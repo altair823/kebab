@@ -23,6 +23,8 @@ members = [
     "crates/kebab-mcp",
     "crates/kebab-parse-code",
     "crates/kebab-nli",
+    # Track 1 / Phase 0 feasibility spike (throwaway; candle deps isolated here).
+    "crates/spike-embed-candle",
 ]
 
 [workspace.package]

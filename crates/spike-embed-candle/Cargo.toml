@@ -1,0 +1,32 @@
+# Track 1 / Phase 0 feasibility SPIKE — NOT production.
+# Isolated binary that loads multilingual-e5-large via candle (pure Rust)
+# and compares its output against the existing onnxruntime FastembedEmbedder.
+# candle deps live ONLY here so the production crates stay untouched.
+[package]
+name = "spike-embed-candle"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "spike-embed-candle"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+serde_json = "1"
+# candle stack — pinned to the current crates.io release (0.10.2).
+candle-core = "0.10.2"
+candle-nn = "0.10.2"
+candle-transformers = "0.10.2"
+# Align with workspace-locked versions so we reuse compiled artifacts.
+tokenizers = "0.21"
+hf-hub = { version = "0.4", features = ["ureq"] }
+rayon = "1"
+# Parity baseline: reuse the real production embedder + its config loader.
+kebab-config = { path = "../kebab-config" }
+kebab-embed = { path = "../kebab-embed" }
+kebab-embed-local = { path = "../kebab-embed-local" }
+
+# Keep the spike out of the workspace pedantic-lint gate; it is throwaway.
+[lints]
