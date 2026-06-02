@@ -108,6 +108,15 @@ dimensions = 1024                 # config 와 LanceDB stored dim 불일치 시 
 num_threads = 0                   # candle 전용 CPU 스레드 캡 (0=auto=#cores).
                                   # env KEBAB_EMBED_THREADS 가 우선. NUMA 노드 바인딩은
                                   # numactl 과 조합. fastembed provider 는 무시.
+```
+
+**Apple Silicon GPU 가속 (candle / macOS)**: M-시리즈 맥에서 candle 임베딩을
+GPU(Metal)로 돌리려면 `cargo build --release --features embed_metal` 로 빌드한다
+(CPU 대비 대용량 ingest 가 크게 빨라짐). 벡터는 CPU candle 과 동일 모델이라 호환되므로,
+맥에서 GPU 로 색인한 `kebab.sqlite` + `lancedb/` 를 그대로 Linux 서버(CPU candle)로
+복사해 질의할 수 있다. metal feature 는 macOS 전용.
+
+```toml
 
 [models.llm]
 endpoint = "http://localhost:11434"   # Ollama host:port
