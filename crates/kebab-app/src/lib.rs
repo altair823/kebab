@@ -1349,6 +1349,7 @@ fn ingest_one_asset(
                 // second — never per chunk (would flood the mpsc channel).
                 let mut done: u32 = 0;
                 let mut last_emit = std::time::Instant::now();
+                let mut last_done: u32 = 0;
                 for chunk in &mut chunks {
                     let key = kebab_core::derivation_cache_key(
                         "alias",
@@ -1398,18 +1399,24 @@ fn ingest_one_asset(
                             },
                         );
                         last_emit = std::time::Instant::now();
+                        last_done = done;
                     }
                 }
-                // Final frame so the counter always lands on done == total.
-                crate::ingest_progress::emit(
-                    progress,
-                    crate::ingest_progress::IngestEvent::ExpansionProgress {
-                        idx,
-                        total,
-                        done,
-                        chunks: total_chunks,
-                    },
-                );
+                // Final frame so the counter lands on done == total — but only
+                // if the last in-loop emit didn't already report this `done`
+                // (avoids a duplicate frame when chunks is a multiple of the
+                // throttle, and skips a 0/0 frame when there are no chunks).
+                if done != last_done {
+                    crate::ingest_progress::emit(
+                        progress,
+                        crate::ingest_progress::IngestEvent::ExpansionProgress {
+                            idx,
+                            total,
+                            done,
+                            chunks: total_chunks,
+                        },
+                    );
+                }
             }
             Err(e) => {
                 tracing::warn!(
@@ -1433,7 +1440,6 @@ fn ingest_one_asset(
     // the kb-app job. A failure mid-way leaves the DB in a state the
     // next ingest run can re-converge (UPSERT + DELETE-then-INSERT).
     let t_store = std::time::Instant::now();
-    purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     app.sqlite
         .put_asset_with_bytes(asset, &bytes)
         .context("DocumentStore::put_asset_with_bytes")?;
@@ -1450,6 +1456,12 @@ fn ingest_one_asset(
 
     // Embed + vector upsert (only when both sides are configured).
     let t_embed = std::time::Instant::now();
+    // Stale-vector purge is LanceDB I/O, so it belongs to the embed/vector
+    // phase — not the SQLite `store` phase. Keeping it here makes `store_ms`
+    // mean "SQLite persist only" and `embed_ms` cover all vector-store work
+    // (purge + upsert), so per-phase timings attribute the bottleneck
+    // correctly (review fix). Runs before any new upsert, as before.
+    purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     let mut emb_cache_hit = 0_usize;
     let mut emb_cache_miss = 0_usize;
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store) {
