@@ -25,6 +25,14 @@ rayon = "1"
 anyhow = { workspace = true }
 tracing = { workspace = true }
 
+[features]
+# opt-in: run candle on the Apple Silicon GPU (Metal). macOS-only — the build
+# enables candle's metal backend and `select_device()` picks Metal (CPU fallback
+# on failure). Lets an M-series Mac ingest e5-large on GPU (10×+ vs CPU); the
+# resulting vectors are cross-compatible with the CPU path (same model), so the
+# Linux server can serve queries on CPU candle.
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+
 [dev-dependencies]
 # Integration-test binaries can only see the library's public API + these,
 # not the library's own (non-dev) dependencies — so rayon/kebab-config/kebab-core

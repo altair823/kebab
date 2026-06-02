@@ -128,7 +128,7 @@ impl CandleEmbedder {
         std::fs::create_dir_all(&cache_dir)
             .with_context(|| format!("create candle cache dir {}", cache_dir.display()))?;
 
-        let device = Device::Cpu;
+        let device = select_device();
 
         // 3. Fetch model files via hf-hub into the candle cache.
         tracing::info!(
@@ -250,7 +250,9 @@ impl CandleEmbedder {
         let norm = mean.sqr()?.sum_keepdim(1)?.sqrt()?;
         let normalized = mean.broadcast_div(&norm)?;
 
-        Ok(normalized.to_vec2::<f32>()?)
+        // `.contiguous()` before host copy: broadcast ops can leave a strided
+        // view, which `to_vec2` rejects on the Metal backend (CPU tolerates it).
+        Ok(normalized.contiguous()?.to_vec2::<f32>()?)
     }
 }
 
@@ -305,6 +307,32 @@ fn prefix_input(input: &EmbeddingInput<'_>) -> String {
         EmbeddingKind::Document => format!("passage: {}", input.text),
         EmbeddingKind::Query => format!("query: {}", input.text),
     }
+}
+
+/// Select the compute device. Built with the `metal` feature (Apple Silicon
+/// GPU), try Metal and fall back to CPU on failure; otherwise CPU. Metal only
+/// compiles/runs on macOS — the Linux server builds the CPU path. e5-large
+/// vectors are model-defined, so Metal-produced and CPU-produced embeddings are
+/// cross-compatible (a Mac can ingest on GPU, the server query on CPU).
+fn select_device() -> Device {
+    #[cfg(feature = "metal")]
+    {
+        match Device::new_metal(0) {
+            Ok(d) => {
+                tracing::info!(target: "kebab-embed-candle", "candle device = Metal (GPU)");
+                return d;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "kebab-embed-candle",
+                    error = %e,
+                    "Metal device unavailable; falling back to CPU"
+                );
+            }
+        }
+    }
+    tracing::info!(target: "kebab-embed-candle", "candle device = CPU");
+    Device::Cpu
 }
 
 /// Apply a one-shot global rayon thread cap (the NUMA-safety lever). Returns

@@ -14,6 +14,31 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-02 — candle Metal(Apple Silicon GPU) opt-in build feature
+
+**동기.** candle CPU 임베딩은 e5-large/512-tok 에서 ~1.5~1.9 s/chunk 로 느리고,
+코어를 더 줘도(rayon/MKL) 안 빨라진다(병목=커널 효율). 대용량 코퍼스(수만 청크)는
+CPU 로는 수 시간. 사용자 워크플로: **M4 Pro 맥에서 GPU 로 빠르게 색인 → sqlite +
+lancedb 만 Linux NUMA 서버로 복사 → 서버는 CPU candle 로 질의** (벡터 동일 모델이라
+호환, KB 이식성은 06-01 항목 + workspace_path 상대경로 + chunks.text 저장으로 확인).
+
+**무엇.** `kebab-embed-candle` 에 `metal` feature 추가 →
+`candle-core/-nn/-transformers` 의 metal 백엔드 활성. `select_device()` 가 metal
+빌드 시 `Device::new_metal(0)` 선택(실패 시 CPU fallback), 비-metal 빌드는 기존
+`Device::Cpu` 그대로. host 복사 전 `.contiguous()` 추가(Metal 의 strided view 가
+`to_vec2` 거부 — CPU 는 허용). feature passthrough: `kebab-app/embed_metal` →
+`kebab-cli/embed_metal`. 빌드: `cargo build --release --features embed_metal`(macOS).
+
+**제약 / 검증 분담.** metal 은 **macOS 전용 컴파일** — Linux CPU 머신(개발/서버)은
+비-metal 경로만 빌드(검증: clippy 0 + candle 단위 6 + thread_cap + parity, exit 0).
+**Metal 실행·속도·벡터 패리티(GPU vs CPU)는 M4 Pro 에서 사용자 검증** (Claude 의
+Linux 환경에서 불가). 로그 `candle device = Metal (GPU)` 로 GPU 사용 확인.
+
+**호환성.** default(비-metal) 동작·벡터 불변. wire/schema 변경 없음. 버전 0.22.0 →
+**0.23.0** (신규 opt-in build feature surface).
+
+amends: `docs/superpowers/specs/2026-06-01-embed-candle-track-spec.md` (§10 후속 — GPU 가속).
+
 ## 2026-06-01 — candle 임베딩 provider (NUMA double-free 회피, opt-in)
 
 **무엇이 문제였나.** 듀얼소켓 NUMA 서버에서 `provider=fastembed`(onnxruntime)로
