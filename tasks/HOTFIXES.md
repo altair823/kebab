@@ -14,6 +14,22 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-02 — ingest 백엔드/디바이스 표시 + KB 이전 문서 (v0.23.1)
+
+**동기.** Metal 빌드가 실제로 GPU 를 쓰는지 사용자가 터미널에서 못 봐서 Activity
+Monitor 로 확인해야 했다(`select_device()` 의 device 로그는 kb.log 파일로만, 기본
+EnvFilter=warn 이라 `--verbose` 필요). 또 "어떤 DB 파일을 옮기나" 가 README 에
+구체적이지 않았다.
+
+**무엇.** (1) `kebab-cli` ingest 시작 시 임베딩 백엔드/모델/차원을 stderr 한 줄로
+표시(`임베딩 백엔드: candle (Metal/GPU 빌드) · 모델 …`), `--json`/`--quiet` 에선
+억제. Metal 표기는 `cfg!(feature="embed_metal")` 기반(빌드 사실); 확정 런타임
+디바이스는 여전히 kb.log(`candle device = …`). (2) README "외부 계산 + 로컬 검색"
+절에 복사 대상 2개(`kebab.sqlite`/`sqlite`, `lancedb/`/`vector_dir`)와 `[storage]`
+config 키·`models/`·`assets/` 복사 불필요·동일 버전/모델 조건·rsync 예시 추가.
+
+**범위.** CLI 출력 + 문서만. 동작·wire·schema·벡터 변경 없음. 버전 0.23.0 → 0.23.1.
+
 ## 2026-06-02 — candle Metal(Apple Silicon GPU) opt-in build feature
 
 **동기.** candle CPU 임베딩은 e5-large/512-tok 에서 ~1.5~1.9 s/chunk 로 느리고,
