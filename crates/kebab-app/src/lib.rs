@@ -480,6 +480,8 @@ pub fn ingest_with_config_opts(
         let item = ingest_one_asset(
             &app,
             &asset,
+            idx,
+            scanned_count,
             &parser_version,
             &chunk_policy,
             embedder.as_ref(),
@@ -1100,6 +1102,8 @@ fn embed_with_cache(
 fn ingest_one_asset(
     app: &App,
     asset: &RawAsset,
+    idx: u32,
+    total: u32,
     parser_version: &ParserVersion,
     chunk_policy: &ChunkPolicy,
     embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
@@ -1132,18 +1136,23 @@ fn ingest_one_asset(
             return ingest_one_image_asset(
                 app,
                 asset,
+                idx,
+                total,
                 chunk_policy,
                 embedder,
                 vector_store,
                 existing_doc_ids,
                 image_pipeline,
                 force_reingest,
+                progress,
             );
         }
         MediaType::Pdf => {
             return ingest_one_pdf_asset(
                 app,
                 asset,
+                idx,
+                total,
                 chunk_policy,
                 embedder,
                 vector_store,
@@ -1252,6 +1261,10 @@ fn ingest_one_asset(
         return Ok(item);
     }
 
+    // v0.24.0 phase timing: parse spans from here (byte read) through
+    // `build_canonical_document`, i.e. everything before the chunker runs.
+    let t_parse = std::time::Instant::now();
+
     let bytes = std::fs::read(&path)
         .with_context(|| format!("read asset bytes from {}", path.display()))?;
 
@@ -1286,9 +1299,26 @@ fn ingest_one_asset(
         build_canonical_document(asset, metadata, parsed_blocks, parser_version, all_warnings)
             .context("kb-parse-md::build_canonical_document")?;
 
+    let parse_ms = u64::try_from(t_parse.elapsed().as_millis()).unwrap_or(u64::MAX);
+
+    let t_chunk = std::time::Instant::now();
     let mut chunks = MdHeadingV1Chunker
         .chunk(&canonical, chunk_policy)
         .context("kb-chunk::MdHeadingV1Chunker::chunk")?;
+    let chunk_ms = u64::try_from(t_chunk.elapsed().as_millis()).unwrap_or(u64::MAX);
+
+    // v0.24.0: surface the chunk count immediately, before the (potentially
+    // very slow) expansion / embed phases — so a single large document no
+    // longer looks frozen at `idx/total` while its chunks churn.
+    let total_chunks = u32::try_from(chunks.len()).unwrap_or(u32::MAX);
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::AssetChunked {
+            idx,
+            total,
+            chunks: total_chunks,
+        },
+    );
 
     // Phase 2 doc-side expansion: flag on 이면 청크당 별칭 생성 (fail-soft).
     // derivation cache(§3.4): 같은 청크 text + 같은 alias version_key 면 LLM
@@ -1296,6 +1326,7 @@ fn ingest_one_asset(
     let mut alias_cache_hit = 0_usize;
     let mut alias_cache_miss = 0_usize;
     let mut alias_touch_keys: Vec<String> = Vec::new();
+    let t_expansion = std::time::Instant::now();
     if app.config.ingest.expansion.enabled {
         let exp = &app.config.ingest.expansion;
         let alias_version_key = format!(
@@ -1313,6 +1344,11 @@ fn ingest_one_asset(
             Ok(llm) => {
                 let generator =
                     crate::expansion::ExpansionGenerator::new(&llm, exp.max_aliases_per_chunk);
+                // v0.24.0: throttled live counter through the per-chunk
+                // expansion loop. Emit at most every 25 chunks or once per
+                // second — never per chunk (would flood the mpsc channel).
+                let mut done: u32 = 0;
+                let mut last_emit = std::time::Instant::now();
                 for chunk in &mut chunks {
                     let key = kebab_core::derivation_cache_key(
                         "alias",
@@ -1345,7 +1381,35 @@ fn ingest_one_asset(
                                 .derivation_cache_put(&key, "alias", a.as_bytes())?;
                         }
                     }
+                    // Cache hits count toward `done` too (the brief: show the
+                    // warm-run fast-forward). Throttle: every 25 chunks or
+                    // ≥1s since the last emit.
+                    done += 1;
+                    if done % 25 == 0
+                        || last_emit.elapsed() >= std::time::Duration::from_secs(1)
+                    {
+                        crate::ingest_progress::emit(
+                            progress,
+                            crate::ingest_progress::IngestEvent::ExpansionProgress {
+                                idx,
+                                total,
+                                done,
+                                chunks: total_chunks,
+                            },
+                        );
+                        last_emit = std::time::Instant::now();
+                    }
                 }
+                // Final frame so the counter always lands on done == total.
+                crate::ingest_progress::emit(
+                    progress,
+                    crate::ingest_progress::IngestEvent::ExpansionProgress {
+                        idx,
+                        total,
+                        done,
+                        chunks: total_chunks,
+                    },
+                );
             }
             Err(e) => {
                 tracing::warn!(
@@ -1355,6 +1419,7 @@ fn ingest_one_asset(
             }
         }
     }
+    let expansion_ms = u64::try_from(t_expansion.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // Stamp chunker + embedding versions so Task 7's skip detection has
     // data on the second run.
@@ -1367,6 +1432,7 @@ fn ingest_one_asset(
     // (per-document tx semantics per design §5.8); composing them is
     // the kb-app job. A failure mid-way leaves the DB in a state the
     // next ingest run can re-converge (UPSERT + DELETE-then-INSERT).
+    let t_store = std::time::Instant::now();
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     app.sqlite
         .put_asset_with_bytes(asset, &bytes)
@@ -1380,8 +1446,10 @@ fn ingest_one_asset(
     app.sqlite
         .put_chunks(&canonical.doc_id, &chunks)
         .context("DocumentStore::put_chunks")?;
+    let store_ms = u64::try_from(t_store.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // Embed + vector upsert (only when both sides are configured).
+    let t_embed = std::time::Instant::now();
     let mut emb_cache_hit = 0_usize;
     let mut emb_cache_miss = 0_usize;
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store) {
@@ -1511,6 +1579,22 @@ fn ingest_one_asset(
         }
     }
 
+    let embed_ms = u64::try_from(t_embed.elapsed().as_millis()).unwrap_or(u64::MAX);
+
+    // v0.24.0: phase-timing breakdown for this asset (markdown path only).
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::AssetTimings {
+            idx,
+            total,
+            parse_ms,
+            chunk_ms,
+            expansion_ms,
+            embed_ms,
+            store_ms,
+        },
+    );
+
     // 히트한 alias 키들의 last_used_at 갱신(LRU 보존, §3.5).
     app.sqlite.derivation_cache_touch(&alias_touch_keys)?;
 
@@ -1564,12 +1648,15 @@ fn ingest_one_asset(
 fn ingest_one_image_asset(
     app: &App,
     asset: &RawAsset,
+    idx: u32,
+    total: u32,
     chunk_policy: &ChunkPolicy,
     embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
     image_pipeline: &ImagePipeline<'_>,
     force_reingest: bool,
+    progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     let ocr_engine = image_pipeline.ocr_engine;
     let caption_llm = image_pipeline.caption_llm;
@@ -1721,6 +1808,17 @@ fn ingest_one_image_asset(
     let chunks = MdHeadingV1Chunker
         .chunk(&canonical, chunk_policy)
         .context("kb-chunk::MdHeadingV1Chunker::chunk (image)")?;
+
+    // v0.24.0: surface chunk count for the image path too (phase timing is
+    // markdown-only, but AssetChunked is consistent across media).
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::AssetChunked {
+            idx,
+            total,
+            chunks: u32::try_from(chunks.len()).unwrap_or(u32::MAX),
+        },
+    );
 
     // 5. Persist + embed — identical sequence to markdown.
     // Stamp chunker + embedding versions (image uses MdHeadingV1Chunker
@@ -2127,6 +2225,8 @@ fn sweep_deleted_files(
 fn ingest_one_pdf_asset(
     app: &App,
     asset: &RawAsset,
+    idx: u32,
+    total: u32,
     chunk_policy: &ChunkPolicy,
     embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
@@ -2329,6 +2429,16 @@ fn ingest_one_pdf_asset(
     let chunks = chunker
         .chunk(&canonical, chunk_policy)
         .context("kb-chunk::PdfPageV1Chunker::chunk")?;
+
+    // v0.24.0: surface chunk count for the PDF path too.
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::AssetChunked {
+            idx,
+            total,
+            chunks: u32::try_from(chunks.len()).unwrap_or(u32::MAX),
+        },
+    );
 
     // Stamp chunker + embedding versions so Task 7's skip detection has
     // data on the second run.

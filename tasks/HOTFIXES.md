@@ -14,6 +14,52 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-02 — 상세 ingest 진행 로깅 (asset 내부 phase 가시화, v0.24.0)
+
+**무엇이 문제였나.** ingest 진행 이벤트가 asset(문서) 단위(`asset_started` /
+`asset_finished`)뿐이라 한 문서 내부의 parse / chunk / **expansion(별칭 LLM,
+청크당 순차 호출)** / embed / store 가 깜깜했다. expansion 은 청크당 ~1~4s
+(원격 GPU Ollama)이고 큰 문서는 청크 수백~천 개 → 그 한 문서에서 수십 분이
+걸리는데, 진행바는 `1/5150` 에 멈춘 듯 보여 사용자가 병목을 못 봤다.
+
+**무엇을 추가했나 (wire `ingest_progress.v1` additive, 호환 유지).**
+`IngestEvent` 에 세 변이 추가 — `#[serde(tag="kind")]` 라 신규 `kind` 추가는
+wire v1 호환:
+
+- `asset_chunked { idx, total, chunks }` — 청킹 직후(expansion/embed 전) 즉시
+  "이 문서가 N청크" 노출. markdown / image / pdf 세 경로 모두 emit.
+- `expansion_progress { idx, total, done, chunks }` — expansion 루프 중
+  **스로틀** 발신(매 25청크 또는 ≥1s, 종료 시 `done == chunks` 1프레임 더).
+  캐시 히트 청크도 `done` 에 포함(warm 재색인 fast-forward 가시화). 채널 폭주
+  방지 — 매 청크 emit 금지.
+- `asset_timings { idx, total, parse_ms, chunk_ms, expansion_ms, embed_ms,
+  store_ms }` — asset 처리 phase 별 소요시간. **markdown 경로만** emit
+  (image/pdf 는 phase shape 가 달라 생략; AssetChunked 만 emit).
+
+**설계 결정 — AssetTimings 이벤트 vs AssetFinished 필드.** IMPL_BRIEF §1 은
+`AssetFinished` 에 optional phase-timing 필드를, §2 는 대안으로 신규
+`AssetTimings` 이벤트를 제시(권장). 후자를 택함 — `AssetFinished` 는 호출부
+(`ingest_with_config_progress` 루프)에서 만들어지는데 timing 데이터는
+`ingest_one_asset` 내부에만 있어, 필드를 채우려면 `kebab_core::IngestItem`
+(wire-stable struct) 변경 또는 별도 plumbing 이 필요. `ingest_one_asset` 가
+`progress` 핸들을 이미 들고 있으므로 새 이벤트를 직접 emit 하는 쪽이 crate
+경계(kebab-core 불변)도 지키고 더 깔끔. `AssetFinished` 는 손대지 않음.
+
+**CLI 렌더(`kebab-cli` progress.rs).** `asset_chunked` → 진행바 message `→ N
+chunks`. `expansion_progress` → message `별칭 확장 {done}/{chunks}` (라이브).
+`asset_timings` → asset 종료 시 `⏱ parse Xs · chunk Ys · expand Zs · embed Ws
+· store Vs` 한 줄(`fmt_ms`: <1s 는 ms, ≥1s 는 1-decimal 초). `--json` 은
+`emit_json` 이 임의 이벤트를 직렬화하므로 자동 처리. `--quiet` 억제, 비-TTY
+expansion_progress 는 로그 폭주 방지로 기본 억제(진행바 message 로 커버).
+
+**검증.** 단위 테스트: ingest_progress.rs(3 신규 변이 직렬화 `kind` 판별),
+progress.rs(`fmt_ms` 단위 전환). clippy/test exit code 는 같은 PR 의
+IMPL_REPORT 참조. 실동작은 단위/통합으로 충분(expansion 라이브 카운터는 원격
+LLM 필요).
+
+**알려진 한계.** image/pdf 경로는 phase timing 없음(AssetChunked 만).
+expansion_progress 비-TTY 억제는 의도적(필요 시 `--json` 으로 전량 관측).
+
 ## 2026-06-02 — ingest 백엔드/디바이스 표시 + KB 이전 문서 (v0.23.1)
 
 **동기.** Metal 빌드가 실제로 GPU 를 쓰는지 사용자가 터미널에서 못 봐서 Activity

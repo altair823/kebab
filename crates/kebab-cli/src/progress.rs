@@ -157,6 +157,54 @@ impl ProgressDisplay {
                 // in Completed handles the final state. No per-asset bar update
                 // here avoids the duplicate-frame artifact in TTY scrollback.
             }
+            // v0.24.0: asset-internal phase visibility. AssetChunked /
+            // ExpansionProgress use the bar *message* (live sub-progress for
+            // the current asset) — distinct from the per-file position draw,
+            // so a single large document no longer looks frozen. AssetTimings
+            // prints a one-line breakdown when the asset finishes.
+            IngestEvent::AssetChunked { idx, total, chunks } => {
+                if let Some(bar) = self.bar.as_ref() {
+                    bar.set_message(format!("→ {chunks} chunks"));
+                }
+                if !tty && !quiet {
+                    let mut err = std::io::stderr().lock();
+                    let _ = writeln!(err, "ingest: {idx}/{total} → {chunks} chunks");
+                }
+            }
+            IngestEvent::ExpansionProgress {
+                done, chunks, ..
+            } => {
+                if let Some(bar) = self.bar.as_ref() {
+                    bar.set_message(format!("별칭 확장 {done}/{chunks}"));
+                }
+                // Non-TTY: suppressed by default — throttled though it is, one
+                // line per emit would still spam CI logs. The bar message
+                // covers the interactive case; --json carries every frame.
+            }
+            IngestEvent::AssetTimings {
+                parse_ms,
+                chunk_ms,
+                expansion_ms,
+                embed_ms,
+                store_ms,
+                ..
+            } => {
+                if let Some(bar) = self.bar.as_ref() {
+                    bar.set_message("");
+                }
+                if !quiet {
+                    let mut err = std::io::stderr().lock();
+                    let _ = writeln!(
+                        err,
+                        "  ⏱ parse {} · chunk {} · expand {} · embed {} · store {}",
+                        fmt_ms(*parse_ms),
+                        fmt_ms(*chunk_ms),
+                        fmt_ms(*expansion_ms),
+                        fmt_ms(*embed_ms),
+                        fmt_ms(*store_ms),
+                    );
+                }
+            }
             IngestEvent::Completed { counts } => {
                 if let Some(bar) = self.bar.take() {
                     bar.finish_and_clear();
@@ -239,6 +287,17 @@ fn emit_json(event: &IngestEvent) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Render a phase duration (milliseconds) compactly for the human-mode
+/// `AssetTimings` line: `< 1000ms` stays in `ms`, larger spans collapse to
+/// one-decimal seconds so a 45-second expansion reads `45.0s`, not `45000ms`.
+fn fmt_ms(ms: u64) -> String {
+    if ms >= 1000 {
+        format!("{:.1}s", ms as f64 / 1000.0)
+    } else {
+        format!("{ms}ms")
+    }
+}
+
 /// Format the current wall-clock as RFC 3339 — used by `wire_ingest_progress`
 /// so every emitted event carries an `ts` field per §2.4a / the wire schema.
 pub(crate) fn now_rfc3339() -> anyhow::Result<String> {
@@ -283,6 +342,15 @@ mod tests {
             ProgressMode::Human { tty: false, .. } => {}
             other => panic!("expected Human{{tty:false}}, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn fmt_ms_switches_unit_at_one_second() {
+        assert_eq!(fmt_ms(0), "0ms");
+        assert_eq!(fmt_ms(999), "999ms");
+        assert_eq!(fmt_ms(1000), "1.0s");
+        assert_eq!(fmt_ms(45_000), "45.0s");
+        assert_eq!(fmt_ms(1500), "1.5s");
     }
 
     #[test]
