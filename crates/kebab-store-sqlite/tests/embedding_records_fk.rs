@@ -160,7 +160,6 @@ fn put_chunks_cleans_original_and_sentinel_embeddings() {
         chunker_version: ChunkerVersion("v1".to_string()),
         policy_hash: "h".to_string(),
         tokenized_korean_text: None,
-        aliases: None,
     };
     store.put_chunks(&doc_id, std::slice::from_ref(&chunk)).unwrap();
 
@@ -270,7 +269,6 @@ fn put_chunks_cleans_per_alias_sentinel_embeddings() {
         chunker_version: ChunkerVersion("v1".to_string()),
         policy_hash: "h".to_string(),
         tokenized_korean_text: None,
-        aliases: None,
     };
     store.put_chunks(&doc_id, std::slice::from_ref(&chunk)).unwrap();
 

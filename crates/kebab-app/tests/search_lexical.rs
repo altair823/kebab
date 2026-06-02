@@ -111,7 +111,8 @@ fn first_ingest_bumps_corpus_revision() {
     store_before.run_migrations().unwrap();
     // V004 seeds 0; V009 + V010 + V011 migrations each bump by 1 to
     // invalidate stale LRU caches (spec §5.2). Baseline before ingest = 3.
-    // (V012 derivation_cache is purely additive — does NOT bump.)
+    // (V012 derivation_cache + V013 drop-chunk-aliases are structural/additive
+    // — neither bumps corpus_revision.)
     let baseline = store_before.corpus_revision();
     assert_eq!(baseline, 3, "fresh store post-V011 baseline = 3");
 

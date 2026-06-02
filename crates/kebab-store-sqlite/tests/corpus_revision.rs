@@ -23,6 +23,8 @@ fn open_store(tmp: &TempDir) -> SqliteStore {
 /// Fresh store baseline: V004 seeds `corpus_revision = 0`, then V009,
 /// V010, and V011 migrations bump it by one each to invalidate any stale
 /// LRU cache — so a fresh store after `run_migrations()` reads back as `3`.
+/// (V012 derivation_cache + V013 drop-chunk-aliases are structural/additive
+/// and do NOT bump corpus_revision.)
 #[test]
 fn fresh_store_starts_at_post_migration_baseline() {
     let tmp = TempDir::new().unwrap();
