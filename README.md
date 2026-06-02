@@ -111,10 +111,20 @@ num_threads = 0                   # candle 전용 CPU 스레드 캡 (0=auto=#cor
 ```
 
 **Apple Silicon GPU 가속 (candle / macOS)**: M-시리즈 맥에서 candle 임베딩을
-GPU(Metal)로 돌리려면 `cargo build --release --features embed_metal` 로 빌드한다
-(CPU 대비 대용량 ingest 가 크게 빨라짐). 벡터는 CPU candle 과 동일 모델이라 호환되므로,
-맥에서 GPU 로 색인한 `kebab.sqlite` + `lancedb/` 를 그대로 Linux 서버(CPU candle)로
-복사해 질의할 수 있다. metal feature 는 macOS 전용.
+GPU(Metal)로 돌리면 CPU 대비 대용량 ingest 가 크게 빨라진다. 빌드 또는 설치 시
+`embed_metal` feature 를 켠다:
+
+```bash
+# 빌드만:
+cargo build --release --features embed_metal
+# 전역 설치 (~/.cargo/bin/kebab):
+cargo install --path crates/kebab-cli --features embed_metal --locked
+```
+
+벡터는 CPU candle 과 동일 모델이라 호환되므로, 맥에서 GPU 로 색인한
+`kebab.sqlite` + `lancedb/` 를 그대로 Linux 서버(CPU candle)로 복사해 질의할 수
+있다. 색인 로그에 `candle device = Metal (GPU)` 가 보이면 GPU 사용 중. metal
+feature 는 macOS 전용 (Linux/서버는 기본 CPU 빌드).
 
 ```toml
 
