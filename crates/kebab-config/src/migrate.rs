@@ -15,7 +15,7 @@ pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct MigrationChange {
     pub kind: ChangeKind,
-    /// dotted path, 예: `ingest.expansion`, `workspace.include`.
+    /// dotted path, 예: `ingest.code`, `workspace.include`.
     pub path: String,
     /// 사람·wire 용 한 줄 설명.
     pub detail: String,
@@ -83,7 +83,6 @@ fn section_comment(path: &str) -> Option<&'static str> {
         "ui" => "# TUI 팔레트·role 스타일.",
         "ingest" => "# ingest 정책(code skip 등).",
         "ingest.code" => "# code ingest skip 정책(.gitignore 자동 honor).",
-        "ingest.expansion" => "# doc-side 별칭 확장(기본 off). 패러프레이즈 강건성↑, LLM 비용 큼.",
         "pdf" => "# PDF ingest. scanned PDF OCR 은 기본 off(page 당 cost).",
         "pdf.ocr" => "# scanned PDF page-단위 OCR(기본 off).",
         "logging" => "# ingest 로그(기본 on, ~/.local/state/kebab/logs).",
@@ -259,7 +258,7 @@ mod tests {
         // `[pdf]` 등은 안 나오고 `[pdf.ocr]` 같은 하위 테이블만 직렬화된다.
         for section in [
             "[workspace]",
-            "[ingest.expansion]",
+            "[ingest.code]",
             "[pdf.ocr]",
             "[logging]",
             "[ui]",
@@ -273,8 +272,8 @@ mod tests {
 
     #[test]
     fn reconcile_adds_missing_section_preserving_user_values_and_comments() {
-        // ingest 는 code 만 있고 expansion 누락(v0.21.0 동기 시나리오),
-        // logging 통째 누락, score 는 사용자가 바꿈, 주석 보유.
+        // ingest 통째 누락(→ ingest.code 추가), logging 통째 누락,
+        // default_k 는 사용자가 바꿈, 주석 보유.
         let user_text = "\
 schema_version = 1
 
@@ -283,9 +282,6 @@ root = \"/my/notes\"   # 내 워크스페이스
 
 [search]
 default_k = 25
-
-[ingest.code]
-skip_generated_header = true
 ";
         let mut user: DocumentMut = user_text.parse().unwrap();
         let reference = annotated_default_document();
@@ -294,25 +290,22 @@ skip_generated_header = true
         reconcile(&ref_tbl, user.as_table_mut(), "", &mut changes);
         let out = user.to_string();
 
-        // 부분 존재하는 [ingest] 에 expansion 만 주석과 함께 추가.
-        assert!(out.contains("[ingest.expansion]"), "expansion not added:\n{out}");
+        // 누락된 [ingest.code] 가 주석과 함께 추가.
+        assert!(out.contains("[ingest.code]"), "ingest.code not added:\n{out}");
         // 통째 누락된 logging 추가.
         assert!(out.contains("[logging]"), "logging not added");
         // 사용자 값/주석/기존 섹션 보존.
         assert!(out.contains("root = \"/my/notes\""));
         assert!(out.contains("# 내 워크스페이스"));
         assert!(out.contains("default_k = 25"));
-        assert!(out.contains("skip_generated_header = true"));
         // 새 섹션 주석 부착.
-        assert!(out.contains("doc-side 별칭"));
-        // 부분 존재 부모로 재귀해 leaf 경로를 기록.
+        assert!(out.contains("code ingest skip 정책"));
+        // 통째 누락 부모는 부모 경로로 한 번 기록.
         assert!(
             changes
                 .iter()
-                .any(|c| c.kind == ChangeKind::AddedSection && c.path == "ingest.expansion"),
-            "changes: {changes:?}"
+                .any(|c| c.kind == ChangeKind::AddedSection && c.path == "ingest")
         );
-        // 통째 누락 부모는 부모 경로로 한 번 기록.
         assert!(
             changes
                 .iter()
@@ -381,7 +374,7 @@ include = [\"*.md\"]
         assert_eq!(outcome.to_schema_version, CURRENT_SCHEMA_VERSION);
         assert!(outcome.changed());
         assert!(!outcome.new_text.contains("include"));
-        assert!(outcome.new_text.contains("[ingest.expansion]"));
+        assert!(outcome.new_text.contains("[ingest.code]"));
         assert_eq!(read_schema_version(&outcome.new_text), CURRENT_SCHEMA_VERSION);
 
         let again = migrate_document(&outcome.new_text);
