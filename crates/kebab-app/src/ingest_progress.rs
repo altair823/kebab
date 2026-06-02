@@ -50,18 +50,16 @@ pub struct AggregateCounts {
 ///   < ( AssetStarted
 ///         [< (PdfOcrStarted < PdfOcrFinished)*]
 ///         [< AssetChunked]
-///         [< ExpansionProgress*]
 ///         [< AssetTimings]
 ///       < AssetFinished )*
 ///   < (Completed | Aborted)
 /// ```
 ///
 /// `[]` = optional. `PdfOcr*` is per-PDF asset only (v0.20.0 sub-item 1).
-/// `AssetChunked` / `ExpansionProgress` / `AssetTimings` are the v0.24.0
-/// asset-internal phase events: `AssetChunked` fires once right after
-/// chunking (markdown / image / PDF); `ExpansionProgress` is a throttled
-/// counter through the alias-expansion loop (markdown, expansion enabled
-/// only); `AssetTimings` reports per-phase wall-clock once (markdown only).
+/// `AssetChunked` / `AssetTimings` are the v0.24.0 asset-internal phase
+/// events: `AssetChunked` fires once right after chunking (markdown /
+/// image / PDF); `AssetTimings` reports per-phase wall-clock once
+/// (markdown only).
 ///
 /// Embed-batch events (`embed_batch_started` / `embed_batch_finished`
 /// in §2.4a) are reserved for a future iteration and are not emitted
@@ -98,26 +96,14 @@ pub enum IngestEvent {
     /// `idx/total` while its per-chunk phases churn. `chunks` is the chunk
     /// count for asset `idx`.
     AssetChunked { idx: u32, total: u32, chunks: u32 },
-    /// v0.24.0 (additive): throttled progress through the per-chunk
-    /// expansion (alias-LLM) loop — the slowest inner phase for large
-    /// documents (~1–4s per chunk against a remote GPU Ollama). `done` is
-    /// the number of chunks processed so far (cache hits included, so the
-    /// counter still advances on a warm re-run); `chunks` is the asset's
-    /// total chunk count. Emitted at most every 25 chunks or once per
-    /// second (see the loop in `ingest_one_asset`), plus a final
-    /// `done == chunks` frame.
-    ExpansionProgress {
-        idx: u32,
-        total: u32,
-        done: u32,
-        chunks: u32,
-    },
     /// v0.24.0 (additive): per-phase wall-clock (milliseconds) for asset
     /// `idx`, emitted once the asset's markdown pipeline finishes. Lets a
-    /// user see *where* the time went (parse / chunk / expansion / embed /
-    /// store) without parsing logs. Only the markdown path emits this; the
+    /// user see *where* the time went (parse / chunk / embed / store)
+    /// without parsing logs. Only the markdown path emits this; the
     /// image / PDF paths surface `AssetChunked` but skip phase timing (their
-    /// phase shapes differ — OCR / caption rather than expansion).
+    /// phase shapes differ — OCR / caption). `expansion_ms` is retained for
+    /// wire compatibility but is always 0 since doc-side expansion was
+    /// removed (HOTFIXES 2026-06-03).
     AssetTimings {
         idx: u32,
         total: u32,
@@ -262,26 +248,6 @@ mod tests {
         assert_eq!(
             v.get("chunks").and_then(serde_json::Value::as_u64),
             Some(142)
-        );
-    }
-
-    #[test]
-    fn expansion_progress_serializes_with_discriminator() {
-        let ev = IngestEvent::ExpansionProgress {
-            idx: 1,
-            total: 5,
-            done: 25,
-            chunks: 200,
-        };
-        let v = serde_json::to_value(&ev).unwrap();
-        assert_eq!(
-            v.get("kind").and_then(|s| s.as_str()),
-            Some("expansion_progress")
-        );
-        assert_eq!(v.get("done").and_then(serde_json::Value::as_u64), Some(25));
-        assert_eq!(
-            v.get("chunks").and_then(serde_json::Value::as_u64),
-            Some(200)
         );
     }
 

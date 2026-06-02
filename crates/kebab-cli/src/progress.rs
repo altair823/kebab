@@ -157,11 +157,11 @@ impl ProgressDisplay {
                 // in Completed handles the final state. No per-asset bar update
                 // here avoids the duplicate-frame artifact in TTY scrollback.
             }
-            // v0.24.0: asset-internal phase visibility. AssetChunked /
-            // ExpansionProgress use the bar *message* (live sub-progress for
-            // the current asset) — distinct from the per-file position draw,
-            // so a single large document no longer looks frozen. AssetTimings
-            // prints a one-line breakdown when the asset finishes.
+            // v0.24.0: asset-internal phase visibility. AssetChunked uses the
+            // bar *message* (live sub-progress for the current asset) —
+            // distinct from the per-file position draw, so a single large
+            // document no longer looks frozen. AssetTimings prints a one-line
+            // breakdown when the asset finishes.
             IngestEvent::AssetChunked { idx, total, chunks } => {
                 if let Some(bar) = self.bar.as_ref() {
                     bar.set_message(format!("→ {chunks} chunks"));
@@ -171,20 +171,9 @@ impl ProgressDisplay {
                     let _ = writeln!(err, "ingest: {idx}/{total} → {chunks} chunks");
                 }
             }
-            IngestEvent::ExpansionProgress {
-                done, chunks, ..
-            } => {
-                if let Some(bar) = self.bar.as_ref() {
-                    bar.set_message(format!("별칭 확장 {done}/{chunks}"));
-                }
-                // Non-TTY: suppressed by default — throttled though it is, one
-                // line per emit would still spam CI logs. The bar message
-                // covers the interactive case; --json carries every frame.
-            }
             IngestEvent::AssetTimings {
                 parse_ms,
                 chunk_ms,
-                expansion_ms,
                 embed_ms,
                 store_ms,
                 ..
@@ -196,10 +185,9 @@ impl ProgressDisplay {
                     let mut err = std::io::stderr().lock();
                     let _ = writeln!(
                         err,
-                        "  ⏱ parse {} · chunk {} · expand {} · embed {} · store {}",
+                        "  ⏱ parse {} · chunk {} · embed {} · store {}",
                         fmt_ms(*parse_ms),
                         fmt_ms(*chunk_ms),
-                        fmt_ms(*expansion_ms),
                         fmt_ms(*embed_ms),
                         fmt_ms(*store_ms),
                     );
@@ -289,7 +277,7 @@ fn emit_json(event: &IngestEvent) -> anyhow::Result<()> {
 
 /// Render a phase duration (milliseconds) compactly for the human-mode
 /// `AssetTimings` line: `< 1000ms` stays in `ms`, larger spans collapse to
-/// one-decimal seconds so a 45-second expansion reads `45.0s`, not `45000ms`.
+/// one-decimal seconds so a 45-second embed reads `45.0s`, not `45000ms`.
 fn fmt_ms(ms: u64) -> String {
     if ms >= 1000 {
         format!("{:.1}s", ms as f64 / 1000.0)
