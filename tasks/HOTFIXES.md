@@ -14,6 +14,80 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-01 — candle 임베딩 provider (NUMA double-free 회피, opt-in)
+
+**무엇이 문제였나.** 듀얼소켓 NUMA 서버에서 `provider=fastembed`(onnxruntime)로
+대규모 ingest(5150-doc)를 돌리면 onnxruntime 가 intra-op 스레드를 48개로
+하드코딩해 NUMA 힙을 손상시키고 double-free 로 프로세스가 죽었다. 스레드 수를
+config 로 줄일 surface 가 없었고, fastembed 4.9 의 ORT 바인딩은 이를 노출하지
+않는다.
+
+**진단 / 결정 (사용자 승인 2026-06-01).** 같은 모델
+`intfloat/multilingual-e5-large` 를 **candle(순수 Rust)** 로 돌리는 임베딩
+provider 를 추가하기로 결정. candle 의 CPU 백엔드는 글로벌 rayon 풀 크기로
+스레드를 정하므로, 한 번의 `rayon::ThreadPoolBuilder::build_global` 캡으로
+스레드를 NUMA-안전한 수로 묶을 수 있다. **재색인 0 목표**(`embedding_version`
+유지) — Phase 0 스파이크(커밋 76841af)가 candle vs onnxruntime **코사인
+1.000000** 패리티를 입증했고, 본 Track 1 구현의 패리티 테스트로 차원별 max
+절대오차를 재실측해 확정.
+
+**무엇을 건드렸나.**
+- 신규 crate `crates/kebab-embed-candle` — `kebab_core::Embedder` 구현
+  (`CandleEmbedder`). 스파이크 파이프라인(safetensors via hf-hub → XLM-RoBERTa
+  forward → attention-mask mean pooling → L2 → e5 prefix)을 production 으로
+  흡수. deps 는 candle 트리를 이 crate 에 격리 (core/config 외 다른 kebab-*
+  의존 0 — design §8 경계). 모델 캐시 `{model_dir}/candle/`.
+- 스레드 캡: `[models.embedding].num_threads`(u32, default 0=auto) + env
+  `KEBAB_EMBED_THREADS`(우선). `CandleEmbedder::new` 에서 n>0 이면 글로벌 rayon
+  풀 1회 캡(이미 init 시 no-op).
+- 주입 분기: `kebab-app::App::embedder()` 가 `config.models.embedding.provider`
+  분기 — `fastembed`/`onnx`/(빈값) → 기존 `FastembedEmbedder`(동작 불변),
+  `candle` → `CandleEmbedder`, 미지값 → 에러. `none` 은 기존 lexical-only 유지.
+- 스파이크 crate `crates/spike-embed-candle` 제거(학습은 production 으로 흡수됨).
+- 버전 0.21.1 → **0.22.0** (신규 config surface — pre-1.0 minor bump).
+
+**패리티 증거.** candle vs `FastembedEmbedder`(onnxruntime), 동일 10문장
+(한/영 혼합, e5 `passage:`/`query:` prefix): **cosine_min = 1.000000,
+차원별 max 절대오차 = 2.01e-7** (f32 커널 반올림 수준 — 랭킹 영향 임계보다
+약 50배 작음). 재현: `cargo test -p kebab-embed-candle --release -- --ignored
+--nocapture` (`crates/kebab-embed-candle/tests/parity.rs`, 모델 ~2GB 필요라
+CI 기본 제외). 이 수치가 `embedding_version` 유지(재색인 0) 결정의 근거.
+
+**호환성.** fastembed default 경로의 동작/벡터 불변. `embedding_version`
+유지 → 기존 색인 재사용(재색인 0). wire schema 변경 없음. 옛 config.toml 은
+`num_threads` 가 serde default(0)로 채워져 그대로 파싱.
+
+**잔여 게이트 (사용자 실행, Claude 불가).** 그 듀얼소켓 NUMA 서버에서
+`provider=candle` 로 ingest 가 double-free 없이 EXIT=0 완주하는지 — 사용자
+배포·실사용이 곧 이 검증을 겸한다 (meta-spec §4.3).
+
+**도그푸딩 (2026-06-02, 단일소켓 12-thread VM).** `provider=candle` +
+`config-candle.toml`(expansion off — 임베더 격리) 로 `/build/dogfood/corpus`
+전체 재색인: **scanned=998, new=997, errors=0, stderr=0, KB 997 docs /
+23,151 chunks**, duration ≈ 34,329 s (9.5 h). candle 가 23k+ 청크를 메모리
+오류 0 으로 완주 — onnxruntime 이 서버에서 6/5150 에 죽던 것과 정반대.
+(이 VM 은 비-NUMA 라 NUMA 자체 재현은 아니나, candle 은 onnxruntime 을
+호출하지 않으므로 동일 크래시 종류가 구조적으로 불가.)
+
+**A1(taskset/numactl) 워크어라운드 실서버 반증 (2026-06-02).** 사용자가 NUMA
+서버에서 `taskset -c 0-3 kebab ingest`(fastembed/onnx 바이너리) 실행 → 4코어로
+제한했는데도 6/5150 에서 `세그멘테이션 오류 (core dumped)`. 스레드 축소가
+onnxruntime 힙 손상을 제거하지 못함(크래시 위치만 3→6 이동). 결론: 이 크래시는
+스레드 *수* 문제가 아니라 onnxruntime 네이티브 코드의 메모리 안전 결함 →
+**A1 은 신뢰 불가 우회책. candle(onnxruntime-free)이 유일한 실 해법.**
+
+**MKL 가속 부정 결과 (2026-06-02).** "candle 이 코어를 더 쓰게" 하려고 candle
+`mkl` feature(Intel MKL) 를 벤치 (e5-large, 512-tok 청크, N=32):
+pure-Rust 1857 ms/chunk(381% CPU) vs MKL 2574 ms/chunk(896% CPU, rayon12+mkl12)
+/ 2792 ms/chunk(817% CPU, rayon1+mkl12). **MKL 은 코어를 더 쓰지만 모든 설정에서
+38~50% 더 느림** (MKL 2020.1 sgemm + 스레드 오버헤드/과다구독; candle 0.10.2 는
+f16 `hgemm_` 미해결로 링크도 실패 — 벤치는 호출 안 되는 스텁으로 우회). 또
+pure-Rust 는 rayon 8↔12 간 throughput 불변(~1.86 s/chunk) — 병목은 코어 수가
+아니라 candle e5-large/512tok 커널 효율. **결론: MKL 미채택, 순수-Rust 유지(안전
+최상 + CPU 에서 더 빠름). 속도 레버는 코어가 아니라 청크 길이/모델 크기/GPU.**
+
+amends: `docs/superpowers/specs/2026-06-01-embed-candle-track-spec.md`.
+
 ## 2026-05-31 — config 마이그레이션 (`kebab config migrate`)
 
 **Trigger**: config.toml 스키마가 진화해도(v0.21.0 의 `[ingest.expansion]` 등) 기존 사용자 파일은 serde default 로 *동작*만 호환될 뿐 새 섹션이 파일에 안 써져 사용자가 노브의 존재를 알 수 없었다. DB 의 V00X refinery 와 달리 config 엔 마이그레이션 메커니즘이 없어 추가. 설계 `docs/superpowers/specs/2026-05-31-config-migration-design.md`, 계획 `docs/superpowers/plans/2026-05-31-config-migration.md`, PR #198.

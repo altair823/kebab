@@ -97,9 +97,17 @@ root = "~/KnowledgeBase"   # 색인할 폴더. 절대 / tilde / env / 상대 경
                           # 상대 경로의 base 는 config.toml 위치 (cwd 무관).
 
 [models.embedding]
+provider = "fastembed"            # "fastembed"(기본, onnxruntime) / "candle"(순수 Rust)
+                                  # / "none"(lexical-only). candle 는 같은 모델·같은 벡터를
+                                  # 순수 Rust 로 돌려 NUMA 서버의 onnxruntime 48-스레드
+                                  # double-free 를 피하는 opt-in 백엔드 (재색인 불필요).
 model = "multilingual-e5-large"   # 다국어 sentence embedding (1024-dim).
                                   # 첫 ingest 시 ONNX (~1.3GB) 자동 다운로드.
+                                  # candle provider 는 safetensors (~2GB) 다운로드.
 dimensions = 1024                 # config 와 LanceDB stored dim 불일치 시 검색 0건.
+num_threads = 0                   # candle 전용 CPU 스레드 캡 (0=auto=#cores).
+                                  # env KEBAB_EMBED_THREADS 가 우선. NUMA 노드 바인딩은
+                                  # numactl 과 조합. fastembed provider 는 무시.
 
 [models.llm]
 endpoint = "http://localhost:11434"   # Ollama host:port

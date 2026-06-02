@@ -155,11 +155,21 @@ impl NliCfg {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EmbeddingModelCfg {
+    /// `fastembed` (default, onnxruntime) or `candle` (pure-Rust,
+    /// NUMA-safe). `none` disables embeddings (lexical-only). Unknown
+    /// values error at embedder construction.
     pub provider: String,
     pub model: String,
     pub version: String,
     pub dimensions: usize,
     pub batch_size: usize,
+    /// Cap on the CPU worker threads the `candle` provider spins up
+    /// (sizes the global rayon pool; env `KEBAB_EMBED_THREADS` overrides).
+    /// `0` = auto (rayon default = #cores). Lever to sidestep the
+    /// onnxruntime 48-thread NUMA double-free; ignored by the `fastembed`
+    /// provider. Defaulted on load so pre-0.22 config files still parse.
+    #[serde(default)]
+    pub num_threads: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -707,6 +717,7 @@ impl Config {
                     version: "v1".to_string(),
                     dimensions: 1024,
                     batch_size: 64,
+                    num_threads: 0,
                 },
                 llm: LlmCfg {
                     provider: "ollama".to_string(),
@@ -962,6 +973,11 @@ impl Config {
                 "KEBAB_MODELS_EMBEDDING_BATCH_SIZE" => {
                     if let Ok(n) = v.parse::<usize>() {
                         self.models.embedding.batch_size = n;
+                    }
+                }
+                "KEBAB_MODELS_EMBEDDING_NUM_THREADS" => {
+                    if let Ok(n) = v.parse::<u32>() {
+                        self.models.embedding.num_threads = n;
                     }
                 }
 

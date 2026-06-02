@@ -107,11 +107,16 @@ respect_markdown_headings = true
 chunker_version = "md-heading-v1"
 
 [models.embedding]
-provider = "fastembed"               # "none" 으로 두면 lexical-only — Ollama 불필요
+provider = "fastembed"               # "fastembed"(기본) / "candle"(순수 Rust, NUMA-안전)
+                                     # / "none"(lexical-only — Ollama 불필요)
+                                     # ⚠ provider="candle" 사용 시 아래 model/dimensions 도
+                                     #   multilingual-e5-large / 1024 로 바꿔야 함
+                                     #   (candle 은 현재 e5-large 만 지원).
 model = "multilingual-e5-small"
 version = "v1"
 dimensions = 384
 batch_size = 64
+num_threads = 0                      # candle 전용 CPU 스레드 캡 (0=auto). env KEBAB_EMBED_THREADS 우선.
 
 [models.llm]
 provider = "ollama"

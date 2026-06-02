@@ -66,7 +66,8 @@ flowchart TB
     end
     subgraph Adapters ["traits + adapters"]
         embed["kebab-embed<br/>(trait)"]
-        embedlocal["kebab-embed-local<br/>(fastembed)"]
+        embedlocal["kebab-embed-local<br/>(fastembed, default)"]
+        embedcandle["kebab-embed-candle<br/>(candle, NUMA-safe opt-in)"]
         llm["kebab-llm<br/>(trait)"]
         llmlocal["kebab-llm-local<br/>(Ollama)"]
         search["kebab-search"]
@@ -92,6 +93,7 @@ flowchart TB
     app --> sqlite
     app --> vector
     app --> embedlocal
+    app --> embedcandle
     app --> llmlocal
     app --> search
     app --> rag
@@ -104,6 +106,8 @@ flowchart TB
     paud --> core
     pcode --> core
     embedlocal --> embed
+    embedcandle --> core
+    embedcandle --> config
     llmlocal --> llm
     rag --> search
     rag --> llm
@@ -180,6 +184,7 @@ kebab/
 │   ├── kebab-store-sqlite/                            # SQLite + FTS5 (V001/V002/V003) (P1-6, P2-1, P3-3). src/derivation_cache.rs = derivation_cache 테이블 저장소 (V012, v0.21.0)
 │   ├── kebab-search/                                  # Lexical + Vector + Hybrid retriever (P2-2, P3-4)
 │   ├── kebab-embed/  kebab-embed-local/                  # Embedder trait + fastembed adapter (P3-1, P3-2)
+│   ├── kebab-embed-candle/                             # candle (pure-Rust) Embedder, NUMA-safe opt-in provider=candle (Track 1, v0.22.0)
 │   ├── kebab-store-vector/                            # LanceDB VectorStore (P3-3, P7-3 follow-up)
 │   ├── kebab-llm/  kebab-llm-local/                      # LanguageModel trait + Ollama adapter (P4-1, P4-2)
 │   ├── kebab-rag/                                     # RAG pipeline (P4-3)

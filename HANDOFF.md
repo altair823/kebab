@@ -30,6 +30,7 @@ P0~P5 직렬. P6~P9 P5 이후 병렬 가능.
 
 ## 머지 후 발견된 버그 / 결정 (요약)
 
+- **candle 임베딩 백엔드 다변화** (2026-06-01, Track 1, v0.22.0): `provider = "candle"` opt-in 추가 — 같은 `multilingual-e5-large` 모델을 순수 Rust(candle)로 돌려 듀얼소켓 NUMA 서버의 onnxruntime 48-스레드 double-free 를 회피. `[models.embedding].num_threads`(+env `KEBAB_EMBED_THREADS`)로 CPU 스레드 캡. fastembed default 동작·벡터 불변, `embedding_version` 유지(재색인 0). Phase 0 스파이크 패리티 cosine 1.000000. 상세 HOTFIXES 동일 일자.
 - **config 마이그레이션** (2026-05-31, PR #198): `kebab config migrate` 추가 — 기존 config.toml 에 빠진 섹션을 주석과 함께 채우고 deprecated 정리(멱등·`.bak`·dry-run, 값/주석 보존). `schema_version` 1→2, `init` 도 섹션 주석 포함, doctor 에 `config_migration` 체크. 상세 HOTFIXES 동일 일자.
 
 머지 후 발견된 모든 deviation / hotfix 의 dated 로그는 [tasks/HOTFIXES.md](tasks/HOTFIXES.md). 본 요약은 \"누군가가 인수받을 때 알아두면 시간을 많이 절약하는\" 항목만:

@@ -11,6 +11,7 @@ members = [
     "crates/kebab-search",
     "crates/kebab-embed",
     "crates/kebab-embed-local",
+    "crates/kebab-embed-candle",
     "crates/kebab-llm",
     "crates/kebab-llm-local",
     "crates/kebab-rag",
@@ -30,7 +31,7 @@ edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/altair823/kebab"
-version       = "0.21.1"   # v0.21.1 — config 마이그레이션(kebab config migrate): 기존 config.toml 에 빠진 섹션 주석과 함께 추가 + deprecated 정리 + schema_version 1→2 — CLAUDE.md §Release 도그푸딩 트리거
+version       = "0.22.0"   # v0.22.0 — candle 임베딩 provider (NUMA-안전, opt-in `provider=candle` + `num_threads`/KEBAB_EMBED_THREADS). fastembed default 불변, embedding_version 유지(재색인 0). — CLAUDE.md §Release 도그푸딩 트리거
 
 # pre-v0.18 workspace-wide cleanup: enable clippy::pedantic group with
 # intentional allow-list. The allowed lints are either cosmetic (doc style),
