@@ -69,40 +69,74 @@ fn progress_event_sequence_matches_design_section_2_4a() {
         other => panic!("expected Completed last, got {other:?}"),
     }
 
-    // Middle: 3 AssetStarted/AssetFinished pairs in monotonic idx order.
-    let asset_events: Vec<&IngestEvent> = events[2..events.len() - 1].iter().collect();
-    assert_eq!(
-        asset_events.len(),
-        6,
-        "expected 3 (Started + Finished) pairs, got {asset_events:?}"
-    );
-    for (chunk_idx, pair) in asset_events.chunks(2).enumerate() {
-        let expected_idx = chunk_idx as u32 + 1;
-        match (pair[0], pair[1]) {
-            (
-                IngestEvent::AssetStarted {
-                    idx: si,
-                    total: st,
-                    media,
-                    ..
-                },
-                IngestEvent::AssetFinished {
-                    idx: fi,
-                    total: ft,
-                    result,
-                    chunks,
-                },
-            ) => {
-                assert_eq!(*si, expected_idx, "Started idx mismatch: {pair:?}");
-                assert_eq!(*fi, expected_idx, "Finished idx mismatch: {pair:?}");
-                assert_eq!(*st, 3, "Started total mismatch");
-                assert_eq!(*ft, 3, "Finished total mismatch");
-                assert_eq!(media, "markdown", "fixture is markdown only");
-                assert_eq!(*result, IngestItemKind::New, "first ingest → New");
-                assert!(*chunks >= 1, "chunks: {pair:?}");
+    // Middle (v0.24.0 ordering invariant §2.4a): per asset the stream is
+    //   AssetStarted < AssetChunked < [ExpansionProgress*] < AssetTimings
+    //     < AssetFinished
+    // Expansion is disabled in the lexical fixture, so no ExpansionProgress
+    // frames appear here — but AssetChunked + AssetTimings are emitted for
+    // every markdown asset.
+    let middle = &events[2..events.len() - 1];
+
+    // 3 AssetStarted events, monotonic idx 1..=3, all markdown, total = 3.
+    let started: Vec<u32> = middle
+        .iter()
+        .filter_map(|e| match e {
+            IngestEvent::AssetStarted {
+                idx, total, media, ..
+            } => {
+                assert_eq!(*total, 3, "Started total mismatch: {e:?}");
+                assert_eq!(media, "markdown", "fixture is markdown only: {e:?}");
+                Some(*idx)
             }
-            other => panic!("expected Started+Finished pair, got {other:?}"),
-        }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(started, vec![1, 2, 3], "AssetStarted idx order: {middle:?}");
+
+    // 3 AssetFinished events, monotonic idx 1..=3, each New with ≥1 chunk.
+    let finished: Vec<u32> = middle
+        .iter()
+        .filter_map(|e| match e {
+            IngestEvent::AssetFinished {
+                idx,
+                total,
+                result,
+                chunks,
+            } => {
+                assert_eq!(*total, 3, "Finished total mismatch: {e:?}");
+                assert_eq!(*result, IngestItemKind::New, "first ingest → New: {e:?}");
+                assert!(*chunks >= 1, "chunks: {e:?}");
+                Some(*idx)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(finished, vec![1, 2, 3], "AssetFinished idx order: {middle:?}");
+
+    // v0.24.0 additive events: exactly one AssetChunked + one AssetTimings
+    // per asset, each strictly bracketed by that asset's Started / Finished.
+    for target in 1u32..=3 {
+        let started_at = middle
+            .iter()
+            .position(|e| matches!(e, IngestEvent::AssetStarted { idx, .. } if *idx == target))
+            .unwrap_or_else(|| panic!("missing AssetStarted for idx {target}: {middle:?}"));
+        let finished_at = middle
+            .iter()
+            .position(|e| matches!(e, IngestEvent::AssetFinished { idx, .. } if *idx == target))
+            .unwrap_or_else(|| panic!("missing AssetFinished for idx {target}: {middle:?}"));
+        let chunked_at = middle
+            .iter()
+            .position(|e| matches!(e, IngestEvent::AssetChunked { idx, chunks, .. } if *idx == target && *chunks >= 1))
+            .unwrap_or_else(|| panic!("missing AssetChunked for idx {target}: {middle:?}"));
+        let timings_at = middle
+            .iter()
+            .position(|e| matches!(e, IngestEvent::AssetTimings { idx, .. } if *idx == target))
+            .unwrap_or_else(|| panic!("missing AssetTimings for idx {target}: {middle:?}"));
+        assert!(
+            started_at < chunked_at && chunked_at < timings_at && timings_at < finished_at,
+            "idx {target} ordering: started={started_at} chunked={chunked_at} \
+             timings={timings_at} finished={finished_at}: {middle:?}"
+        );
     }
 }
 

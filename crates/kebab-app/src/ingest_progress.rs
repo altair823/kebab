@@ -47,11 +47,21 @@ pub struct AggregateCounts {
 ///
 /// ```text
 /// ScanStarted < ScanCompleted
-///   < (AssetStarted [< (PdfOcrStarted < PdfOcrFinished)*] < AssetFinished)*
+///   < ( AssetStarted
+///         [< (PdfOcrStarted < PdfOcrFinished)*]
+///         [< AssetChunked]
+///         [< ExpansionProgress*]
+///         [< AssetTimings]
+///       < AssetFinished )*
 ///   < (Completed | Aborted)
 /// ```
 ///
-/// `[]` = optional, per-PDF asset only (v0.20.0 sub-item 1).
+/// `[]` = optional. `PdfOcr*` is per-PDF asset only (v0.20.0 sub-item 1).
+/// `AssetChunked` / `ExpansionProgress` / `AssetTimings` are the v0.24.0
+/// asset-internal phase events: `AssetChunked` fires once right after
+/// chunking (markdown / image / PDF); `ExpansionProgress` is a throttled
+/// counter through the alias-expansion loop (markdown, expansion enabled
+/// only); `AssetTimings` reports per-phase wall-clock once (markdown only).
 ///
 /// Embed-batch events (`embed_batch_started` / `embed_batch_finished`
 /// in §2.4a) are reserved for a future iteration and are not emitted
@@ -81,6 +91,41 @@ pub enum IngestEvent {
         total: u32,
         result: IngestItemKind,
         chunks: u32,
+    },
+    /// v0.24.0 (additive): emitted right after an asset is chunked, before
+    /// expansion / embed / store. Surfaces "this document is N chunks"
+    /// immediately so a single large document no longer looks frozen at
+    /// `idx/total` while its per-chunk phases churn. `chunks` is the chunk
+    /// count for asset `idx`.
+    AssetChunked { idx: u32, total: u32, chunks: u32 },
+    /// v0.24.0 (additive): throttled progress through the per-chunk
+    /// expansion (alias-LLM) loop — the slowest inner phase for large
+    /// documents (~1–4s per chunk against a remote GPU Ollama). `done` is
+    /// the number of chunks processed so far (cache hits included, so the
+    /// counter still advances on a warm re-run); `chunks` is the asset's
+    /// total chunk count. Emitted at most every 25 chunks or once per
+    /// second (see the loop in `ingest_one_asset`), plus a final
+    /// `done == chunks` frame.
+    ExpansionProgress {
+        idx: u32,
+        total: u32,
+        done: u32,
+        chunks: u32,
+    },
+    /// v0.24.0 (additive): per-phase wall-clock (milliseconds) for asset
+    /// `idx`, emitted once the asset's markdown pipeline finishes. Lets a
+    /// user see *where* the time went (parse / chunk / expansion / embed /
+    /// store) without parsing logs. Only the markdown path emits this; the
+    /// image / PDF paths surface `AssetChunked` but skip phase timing (their
+    /// phase shapes differ — OCR / caption rather than expansion).
+    AssetTimings {
+        idx: u32,
+        total: u32,
+        parse_ms: u64,
+        chunk_ms: u64,
+        expansion_ms: u64,
+        embed_ms: u64,
+        store_ms: u64,
     },
     /// Run finished normally. `counts` is the final aggregate.
     Completed { counts: AggregateCounts },
@@ -197,6 +242,79 @@ mod tests {
         assert_eq!(v.get("total").and_then(serde_json::Value::as_u64), Some(10));
         assert_eq!(v.get("path").and_then(|s| s.as_str()), Some("notes/foo.md"));
         assert_eq!(v.get("media").and_then(|s| s.as_str()), Some("markdown"));
+    }
+
+    #[test]
+    fn asset_chunked_serializes_with_discriminator() {
+        // v0.24.0 additive variant — `kind` must be snake_case
+        // `asset_chunked` so wire v1 consumers branch on it cleanly.
+        let ev = IngestEvent::AssetChunked {
+            idx: 3,
+            total: 10,
+            chunks: 142,
+        };
+        let v = serde_json::to_value(&ev).unwrap();
+        assert_eq!(
+            v.get("kind").and_then(|s| s.as_str()),
+            Some("asset_chunked")
+        );
+        assert_eq!(v.get("idx").and_then(serde_json::Value::as_u64), Some(3));
+        assert_eq!(
+            v.get("chunks").and_then(serde_json::Value::as_u64),
+            Some(142)
+        );
+    }
+
+    #[test]
+    fn expansion_progress_serializes_with_discriminator() {
+        let ev = IngestEvent::ExpansionProgress {
+            idx: 1,
+            total: 5,
+            done: 25,
+            chunks: 200,
+        };
+        let v = serde_json::to_value(&ev).unwrap();
+        assert_eq!(
+            v.get("kind").and_then(|s| s.as_str()),
+            Some("expansion_progress")
+        );
+        assert_eq!(v.get("done").and_then(serde_json::Value::as_u64), Some(25));
+        assert_eq!(
+            v.get("chunks").and_then(serde_json::Value::as_u64),
+            Some(200)
+        );
+    }
+
+    #[test]
+    fn asset_timings_serializes_all_phase_fields() {
+        let ev = IngestEvent::AssetTimings {
+            idx: 2,
+            total: 7,
+            parse_ms: 12,
+            chunk_ms: 3,
+            expansion_ms: 45_000,
+            embed_ms: 800,
+            store_ms: 20,
+        };
+        let v = serde_json::to_value(&ev).unwrap();
+        assert_eq!(
+            v.get("kind").and_then(|s| s.as_str()),
+            Some("asset_timings")
+        );
+        // All five phase fields are present (plain u64, always serialized).
+        for (field, want) in [
+            ("parse_ms", 12u64),
+            ("chunk_ms", 3),
+            ("expansion_ms", 45_000),
+            ("embed_ms", 800),
+            ("store_ms", 20),
+        ] {
+            assert_eq!(
+                v.get(field).and_then(serde_json::Value::as_u64),
+                Some(want),
+                "field {field}"
+            );
+        }
     }
 
     #[test]

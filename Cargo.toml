@@ -31,7 +31,7 @@ edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/altair823/kebab"
-version       = "0.23.1"   # v0.23.1 — ingest 시작 시 임베딩 백엔드/디바이스 한 줄 표시(터미널, --json/--quiet 존중) + README 에 KB 이전(어떤 파일/어느 config 키) 설명. 동작·schema 변경 없음. — CLAUDE.md §Release
+version       = "0.24.0"   # v0.24.0 — 상세 ingest 진행 로깅: 신규 wire 이벤트 asset_chunked / expansion_progress / asset_timings (ingest_progress.v1 additive), CLI 진행바 sub-message + phase timing 한 줄. asset 내부 parse/chunk/expansion/embed/store 가시화. wire v1 backward-compat. — CLAUDE.md §Release
 
 # pre-v0.18 workspace-wide cleanup: enable clippy::pedantic group with
 # intentional allow-list. The allowed lints are either cosmetic (doc style),

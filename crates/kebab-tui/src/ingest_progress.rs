@@ -154,7 +154,14 @@ fn apply_event(state: &mut IngestState, event: IngestEvent) {
         }
         // v0.20.0 sub-item 1: per-page PDF OCR events — TUI does not
         // surface per-page OCR progress in v1; no counter to update.
-        IngestEvent::PdfOcrStarted { .. } | IngestEvent::PdfOcrFinished { .. } => {}
+        IngestEvent::PdfOcrStarted { .. }
+        | IngestEvent::PdfOcrFinished { .. }
+        // v0.24.0 asset-internal phase events: the status-bar reducer tracks
+        // per-asset counters, not sub-asset phase progress, so these are
+        // no-ops here (the CLI / --json surfaces render them).
+        | IngestEvent::AssetChunked { .. }
+        | IngestEvent::ExpansionProgress { .. }
+        | IngestEvent::AssetTimings { .. } => {}
     }
 }
 
