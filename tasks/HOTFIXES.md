@@ -14,6 +14,44 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-03 — doc-side expansion(별칭) 기능 완전 제거 (v0.25.0)
+
+**무엇을 왜 제거했나.** v0.21.0 (PR #195/#196) 에서 도입한 색인-시 청크당 LLM
+별칭 생성 + 별칭 검색 채널을 **완전히 제거**했다. 근거는 비용 재고 연구
+(`docs/superpowers/research/2026-06-03-expansion-cost-rethink-research.md`, Step 0/1
+측정 + 딥리서치): 별칭 ROI 가 음수였다 — cross-lingual 검색은 e5-large 임베더
+단독으로 이미 충분하고, 별칭의 실측 기여는 설명형 query +2 그룹(14/18→16/18)뿐인데,
+그 대가가 **청크당 색인-시 LLM 호출**(살아있는 KB 에 지속 불가능한 비용; 나무위키
+18문서 cold 2.5h)이었다. 문헌(arXiv 2309.08541)도 "강한 검색기에는 query/doc
+expansion 이 오히려 해롭다"를 확인. 별칭은 default-off 였으므로 일반 사용자 체감 0.
+
+**무엇이 제거됐나 (코드/스키마/wire).**
+- 코드: `kebab-app/src/expansion.rs` 모듈 전체, `ingest_one_asset` 의 별칭 생성·캐시·
+  임베딩 루프, `Chunk.aliases` 필드, `kebab-config` 의 `IngestExpansionCfg`
+  (`[ingest.expansion]` 섹션 + `KEBAB_INGEST_EXPANSION_*` env), `kebab-search` 의
+  `run_alias_query`/`merge_body_alias` alias lexical arm, alias sentinel 벡터 upsert
+  경로 + `alias_sentinel_ids_to_delete`.
+- wire: `ingest_progress.v1` 의 `expansion_progress` kind 제거 (v0.24.0 에서 막
+  추가된 additive variant 라 소비자는 부재 허용 → major bump 불요).
+  `asset_timings.expansion_ms` 필드는 **wire 호환 위해 유지하되 값 항상 0**.
+- 스키마: 신규 forward-only 마이그레이션 **V013** 이 `chunk_aliases_fts`(+ 트리거)
+  와 `chunks.aliases` 컬럼을 DROP. 과거 V010 은 freeze 무수정. 별칭 default-off 라
+  기존 KB 대부분 빈 데이터 → 손실 없음. corpus_revision bump (검색 캐시 무효화).
+
+**무엇을 유지했나 (제거 금지).** `Metadata.aliases`(문서 메타데이터 Vec, expansion
+과 무관), `AssetChunked`/`AssetTimings` wire 이벤트, derivation_cache 의 `embedding`
+kind(V012 임베딩 캐시 — 성능 핵심), `chunks_fts`(본문 FTS) 전부, `ALIAS_SUFFIX`/
+`strip_alias_suffix`(검색 시 기존 KB 의 잔존 별칭 벡터를 본문 chunk 로 graceful 매핑하는
+read-side 하위호환).
+
+**기존 KB 영향.** 별칭 벡터가 있던 KB 도 마이그레이션 후 search/ask 정상 — 잔존 별칭
+sentinel 벡터(`{chunk}#alias#N`)는 검색 시 `strip_alias_suffix` 로 본문 chunk 에
+매핑되거나 `kebab reset` 으로 정리된다. 본문/임베딩 불변이라 재색인 불요.
+
+**spec/plan.** `docs/superpowers/specs/2026-06-03-remove-doc-expansion-spec.md` +
+`docs/superpowers/plans/2026-06-03-remove-doc-expansion-plan.md`. 원 도입 spec
+`2026-05-30-doc-side-expansion-design.md` 에 제거 banner 추가.
+
 ## 2026-06-02 — 상세 ingest 진행 로깅 (asset 내부 phase 가시화, v0.24.0)
 
 **무엇이 문제였나.** ingest 진행 이벤트가 asset(문서) 단위(`asset_started` /

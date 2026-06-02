@@ -707,7 +707,7 @@ kebab --config /tmp/kebab-smoke/old.toml config migrate             # 멱등: "c
 kebab --config /tmp/kebab-smoke/old.toml --json config migrate --dry-run | jq .schema_version
 ```
 
-기대: dry-run 은 추가될 섹션(`[ingest.expansion]`·`[logging]` 등)과 제거될 `workspace.include` 를 출력하고 **파일을 수정하지 않는다**. 적용 시 `old.toml.bak`(원본과 동일)이 생기고 빠진 섹션이 주석과 함께 추가되며 사용자가 손본 값·주석은 보존된다. 재실행은 멱등(`config 이미 최신입니다`), `--json` 은 `config_migration.v1`.
+기대: dry-run 은 추가될 섹션(`[ingest.code]`·`[logging]` 등)과 제거될 `workspace.include` 를 출력하고 **파일을 수정하지 않는다**. 적용 시 `old.toml.bak`(원본과 동일)이 생기고 빠진 섹션이 주석과 함께 추가되며 사용자가 손본 값·주석은 보존된다. 재실행은 멱등(`config 이미 최신입니다`), `--json` 은 `config_migration.v1`.
 
 ## 정리
 

@@ -41,17 +41,13 @@ clone 없이 git URL 로 바로 설치할 수도 있다: `cargo install --git ht
 
 lexical (FTS5 BM25) 과 vector (cosine) 두 채널을 **RRF fusion** 으로 합쳐 검색한다. 모든 hit 은 출처 위치를 매체별로 정확히 담는다 — Markdown/코드는 line, 이미지는 region, PDF 는 page. `--tag` · `--media` · `--lang` · `--path-glob` 등 다양한 필터와 `--max-tokens` · `--cursor` 같은 agent budget flag 를 지원한다.
 
-### doc-side expansion 별칭 (opt-in)
-
-색인 시 각 청크에 대해 "같은 의미의 다른 표현"(동의어 · 약어 · 한↔영 번역 · 풀어쓴 설명) 별칭을 LLM 으로 생성해 별도 dense 벡터로 색인한다. 설명형 query 나 cross-lingual query 의 검색 일관성을 높인다 (나무위키 ~1000 문서 CS corpus 측정: 변형 일관성 14/18 → 16/18, 대조군 false-positive 미유발). 청크당 LLM 호출이 들어 비용이 크므로 **default off** — `[ingest.expansion] enabled = true` 로 opt-in.
-
 ### 파생물 캐시 (자동)
 
-embedding 벡터와 별칭 LLM 결과를 청크 **내용 해시** 로 캐싱한다 (`derivation_cache`). 재색인·갱신 시 내용이 같은 청크는 재계산을 건너뛴다 (측정: cold 1879s → warm 13s ≈ 145배). 캐시 키에 모델·프롬프트·차원 버전이 포함돼 버전 변경 시 자동 무효화된다 (cascade 안전). 별도 설정 없이 투명하게 동작한다. (현재 TTL/LRU 자동 정리는 미구현 — 누적된 캐시는 `kebab reset` 으로만 정리.)
+embedding 벡터를 청크 **내용 해시** 로 캐싱한다 (`derivation_cache`). 재색인·갱신 시 내용이 같은 청크는 재계산을 건너뛴다. 캐시 키에 모델·차원 버전이 포함돼 버전 변경 시 자동 무효화된다 (cascade 안전). 별도 설정 없이 투명하게 동작한다. (현재 TTL/LRU 자동 정리는 미구현 — 누적된 캐시는 `kebab reset` 으로만 정리.)
 
 ### 외부 계산 + 로컬 검색 워크플로
 
-search/ask 는 원본 파일 없이 KB 산출물만으로 동작한다 (청크 본문이 SQLite 에 저장되고 문서 경로는 상대경로로 기록됨). 비싼 색인(임베딩·OCR·별칭 생성)을 성능 좋은 머신에서 수행한 뒤(예: Apple Silicon 맥에서 candle Metal GPU), **두 산출물만** 다른 머신(예: NUMA 서버)으로 복사하면 그대로 검색·질문할 수 있다.
+search/ask 는 원본 파일 없이 KB 산출물만으로 동작한다 (청크 본문이 SQLite 에 저장되고 문서 경로는 상대경로로 기록됨). 비싼 색인(임베딩·OCR)을 성능 좋은 머신에서 수행한 뒤(예: Apple Silicon 맥에서 candle Metal GPU), **두 산출물만** 다른 머신(예: NUMA 서버)으로 복사하면 그대로 검색·질문할 수 있다.
 
 **무엇을 복사하나 — `[storage]` 에서 정의된 두 경로:**
 
@@ -87,7 +83,7 @@ Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go
 | 명령 | 동작 |
 |------|------|
 | `kebab init` | XDG 경로에 데이터 디렉토리 + config.toml 생성 |
-| `kebab ingest [<path>]` | 워크스페이스 스캔 후 새/변경 문서 색인 (idempotent · incremental, `--force-reingest` 로 강제 재처리). 미지원 확장자는 자동 skip. 진행바는 문서별 청크 수 · 별칭 확장 라이브 카운터 · 문서 종료 시 phase별 소요시간(parse/chunk/expand/embed/store)을 표시 (`--json` 은 `asset_chunked`/`expansion_progress`/`asset_timings` 이벤트로) |
+| `kebab ingest [<path>]` | 워크스페이스 스캔 후 새/변경 문서 색인 (idempotent · incremental, `--force-reingest` 로 강제 재처리). 미지원 확장자는 자동 skip. 진행바는 문서별 청크 수 · 문서 종료 시 phase별 소요시간(parse/chunk/embed/store)을 표시 (`--json` 은 `asset_chunked`/`asset_timings` 이벤트로) |
 | `kebab ingest-file <path>` | 단일 파일 ingest (workspace 외부 가능 — `_external/` 로 deterministic copy) |
 | `kebab ingest-stdin --title <T>` | stdin 의 markdown 본문 ingest |
 | `kebab search --mode {lexical,vector,hybrid} "<query>" [flags]` | 검색 (default hybrid = RRF fusion, citation 포함). 필터/budget flag 는 `--help` |
@@ -150,11 +146,6 @@ endpoint = "http://localhost:11434"   # Ollama host:port
 model = "gemma4:e4b"
 # request_timeout_secs = 300          # 큰 모델은 늘림. 0 은 disable 이 아니라 "즉시 timeout".
 
-[ingest.expansion]        # doc-side expansion 별칭 (opt-in)
-enabled = false           # true 면 청크당 LLM 호출로 별칭 생성 — 비용 큼.
-embed_aliases = true      # 별칭을 줄별 개별 dense 벡터로 색인.
-max_aliases_per_chunk = 8
-
 [search]
 stale_threshold_days = 30   # search hit / citation 의 stale 플래그 기준 (0 = off).
 
@@ -163,7 +154,7 @@ prompt_template_version = "rag-v3"   # 답변 언어 = 질문 언어. rag-v1/v2 
 nli_threshold = 0.0                  # >0 (예: 0.5) 면 mDeBERTa XNLI groundedness 검증.
 ```
 
-- **파생물 캐시** — embedding·별칭 결과를 내용 해시로 자동 캐싱한다 (위 「핵심 기능」 참고). 설정 항목 없음.
+- **파생물 캐시** — embedding 결과를 내용 해시로 자동 캐싱한다 (위 「핵심 기능」 참고). 설정 항목 없음.
 - **`[ingest.code]`** — code ingest 의 skip 정책 (`skip_generated_header`, `max_file_bytes`, `extra_skip_globs`). `.gitignore` 자동 honor, `.kebabignore` 는 추가 layer.
 - **`[pdf.ocr]`** — scanned PDF 의 page-단위 OCR (default off / opt-in, page 당 ~수십 초 cost). 활성화 후 v0.19 시절 색인분은 `kebab ingest --force-reingest` 로 재처리.
 - **`--config <path>`** — 임시 워크스페이스 / 격리 테스트용 (CLI · TUI 모두 honor).
