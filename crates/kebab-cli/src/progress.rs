@@ -19,15 +19,22 @@
 //! `Sender` end is dropped (i.e. when `ingest_with_config_progress`
 //! returns).
 
+use std::collections::HashMap;
 use std::io::{IsTerminal, Write};
 use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
-use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 use kebab_app::IngestEvent;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::wire;
+
+/// v0.26.0: number of slowest assets surfaced in the end-of-run summary.
+/// Constant for now (spec defers the config knob).
+const SLOWEST_TOP_N: usize = 5;
 
 /// Rendering mode for `ProgressDisplay`. The mode is fixed at
 /// construction — each `kebab ingest` invocation is a single mode
@@ -65,11 +72,33 @@ impl ProgressMode {
 pub struct ProgressDisplay {
     mode: ProgressMode,
     bar: Option<ProgressBar>,
+    /// v0.26.0 heartbeat: start `Instant` of the asset currently in
+    /// flight, shared with the bar's steady-tick custom template key so
+    /// the `(Ns)` elapsed counter advances *between* events (the drain
+    /// loop blocks on `recv()`, so without the ticker the counter would
+    /// freeze). `None` while scanning / between assets / after completion.
+    asset_start: Arc<Mutex<Option<Instant>>>,
+    /// v0.26.0: workspace path of the asset currently in flight — set on
+    /// `AssetStarted`, reused by `AssetPhase` to render `{path} · {phase}…`.
+    current_path: Option<String>,
+    /// v0.26.0 slowest summary: idx → path, captured from `AssetStarted`
+    /// so `AssetTimings` (which only carries `idx`) can name the asset.
+    asset_paths: HashMap<u32, String>,
+    /// v0.26.0 slowest summary: (path, total_ms) per asset that reported
+    /// `AssetTimings`. Sorted + truncated to top-N on `Completed`.
+    timings: Vec<(String, u64)>,
 }
 
 impl ProgressDisplay {
     pub fn new(mode: ProgressMode) -> Self {
-        Self { mode, bar: None }
+        Self {
+            mode,
+            bar: None,
+            asset_start: Arc::new(Mutex::new(None)),
+            current_path: None,
+            asset_paths: HashMap::new(),
+            timings: Vec::new(),
+        }
     }
 
     /// Block until `rx` returns `Err` (sender dropped). Renders one
@@ -120,15 +149,43 @@ impl ProgressDisplay {
             }
             IngestEvent::ScanCompleted { total } => {
                 if let Some(bar) = self.bar.as_mut() {
-                    bar.disable_steady_tick();
                     bar.set_length(u64::from(*total));
                     bar.set_position(0);
+                    // v0.26.0: a custom `{asset_elapsed}` key reads the shared
+                    // per-asset start `Instant` and appends ` (Ns)`. Combined
+                    // with the steady tick below, the elapsed counter advances
+                    // even while the drain loop is blocked on `recv()` waiting
+                    // for the next (possibly very slow) phase event.
+                    let asset_start = Arc::clone(&self.asset_start);
                     bar.set_style(
-                        ProgressStyle::with_template("ingest [{bar:30}] {pos}/{len} {wide_msg}")
-                            .unwrap()
-                            .progress_chars("=> "),
+                        ProgressStyle::with_template(
+                            "ingest [{bar:30}] {pos}/{len} {wide_msg}{asset_elapsed}",
+                        )
+                        .unwrap()
+                        .with_key(
+                            "asset_elapsed",
+                            move |_: &ProgressState, w: &mut dyn std::fmt::Write| {
+                                if let Ok(guard) = asset_start.lock()
+                                    && let Some(started) = *guard
+                                {
+                                    let secs = started.elapsed().as_secs();
+                                    // Only show once the asset has been running
+                                    // a moment — avoids `(0s)` flicker on fast
+                                    // assets.
+                                    if secs >= 1 {
+                                        let _ = write!(w, " ({secs}s)");
+                                    }
+                                }
+                            },
+                        )
+                        .progress_chars("=> "),
                     );
                     bar.set_message("");
+                    if tty && !quiet {
+                        bar.enable_steady_tick(std::time::Duration::from_secs(1));
+                    } else {
+                        bar.disable_steady_tick();
+                    }
                 }
                 if !tty && !quiet {
                     let mut err = std::io::stderr().lock();
@@ -141,11 +198,22 @@ impl ProgressDisplay {
                 path,
                 media,
             } => {
+                // v0.26.0: remember the path so AssetPhase can render it and
+                // the slowest summary (keyed by idx in AssetTimings) can name
+                // the asset.
+                self.current_path = Some(path.clone());
+                self.asset_paths.insert(*idx, path.clone());
+                // v0.26.0: (re)start the per-asset heartbeat clock.
+                if let Ok(mut guard) = self.asset_start.lock() {
+                    *guard = Some(Instant::now());
+                }
                 if let Some(bar) = self.bar.as_ref() {
-                    // One draw per file: position only. set_message() would
-                    // trigger a second independent draw and pollute TTY scrollback.
-                    // Filename is visible in the non-TTY plain-line path below.
                     bar.set_position(u64::from(idx.saturating_sub(1)));
+                    // v0.26.0: show the current filename on the bar (TTY).
+                    // Previously position-only — the interactive user couldn't
+                    // tell which file was in flight. The steady tick redraws
+                    // in place, so this no longer pollutes scrollback.
+                    bar.set_message(abbreviate_path(path));
                 }
                 if !tty && !quiet {
                     let mut err = std::io::stderr().lock();
@@ -154,8 +222,35 @@ impl ProgressDisplay {
             }
             IngestEvent::AssetFinished { .. } => {
                 // Position is advanced in AssetStarted; bar.finish_and_clear()
-                // in Completed handles the final state. No per-asset bar update
-                // here avoids the duplicate-frame artifact in TTY scrollback.
+                // in Completed handles the final state. v0.26.0: stop the
+                // heartbeat clock so the bar doesn't show a stale `(Ns)` in the
+                // gap before the next AssetStarted.
+                if let Ok(mut guard) = self.asset_start.lock() {
+                    *guard = None;
+                }
+                self.current_path = None;
+            }
+            // v0.26.0: an asset entered a slow internal phase (ocr / caption /
+            // embed). Surface which phase + model is running so a multi-second
+            // vision-model call no longer looks frozen.
+            IngestEvent::AssetPhase {
+                idx,
+                total,
+                phase,
+                model,
+            } => {
+                let label = match model {
+                    Some(m) => format!("{phase}({m})"),
+                    None => phase.clone(),
+                };
+                if let Some(bar) = self.bar.as_ref() {
+                    let path = self.current_path.as_deref().unwrap_or("");
+                    bar.set_message(format!("{} · {label}…", abbreviate_path(path)));
+                }
+                if !tty && !quiet {
+                    let mut err = std::io::stderr().lock();
+                    let _ = writeln!(err, "ingest: {idx}/{total} · {label}…");
+                }
             }
             // v0.24.0: asset-internal phase visibility. AssetChunked uses the
             // bar *message* (live sub-progress for the current asset) —
@@ -172,30 +267,49 @@ impl ProgressDisplay {
                 }
             }
             IngestEvent::AssetTimings {
+                idx,
                 parse_ms,
                 chunk_ms,
                 embed_ms,
                 store_ms,
+                ocr_ms,
+                caption_ms,
                 ..
             } => {
+                // v0.26.0: accumulate (path, total_ms) for the slowest summary.
+                // total = every measured phase (expansion_ms is always 0).
+                let total_ms = parse_ms + chunk_ms + embed_ms + store_ms + ocr_ms + caption_ms;
+                if let Some(path) = self.asset_paths.get(idx) {
+                    self.timings.push((path.clone(), total_ms));
+                }
                 if let Some(bar) = self.bar.as_ref() {
                     bar.set_message("");
                 }
                 if !quiet {
                     let mut err = std::io::stderr().lock();
-                    let _ = writeln!(
-                        err,
-                        "  ⏱ parse {} · chunk {} · embed {} · store {}",
-                        fmt_ms(*parse_ms),
-                        fmt_ms(*chunk_ms),
-                        fmt_ms(*embed_ms),
-                        fmt_ms(*store_ms),
-                    );
+                    // v0.26.0: only print ocr / caption when they actually ran
+                    // (markdown leaves them 0) so the text path stays uncluttered.
+                    let mut parts = vec![
+                        format!("parse {}", fmt_ms(*parse_ms)),
+                        format!("chunk {}", fmt_ms(*chunk_ms)),
+                    ];
+                    if *ocr_ms > 0 {
+                        parts.push(format!("ocr {}", fmt_ms(*ocr_ms)));
+                    }
+                    if *caption_ms > 0 {
+                        parts.push(format!("caption {}", fmt_ms(*caption_ms)));
+                    }
+                    parts.push(format!("embed {}", fmt_ms(*embed_ms)));
+                    parts.push(format!("store {}", fmt_ms(*store_ms)));
+                    let _ = writeln!(err, "  ⏱ {}", parts.join(" · "));
                 }
             }
             IngestEvent::Completed { counts } => {
                 if let Some(bar) = self.bar.take() {
                     bar.finish_and_clear();
+                }
+                if let Ok(mut guard) = self.asset_start.lock() {
+                    *guard = None;
                 }
                 // Always emit summary in both TTY and non-TTY (unless quiet).
                 // Bug fix: previously TTY had no summary line after bar.finish_and_clear().
@@ -206,6 +320,10 @@ impl ProgressDisplay {
                         "ingest: complete (scanned={} new={} updated={} skipped={} errors={})",
                         counts.scanned, counts.new, counts.updated, counts.skipped, counts.errors,
                     );
+                    // v0.26.0: slowest-asset summary. Useful in both TTY and
+                    // non-TTY (it pinpoints the bottleneck file), so it prints
+                    // unless --quiet. --json mode never reaches here (emit_json).
+                    let _ = write_slowest_summary(&mut err, &self.timings, SLOWEST_TOP_N);
                 }
             }
             IngestEvent::Aborted { counts } => {
@@ -286,6 +404,48 @@ fn fmt_ms(ms: u64) -> String {
     }
 }
 
+/// v0.26.0: shorten an over-long workspace path for the progress-bar
+/// message so the live `(Ns)` heartbeat suffix stays visible on a narrow
+/// terminal. Keeps the tail (filename + a couple of parents) — that's the
+/// distinguishing part — and prefixes `…` when truncated. Paths up to the
+/// budget pass through verbatim.
+fn abbreviate_path(path: &str) -> String {
+    const MAX: usize = 48;
+    let char_count = path.chars().count();
+    if char_count <= MAX {
+        return path.to_string();
+    }
+    // Keep the last MAX-1 chars (1 reserved for the leading ellipsis).
+    let tail: String = path
+        .chars()
+        .skip(char_count - (MAX - 1))
+        .collect::<String>();
+    format!("…{tail}")
+}
+
+/// v0.26.0: render the end-of-run "slowest assets" summary. Sorts
+/// `(path, total_ms)` descending by time, takes the top `n`, and writes a
+/// compact table to `w`. No-op (writes nothing) when `timings` is empty so
+/// a run with no per-asset timing (e.g. all-skipped) prints no stray header.
+fn write_slowest_summary(
+    w: &mut impl Write,
+    timings: &[(String, u64)],
+    n: usize,
+) -> std::io::Result<()> {
+    if timings.is_empty() {
+        return Ok(());
+    }
+    let mut sorted: Vec<&(String, u64)> = timings.iter().collect();
+    // desc by ms; ties broken by path for deterministic output.
+    sorted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let top = &sorted[..sorted.len().min(n)];
+    writeln!(w, "⏱ 최장 소요 top-{}:", top.len())?;
+    for (rank, (path, ms)) in top.iter().enumerate() {
+        writeln!(w, "  {}. {} — {}", rank + 1, path, fmt_ms(*ms))?;
+    }
+    Ok(())
+}
+
 /// Format the current wall-clock as RFC 3339 — used by `wire_ingest_progress`
 /// so every emitted event carries an `ts` field per §2.4a / the wire schema.
 pub(crate) fn now_rfc3339() -> anyhow::Result<String> {
@@ -347,5 +507,62 @@ mod tests {
         // Round-trip via the parser to confirm the formatter emits a
         // well-formed RFC 3339 string.
         OffsetDateTime::parse(&s, &Rfc3339).expect("RFC 3339 round-trip");
+    }
+
+    #[test]
+    fn abbreviate_path_passes_short_paths_through() {
+        assert_eq!(abbreviate_path("notes/foo.md"), "notes/foo.md");
+    }
+
+    #[test]
+    fn abbreviate_path_keeps_tail_with_ellipsis() {
+        let long = "a/very/deeply/nested/directory/structure/that/exceeds/the/budget/file.md";
+        let out = abbreviate_path(long);
+        assert!(out.starts_with('…'), "should be prefixed with ellipsis: {out}");
+        assert!(out.ends_with("file.md"), "should keep the filename tail: {out}");
+        // 48-char budget: 1 ellipsis + 47 tail chars.
+        assert_eq!(out.chars().count(), 48);
+    }
+
+    #[test]
+    fn write_slowest_summary_empty_writes_nothing() {
+        let mut buf = Vec::new();
+        write_slowest_summary(&mut buf, &[], 5).unwrap();
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn write_slowest_summary_sorts_desc_and_truncates() {
+        let timings = vec![
+            ("a.md".to_string(), 100),
+            ("b.png".to_string(), 5_000),
+            ("c.pdf".to_string(), 2_000),
+            ("d.md".to_string(), 50),
+        ];
+        let mut buf = Vec::new();
+        write_slowest_summary(&mut buf, &timings, 2).unwrap();
+        let out = String::from_utf8(buf).unwrap();
+        assert!(out.contains("top-2:"), "{out}");
+        // b (5s) ranks first, c (2s) second; a/d excluded.
+        let b_pos = out.find("b.png").expect("b.png present");
+        let c_pos = out.find("c.pdf").expect("c.pdf present");
+        assert!(b_pos < c_pos, "b before c: {out}");
+        assert!(!out.contains("a.md"), "a.md excluded by top-2: {out}");
+        assert!(out.contains("5.0s"), "b renders as 5.0s: {out}");
+    }
+
+    #[test]
+    fn write_slowest_summary_tie_breaks_by_path() {
+        let timings = vec![
+            ("z.md".to_string(), 1_000),
+            ("a.md".to_string(), 1_000),
+        ];
+        let mut buf = Vec::new();
+        write_slowest_summary(&mut buf, &timings, 5).unwrap();
+        let out = String::from_utf8(buf).unwrap();
+        assert!(
+            out.find("a.md").unwrap() < out.find("z.md").unwrap(),
+            "equal ms ties break alphabetically: {out}"
+        );
     }
 }

@@ -1350,6 +1350,17 @@ fn ingest_one_asset(
     let store_ms = u64::try_from(t_store.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // Embed + vector upsert (only when both sides are configured).
+    // v0.26.0: surface the embed phase + model so a long embed run reads as
+    // "embedding(<model>)…" rather than a frozen bar (markdown path too).
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::AssetPhase {
+            idx,
+            total,
+            phase: "embed".to_string(),
+            model: embedder.map(|e| e.model_id().0),
+        },
+    );
     let t_embed = std::time::Instant::now();
     // Stale-vector purge is LanceDB I/O, so it belongs to the embed/vector
     // phase — not the SQLite `store` phase. Keeping it here makes `store_ms`
@@ -1414,7 +1425,8 @@ fn ingest_one_asset(
 
     let embed_ms = u64::try_from(t_embed.elapsed().as_millis()).unwrap_or(u64::MAX);
 
-    // v0.24.0: phase-timing breakdown for this asset (markdown path only).
+    // v0.24.0: phase-timing breakdown for this asset (markdown path).
+    // ocr_ms / caption_ms are 0 — markdown has no image-analysis phases.
     crate::ingest_progress::emit(
         progress,
         crate::ingest_progress::IngestEvent::AssetTimings {
@@ -1425,6 +1437,8 @@ fn ingest_one_asset(
             expansion_ms,
             embed_ms,
             store_ms,
+            ocr_ms: 0,
+            caption_ms: 0,
         },
     );
 
@@ -1545,9 +1559,11 @@ fn ingest_one_image_asset(
         workspace_root: &workspace_root,
         config: &extract_config,
     };
+    let t_parse = std::time::Instant::now();
     let mut canonical = app
         .extract_for(&asset.media_type, &ctx, &bytes)
         .context("kb-app::extract_for (image)")?;
+    let parse_ms = u64::try_from(t_parse.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // 2 + 3. Apply OCR / caption when their adapters exist. Both are
     //        Lenient — failure is captured into Provenance Warning,
@@ -1562,44 +1578,74 @@ fn ingest_one_image_asset(
     let lang_hint = lang_hint_from_doc(&canonical);
     let now = time::OffsetDateTime::now_utc();
     let mut warning_notes: Vec<String> = Vec::new();
+    // v0.26.0: vision phases (OCR / caption) are the usual bottleneck on an
+    // image-heavy vault and emitted no progress before — so the bar looked
+    // frozen. Surface each as an `AssetPhase` and measure its wall-clock for
+    // the slowest-asset summary.
+    let mut ocr_ms = 0_u64;
+    let mut caption_ms = 0_u64;
     match canonical.blocks.first_mut() {
         Some(Block::ImageRef(block)) => {
-            if let Some(engine) = ocr_engine
-                && let Err(e) = apply_ocr(
+            if let Some(engine) = ocr_engine {
+                crate::ingest_progress::emit(
+                    progress,
+                    crate::ingest_progress::IngestEvent::AssetPhase {
+                        idx,
+                        total,
+                        phase: "ocr".to_string(),
+                        model: Some(engine.model().to_string()),
+                    },
+                );
+                let t_ocr = std::time::Instant::now();
+                let res = apply_ocr(
                     engine,
                     &bytes,
                     block,
                     lang_hint.as_ref(),
                     &mut canonical.provenance.events,
-                )
-            {
-                record_image_analysis_failure(
-                    asset,
-                    &mut canonical.provenance.events,
-                    &mut warning_notes,
-                    "OcrFailed",
-                    e,
-                    now,
                 );
+                ocr_ms = u64::try_from(t_ocr.elapsed().as_millis()).unwrap_or(u64::MAX);
+                if let Err(e) = res {
+                    record_image_analysis_failure(
+                        asset,
+                        &mut canonical.provenance.events,
+                        &mut warning_notes,
+                        "OcrFailed",
+                        e,
+                        now,
+                    );
+                }
             }
-            if let Some(llm) = caption_llm
-                && let Err(e) = apply_caption(
+            if let Some(llm) = caption_llm {
+                crate::ingest_progress::emit(
+                    progress,
+                    crate::ingest_progress::IngestEvent::AssetPhase {
+                        idx,
+                        total,
+                        phase: "caption".to_string(),
+                        model: Some(llm.model_ref().id),
+                    },
+                );
+                let t_caption = std::time::Instant::now();
+                let res = apply_caption(
                     llm,
                     &bytes,
                     block,
                     lang_hint.as_ref(),
                     &app.config,
                     &mut canonical.provenance.events,
-                )
-            {
-                record_image_analysis_failure(
-                    asset,
-                    &mut canonical.provenance.events,
-                    &mut warning_notes,
-                    "CaptionFailed",
-                    e,
-                    now,
                 );
+                caption_ms = u64::try_from(t_caption.elapsed().as_millis()).unwrap_or(u64::MAX);
+                if let Err(e) = res {
+                    record_image_analysis_failure(
+                        asset,
+                        &mut canonical.provenance.events,
+                        &mut warning_notes,
+                        "CaptionFailed",
+                        e,
+                        now,
+                    );
+                }
             }
         }
         // P6-1 contract: image documents always have exactly one
@@ -1634,12 +1680,13 @@ fn ingest_one_image_asset(
     //    `Block::ImageRef` arm already produces a single chunk per
     //    image (P1-5). The chunk text now follows the (β) plain-concat
     //    contract per the kebab-chunk render_block_text update.
+    let t_chunk = std::time::Instant::now();
     let chunks = MdHeadingV1Chunker
         .chunk(&canonical, chunk_policy)
         .context("kb-chunk::MdHeadingV1Chunker::chunk (image)")?;
+    let chunk_ms = u64::try_from(t_chunk.elapsed().as_millis()).unwrap_or(u64::MAX);
 
-    // v0.24.0: surface chunk count for the image path too (phase timing is
-    // markdown-only, but AssetChunked is consistent across media).
+    // v0.24.0: surface chunk count for the image path too.
     crate::ingest_progress::emit(
         progress,
         crate::ingest_progress::IngestEvent::AssetChunked {
@@ -1656,6 +1703,7 @@ fn ingest_one_image_asset(
     if let Some(emb) = embedder {
         canonical.last_embedding_version = Some(emb.model_version());
     }
+    let t_store = std::time::Instant::now();
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     app.sqlite
         .put_asset_with_bytes(asset, &bytes)
@@ -1669,7 +1717,18 @@ fn ingest_one_image_asset(
     app.sqlite
         .put_chunks(&canonical.doc_id, &chunks)
         .context("DocumentStore::put_chunks (image)")?;
+    let store_ms = u64::try_from(t_store.elapsed().as_millis()).unwrap_or(u64::MAX);
 
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::AssetPhase {
+            idx,
+            total,
+            phase: "embed".to_string(),
+            model: embedder.map(|e| e.model_id().0),
+        },
+    );
+    let t_embed = std::time::Instant::now();
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
         && !chunks.is_empty()
     {
@@ -1710,6 +1769,25 @@ fn ingest_one_image_asset(
             .upsert(&records)
             .context("VectorStore::upsert (image)")?;
     }
+    let embed_ms = u64::try_from(t_embed.elapsed().as_millis()).unwrap_or(u64::MAX);
+
+    // v0.26.0: per-phase timing for the image path — ocr_ms / caption_ms
+    // carry the vision-model cost so the slowest-asset summary attributes
+    // an image-heavy run's bottleneck correctly.
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::AssetTimings {
+            idx,
+            total,
+            parse_ms,
+            chunk_ms,
+            expansion_ms: 0,
+            embed_ms,
+            store_ms,
+            ocr_ms,
+            caption_ms,
+        },
+    );
 
     let kind = if existing_doc_ids.contains(&canonical.doc_id.0) {
         kebab_core::IngestItemKind::Updated
@@ -2053,9 +2131,11 @@ fn ingest_one_pdf_asset(
         workspace_root: &workspace_root,
         config: &extract_config,
     };
+    let t_parse = std::time::Instant::now();
     let mut canonical = app
         .extract_for(&asset.media_type, &ctx, &bytes)
         .context("kb-app::extract_for (pdf)")?;
+    let parse_ms = u64::try_from(t_parse.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // v0.20 sub-item 1: post-extract OCR enrichment (PR #187 registry
     // dispatch invariant 보존 — extract_for 가 normal entry).
@@ -2191,9 +2271,11 @@ fn ingest_one_pdf_asset(
     // validates every block carries `SourceSpan::Page`; failure here
     // means the parser drifted from its contract.
     let chunker = PdfPageV1Chunker;
+    let t_chunk = std::time::Instant::now();
     let chunks = chunker
         .chunk(&canonical, chunk_policy)
         .context("kb-chunk::PdfPageV1Chunker::chunk")?;
+    let chunk_ms = u64::try_from(t_chunk.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // v0.24.0: surface chunk count for the PDF path too.
     crate::ingest_progress::emit(
@@ -2212,6 +2294,7 @@ fn ingest_one_pdf_asset(
         canonical.last_embedding_version = Some(emb.model_version());
     }
 
+    let t_store = std::time::Instant::now();
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     app.sqlite
         .put_asset_with_bytes(asset, &bytes)
@@ -2225,7 +2308,18 @@ fn ingest_one_pdf_asset(
     app.sqlite
         .put_chunks(&canonical.doc_id, &chunks)
         .context("DocumentStore::put_chunks (pdf)")?;
+    let store_ms = u64::try_from(t_store.elapsed().as_millis()).unwrap_or(u64::MAX);
 
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::AssetPhase {
+            idx,
+            total,
+            phase: "embed".to_string(),
+            model: embedder.map(|e| e.model_id().0),
+        },
+    );
+    let t_embed = std::time::Instant::now();
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
         && !chunks.is_empty()
     {
@@ -2264,6 +2358,25 @@ fn ingest_one_pdf_asset(
             .upsert(&records)
             .context("VectorStore::upsert (pdf)")?;
     }
+    let embed_ms = u64::try_from(t_embed.elapsed().as_millis()).unwrap_or(u64::MAX);
+
+    // v0.26.0: per-phase timing for the PDF path. `ocr_ms` reuses the
+    // page-OCR total already computed above so a scanned-PDF run's OCR cost
+    // shows up in the slowest-asset summary; caption is markdown/image-only.
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::AssetTimings {
+            idx,
+            total,
+            parse_ms,
+            chunk_ms,
+            expansion_ms: 0,
+            embed_ms,
+            store_ms,
+            ocr_ms: pdf_ocr_ms_total.unwrap_or(0),
+            caption_ms: 0,
+        },
+    );
 
     let kind = if existing_doc_ids.contains(&canonical.doc_id.0) {
         kebab_core::IngestItemKind::Updated

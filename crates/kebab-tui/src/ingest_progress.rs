@@ -160,7 +160,11 @@ fn apply_event(state: &mut IngestState, event: IngestEvent) {
         // per-asset counters, not sub-asset phase progress, so these are
         // no-ops here (the CLI / --json surfaces render them).
         | IngestEvent::AssetChunked { .. }
-        | IngestEvent::AssetTimings { .. } => {}
+        | IngestEvent::AssetTimings { .. }
+        // v0.26.0 slow-phase hint (ocr / caption / embed): the CLI bar uses
+        // it for a live phase message; the TUI status-bar reducer tracks only
+        // per-asset counters, so it's a no-op here.
+        | IngestEvent::AssetPhase { .. } => {}
     }
 }
 

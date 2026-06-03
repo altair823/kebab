@@ -14,6 +14,39 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-03 — ingest 진행 로그 개선: 파일명·phase·heartbeat·slowest 요약 (v0.27.0)
+
+**무엇을 왜 추가했나.** arctic 도그푸딩 중 이미지/PDF 혼재 + OCR/caption on 볼트에서
+ingest 가 중간부터 느려졌는데, TTY 진행바가 **파일명·현재 phase·모델·경과시간**을 안 보여
+"멈춘 것처럼" 보였다. 원인(비전 모델 스와핑)을 진행 표시만으로 파악 불가. v0.24.0 상세
+진행 로깅의 후속으로 느린 phase 와 병목 파일을 가시화했다. spec/plan:
+`docs/superpowers/specs/2026-06-03-ingest-log-improve-spec.md` / `…/plans/2026-06-03-ingest-log-improve-plan.md`.
+
+**무엇이 바뀌었나 (additive, `ingest_progress.v1` 유지 — major bump 없음).**
+
+- 신규 wire 이벤트 `asset_phase { idx, total, phase, model }` — asset 이 느린 phase
+  (`ocr` / `caption` / `embed`) 진입 시 1회 emit. `model` 은 그 phase 의 모델 id
+  (ocr/caption = 비전 LLM, embed = 임베더 model_id), 없으면 `null`. 짧은 phase
+  (parse/chunk/store) 는 노이즈 방지로 미emit.
+- `asset_timings` 에 `ocr_ms` / `caption_ms` 필드 추가 (serde `default` 0 → 구 소비자
+  호환). 이미지·PDF 경로도 이제 `asset_timings` 를 emit (이전엔 markdown 만) — slowest
+  요약이 비전-모델 병목을 정확히 집계.
+- CLI 렌더(`kebab-cli/src/progress.rs`): AssetStarted 시 진행바 메시지에 파일명(긴 path 는
+  말미 축약), AssetPhase 시 `{path} · {phase}({model})…`, steady-tick 1s 커스텀 키로
+  경과초 `(Ns)` 라이브 갱신, `Completed` 시 stderr 에 `⏱ 최장 소요 top-5` 표.
+  `--quiet` 여도 요약은 출력, `--json` 은 ndjson 만(사람텍스트 미혼입).
+
+**emit 지점.** `kebab-app/src/lib.rs` — 이미지 경로 `apply_ocr`/`apply_caption` 직전
++ ocr/caption 시간 측정, markdown/이미지/PDF 임베딩 루프 직전 `embed` phase, 각 경로
+`asset_timings` 에 측정값 채움. PDF `ocr_ms` 는 기존 page-OCR 총합 재사용.
+
+**알려진 한계.** code asset 경로는 진행 이벤트(AssetChunked/Timings) 무emit 이라 slowest
+요약에 미포함(기존 동작 유지, 비범위). top-N 의 N=5 상수(config 화 비범위). PDF 페이지
+OCR 진행은 기존 `pdf_ocr_started/finished` 가 담당(본 작업 비범위).
+
+**도그푸딩 (별도).** 사용자 Obsidian 볼트(이미지/PDF + OCR on) 재현 — 느린 구간의
+파일·phase·모델 즉시 가시 + 종료 요약이 병목 파일을 짚는지. release notes + 본 entry 갱신.
+
 ## 2026-06-03 — arctic-embed-l-v2.0 임베더 통합 (candle + Ollama) (v0.26.0)
 
 **무엇을 왜 추가했나.** 별칭(doc-side expansion) 제거(v0.25.0) 후 설명형 query 의
