@@ -38,6 +38,9 @@ metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 # not the library's own (non-dev) dependencies — so rayon/kebab-config/kebab-core
 # are repeated here for tests/parity.rs and tests/thread_cap.rs.
 kebab-embed-local = { path = "../kebab-embed-local" }
+# arctic↔Ollama parity test drives the real Ollama adapter for the reference
+# vectors (tests/arctic_ollama_parity.rs, `#[ignore]` — live Ollama).
+kebab-embed-ollama = { path = "../kebab-embed-ollama" }
 kebab-config = { path = "../kebab-config" }
 kebab-core = { path = "../kebab-core" }
 rayon = "1"
