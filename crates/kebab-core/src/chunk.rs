@@ -28,13 +28,6 @@ pub struct Chunk {
     /// Bug #8 (한국어 2자 query) 해결을 위한 V009 cascade.
     #[serde(default)]
     pub tokenized_korean_text: Option<String>,
-    /// 색인시 doc-side expansion (Phase 2) 으로 생성된 "검색용 별칭"
-    /// (같은언어 paraphrase + 한↔영 번역, 개행 join). `[ingest.expansion]`
-    /// flag off 또는 미생성이면 None — 별도 FTS5 테이블 `chunk_aliases_fts`
-    /// 에만 색인되고 본문 매칭/dense 임베딩에는 영향 없음. 설계 spec
-    /// `2026-05-30-doc-side-expansion-design.md` §3.3.
-    #[serde(default)]
-    pub aliases: Option<String>,
 }
 
 #[cfg(test)]
@@ -42,8 +35,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn aliases_defaults_to_none_on_deserialize() {
-        // aliases 필드가 없는 과거 JSON 도 파싱되어야 한다 (#[serde(default)]).
+    fn tokenized_korean_text_defaults_to_none_on_deserialize() {
+        // tokenized_korean_text 필드가 없는 과거 JSON 도 파싱되어야 한다 (#[serde(default)]).
         let json = r#"{
             "chunk_id": "c1",
             "doc_id": "d1",
@@ -56,7 +49,6 @@ mod tests {
             "policy_hash": "abc"
         }"#;
         let c: Chunk = serde_json::from_str(json).unwrap();
-        assert_eq!(c.aliases, None);
         assert_eq!(c.tokenized_korean_text, None);
     }
 }

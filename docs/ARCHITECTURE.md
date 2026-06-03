@@ -32,8 +32,8 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 | citation 형식 | URI fragment (`path#L12-L34` / `path#p=12` / `path#xywh=0,0,100,50`, W3C Media Fragments) |
 | ID 생성 | `blake3(canonical_json(tuple))[..32]` hex |
 | RRF fusion_score | `[0, 1]` 정규화 — `2 / (k_rrf + 1)` 로 나눠 mode 간 비교 가능 (post-merge hotfix) |
-| doc-side expansion 별칭 (v0.21.0) | 색인 시 LLM 이 청크별 "같은 의미 다른 표현" 별칭 생성. 별칭은 줄별 **개별 dense 벡터**(sentinel `{chunk}#alias#N`)로 색인하고 본문 벡터는 그대로 둠 (묶음 1벡터는 평균화로 희석 → 회귀, HOTFIXES 2026-05-31). boilerplate 청크는 별칭 skip. 검색 시 별칭 hit 는 `kebab-core::strip_alias_suffix` 로 원본 chunk_id 에 매핑. `[ingest.expansion]` default off (opt-in, 청크당 LLM 비용). |
-| 파생물 캐시 `derivation_cache` (V012, v0.21.0) | 비싼 ingest 파생물(embedding 벡터 / 별칭 LLM 결과)을 청크 **내용 해시** 키로 SQLite 에 캐싱 → 재색인 시 내용 불변 청크는 재계산 skip. `cache_key = blake3(kind ‖ text_blake3 ‖ version_key)[:32]`; version_key 에 model/prompt/dimensions 포함 → §9 cascade 와 정합(버전 bump 시 자동 miss). 위치 기반 `chunk_id` 와 달리 내용이 같으면 문서·위치 무관 동일 키. 순수 가산 — `corpus_revision` bump 안 함, 손상/삭제돼도 정확성 영향 0(miss → 재계산). search/ask 는 `kebab.sqlite`+`lancedb` 만으로 동작하므로 외부 서버 색인 후 DB 만 복사하는 이식 워크플로 가능 (HOTFIXES 2026-05-31). |
+| ~~doc-side expansion 별칭 (v0.21.0)~~ | **제거됨 (v0.25.0, HOTFIXES 2026-06-03)** — 색인-시 청크당 LLM 별칭 생성 + 별칭 검색 채널을 완전히 제거. 별칭 ROI 음수(cross-lingual 은 e5-large 단독으로 충분, 기여는 설명형 +2 그룹뿐인데 대가가 청크당 색인-시 LLM). V013 마이그레이션이 `chunk_aliases_fts` + `chunks.aliases` DROP. 기존 KB 의 잔존 별칭 벡터는 검색 시 `strip_alias_suffix` 로 본문 chunk 에 매핑(graceful)되거나 `kebab reset` 으로 정리. spec: `docs/superpowers/specs/2026-06-03-remove-doc-expansion-spec.md`. |
+| 파생물 캐시 `derivation_cache` (V012, v0.21.0) | 비싼 ingest 파생물(embedding 벡터)을 청크 **내용 해시** 키로 SQLite 에 캐싱 → 재색인 시 내용 불변 청크는 재계산 skip. `cache_key = blake3(kind ‖ text_blake3 ‖ version_key)[:32]`; version_key 에 model/dimensions 포함 → §9 cascade 와 정합(버전 bump 시 자동 miss). 위치 기반 `chunk_id` 와 달리 내용이 같으면 문서·위치 무관 동일 키. 순수 가산 — `corpus_revision` bump 안 함, 손상/삭제돼도 정확성 영향 0(miss → 재계산). search/ask 는 `kebab.sqlite`+`lancedb` 만으로 동작하므로 외부 서버 색인 후 DB 만 복사하는 이식 워크플로 가능 (HOTFIXES 2026-05-31). (별칭 LLM 캐싱 kind 는 v0.25.0 에서 제거 — embedding kind 만 남음.) |
 | layout | XDG (`~/.local/share/kebab/`, `~/.config/kebab/`, …) |
 
 전체 frozen 설계는 [docs/superpowers/specs/2026-04-27-kebab-final-form-design.md](superpowers/specs/2026-04-27-kebab-final-form-design.md) 12 sections 참조.
@@ -193,7 +193,7 @@ kebab/
 │   ├── kebab-parse-image/                             # ImageExtractor + Ollama OCR + caption (P6)
 │   ├── kebab-parse-pdf/                               # lopdf per-page text extractor (P7-1)
 │   ├── kebab-parse-code/                              # tree-sitter AST extractors: Rust (P10-1A-2), Python + TypeScript + JavaScript (P10-1B), Go (P10-1C-Go), Java + Kotlin (P10-1C-JK — java.rs + kotlin.rs), C + C++ (P10-1D — c.rs + cpp.rs); chunker lives in kebab-chunk
-│   ├── kebab-app/                                     # facade (P0 시그니처 + P3-5/P6-4/P7-3 본체). src/expansion.rs = 별칭 생성, src/derivation_payload.rs = 캐시 payload 인코딩 (v0.21.0)
+│   ├── kebab-app/                                     # facade (P0 시그니처 + P3-5/P6-4/P7-3 본체). src/derivation_payload.rs = 캐시 payload 인코딩 (v0.21.0)
 │   ├── kebab-tui/                                     # Ratatui shell + Library 패널 (P9-1)
 │   ├── kebab-mcp/                                     # stdio MCP server — tools: schema, doctor, search, ask (P9-FB-30)
 │   └── kebab-cli/                                     # binary (P0 → 핫픽스로 --config flag wiring 강화)

@@ -695,7 +695,7 @@ printf 'schema_version = 1\n\n[workspace]\nroot = "~/MyNotes"\ninclude = ["*.md"
 "$RELEASE_BIN" --config "$DOGFOOD/old.toml" doctor | grep config_migration  # ok 확인
 ```
 
-기대: dry-run 파일 미수정 → apply 시 `old.toml.bak`(원본 byte-identical) + `[ingest.expansion]`·`[logging]`·`[pdf.ocr]` 가시화 + 손본 `default_k`/주석 보존 + `workspace.include` 제거 → 재실행 멱등 → doctor `config_migration` ok. v0.21.1 evidence 는 `tasks/HOTFIXES.md` 2026-05-31.
+기대: dry-run 파일 미수정 → apply 시 `old.toml.bak`(원본 byte-identical) + `[ingest.code]`·`[logging]`·`[pdf.ocr]` 가시화 + 손본 `default_k`/주석 보존 + `workspace.include` 제거 → 재실행 멱등 → doctor `config_migration` ok. v0.21.1 evidence 는 `tasks/HOTFIXES.md` 2026-05-31.
 
 ## §10 Eval (P5)
 

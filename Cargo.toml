@@ -31,7 +31,7 @@ edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/altair823/kebab"
-version       = "0.24.0"   # v0.24.0 — 상세 ingest 진행 로깅: 신규 wire 이벤트 asset_chunked / expansion_progress / asset_timings (ingest_progress.v1 additive), CLI 진행바 sub-message + phase timing 한 줄. asset 내부 parse/chunk/expansion/embed/store 가시화. wire v1 backward-compat. — CLAUDE.md §Release
+version       = "0.25.0"   # v0.25.0 — doc-side expansion(별칭) 기능 완전 제거: Chunk.aliases / expansion.rs / IngestExpansionCfg / alias lexical arm / expansion_progress wire kind 제거, 신규 마이그레이션 V013 이 chunk_aliases_fts + chunks.aliases DROP. AssetTimings.expansion_ms 는 wire 호환 위해 값 0 유지. 별칭 default-off 였어 사용자 체감 0. — CLAUDE.md §Release
 
 # pre-v0.18 workspace-wide cleanup: enable clippy::pedantic group with
 # intentional allow-list. The allowed lints are either cosmetic (doc style),

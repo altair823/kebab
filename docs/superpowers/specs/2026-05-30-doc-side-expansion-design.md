@@ -15,6 +15,12 @@ contract_sections:
 
 # 색인시 doc-side expansion — 설계 spec
 
+> **⚠️ 제거됨 (2026-06-03).** 본 spec 이 도입한 doc-side expansion(별칭) 기능은
+> 2026-06-03 완전히 제거되었다. 근거: 별칭 ROI 음수(cross-lingual 은 e5-large
+> 단독으로 충분, 기여는 설명형 +2 그룹뿐인데 대가가 살아있는 KB 에 지속 불가한
+> 청크당 색인-시 LLM). 제거 spec: `docs/superpowers/specs/2026-06-03-remove-doc-expansion-spec.md`,
+> HOTFIXES dated entry 2026-06-03. 이 문서는 역사적 contract 로 freeze 유지.
+
 ## 0. 한 줄 요약
 
 문서를 색인할 때(ingest) 각 청크마다 로컬 LLM(gemma)에게 "이 내용을 찾을 사람이 던질 법한 다른

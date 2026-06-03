@@ -339,7 +339,6 @@ fn build_chunk(
         token_estimate,
         chunker_version: chunker_version.clone(),
         policy_hash: policy_hash.to_string(),
-        aliases: None,
     }
 }
 

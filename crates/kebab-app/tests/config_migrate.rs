@@ -29,7 +29,7 @@ fn migrate_writes_backup_and_atomic_with_dry_run_noop() {
     assert!(dir.path().join("config.toml.bak").exists());
     let new = fs::read_to_string(&cfg).unwrap();
     assert!(!new.contains("include"));
-    assert!(new.contains("[ingest.expansion]"));
+    assert!(new.contains("[ingest.code]"));
 
     // 멱등: 재실행 changed=false.
     let report = kebab_app::config_migrate_with_config_path(Some(&cfg), false).unwrap();
@@ -47,8 +47,11 @@ fn migrate_missing_file_errors() {
 fn annotated_default_serialization_contains_section_comments() {
     let doc = kebab_config::migrate::annotated_default_document();
     let text = doc.to_string();
-    assert!(text.contains("doc-side 별칭"), "section comment missing:\n{text}");
-    assert!(text.contains("[ingest.expansion]"));
+    assert!(
+        text.contains("code ingest skip 정책"),
+        "section comment missing:\n{text}"
+    );
+    assert!(text.contains("[ingest.code]"));
 }
 
 #[test]

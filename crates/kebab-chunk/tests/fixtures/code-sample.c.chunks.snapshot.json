@@ -1,6 +1,5 @@
 [
   {
-    "aliases": null,
     "block_ids": [
       "8149e12ca002489acb4a0f74c97a061a"
     ],
@@ -23,7 +22,6 @@
     "tokenized_korean_text": "# include < stdio . h > # include < stdlib . h > # define MAX _ BUF 4096 typedef enum { OK = 0 , ERR _ PARSE , ERR _ IO , } status _ t ; typedef struct { int id ; char name [ 64 ]; status _ t status ; } record _ t ; static int counter = 0 ;"
   },
   {
-    "aliases": null,
     "block_ids": [
       "1baaa89f21a47b2f32d6396a24a85454"
     ],
@@ -46,7 +44,6 @@
     "tokenized_korean_text": "int parse _ record ( const char * line , record _ t * out ) { if ( line == NULL || out == NULL ) return ERR _ PARSE ; return OK ; }"
   },
   {
-    "aliases": null,
     "block_ids": [
       "8d0e14cbcc6d1e92d7878ab796ea68b8"
     ],
@@ -69,7 +66,6 @@
     "tokenized_korean_text": "void print _ record ( const record _ t * r ) { printf (\"[% d ] % s ( status =% d )\\ n \", r -> id , r -> name , r -> status ); }"
   },
   {
-    "aliases": null,
     "block_ids": [
       "9c2ede84423871b615d48c38fefb1853"
     ],
