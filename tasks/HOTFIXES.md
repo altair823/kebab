@@ -14,6 +14,56 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-03 — arctic-embed-l-v2.0 임베더 통합 (candle + Ollama) (v0.26.0)
+
+**무엇을 왜 추가했나.** 별칭(doc-side expansion) 제거(v0.25.0) 후 설명형 query 의
+recall 보강책으로 `snowflake-arctic-embed-l-v2.0` 임베더를 두 백엔드로 통합했다.
+근거는 방법별 측정(`/build/dogfood/logs/2026-06-03-method-measurements.md`):
+arctic = recall@10 **130/132**, recall@50 **132/132**, **용어 무손실**(syn/abbr/en
+유지). e5-large 대비 +7, 색인 1회·per-query 0·LLM 0 = 살아있는 KB 에 지속 가능.
+별칭이 청크당 색인-시 LLM(나무위키 18문서 cold 2.5h)을 요구한 것과 대조.
+
+**무엇을 건드렸나.**
+- `kebab-embed-candle`: e5 하드코딩(`HF_MODEL`/`SUPPORTED_MODEL`/mean/`query:`+`passage:`)을
+  **모델 레지스트리**(`MODEL_REGISTRY`: `EmbedModelSpec { name, hf_repo, pooling, query_prefix, doc_prefix, dim, version_tag }`)로
+  일반화. e5(mean, `query:`/`passage:`) + arctic(**CLS**, `query:`/무접두어). pooling
+  은 모델별 분기(mean=attention-mask-weighted / CLS=`hidden[:,0,:]`), tokenize/forward/L2
+  공유. arctic pooling=CLS 는 HF `1_Pooling/config.json`(`pooling_mode_cls_token:true`)로
+  확인. `model_version` 은 arctic 일 때 `+arctic-cls` 태그(switch 시 embedding_version
+  cascade 트리거); e5 는 fastembed-e5 와의 호환(NUMA 드롭인) 위해 plain `config.version` 유지.
+- `kebab-embed-ollama` (신규 크레이트): `Embedder` 구현, `reqwest::blocking` POST
+  `/api/embed` `{model, input:[...]}` → `embeddings`. batch 48 + fail-soft 재시도 3,
+  결과 **L2 정규화**(Ollama raw 반환), dim 검증, query/doc prefix 모델 태그로 추론
+  (`arctic-embed`→`query:`/무접두어, `e5`→`query:`/`passage:`). `model_version=ollama:{model}`.
+  endpoint = `models.embedding.endpoint` ?? `models.llm.endpoint`.
+- `kebab-config`: `EmbeddingModelCfg.endpoint: Option<String>`(serde default, ollama용) +
+  `provider` 문서에 `ollama` 추가 + env `KEBAB_MODELS_EMBEDDING_ENDPOINT`.
+- `kebab-app::embedder()`: provider match 에 `ollama` 분기 추가(facade 경유).
+- workspace member += `kebab-embed-ollama`, version 0.25.0 → **0.26.0**(minor).
+
+**correctness 게이트.** candle arctic 임베딩이 측정에 쓴 Ollama `snowflake-arctic-embed2`
+임베딩과 일치해야 pooling/prefix 정확성(=recall 130 재현)이 보장된다. 검증:
+`kebab-embed-candle/tests/arctic_ollama_parity.rs`(`#[ignore]`, live Ollama 의존) 가
+candle arctic vs 우리 Ollama 어댑터로 같은 문장(설명형/약어/영문 포함, doc+query
+양 경로)을 임베딩해 per-sentence **코사인 > 0.99** 를 assert. 수동 실행 결과(코사인값)는
+릴리스 전 본 entry 에 기록.
+
+**수동 검증 결과** (2026-06-03 worker 실측, Ollama @192.168.0.47:11434
+`snowflake-arctic-embed2`): 8문장 × (doc+query) 16벡터 per-sentence 코사인
+**0.999984 ~ 0.999995**, `cosine_min = 0.999984` (게이트 0.99 대비 대폭 상회).
+설명형("후입선출 방식으로 동작하는 자료구조")·약어("SVM 은 support vector machine")·
+영문·한글 모두 일치. → candle arctic 의 CLS pooling + `query: ` prefix 가 Ollama 측정
+경로와 정확히 동일 = recall@10 130 재현 보장. Ollama raw 도 이미 L2-정규화(norm 1.0)라
+어댑터의 L2 정규화는 idempotent no-op. 로그: `/build/dogfood/logs/arctic-parity.log`,
+요약: `/tmp/arctic-result.md`.
+
+**호환성.** 기본 provider=fastembed e5 동작/벡터 불변(arctic 은 opt-in). dim 1024
+동일이나 LanceDB 테이블명에 모델명 포함(`chunk_embeddings_{model}_{dim}`)이라 충돌
+없음. e5 → arctic 전환 = `embedding_version` cascade(모델별 벡터 상이) → **재색인 필요**
+(기존 e5 KB 와 혼용 불가, 명확). A(heading enrichment)는 측정상 arctic 에서 악화 →
+미적용. spec: `docs/superpowers/specs/2026-06-03-arctic-embedder-spec.md`, plan: 동일
+디렉토리 `2026-06-03-arctic-embedder-plan.md`.
+
 ## 2026-06-03 — doc-side expansion(별칭) 기능 완전 제거 (v0.25.0)
 
 **무엇을 왜 제거했나.** v0.21.0 (PR #195/#196) 에서 도입한 색인-시 청크당 LLM

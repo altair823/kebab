@@ -111,17 +111,45 @@ root = "~/KnowledgeBase"   # 색인할 폴더. 절대 / tilde / env / 상대 경
 
 [models.embedding]
 provider = "fastembed"            # "fastembed"(기본, onnxruntime) / "candle"(순수 Rust)
-                                  # / "none"(lexical-only). candle 는 같은 모델·같은 벡터를
-                                  # 순수 Rust 로 돌려 NUMA 서버의 onnxruntime 48-스레드
-                                  # double-free 를 피하는 opt-in 백엔드 (재색인 불필요).
+                                  # / "ollama"(원격 HTTP) / "none"(lexical-only).
+                                  # candle 는 같은 모델·같은 벡터를 순수 Rust 로 돌려
+                                  # NUMA 서버의 onnxruntime 48-스레드 double-free 를 피하는
+                                  # opt-in 백엔드 (e5 는 재색인 불필요).
 model = "multilingual-e5-large"   # 다국어 sentence embedding (1024-dim).
                                   # 첫 ingest 시 ONNX (~1.3GB) 자동 다운로드.
                                   # candle provider 는 safetensors (~2GB) 다운로드.
+                                  # candle/ollama 는 "snowflake-arctic-embed-l-v2.0"
+                                  # (설명형 query 의 recall 보강) 도 지원 — 아래 참고.
 dimensions = 1024                 # config 와 LanceDB stored dim 불일치 시 검색 0건.
 num_threads = 0                   # candle 전용 CPU 스레드 캡 (0=auto=#cores).
                                   # env KEBAB_EMBED_THREADS 가 우선. NUMA 노드 바인딩은
                                   # numactl 과 조합. fastembed provider 는 무시.
+# endpoint = "http://127.0.0.1:11434"  # provider="ollama" 전용 HTTP endpoint.
+                                  # 생략 시 [models.llm].endpoint 로 폴백.
+                                  # fastembed/candle provider 는 무시.
 ```
+
+**arctic-embed-l-v2.0 (설명형 query recall 보강)**: 기본 e5-large 대신
+Snowflake `arctic-embed-l-v2.0` 임베더를 쓸 수 있다 (1024-dim, opt-in). 측정에서
+설명형/약어/영문 용어 query 의 recall@10 이 e5 대비 향상됐다. 두 경로:
+
+```toml
+# (A) candle 백엔드 — 순수 Rust, in-process (NUMA 안전, Metal GPU 가능):
+[models.embedding]
+provider = "candle"
+model    = "snowflake-arctic-embed-l-v2.0"   # CLS pooling, query 에 "query: " 접두어
+                                             # (문서는 무접두어). safetensors ~2GB 다운로드.
+
+# (B) ollama 백엔드 — 원격/로컬 Ollama 데몬에 위임 (POST /api/embed):
+[models.embedding]
+provider = "ollama"
+model    = "snowflake-arctic-embed2"          # Ollama 모델 태그 (ollama pull 필요)
+endpoint = "http://127.0.0.1:11434"           # 생략 시 [models.llm].endpoint
+```
+
+> ⚠️ e5 → arctic 전환은 `embedding_version` cascade 를 트리거한다 (모델이 다르면
+> 벡터도 다름). 기존 e5 KB 와 혼용 불가 — 전환 시 **재색인** 필요 (`kebab reset`
+> 후 재 ingest). 기본값은 e5 라 기존 사용자는 영향 없음.
 
 **Apple Silicon GPU 가속 (candle / macOS)**: M-시리즈 맥에서 candle 임베딩을
 GPU(Metal)로 돌리면 CPU 대비 대용량 ingest 가 크게 빨라진다. 빌드 또는 설치 시

@@ -1,31 +1,44 @@
 //! `kebab-embed-candle` — [`CandleEmbedder`], a pure-Rust (candle)
 //! implementation of [`Embedder`](kebab_core::Embedder).
 //!
-//! Runs the same `intfloat/multilingual-e5-large` model as the default
-//! [`FastembedEmbedder`](kebab_embed_local) but through `candle`
-//! (`candle-transformers`' XLM-RoBERTa) instead of onnxruntime. Motivation:
-//! fastembed 4.9's onnxruntime hard-codes 48 intra-op threads, which corrupts
-//! the heap (double-free) on dual-socket NUMA hosts. candle's CPU backend
-//! sizes its threads off the global rayon pool, so a one-shot
-//! [`rayon::ThreadPoolBuilder`] cap (config `num_threads` / env
-//! `KEBAB_EMBED_THREADS`) keeps the worker count NUMA-safe.
+//! Runs an XLM-RoBERTa-large embedding model through `candle`
+//! (`candle-transformers`' XLM-RoBERTa) instead of onnxruntime. Two models
+//! are wired through a small **registry** ([`MODEL_REGISTRY`]):
 //!
-//! Output parity with the onnxruntime path was proven by the Phase 0 spike
-//! (cosine 1.000000); this crate absorbs that pipeline verbatim:
+//! * `multilingual-e5-large` — the same weights the default
+//!   [`FastembedEmbedder`](kebab_embed_local) uses (mean pooling,
+//!   `query: `/`passage: ` prefixes). candle is the NUMA-safe drop-in:
+//!   fastembed 4.9's onnxruntime hard-codes 48 intra-op threads, which
+//!   corrupts the heap (double-free) on dual-socket NUMA hosts. candle's
+//!   CPU backend sizes its threads off the global rayon pool, so a one-shot
+//!   [`rayon::ThreadPoolBuilder`] cap (config `num_threads` / env
+//!   `KEBAB_EMBED_THREADS`) keeps the worker count NUMA-safe.
+//! * `snowflake-arctic-embed-l-v2.0` — Snowflake's arctic-embed v2.0
+//!   (CLS pooling, `query: ` on queries / no prefix on documents). Same
+//!   XLM-RoBERTa-large architecture, dim 1024, so it rides the exact same
+//!   tokenize → forward → L2 pipeline; only the pooling step and prefixes
+//!   differ (both keyed off the per-model [`EmbedModelSpec`]).
 //!
-//! 1. e5 prefix (`passage: ` for documents, `query: ` for queries — the same
-//!    convention as `kebab-embed-local`'s `prefix_input`);
+//! Output parity with the onnxruntime path (for e5) was proven by the
+//! Phase 0 spike (cosine 1.000000); the arctic path's pooling/prefix
+//! correctness is pinned by an `#[ignore]`d cosine>0.99 cross-check against
+//! Ollama's `snowflake-arctic-embed2` (see `tests/arctic_ollama_parity.rs`).
+//! The shared pipeline:
+//!
+//! 1. instruction prefix per [`EmbedModelSpec`] (query/doc);
 //! 2. tokenize (max_len 512, batch-longest padding, special tokens);
-//! 3. XLM-RoBERTa forward on `Device::Cpu`;
-//! 4. attention-mask-weighted mean pooling;
+//! 3. XLM-RoBERTa forward on the selected [`Device`];
+//! 4. pooling — mean (attention-mask-weighted) or CLS (first token);
 //! 5. L2 normalization.
 //!
 //! Model files (`config.json`, `tokenizer.json`, `model.safetensors`) are
-//! fetched via `hf-hub` into `{config.storage.model_dir}/candle/`.
+//! fetched via `hf-hub` into `{config.storage.model_dir}/candle/` (hf-hub's
+//! cache layout namespaces by repo, so e5 and arctic never collide).
 //!
 //! This crate is **opt-in** (`config.models.embedding.provider = "candle"`);
 //! the default provider stays `fastembed`. See
-//! `docs/superpowers/specs/2026-06-01-embed-candle-track-spec.md`.
+//! `docs/superpowers/specs/2026-06-01-embed-candle-track-spec.md` and
+//! `docs/superpowers/specs/2026-06-03-arctic-embedder-spec.md`.
 
 use std::sync::Mutex;
 
@@ -42,21 +55,94 @@ use tokenizers::{PaddingParams, PaddingStrategy, Tokenizer, TruncationParams};
 /// `fastembed/` subdir so the two backends never collide.
 const CANDLE_CACHE_SUBDIR: &str = "candle";
 
-/// HuggingFace repo id for the multilingual e5 large model. Same weights the
-/// onnxruntime path uses, just the safetensors variant candle can read.
-const HF_MODEL: &str = "intfloat/multilingual-e5-large";
-
-/// The only `config.models.embedding.model` value the candle adapter accepts
-/// (the e5-large weights `HF_MODEL` resolves to). Guards against silently
-/// downloading e5-large while `model_id()` reports a different name.
-const SUPPORTED_MODEL: &str = "multilingual-e5-large";
-
-/// Token truncation length (e5 was trained at 512).
+/// Token truncation length (both e5 and arctic-embed-l-v2.0 train at 512).
 const MAX_LEN: usize = 512;
 
 /// Env var that overrides `config.models.embedding.num_threads`. Read once in
 /// [`CandleEmbedder::new`]; `0`/unset/unparseable means "leave rayon default".
 const ENV_EMBED_THREADS: &str = "KEBAB_EMBED_THREADS";
+
+/// Pooling strategy over the model's last hidden state. Keyed per-model by
+/// [`EmbedModelSpec::pooling`] — e5 is mean, arctic is CLS.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pooling {
+    /// Attention-mask-weighted mean over all tokens (e5 / sentence-transformers
+    /// `pooling_mode_mean_tokens`).
+    Mean,
+    /// First token (`<s>`/`[CLS]`) hidden state (arctic-embed v2.0 —
+    /// `1_Pooling/config.json` has `pooling_mode_cls_token: true`).
+    Cls,
+}
+
+/// One supported embedding model: the HF repo candle downloads, the pooling
+/// strategy, and the e5-style instruction prefixes. [`MODEL_REGISTRY`] maps a
+/// `config.models.embedding.model` value to one of these.
+#[derive(Clone, Copy, Debug)]
+pub struct EmbedModelSpec {
+    /// The short `config.models.embedding.model` value that selects this spec.
+    pub name: &'static str,
+    /// HuggingFace repo id candle fetches `config.json` / `tokenizer.json` /
+    /// `model.safetensors` from.
+    pub hf_repo: &'static str,
+    /// Pooling over the last hidden state.
+    pub pooling: Pooling,
+    /// Prefix prepended to **query** inputs before tokenization.
+    pub query_prefix: &'static str,
+    /// Prefix prepended to **document** inputs before tokenization (arctic
+    /// uses `""` — documents are embedded raw).
+    pub doc_prefix: &'static str,
+    /// Expected embedding dimension (model hidden size).
+    pub dim: usize,
+    /// Suffix folded into `model_version` so switching **to** this model
+    /// triggers the `embedding_version` cascade even if the operator forgets
+    /// to bump `config.version`. `None` keeps the bare `config.version` — used
+    /// by e5 so candle-e5 and fastembed-e5 report the *same* version and stay
+    /// interchangeable (the NUMA drop-in invariant — Phase 0 cosine 1.0).
+    pub version_tag: Option<&'static str>,
+}
+
+/// The models the candle adapter can load. Adding a model = one entry here
+/// (plus, for a non-XLM-R architecture, a new forward path — both current
+/// entries are XLM-RoBERTa-large so they share everything but pooling/prefix).
+static MODEL_REGISTRY: &[EmbedModelSpec] = &[
+    EmbedModelSpec {
+        name: "multilingual-e5-large",
+        hf_repo: "intfloat/multilingual-e5-large",
+        pooling: Pooling::Mean,
+        query_prefix: "query: ",
+        doc_prefix: "passage: ",
+        dim: 1024,
+        version_tag: None,
+    },
+    EmbedModelSpec {
+        name: "snowflake-arctic-embed-l-v2.0",
+        hf_repo: "Snowflake/snowflake-arctic-embed-l-v2.0",
+        pooling: Pooling::Cls,
+        query_prefix: "query: ",
+        doc_prefix: "",
+        dim: 1024,
+        version_tag: Some("arctic-cls"),
+    },
+];
+
+/// Look up a model spec by `config.models.embedding.model`. Accepts either the
+/// short `name` or the full `hf_repo` id (mirrors the old e5 guard, which
+/// accepted both `multilingual-e5-large` and `intfloat/multilingual-e5-large`).
+pub(crate) fn lookup_spec(model: &str) -> Option<&'static EmbedModelSpec> {
+    MODEL_REGISTRY
+        .iter()
+        .find(|s| s.name == model || s.hf_repo == model)
+}
+
+/// Comma-separated list of supported model names, for the
+/// unsupported-model error message.
+fn supported_models() -> String {
+    MODEL_REGISTRY
+        .iter()
+        .map(|s| s.name)
+        .collect::<Vec<_>>()
+        .join("`, `")
+}
 
 /// Pure-Rust candle adapter. Construct via [`CandleEmbedder::new`]; the
 /// constructor downloads the model on first use, so share one instance.
@@ -68,6 +154,9 @@ pub struct CandleEmbedder {
     model: Mutex<XLMRobertaModel>,
     tokenizer: Tokenizer,
     device: Device,
+    /// The resolved model spec (pooling + prefixes) — drives `embed` and
+    /// `embed_batch`.
+    spec: &'static EmbedModelSpec,
     model_id: EmbeddingModelId,
     version: EmbeddingVersion,
     dimensions: usize,
@@ -75,7 +164,8 @@ pub struct CandleEmbedder {
 }
 
 impl CandleEmbedder {
-    /// Build an embedder from `Config`. Applies the NUMA thread cap, fetches
+    /// Build an embedder from `Config`. Resolves the model spec from
+    /// `config.models.embedding.model`, applies the NUMA thread cap, fetches
     /// the model into `{model_dir}/candle/`, and validates that the model's
     /// hidden size matches `config.models.embedding.dimensions` before
     /// returning.
@@ -104,21 +194,20 @@ impl CandleEmbedder {
             }
         }
 
-        // 1b. Model guard. `HF_MODEL` is hard-coded (candle currently only wires
-        //     e5-large), so if the operator configured a *different* model name
-        //     we must NOT silently download e5-large and then label its vectors
-        //     with the configured name via `model_id()` — that would mislabel
-        //     `embedding_version` and corrupt a mixed index. Fail fast, before
-        //     the ~2GB download.
+        // 1b. Model registry lookup. If the operator configured a model the
+        //     candle adapter doesn't know, fail fast (BEFORE the ~2GB
+        //     download) — never silently download one model and then label its
+        //     vectors with another name via `model_id()`, which would mislabel
+        //     `embedding_version` and corrupt a mixed index.
         let want = config.models.embedding.model.as_str();
-        if want != SUPPORTED_MODEL && want != HF_MODEL {
-            anyhow::bail!(
-                "candle provider currently supports only '{SUPPORTED_MODEL}' (or \
-                 the HF id '{HF_MODEL}'), but config.models.embedding.model = \
-                 '{want}'. Use provider=fastembed for other models, or set \
-                 model = \"{SUPPORTED_MODEL}\"."
-            );
-        }
+        let spec = lookup_spec(want).ok_or_else(|| {
+            anyhow::anyhow!(
+                "candle provider supports the models `{}`, but \
+                 config.models.embedding.model = '{want}'. Use provider=fastembed \
+                 for other models, or pick a supported one.",
+                supported_models()
+            )
+        })?;
 
         // 2. Resolve `{data_dir}/models/candle/` exactly like the fastembed
         //    adapter resolves its own subdir.
@@ -134,14 +223,15 @@ impl CandleEmbedder {
         tracing::info!(
             target: "kebab-embed-candle",
             cache_dir = %cache_dir.display(),
-            model = HF_MODEL,
+            model = spec.hf_repo,
+            pooling = ?spec.pooling,
             "loading candle embedding model (first run downloads ~2GB safetensors)"
         );
         let api = hf_hub::api::sync::ApiBuilder::new()
             .with_cache_dir(cache_dir.clone())
             .build()
             .context("kb-embed-candle: build hf-hub api")?;
-        let repo = api.model(HF_MODEL.to_string());
+        let repo = api.model(spec.hf_repo.to_string());
         let config_path = repo.get("config.json").context("download config.json")?;
         let tokenizer_path = repo
             .get("tokenizer.json")
@@ -180,10 +270,21 @@ impl CandleEmbedder {
             }))
             .map_err(|e| anyhow::anyhow!("kb-embed-candle: set truncation: {e}"))?;
 
+        // model_version: fold the model tag in for non-e5 models so a switch
+        // triggers the embedding_version cascade; e5 keeps the bare
+        // config.version to stay interchangeable with fastembed-e5.
+        let version = match spec.version_tag {
+            Some(tag) => {
+                EmbeddingVersion(format!("{}+{}", config.models.embedding.version, tag))
+            }
+            None => EmbeddingVersion(config.models.embedding.version.clone()),
+        };
+
         tracing::info!(
             target: "kebab-embed-candle",
             dimensions = cfg.hidden_size,
             layers = cfg.num_hidden_layers,
+            model = spec.name,
             "candle embedding model loaded"
         );
 
@@ -191,16 +292,17 @@ impl CandleEmbedder {
             model: Mutex::new(model),
             tokenizer,
             device,
+            spec,
             model_id: EmbeddingModelId(config.models.embedding.model.clone()),
-            version: EmbeddingVersion(config.models.embedding.version.clone()),
+            version,
             dimensions: cfg.hidden_size,
             batch_size: config.models.embedding.batch_size.max(1),
         })
     }
 
-    /// Embed one batch of **already-prefixed** strings (the e5 `query:`/
-    /// `passage:` prefix is applied by the caller [`CandleEmbedder::embed`])
-    /// through the candle pipeline: tokenize → forward → masked mean pool → L2.
+    /// Embed one batch of **already-prefixed** strings (the per-model prefix
+    /// is applied by the caller [`CandleEmbedder::embed`]) through the candle
+    /// pipeline: tokenize → forward → pool (mean|CLS) → L2.
     fn embed_batch(&self, prefixed: &[String]) -> Result<Vec<Vec<f32>>> {
         let encodings = self
             .tokenizer
@@ -237,18 +339,30 @@ impl CandleEmbedder {
             guard.forward(&input_ids, &attn_f32, &token_type_ids, None, None, None)?
         };
 
-        // attention-mask-weighted mean pooling
-        let mask3 = attn_f32.unsqueeze(2)?; // (b, seq, 1)
-        let summed = hidden.broadcast_mul(&mask3)?.sum(1)?; // (b, hidden)
-        // counts ≥ 1 always: every input is e5-prefixed AND special tokens are
-        // added (encode_batch(_, true)), so no row has an all-zero mask. If that
-        // invariant ever breaks, broadcast_div would emit NaN vectors.
-        let counts = mask3.sum(1)?; // (b, 1)
-        let mean = summed.broadcast_div(&counts)?;
+        // Pooling — per the model spec.
+        let pooled = match self.spec.pooling {
+            Pooling::Mean => {
+                // attention-mask-weighted mean pooling
+                let mask3 = attn_f32.unsqueeze(2)?; // (b, seq, 1)
+                let summed = hidden.broadcast_mul(&mask3)?.sum(1)?; // (b, hidden)
+                // counts ≥ 1 always: every input is prefixed AND special
+                // tokens are added (encode_batch(_, true)), so no row has an
+                // all-zero mask. If that invariant ever breaks, broadcast_div
+                // would emit NaN vectors.
+                let counts = mask3.sum(1)?; // (b, 1)
+                summed.broadcast_div(&counts)?
+            }
+            Pooling::Cls => {
+                // CLS pooling: the first token's hidden state. arctic-embed
+                // v2.0 prepends `<s>` (the XLM-R BOS/CLS) at index 0, so
+                // `hidden[:, 0, :]` is the sentence embedding.
+                hidden.narrow(1, 0, 1)?.squeeze(1)? // (b, hidden)
+            }
+        };
 
         // L2 normalize
-        let norm = mean.sqr()?.sum_keepdim(1)?.sqrt()?;
-        let normalized = mean.broadcast_div(&norm)?;
+        let norm = pooled.sqr()?.sum_keepdim(1)?.sqrt()?;
+        let normalized = pooled.broadcast_div(&norm)?;
 
         // `.contiguous()` before host copy: broadcast ops can leave a strided
         // view, which `to_vec2` rejects on the Metal backend (CPU tolerates it).
@@ -274,9 +388,9 @@ impl Embedder for CandleEmbedder {
             return Ok(Vec::new());
         }
 
-        // e5 prefix per §11.3 BEFORE tokenization (same convention as
-        // FastembedEmbedder so the two backends produce comparable vectors).
-        let prefixed: Vec<String> = inputs.iter().map(prefix_input).collect();
+        // Per-model instruction prefix BEFORE tokenization (same convention as
+        // FastembedEmbedder for e5; arctic uses `query: `/no-prefix).
+        let prefixed: Vec<String> = inputs.iter().map(|i| prefix_input(self.spec, i)).collect();
 
         let mut out: Vec<Vec<f32>> = Vec::with_capacity(prefixed.len());
         for chunk in prefixed.chunks(self.batch_size) {
@@ -298,22 +412,22 @@ impl Embedder for CandleEmbedder {
     }
 }
 
-/// Build the e5-prefixed string for one [`EmbeddingInput`]. Free function so
-/// a unit test can pin the format without loading the model. Byte-identical to
-/// `kebab-embed-local`'s `prefix_input` — the two backends MUST agree here or
-/// their vectors diverge.
-fn prefix_input(input: &EmbeddingInput<'_>) -> String {
+/// Build the prefixed string for one [`EmbeddingInput`] using the model spec.
+/// Free function so a unit test can pin the format without loading the model.
+/// For e5 this is byte-identical to `kebab-embed-local`'s `prefix_input` — the
+/// two backends MUST agree there or their vectors diverge.
+fn prefix_input(spec: &EmbedModelSpec, input: &EmbeddingInput<'_>) -> String {
     match input.kind {
-        EmbeddingKind::Document => format!("passage: {}", input.text),
-        EmbeddingKind::Query => format!("query: {}", input.text),
+        EmbeddingKind::Document => format!("{}{}", spec.doc_prefix, input.text),
+        EmbeddingKind::Query => format!("{}{}", spec.query_prefix, input.text),
     }
 }
 
 /// Select the compute device. Built with the `metal` feature (Apple Silicon
 /// GPU), try Metal and fall back to CPU on failure; otherwise CPU. Metal only
-/// compiles/runs on macOS — the Linux server builds the CPU path. e5-large
-/// vectors are model-defined, so Metal-produced and CPU-produced embeddings are
-/// cross-compatible (a Mac can ingest on GPU, the server query on CPU).
+/// compiles/runs on macOS — the Linux server builds the CPU path. Embedding
+/// vectors are model-defined, so Metal-produced and CPU-produced embeddings
+/// are cross-compatible (a Mac can ingest on GPU, the server query on CPU).
 fn select_device() -> Device {
     #[cfg(feature = "metal")]
     {
@@ -367,26 +481,85 @@ pub(crate) fn check_dim(model_dim: usize, cfg_dim: usize) -> Result<()> {
 mod tests {
     use super::*;
 
-    // ── prefix_input ─────────────────────────────────────────────────
-    // Pin the exact e5 prefix strings; these MUST match
-    // kebab-embed-local::prefix_input or candle vs fastembed parity breaks.
+    fn e5_spec() -> &'static EmbedModelSpec {
+        lookup_spec("multilingual-e5-large").expect("e5 in registry")
+    }
+
+    fn arctic_spec() -> &'static EmbedModelSpec {
+        lookup_spec("snowflake-arctic-embed-l-v2.0").expect("arctic in registry")
+    }
+
+    // ── registry ─────────────────────────────────────────────────────
 
     #[test]
-    fn prefix_document_uses_passage() {
+    fn registry_resolves_e5_by_name_and_hf_repo() {
+        assert_eq!(
+            lookup_spec("multilingual-e5-large").map(|s| s.name),
+            Some("multilingual-e5-large")
+        );
+        assert_eq!(
+            lookup_spec("intfloat/multilingual-e5-large").map(|s| s.name),
+            Some("multilingual-e5-large")
+        );
+    }
+
+    #[test]
+    fn registry_resolves_arctic_and_its_pooling_is_cls() {
+        let s = arctic_spec();
+        assert_eq!(s.name, "snowflake-arctic-embed-l-v2.0");
+        assert_eq!(s.hf_repo, "Snowflake/snowflake-arctic-embed-l-v2.0");
+        assert_eq!(s.pooling, Pooling::Cls);
+        assert_eq!(s.dim, 1024);
+        assert_eq!(s.version_tag, Some("arctic-cls"));
+    }
+
+    #[test]
+    fn registry_e5_is_mean_pooling_no_version_tag() {
+        let s = e5_spec();
+        assert_eq!(s.pooling, Pooling::Mean);
+        assert_eq!(s.version_tag, None);
+    }
+
+    #[test]
+    fn registry_rejects_unknown_model() {
+        assert!(lookup_spec("multilingual-e5-small").is_none());
+    }
+
+    // ── prefix_input ─────────────────────────────────────────────────
+    // e5 prefixes MUST match kebab-embed-local::prefix_input or candle vs
+    // fastembed parity breaks; arctic uses query-only prefixing.
+
+    #[test]
+    fn e5_prefix_document_uses_passage() {
         let input = EmbeddingInput {
             text: "hello world",
             kind: EmbeddingKind::Document,
         };
-        assert_eq!(prefix_input(&input), "passage: hello world");
+        assert_eq!(prefix_input(e5_spec(), &input), "passage: hello world");
     }
 
     #[test]
-    fn prefix_query_uses_query() {
+    fn e5_prefix_query_uses_query() {
         let input = EmbeddingInput {
             text: "hello world",
             kind: EmbeddingKind::Query,
         };
-        assert_eq!(prefix_input(&input), "query: hello world");
+        assert_eq!(prefix_input(e5_spec(), &input), "query: hello world");
+    }
+
+    #[test]
+    fn arctic_prefix_query_uses_query_doc_is_bare() {
+        let doc = EmbeddingInput {
+            text: "후입선출 자료구조",
+            kind: EmbeddingKind::Document,
+        };
+        let qry = EmbeddingInput {
+            text: "스택 자료구조",
+            kind: EmbeddingKind::Query,
+        };
+        // arctic: documents are embedded raw, queries get `query: `.
+        assert_eq!(prefix_input(arctic_spec(), &doc), "후입선출 자료구조");
+        assert_eq!(prefix_input(arctic_spec(), &qry), "query: 스택 자료구조");
     }
 
     #[test]
@@ -399,8 +572,10 @@ mod tests {
             text: "",
             kind: EmbeddingKind::Query,
         };
-        assert_eq!(prefix_input(&doc), "passage: ");
-        assert_eq!(prefix_input(&qry), "query: ");
+        assert_eq!(prefix_input(e5_spec(), &doc), "passage: ");
+        assert_eq!(prefix_input(e5_spec(), &qry), "query: ");
+        assert_eq!(prefix_input(arctic_spec(), &doc), "");
+        assert_eq!(prefix_input(arctic_spec(), &qry), "query: ");
     }
 
     // ── check_dim ────────────────────────────────────────────────────
@@ -421,9 +596,9 @@ mod tests {
     }
 
     // ── model guard ──────────────────────────────────────────────────
-    // A non-e5-large model name must fail fast (BEFORE the ~2GB download),
-    // so we never download e5-large yet label its vectors with another name
-    // via model_id() — which would mislabel embedding_version.
+    // A model name not in the registry must fail fast (BEFORE the ~2GB
+    // download), so we never download one model yet label its vectors with
+    // another name via model_id() — which would mislabel embedding_version.
 
     #[test]
     fn new_rejects_unsupported_model() {
@@ -437,8 +612,8 @@ mod tests {
             .expect("unsupported model must error");
         let msg = format!("{err:#}");
         assert!(
-            msg.contains("candle provider currently supports only"),
-            "expected model-guard error, got: {msg}"
+            msg.contains("candle provider supports the models"),
+            "expected model-registry error, got: {msg}"
         );
     }
 }
