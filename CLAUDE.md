@@ -82,7 +82,10 @@ Release 절차:
 
 1. `gitea-release v<X.Y.Z>` (gitea-ops skill) 으로 tag + push + release notes.
 2. release notes 는 사용자 도그푸딩에 영향이 가는 surface 변경을 위주로 — wire schema 추가, CLI flag 신규, TUI 키 변경, V00X migration 등 — 다룬다. 이때 추가된 기능과 변경사항은 유저가 이해할 수 있도록 친절하고 자세하게 풀어서 설명해야 하며, 단순히 commit subject 를 나열하는 형태로 끝내면 안 된다. 필요하다면 도그푸딩이나 테스트 결과도 함께 적어 둔다.
-3. 프리-1.0 (`0.x.y`) 단계: minor bump 시 wire schema additive / surface 변경 누적, patch bump 시 bug fix only.
+3. 프리-1.0 (`0.x.y`) 단계 bump 규칙 — **기능(behavior) 또는 인터페이스(interface) 변경 여부**로 판정:
+   - **minor bump** (`0.x.0`): 기능 또는 인터페이스에 *실질적* 변경이 있을 때. 인터페이스 = 신규/변경/삭제된 CLI subcommand·flag, config 키, wire schema 의 **breaking** 변경, 임베딩/검색/RAG 등 사용자가 받는 **결과·동작**의 변화, V00X migration, frozen 설계 변경. 기능 = 새 source 형식·검색 모드·백엔드 등 *할 수 있는 일*의 추가/변경.
+   - **patch bump** (`0.x.y`): 기능·인터페이스 변경이 **없을** 때. bug fix, 내부 refactor, 성능 개선, 로깅/진행표시 등 **관측성(observability) 개선**, **additive-only wire 변경**(backward-compat 신규 필드/이벤트라 기존 소비자 무영향), 문서. ← 즉 "결과가 같고 새 명령/플래그/config 도 없으면 patch".
+   - 경계 예: 진행 로그에 phase/파일명 추가 + additive wire 이벤트(asset_phase) = **patch** (검색·색인 결과 불변, 새 명령/플래그/config 없음). arctic 임베더 provider + 신규 config 키 = **minor** (인터페이스 추가). 별칭 기능 제거 + migration = **minor** (동작·인터페이스 변경).
 
 **bump 시점 = release 시점 같은 commit**. 즉 commit `chore: bump version 0.x → 0.y` 직후 같은 commit 에 tag. v0.1.0 (`2319206`) 처럼 bump 없이 tag 만 찍는 패턴은 후속 release 가 대상 commit 을 헷갈리게 함 — pre-release snapshot 은 SHA reference 로 충분.
 
