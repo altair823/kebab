@@ -96,7 +96,7 @@ pub enum IngestEvent {
     /// `idx/total` while its per-chunk phases churn. `chunks` is the chunk
     /// count for asset `idx`.
     AssetChunked { idx: u32, total: u32, chunks: u32 },
-    /// v0.27.0 (additive): emitted when an asset enters a *slow* internal
+    /// v0.26.1 (additive): emitted when an asset enters a *slow* internal
     /// phase, so the interactive progress bar can show **which** phase
     /// (and which model) is currently running instead of looking frozen.
     /// `phase` ∈ {`"ocr"`, `"caption"`, `"embed"`}; short phases
@@ -121,8 +121,8 @@ pub enum IngestEvent {
     /// them so the slowest-asset summary attributes vision-model time
     /// correctly. `expansion_ms` is retained for wire compatibility but is
     /// always 0 since doc-side expansion was removed (HOTFIXES 2026-06-03).
-    /// `ocr_ms` / `caption_ms` (v0.27.0) are additive with serde default 0
-    /// so pre-v0.27.0 consumers deserialize cleanly.
+    /// `ocr_ms` / `caption_ms` (v0.26.1) are additive with serde default 0
+    /// so pre-v0.26.1 consumers deserialize cleanly.
     AssetTimings {
         idx: u32,
         total: u32,
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn asset_timings_ocr_caption_default_to_zero_for_legacy_wire() {
-        // v0.27.0 additive: a pre-v0.27.0 wire payload omits ocr_ms /
+        // v0.26.1 additive: a pre-v0.26.1 wire payload omits ocr_ms /
         // caption_ms; serde `default` must fill 0 so old producers stay
         // compatible.
         let legacy = serde_json::json!({
@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn asset_phase_serializes_with_discriminator() {
-        // v0.27.0 additive variant — `kind` must be snake_case
+        // v0.26.1 additive variant — `kind` must be snake_case
         // `asset_phase`, `phase` is the slow-phase label, `model` the
         // model id (nullable).
         let ev = IngestEvent::AssetPhase {

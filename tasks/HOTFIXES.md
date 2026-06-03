@@ -14,7 +14,7 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
-## 2026-06-03 — ingest 진행 로그 개선: 파일명·phase·heartbeat·slowest 요약 (v0.27.0)
+## 2026-06-03 — ingest 진행 로그 개선: 파일명·phase·heartbeat·slowest 요약 (v0.26.1)
 
 **무엇을 왜 추가했나.** arctic 도그푸딩 중 이미지/PDF 혼재 + OCR/caption on 볼트에서
 ingest 가 중간부터 느려졌는데, TTY 진행바가 **파일명·현재 phase·모델·경과시간**을 안 보여

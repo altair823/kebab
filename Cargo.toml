@@ -32,7 +32,7 @@ edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/altair823/kebab"
-version       = "0.27.0"   # v0.27.0 — ingest 진행 로그 개선: TTY 진행바에 현재 파일명 + 느린 phase(ocr/caption/embed)+모델명 실시간 + 경과초 heartbeat `(Ns)`, 종료 시 최장 소요 파일 top-5 요약. 신규 wire 이벤트 `asset_phase{idx,total,phase,model}` + `asset_timings.ocr_ms`/`caption_ms` 추가(additive, ingest_progress.v1 유지, serde default 0). 기본 동작 불변. — CLAUDE.md §Release
+version       = "0.26.1"   # v0.26.1 — ingest 진행 로그 개선: TTY 진행바에 현재 파일명 + 느린 phase(ocr/caption/embed)+모델명 실시간 + 경과초 heartbeat `(Ns)`, 종료 시 최장 소요 파일 top-5 요약. 신규 wire 이벤트 `asset_phase{idx,total,phase,model}` + `asset_timings.ocr_ms`/`caption_ms` 추가(additive, ingest_progress.v1 유지, serde default 0). 기본 동작 불변. — CLAUDE.md §Release
 
 # pre-v0.18 workspace-wide cleanup: enable clippy::pedantic group with
 # intentional allow-list. The allowed lints are either cosmetic (doc style),

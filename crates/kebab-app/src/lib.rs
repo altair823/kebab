@@ -1350,7 +1350,7 @@ fn ingest_one_asset(
     let store_ms = u64::try_from(t_store.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // Embed + vector upsert (only when both sides are configured).
-    // v0.27.0: surface the embed phase + model so a long embed run reads as
+    // v0.26.1: surface the embed phase + model so a long embed run reads as
     // "embedding(<model>)…" rather than a frozen bar (markdown path too).
     crate::ingest_progress::emit(
         progress,
@@ -1578,7 +1578,7 @@ fn ingest_one_image_asset(
     let lang_hint = lang_hint_from_doc(&canonical);
     let now = time::OffsetDateTime::now_utc();
     let mut warning_notes: Vec<String> = Vec::new();
-    // v0.27.0: vision phases (OCR / caption) are the usual bottleneck on an
+    // v0.26.1: vision phases (OCR / caption) are the usual bottleneck on an
     // image-heavy vault and emitted no progress before — so the bar looked
     // frozen. Surface each as an `AssetPhase` and measure its wall-clock for
     // the slowest-asset summary.
@@ -1771,7 +1771,7 @@ fn ingest_one_image_asset(
     }
     let embed_ms = u64::try_from(t_embed.elapsed().as_millis()).unwrap_or(u64::MAX);
 
-    // v0.27.0: per-phase timing for the image path — ocr_ms / caption_ms
+    // v0.26.1: per-phase timing for the image path — ocr_ms / caption_ms
     // carry the vision-model cost so the slowest-asset summary attributes
     // an image-heavy run's bottleneck correctly.
     crate::ingest_progress::emit(
@@ -2360,7 +2360,7 @@ fn ingest_one_pdf_asset(
     }
     let embed_ms = u64::try_from(t_embed.elapsed().as_millis()).unwrap_or(u64::MAX);
 
-    // v0.27.0: per-phase timing for the PDF path. `ocr_ms` reuses the
+    // v0.26.1: per-phase timing for the PDF path. `ocr_ms` reuses the
     // page-OCR total already computed above so a scanned-PDF run's OCR cost
     // shows up in the slowest-asset summary; caption is markdown/image-only.
     crate::ingest_progress::emit(
