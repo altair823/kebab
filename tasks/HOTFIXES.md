@@ -14,6 +14,55 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-03 — ingest 출력 영향 설정 변경 시 영향 자산 자동 재색인 (v0.26.2)
+
+**무엇이 깨졌나.** `[image.ocr]` / `[image.caption]` 를 off→색인→on 으로 바꿔도 증분
+skip(`try_skip_unchanged`, `kebab-app/src/lib.rs`)이 그 이미지를 "Unchanged" 로 건너뛰어
+재색인이 안 됐다. 더 일반적으로, skip 판정은 자산 내용(blake3) + `parser_version` +
+`chunker_version` + `embedding_version` 만 비교하는데, **ingest 산출물을 바꾸는 다른 설정들**
+(청킹 파라미터, OCR/caption, pdf.ocr, `[ingest.code]` 옵션)이 이 셋 중 어디에도 반영되지
+않아, 변경해도 재색인이 트리거되지 않았다. 사용자 요구: OCR/caption 뿐 아니라 **ingest 출력에
+영향 주는 모든 설정**이 변경되면 영향 자산이 자동 재색인.
+
+**무엇이 바뀌었나 (내부 skip 판정 정정 — 결과 포맷·CLI·wire 불변, patch).**
+
+- 신규 헬퍼 `ingest_config_signature(config, media_type) -> String` — 그 자산 타입의
+  **ingest 산출물에 영향 주는 설정만** 결정적으로 직렬화. 공통(전 타입): `[chunking]`
+  target_tokens/overlap_tokens/respect_markdown_headings/chunker_version. image: + ocr(enabled,
+  +model) + caption(enabled, +prompt_template_version). pdf: + pdf.ocr(enabled||always_on 이면
+  enabled/always_on/model). code: + `[ingest.code]` 7개 필드. markdown: 공통만.
+- 각 ingest 경로(md/image/pdf/code)의 effective parser_version 을
+  `format!("{base}|{signature}")` composite 로 만들어 (a) `try_skip_unchanged` 비교값,
+  (b) **persist 전 `canonical.parser_version` override** — 두 값이 같은 함수에서 나오므로
+  설정 변경 시 다음 run 비교가 mismatch → 영향 자산만 자동 재색인.
+- **doc_id 는 손대지 않음**: base parser_version(extractor 상수)으로 계속 파생 →
+  설정 변경에도 doc_id 안정(orphan churn 회피). composite 는 비교/저장 필드에만.
+- **제외(재색인 트리거 X)**: search/rag/nli/ui/logging/storage/workspace + 산출 무관
+  런타임 파라미터(max_pixels/languages/*_timeout_secs). "그 값이 바뀌면 색인되는
+  chunk/embedding 내용이 달라지는가" 기준. 과도 무효화 회피.
+- code 의 Tier-3 fallback 문서는 의도적으로 bare `"none-v1"` sentinel 유지(skip 의
+  `stored_is_tier3_fallback` bypass 가 정확히 그 문자열에 의존) — composite 는 정상 outcome 에만.
+
+**업그레이드 1회 효과.** 기존 doc 의 저장 parser_version(상수)이 새 composite 와 달라,
+업그레이드 후 첫 `kebab ingest` 에서 **전 자산이 현재 설정대로 1회 재색인**된다(force 불필요).
+마크다운/코드도 1회 재청킹되나 embedding 은 V012 derived-cache 히트라 재임베딩 비용은 작다.
+`--force-reingest` 는 전체 강제용으로 그대로.
+
+**도그푸딩 evidence (release 바이너리, Ollama down — OCR 호출은 Lenient 실패).**
+이미지 1장, `[image.ocr] enabled=false` 색인 → New=1. config 에서 `enabled=true` 로 변경 후
+`kebab ingest`(force 없이) → **Updated=1**(재색인, errors=0). 동일 config 재실행 → **Unchanged=1**
+(불필요 재색인 0). 저장된 parser_version =
+`image-meta-v1|chunk:500:80:true:md-heading-v1|ocr:1:gemma4:e4b|cap:0`(base 보존 + OCR on 반영).
+
+**테스트.** `kebab-app/src/lib.rs::ingest_config_signature_tests`(8 단위: 결정성, 청킹=전타입,
+이미지 ocr/caption 토글=이미지만, pdf.ocr=pdf만, code 옵션=코드만, search/rag/ui·런타임 파라미터
+불변 회귀가드) + `kebab-app/tests/config_invalidation.rs`(4 end-to-end: 동일 config=전 skip,
+청킹 변경=md+code 재색인, `[ingest.code]` 변경=코드만, search 변경=재색인 0). 기존 skip 테스트
+회귀 0(parser_version exact assert 는 base 접두사 비교로 갱신 — code_ingest_smoke/pdf_pipeline).
+
+spec/plan: `docs/superpowers/specs/2026-06-03-ocr-toggle-invalidation-spec.md` /
+`…/plans/2026-06-03-config-invalidation-plan.md`.
+
 ## 2026-06-03 — ingest 진행 로그 개선: 파일명·phase·heartbeat·slowest 요약 (v0.26.1)
 
 **무엇을 왜 추가했나.** arctic 도그푸딩 중 이미지/PDF 혼재 + OCR/caption on 볼트에서

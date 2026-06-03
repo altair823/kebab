@@ -32,7 +32,7 @@ edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/altair823/kebab"
-version       = "0.26.1"   # v0.26.1 — ingest 진행 로그 개선: TTY 진행바에 현재 파일명 + 느린 phase(ocr/caption/embed)+모델명 실시간 + 경과초 heartbeat `(Ns)`, 종료 시 최장 소요 파일 top-5 요약. 신규 wire 이벤트 `asset_phase{idx,total,phase,model}` + `asset_timings.ocr_ms`/`caption_ms` 추가(additive, ingest_progress.v1 유지, serde default 0). 기본 동작 불변. — CLAUDE.md §Release
+version       = "0.26.2"   # v0.26.2 — ingest 설정 변경 시 영향 자산 자동 재색인: ingest 산출에 영향 주는 설정(청킹/이미지 OCR·caption/pdf.ocr/[ingest.code])의 결정적 서명을 effective parser_version(skip 비교 + 저장 doc 필드 양쪽)에 폴딩 → 해당 설정 변경 시 `--force-reingest` 없이 영향 자산만 자동 재색인. 비산출 설정(search/rag/ui/log + max_pixels/languages/timeout 등)은 제외(과도 무효화 회피). doc_id 는 base parser_version 으로 안정 유지(orphan churn 회피). 결과 포맷·CLI·wire 불변(내부 skip 판정 정정) → patch. — CLAUDE.md §Release
 
 # pre-v0.18 workspace-wide cleanup: enable clippy::pedantic group with
 # intentional allow-list. The allowed lints are either cosmetic (doc style),
