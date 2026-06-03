@@ -16,7 +16,7 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 | metadata | SQLite + FTS5 (lexical search + v0.20.1 한국어 형태소 tokenizer via lindera-ko-dic) |
 | vector | LanceDB (embedded, model 별 분리 table) |
 | Markdown parser | `pulldown-cmark`. frontmatter 에 title 없으면 첫 H1 → H2 → 첫 paragraph 80 자 → 파일명 순으로 자동 채움 (`parser_version = md-frontmatter-v2`, 기존 doc 도 다음 ingest 에서 갱신) |
-| embedding | `fastembed-rs` (`multilingual-e5-large`, 1024d, v0.18.0부터 default 업그레이드) |
+| embedding | `fastembed-rs` (`multilingual-e5-large`, 1024d, v0.18.0부터 default 업그레이드). opt-in 대안: candle (e5 또는 `snowflake-arctic-embed-l-v2.0`) / Ollama `/api/embed`. arctic = 설명형 query recall 보강 (v0.26.0, 아래 결정표) |
 | 한국어 형태소분석 | `lindera-ko-dic` (FTS5 외부 tokenizer, v0.20.1) — 2자 이상 한국어 query 지원 |
 | LLM | Ollama HTTP (default `gemma4:e4b` ─ OCR / caption 와 family 통일. 사용자가 더 큰 variant `gemma4:26b` 등으로 override 가능) |
 | 음성 ASR | `whisper.cpp` (via `whisper-rs`) — P8 보류, 시스템 dep brainstorm 후 |
@@ -67,7 +67,8 @@ flowchart TB
     subgraph Adapters ["traits + adapters"]
         embed["kebab-embed<br/>(trait)"]
         embedlocal["kebab-embed-local<br/>(fastembed, default)"]
-        embedcandle["kebab-embed-candle<br/>(candle, NUMA-safe opt-in)"]
+        embedcandle["kebab-embed-candle<br/>(candle, e5+arctic, NUMA-safe opt-in)"]
+        embedollama["kebab-embed-ollama<br/>(Ollama /api/embed, opt-in)"]
         llm["kebab-llm<br/>(trait)"]
         llmlocal["kebab-llm-local<br/>(Ollama)"]
         search["kebab-search"]
@@ -94,6 +95,7 @@ flowchart TB
     app --> vector
     app --> embedlocal
     app --> embedcandle
+    app --> embedollama
     app --> llmlocal
     app --> search
     app --> rag
@@ -108,6 +110,8 @@ flowchart TB
     embedlocal --> embed
     embedcandle --> core
     embedcandle --> config
+    embedollama --> core
+    embedollama --> config
     llmlocal --> llm
     rag --> search
     rag --> llm
@@ -135,6 +139,23 @@ flowchart TB
 UI → store/llm/parse 직접 의존 금지. 모든 user-facing 진입은 `kebab-app` facade 만 통한다 (frozen 설계 §8). `kebab-cli` 가 `--config <path>` flag 를 honor 하려면 `kebab_app::*_with_config(cfg, …)` companion 을 통해 Config 을 명시적으로 thread 하는 패턴 — 자세한 이유는 [tasks/HOTFIXES.md](../tasks/HOTFIXES.md) 의 `--config` 항목.
 
 `kebab-parse-code` 의 외부 tree-sitter grammar crate 의존: P10-1A-2 에서 `tree-sitter-rust` 추가, P10-1B 에서 `tree-sitter-python` / `tree-sitter-typescript` / `tree-sitter-javascript` 추가, P10-1C-Go 에서 `tree-sitter-go` 추가, P10-1C-JK 에서 `tree-sitter-java` / `tree-sitter-kotlin-ng` 추가, P10-1D 에서 `tree-sitter-c` / `tree-sitter-cpp` 추가. 모두 `kebab-parse-code` 에만 격리 (facade 룰 — UI crate / chunker 가 직접 import 금지). Kotlin 은 `tree-sitter-kotlin-ng` 사용 (bare `tree-sitter-kotlin` 은 tree-sitter 0.21–0.23 에 고착 — 사용 불가). v0.18.0+ 부터 `kebab-source-fs` 는 자체 `code_meta` 모듈 (lang detect + skip helpers + BUILTIN_BLACKLIST) 을 보유, kebab-parse-code 와 분리 (refactor 2026-05-26). v0.19.0 부터 `kebab-parse-md` 가 `kebab-parse-types` (parser intermediate types) + `kebab-normalize` (CanonicalDocument lift) 두 crate 를 흡수 — 24 → 22 crates, design §3.7b 재작성 (HOTFIXES 2026-05-26). v0.20.1 부터 `kebab-search` 가 `lindera-ko-dic` 를 의존해 한국어 FTS5 형태소 tokenizer 지원 — V009 migration 으로 2자 이상 한국어 query 매칭 (Bug #8 closure).
+
+### 임베딩 백엔드 결정표 (v0.26.0)
+
+| provider | 모델 | pooling / prefix | 위치 | 언제 |
+|---|---|---|---|---|
+| `fastembed` (기본) | `multilingual-e5-large` | mean / `query:`·`passage:` | in-process (onnxruntime) | 기본. 단일 소켓 호스트 |
+| `candle` | e5 또는 `snowflake-arctic-embed-l-v2.0` | 모델별 (e5=mean, arctic=CLS) / arctic=`query:`·무접두어 | in-process (pure Rust) | NUMA 서버 (onnxruntime 48-스레드 double-free 회피), Apple Silicon Metal GPU |
+| `ollama` | `snowflake-arctic-embed2` 등 | 모델 태그로 추론 / arctic=`query:`·무접두어 | 원격 HTTP (`/api/embed`) | candle 폴백, 측정에 쓴 경로 그대로 재현 |
+
+**arctic-embed-l-v2.0 채택 근거**: 별칭(doc-side expansion) 제거(v0.25.0) 후 설명형
+query 의 recall 보강책. 측정(`/build/dogfood/logs/2026-06-03-method-measurements.md`)에서
+arctic = recall@10 130/132 (e5 대비 +7, 색인 1회·per-query 0·LLM 0, 용어 무손실).
+candle 이 주 백엔드(in-process, NUMA 안전), Ollama 가 폴백(측정 경로 재현). 두 경로의
+pooling/prefix 정확성은 `kebab-embed-candle/tests/arctic_ollama_parity.rs`
+(candle arctic vs Ollama arctic 코사인>0.99, `#[ignore]`) 로 고정. e5 → arctic 전환은
+`embedding_version` cascade (모델별 벡터 상이) → 재색인 필요. 기본값 e5 유지라 기존
+사용자 무영향. 자세한 내용: [tasks/HOTFIXES.md](../tasks/HOTFIXES.md) 2026-06-03 arctic entry.
 
 ## 디렉토리 구조
 
@@ -184,7 +205,8 @@ kebab/
 │   ├── kebab-store-sqlite/                            # SQLite + FTS5 (V001/V002/V003) (P1-6, P2-1, P3-3). src/derivation_cache.rs = derivation_cache 테이블 저장소 (V012, v0.21.0)
 │   ├── kebab-search/                                  # Lexical + Vector + Hybrid retriever (P2-2, P3-4)
 │   ├── kebab-embed/  kebab-embed-local/                  # Embedder trait + fastembed adapter (P3-1, P3-2)
-│   ├── kebab-embed-candle/                             # candle (pure-Rust) Embedder, NUMA-safe opt-in provider=candle (Track 1, v0.22.0)
+│   ├── kebab-embed-candle/                             # candle (pure-Rust) Embedder, 모델 레지스트리(e5 mean + arctic CLS), NUMA-safe opt-in provider=candle (Track 1, v0.22.0; arctic v0.26.0)
+│   ├── kebab-embed-ollama/                             # Ollama /api/embed Embedder, opt-in provider=ollama (arctic 폴백 경로, v0.26.0)
 │   ├── kebab-store-vector/                            # LanceDB VectorStore (P3-3, P7-3 follow-up)
 │   ├── kebab-llm/  kebab-llm-local/                      # LanguageModel trait + Ollama adapter (P4-1, P4-2)
 │   ├── kebab-rag/                                     # RAG pipeline (P4-3)
