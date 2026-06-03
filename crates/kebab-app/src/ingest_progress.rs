@@ -96,14 +96,33 @@ pub enum IngestEvent {
     /// `idx/total` while its per-chunk phases churn. `chunks` is the chunk
     /// count for asset `idx`.
     AssetChunked { idx: u32, total: u32, chunks: u32 },
+    /// v0.26.1 (additive): emitted when an asset enters a *slow* internal
+    /// phase, so the interactive progress bar can show **which** phase
+    /// (and which model) is currently running instead of looking frozen.
+    /// `phase` ∈ {`"ocr"`, `"caption"`, `"embed"`}; short phases
+    /// (parse / chunk / store) are intentionally *not* emitted to avoid
+    /// noise. `model` is the model performing the phase — the vision LLM
+    /// id for `ocr` / `caption`, the embedder `model_id` for `embed`
+    /// (`None` when the phase runs without a configured model, e.g. embed
+    /// with no embedder wired). Emitted once per (asset, phase); no
+    /// throttle needed (low frequency). Wire v1 consumers that predate
+    /// this variant simply ignore the unknown `asset_phase` kind.
+    AssetPhase {
+        idx: u32,
+        total: u32,
+        phase: String,
+        model: Option<String>,
+    },
     /// v0.24.0 (additive): per-phase wall-clock (milliseconds) for asset
-    /// `idx`, emitted once the asset's markdown pipeline finishes. Lets a
-    /// user see *where* the time went (parse / chunk / embed / store)
-    /// without parsing logs. Only the markdown path emits this; the
-    /// image / PDF paths surface `AssetChunked` but skip phase timing (their
-    /// phase shapes differ — OCR / caption). `expansion_ms` is retained for
-    /// wire compatibility but is always 0 since doc-side expansion was
-    /// removed (HOTFIXES 2026-06-03).
+    /// `idx`, emitted once the asset's pipeline finishes. Lets a user see
+    /// *where* the time went (parse / chunk / ocr / caption / embed /
+    /// store) without parsing logs. The markdown path leaves `ocr_ms` /
+    /// `caption_ms` at 0 (no image analysis); the image / PDF paths fill
+    /// them so the slowest-asset summary attributes vision-model time
+    /// correctly. `expansion_ms` is retained for wire compatibility but is
+    /// always 0 since doc-side expansion was removed (HOTFIXES 2026-06-03).
+    /// `ocr_ms` / `caption_ms` (v0.26.1) are additive with serde default 0
+    /// so pre-v0.26.1 consumers deserialize cleanly.
     AssetTimings {
         idx: u32,
         total: u32,
@@ -112,6 +131,10 @@ pub enum IngestEvent {
         expansion_ms: u64,
         embed_ms: u64,
         store_ms: u64,
+        #[serde(default)]
+        ocr_ms: u64,
+        #[serde(default)]
+        caption_ms: u64,
     },
     /// Run finished normally. `counts` is the final aggregate.
     Completed { counts: AggregateCounts },
@@ -261,19 +284,23 @@ mod tests {
             expansion_ms: 45_000,
             embed_ms: 800,
             store_ms: 20,
+            ocr_ms: 1_200,
+            caption_ms: 3_400,
         };
         let v = serde_json::to_value(&ev).unwrap();
         assert_eq!(
             v.get("kind").and_then(|s| s.as_str()),
             Some("asset_timings")
         );
-        // All five phase fields are present (plain u64, always serialized).
+        // All phase fields are present (plain u64, always serialized).
         for (field, want) in [
             ("parse_ms", 12u64),
             ("chunk_ms", 3),
             ("expansion_ms", 45_000),
             ("embed_ms", 800),
             ("store_ms", 20),
+            ("ocr_ms", 1_200),
+            ("caption_ms", 3_400),
         ] {
             assert_eq!(
                 v.get(field).and_then(serde_json::Value::as_u64),
@@ -281,6 +308,64 @@ mod tests {
                 "field {field}"
             );
         }
+    }
+
+    #[test]
+    fn asset_timings_ocr_caption_default_to_zero_for_legacy_wire() {
+        // v0.26.1 additive: a pre-v0.26.1 wire payload omits ocr_ms /
+        // caption_ms; serde `default` must fill 0 so old producers stay
+        // compatible.
+        let legacy = serde_json::json!({
+            "kind": "asset_timings",
+            "idx": 1, "total": 1,
+            "parse_ms": 5, "chunk_ms": 2, "expansion_ms": 0,
+            "embed_ms": 10, "store_ms": 3
+        });
+        let ev: IngestEvent = serde_json::from_value(legacy).unwrap();
+        match ev {
+            IngestEvent::AssetTimings {
+                ocr_ms,
+                caption_ms,
+                embed_ms,
+                ..
+            } => {
+                assert_eq!(ocr_ms, 0);
+                assert_eq!(caption_ms, 0);
+                assert_eq!(embed_ms, 10);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn asset_phase_serializes_with_discriminator() {
+        // v0.26.1 additive variant — `kind` must be snake_case
+        // `asset_phase`, `phase` is the slow-phase label, `model` the
+        // model id (nullable).
+        let ev = IngestEvent::AssetPhase {
+            idx: 4,
+            total: 12,
+            phase: "ocr".into(),
+            model: Some("gemma4:e4b".into()),
+        };
+        let v = serde_json::to_value(&ev).unwrap();
+        assert_eq!(v.get("kind").and_then(|s| s.as_str()), Some("asset_phase"));
+        assert_eq!(v.get("idx").and_then(serde_json::Value::as_u64), Some(4));
+        assert_eq!(v.get("phase").and_then(|s| s.as_str()), Some("ocr"));
+        assert_eq!(v.get("model").and_then(|s| s.as_str()), Some("gemma4:e4b"));
+    }
+
+    #[test]
+    fn asset_phase_model_none_serializes_as_null() {
+        let ev = IngestEvent::AssetPhase {
+            idx: 1,
+            total: 1,
+            phase: "embed".into(),
+            model: None,
+        };
+        let v = serde_json::to_value(&ev).unwrap();
+        assert_eq!(v.get("phase").and_then(|s| s.as_str()), Some("embed"));
+        assert!(v.get("model").is_some_and(serde_json::Value::is_null));
     }
 
     #[test]

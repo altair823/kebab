@@ -209,6 +209,13 @@ impl OllamaVisionOcr {
         self.max_pixels
     }
 
+    /// The Ollama model id this engine drives (e.g. `gemma4:e4b`).
+    /// Surfaced so the ingest progress display can name the model
+    /// running a slow OCR phase (`AssetPhase{phase:"ocr", model}`).
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
     fn build_prompt(&self, lang_hint: Option<&Lang>) -> String {
         let langs = if self.languages.is_empty() {
             "any".to_string()

@@ -32,7 +32,7 @@ edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/altair823/kebab"
-version       = "0.26.0"   # v0.26.0 — arctic-embed-l-v2.0 임베더 통합: kebab-embed-candle 다중 모델 레지스트리(e5 mean + arctic CLS, 모델별 pooling/prefix 분기) + 신규 kebab-embed-ollama 크레이트(provider="ollama", POST /api/embed, L2 정규화, batch+fail-soft). config models.embedding.provider 에 "ollama" 추가 + endpoint: Option<String>. 기본 동작 불변(provider=fastembed e5), arctic 은 opt-in, embedding_version cascade(arctic-cls / ollama:{model} 태그). — CLAUDE.md §Release
+version       = "0.26.1"   # v0.26.1 — ingest 진행 로그 개선: TTY 진행바에 현재 파일명 + 느린 phase(ocr/caption/embed)+모델명 실시간 + 경과초 heartbeat `(Ns)`, 종료 시 최장 소요 파일 top-5 요약. 신규 wire 이벤트 `asset_phase{idx,total,phase,model}` + `asset_timings.ocr_ms`/`caption_ms` 추가(additive, ingest_progress.v1 유지, serde default 0). 기본 동작 불변. — CLAUDE.md §Release
 
 # pre-v0.18 workspace-wide cleanup: enable clippy::pedantic group with
 # intentional allow-list. The allowed lints are either cosmetic (doc style),
