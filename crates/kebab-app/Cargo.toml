@@ -19,6 +19,7 @@ kebab-search = { path = "../kebab-search" }
 kebab-embed = { path = "../kebab-embed" }
 kebab-embed-local = { path = "../kebab-embed-local" }
 kebab-embed-candle = { path = "../kebab-embed-candle" }
+kebab-embed-ollama = { path = "../kebab-embed-ollama" }
 kebab-llm = { path = "../kebab-llm" }
 kebab-llm-local = { path = "../kebab-llm-local" }
 kebab-rag = { path = "../kebab-rag" }

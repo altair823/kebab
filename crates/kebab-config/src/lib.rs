@@ -155,9 +155,10 @@ impl NliCfg {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EmbeddingModelCfg {
-    /// `fastembed` (default, onnxruntime) or `candle` (pure-Rust,
-    /// NUMA-safe). `none` disables embeddings (lexical-only). Unknown
-    /// values error at embedder construction.
+    /// `fastembed` (default, onnxruntime), `candle` (pure-Rust, NUMA-safe),
+    /// or `ollama` (remote HTTP embedding endpoint). `none` disables
+    /// embeddings (lexical-only). Unknown values error at embedder
+    /// construction.
     pub provider: String,
     pub model: String,
     pub version: String,
@@ -170,6 +171,13 @@ pub struct EmbeddingModelCfg {
     /// provider. Defaulted on load so pre-0.22 config files still parse.
     #[serde(default)]
     pub num_threads: u32,
+    /// HTTP endpoint for the `ollama` embedding provider (e.g.
+    /// `"http://127.0.0.1:11434"`). `None` (or a missing key in TOML) means
+    /// "fall back to `models.llm.endpoint`" — same convention as the OCR /
+    /// vision endpoints. Ignored by the `fastembed` / `candle` providers.
+    /// Defaulted on load so pre-0.26 config files still parse.
+    #[serde(default)]
+    pub endpoint: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -688,6 +696,7 @@ impl Config {
                     dimensions: 1024,
                     batch_size: 64,
                     num_threads: 0,
+                    endpoint: None,
                 },
                 llm: LlmCfg {
                     provider: "ollama".to_string(),
@@ -949,6 +958,12 @@ impl Config {
                     if let Ok(n) = v.parse::<u32>() {
                         self.models.embedding.num_threads = n;
                     }
+                }
+                "KEBAB_MODELS_EMBEDDING_ENDPOINT" => {
+                    // Empty value → None (= fall back to models.llm.endpoint),
+                    // mirroring the OCR endpoint override semantics.
+                    self.models.embedding.endpoint =
+                        if v.is_empty() { None } else { Some(v.clone()) };
                 }
 
                 // models.llm
