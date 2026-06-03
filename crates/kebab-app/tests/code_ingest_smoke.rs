@@ -52,7 +52,9 @@ fn rust_file_ingests_and_searches_as_code_citation() {
         "at least one chunk expected: {code_item:?}"
     );
     assert_eq!(
-        code_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        code_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("code-rust-v1"),
         "parser_version must be code-rust-v1"
     );
@@ -185,7 +187,9 @@ fn python_file_ingests_and_searches_as_code_citation() {
         .find(|i| i.doc_path.0.ends_with("metrics.py"))
         .expect("metrics.py item");
     assert_eq!(
-        py_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        py_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("code-python-v1"),
         "parser_version must be code-python-v1"
     );
@@ -261,7 +265,9 @@ fn typescript_file_ingests_and_searches_as_code_citation() {
         .find(|i| i.doc_path.0.ends_with("Foo.ts"))
         .expect("Foo.ts item");
     assert_eq!(
-        ts_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        ts_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("code-ts-v1"),
         "parser_version must be code-ts-v1"
     );
@@ -337,7 +343,9 @@ fn javascript_file_ingests_and_searches_as_code_citation() {
         .find(|i| i.doc_path.0.ends_with("Bar.js"))
         .expect("Bar.js item");
     assert_eq!(
-        js_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        js_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("code-js-v1"),
         "parser_version must be code-js-v1"
     );
@@ -415,7 +423,9 @@ fn go_file_ingests_and_searches_as_code_citation() {
         .find(|i| i.doc_path.0.ends_with("ast.go"))
         .expect("ast.go item present");
     assert_eq!(
-        go_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        go_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("code-go-v1"),
         "parser_version must be code-go-v1"
     );
@@ -486,7 +496,9 @@ fn java_file_ingests_and_searches_as_code_citation() {
         .find(|i| i.doc_path.0.ends_with("Foo.java"))
         .expect("Foo.java item present");
     assert_eq!(
-        java_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        java_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("code-java-v1"),
         "parser_version must be code-java-v1"
     );
@@ -561,7 +573,9 @@ fn kotlin_file_ingests_and_searches_as_code_citation() {
         .find(|i| i.doc_path.0.ends_with("Foo.kt"))
         .expect("Foo.kt item present");
     assert_eq!(
-        kt_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        kt_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("code-kotlin-v1"),
         "parser_version must be code-kotlin-v1"
     );
@@ -634,7 +648,9 @@ fn tier2_k8s_yaml_ingest_searchable() {
         .find(|i| i.doc_path.0.ends_with("deploy.yaml"))
         .expect("deploy.yaml item present");
     assert_eq!(
-        yaml_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        yaml_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("none-v1"),
         "parser_version must be none-v1"
     );
@@ -717,7 +733,9 @@ fn tier2_dockerfile_ingest_searchable() {
         .find(|i| i.doc_path.0.ends_with("Dockerfile"))
         .expect("Dockerfile item present");
     assert_eq!(
-        df_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        df_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("none-v1"),
         "parser_version must be none-v1"
     );
@@ -800,7 +818,9 @@ fn tier2_cargo_toml_ingest_searchable() {
         .find(|i| i.doc_path.0.ends_with("Cargo.toml"))
         .expect("Cargo.toml item present");
     assert_eq!(
-        toml_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        toml_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("none-v1"),
         "parser_version must be none-v1"
     );
@@ -883,7 +903,9 @@ fn tier3_shell_ingest_searchable() {
         .find(|i| i.doc_path.0.ends_with("deploy.sh"))
         .expect("deploy.sh item present");
     assert_eq!(
-        sh_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        sh_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("none-v1"),
         "parser_version must be none-v1 for shell (Tier 3 direct)"
     );
@@ -974,7 +996,9 @@ fn tier3_yaml_fallback_picks_up_non_k8s_yaml() {
         .find(|i| i.doc_path.0.ends_with("docker-compose.yml"))
         .expect("docker-compose.yml item present");
     assert_eq!(
-        yaml_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        yaml_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("none-v1"),
         "parser_version must be none-v1 after Tier 3 fallback"
     );
@@ -1144,7 +1168,9 @@ fn tier1_c_ingest_searchable() {
         .find(|i| i.doc_path.0.ends_with("parser.c"))
         .expect("parser.c item present");
     assert_eq!(
-        c_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        c_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("code-c-v2"),
         "parser_version must be code-c-v2 (v0.17.0 PR-B: typedef-wrapped struct/enum/union 이 typedef alias unit 으로 방출)"
     );
@@ -1228,7 +1254,9 @@ fn tier1_cpp_ingest_searchable() {
         .find(|i| i.doc_path.0.ends_with("chunker.cpp"))
         .expect("chunker.cpp item present");
     assert_eq!(
-        cpp_item.parser_version.as_ref().map(|p| p.0.as_str()),
+        cpp_item.parser_version
+            .as_ref()
+            .map(|p| p.0.split('|').next().unwrap()),
         Some("code-cpp-v1"),
         "parser_version must be code-cpp-v1"
     );
