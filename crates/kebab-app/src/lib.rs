@@ -1242,6 +1242,12 @@ fn ingest_one_asset(
         }
     };
 
+    // v0.26.2: fold the ingest-config signature into the effective
+    // parser_version for the skip compare + the stored doc field, so a
+    // change to any markdown-affecting setting (chunking params) re-indexes.
+    // `doc_id` keeps deriving from the base version below (stability).
+    let eff_parser_version = effective_parser_version(&app.config, asset, parser_version);
+
     // p9-fb-23 task 7: incremental-ingest early-skip. When force_reingest
     // is false AND the on-disk asset's checksum + parser_version +
     // last_chunker_version + last_embedding_version all match the existing
@@ -1251,7 +1257,7 @@ fn ingest_one_asset(
     if let Some(item) = try_skip_unchanged(
         app,
         asset,
-        parser_version,
+        &eff_parser_version,
         &MdHeadingV1Chunker.chunker_version(),
         embedder.map(|e| e.model_version()).as_ref(),
         force_reingest,
@@ -1297,6 +1303,10 @@ fn ingest_one_asset(
     let mut canonical =
         build_canonical_document(asset, metadata, parsed_blocks, parser_version, all_warnings)
             .context("kb-parse-md::build_canonical_document")?;
+    // v0.26.2: persist the composite parser_version (base|signature) so the
+    // next run's skip compare matches what was computed above. doc_id was
+    // already derived from the base version inside build_canonical_document.
+    canonical.parser_version = eff_parser_version.clone();
 
     let parse_ms = u64::try_from(t_parse.elapsed().as_millis()).unwrap_or(u64::MAX);
 
@@ -1529,11 +1539,15 @@ fn ingest_one_image_asset(
     // embedding-version check matches the markdown path: when the
     // active embedder's model_version equals what was stamped on the
     // existing doc, the asset is Unchanged.
+    // v0.26.2: composite parser_version folds image OCR / caption + chunking
+    // settings, so toggling `[image.ocr]` / `[image.caption]` (or changing
+    // their model / prompt version) auto-re-indexes the affected images.
     let image_parser_version = ParserVersion(kebab_parse_image::PARSER_VERSION.to_string());
+    let eff_parser_version = effective_parser_version(&app.config, asset, &image_parser_version);
     if let Some(item) = try_skip_unchanged(
         app,
         asset,
-        &image_parser_version,
+        &eff_parser_version,
         &MdHeadingV1Chunker.chunker_version(),
         embedder.map(|e| e.model_version()).as_ref(),
         force_reingest,
@@ -1563,6 +1577,10 @@ fn ingest_one_image_asset(
     let mut canonical = app
         .extract_for(&asset.media_type, &ctx, &bytes)
         .context("kb-app::extract_for (image)")?;
+    // v0.26.2: store the composite parser_version (extractor baked the base
+    // `image-meta-v1`, which already fixed doc_id). Skip compare + stored
+    // field must agree for next-run detection.
+    canonical.parser_version = eff_parser_version.clone();
     let parse_ms = u64::try_from(t_parse.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // 2 + 3. Apply OCR / caption when their adapters exist. Both are
@@ -2106,11 +2124,14 @@ fn ingest_one_pdf_asset(
     // p9-fb-23 task 7: incremental-ingest early-skip for the PDF flow.
     // PDF docs use `pdf-text-v1` as the parser_version and `PdfPageV1Chunker`
     // as the chunker — both pinned per-medium today (no config knob).
+    // v0.26.2: composite parser_version folds pdf.ocr (enabled/always_on/
+    // model) + chunking, so enabling scanned-PDF OCR auto-re-indexes PDFs.
     let pdf_parser_version = ParserVersion(kebab_parse_pdf::PARSER_VERSION.to_string());
+    let eff_parser_version = effective_parser_version(&app.config, asset, &pdf_parser_version);
     if let Some(item) = try_skip_unchanged(
         app,
         asset,
-        &pdf_parser_version,
+        &eff_parser_version,
         &PdfPageV1Chunker.chunker_version(),
         embedder.map(|e| e.model_version()).as_ref(),
         force_reingest,
@@ -2135,6 +2156,9 @@ fn ingest_one_pdf_asset(
     let mut canonical = app
         .extract_for(&asset.media_type, &ctx, &bytes)
         .context("kb-app::extract_for (pdf)")?;
+    // v0.26.2: store the composite parser_version (base `pdf-text-v1` already
+    // fixed doc_id) so the next run's skip compare matches.
+    canonical.parser_version = eff_parser_version.clone();
     let parse_ms = u64::try_from(t_parse.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // v0.20 sub-item 1: post-extract OCR enrichment (PR #187 registry
@@ -2510,10 +2534,19 @@ fn ingest_one_code_asset(
         _ => None,
     };
 
+    // v0.26.2: composite parser_version folds [ingest.code] options + common
+    // chunking so editing any code-ingest setting auto-re-indexes code assets.
+    // The base per-lang version still derives doc_id (synthesize_tier2_document
+    // / extract_for keep using `parser_version`). A Tier-3 fallback document
+    // intentionally keeps the bare "none-v1" parser_version (the
+    // `stored_is_tier3_fallback` bypass in try_skip_unchanged depends on the
+    // exact "none-v1" sentinel), so the composite is only stamped on the
+    // normal (non-fallback) outcome below.
+    let eff_parser_version = effective_parser_version(&app.config, asset, &parser_version);
     if let Some(item) = try_skip_unchanged(
         app,
         asset,
-        &parser_version,
+        &eff_parser_version,
         &chunker_version,
         embedder.map(|e| e.model_version()).as_ref(),
         force_reingest,
@@ -2677,6 +2710,20 @@ fn ingest_one_code_asset(
                 )?
         }
     };
+
+    // v0.26.2: stamp the composite parser_version for the normal outcome so
+    // editing any [ingest.code] / chunking setting re-indexes this asset next
+    // run. A Tier-3 fallback (an AST / manifest lang whose extractor or
+    // chunker degraded to CodeTextParagraphV1Chunker) must keep the bare
+    // "none-v1" sentinel, because `try_skip_unchanged`'s
+    // `stored_is_tier3_fallback` bypass keys off that exact string. `shell`
+    // is native Tier 3 (no bypass — `tier3_fallback_cv` is None for it), so it
+    // still gets the composite.
+    let is_tier3_fallback_outcome =
+        code_lang != "shell" && chunker_version == CodeTextParagraphV1Chunker.chunker_version();
+    if !is_tier3_fallback_outcome {
+        canonical.parser_version = eff_parser_version.clone();
+    }
 
     // Stamp chunker + embedding versions so incremental skip detection has
     // data on the second run.
@@ -2949,6 +2996,102 @@ fn chunk_policy_from_config(config: &kebab_config::Config) -> ChunkPolicy {
         respect_markdown_headings: config.chunking.respect_markdown_headings,
         chunker_version: ChunkerVersion(config.chunking.chunker_version.clone()),
     }
+}
+
+/// v0.26.2: deterministic signature of the **ingest-output-affecting**
+/// config for an asset's media type, folded into the effective
+/// `parser_version` (both the `try_skip_unchanged` compare field AND the
+/// persisted `documents.parser_version`). When any setting that changes the
+/// produced chunks / embeddings is edited, the next ingest's signature no
+/// longer matches the stored one → the affected assets (only) are
+/// automatically re-indexed without `--force-reingest`.
+///
+/// Inclusion rule: "does changing this value alter the chunk / embedding
+/// content that gets indexed?" Settings that do NOT (search / rag / nli /
+/// ui / logging / storage / workspace, plus runtime-only knobs like
+/// `max_pixels` / `languages` / `*_timeout_secs`) are deliberately excluded
+/// to avoid over-invalidation. Embedding model/dim is already covered by the
+/// separate `embedding_version` cascade in [`try_skip_unchanged`], so it is
+/// not duplicated here.
+///
+/// The output is purely a comparison token — it is never parsed back, so the
+/// exact format is internal. Field order is fixed and `Vec`s are joined so
+/// the same `Config` always yields the same string.
+fn ingest_config_signature(config: &kebab_config::Config, media: &MediaType) -> String {
+    // Common (every media type): chunking parameters that move chunk
+    // boundaries. `target_tokens` / `overlap_tokens` change re-chunking for
+    // markdown / image / pdf / code alike, so a change re-indexes all types.
+    let c = &config.chunking;
+    let mut sig = format!(
+        "chunk:{}:{}:{}:{}",
+        c.target_tokens, c.overlap_tokens, c.respect_markdown_headings, c.chunker_version
+    );
+    match media {
+        MediaType::Image(_) => {
+            // OCR / caption only affect output when their `enabled` flag is
+            // on; the model / prompt version matters only then. Off ↔ off is
+            // a stable empty token so re-running the same config skips.
+            let ocr = &config.image.ocr;
+            if ocr.enabled {
+                sig.push_str(&format!("|ocr:1:{}", ocr.model));
+            } else {
+                sig.push_str("|ocr:0");
+            }
+            let cap = &config.image.caption;
+            if cap.enabled {
+                sig.push_str(&format!("|cap:1:{}", cap.prompt_template_version));
+            } else {
+                sig.push_str("|cap:0");
+            }
+        }
+        MediaType::Pdf => {
+            // PDF OCR is active when EITHER `enabled` or `always_on` is set
+            // (mirrors the ingest gate). `model` only matters when active.
+            let ocr = &config.pdf.ocr;
+            if ocr.enabled || ocr.always_on {
+                sig.push_str(&format!(
+                    "|pdfocr:{}:{}:{}",
+                    ocr.enabled, ocr.always_on, ocr.model
+                ));
+            } else {
+                sig.push_str("|pdfocr:0");
+            }
+        }
+        MediaType::Code(_) => {
+            let cc = &config.ingest.code;
+            sig.push_str(&format!(
+                "|code:{}:{}:{}:{}:{}:{}:{}",
+                cc.skip_generated_header,
+                cc.max_file_bytes,
+                cc.max_file_lines,
+                cc.extra_skip_globs.join(","),
+                cc.ast_chunk_max_lines,
+                cc.fallback_lines_per_chunk,
+                cc.fallback_lines_overlap
+            ));
+        }
+        // Markdown carries common-only; Audio / Other are not ingested yet.
+        MediaType::Markdown | MediaType::Audio(_) | MediaType::Other(_) => {}
+    }
+    sig
+}
+
+/// Compose an extractor's base `parser_version` with the ingest-config
+/// signature for `asset`'s media type. The result is used as the
+/// `try_skip_unchanged` compare value and stored on the persisted document,
+/// while the **base** version is what derives `doc_id` (kept stable to avoid
+/// orphan churn — see the spec at
+/// `docs/superpowers/specs/2026-06-03-ocr-toggle-invalidation-spec.md`).
+fn effective_parser_version(
+    config: &kebab_config::Config,
+    asset: &RawAsset,
+    base: &ParserVersion,
+) -> ParserVersion {
+    ParserVersion(format!(
+        "{}|{}",
+        base.0,
+        ingest_config_signature(config, &asset.media_type)
+    ))
 }
 
 // ── list_docs / inspect_doc / inspect_chunk ───────────────────────────────
@@ -3429,3 +3572,248 @@ fn check_kebabignore_match(
         .is_ignore()
 }
 
+
+#[cfg(test)]
+mod ingest_config_signature_tests {
+    //! v0.26.2: unit tests for [`ingest_config_signature`] — the
+    //! ingest-output-affecting config fingerprint that is folded into the
+    //! effective `parser_version` so that changing any setting that alters
+    //! the produced chunks/embeddings auto-re-indexes the affected assets,
+    //! while changes to unrelated settings (search/rag/ui/…) do not.
+
+    use kebab_config::Config;
+    use kebab_core::{ImageType, MediaType};
+
+    use super::ingest_config_signature;
+
+    fn img() -> MediaType {
+        MediaType::Image(ImageType::Png)
+    }
+    fn pdf() -> MediaType {
+        MediaType::Pdf
+    }
+    fn code() -> MediaType {
+        MediaType::Code("rust".to_string())
+    }
+    fn md() -> MediaType {
+        MediaType::Markdown
+    }
+
+    /// The signature is deterministic: same config + same media → same string.
+    #[test]
+    fn deterministic_for_unchanged_config() {
+        let c = Config::defaults();
+        for m in [md(), img(), pdf(), code()] {
+            assert_eq!(
+                ingest_config_signature(&c, &m),
+                ingest_config_signature(&c, &m),
+                "signature must be stable for {m:?}"
+            );
+        }
+    }
+
+    /// Changing a common chunking parameter changes the signature for EVERY
+    /// media type (re-chunk cascade).
+    #[test]
+    fn chunking_change_invalidates_all_types() {
+        let base = Config::defaults();
+        let mut bumped = base.clone();
+        bumped.chunking.target_tokens += 100;
+        for m in [md(), img(), pdf(), code()] {
+            assert_ne!(
+                ingest_config_signature(&base, &m),
+                ingest_config_signature(&bumped, &m),
+                "target_tokens change must invalidate {m:?}"
+            );
+        }
+
+        let mut overlap = base.clone();
+        overlap.chunking.overlap_tokens += 10;
+        assert_ne!(
+            ingest_config_signature(&base, &md()),
+            ingest_config_signature(&overlap, &md())
+        );
+
+        let mut headings = base.clone();
+        headings.chunking.respect_markdown_headings = !base.chunking.respect_markdown_headings;
+        assert_ne!(
+            ingest_config_signature(&base, &md()),
+            ingest_config_signature(&headings, &md())
+        );
+    }
+
+    /// Image OCR toggle (off→on) changes only the image signature; pdf / code
+    /// / markdown are unaffected.
+    #[test]
+    fn image_ocr_toggle_invalidates_image_only() {
+        let base = Config::defaults();
+        assert!(!base.image.ocr.enabled, "default OCR is off");
+        let mut on = base.clone();
+        on.image.ocr.enabled = true;
+
+        assert_ne!(
+            ingest_config_signature(&base, &img()),
+            ingest_config_signature(&on, &img()),
+            "image OCR toggle must invalidate images"
+        );
+        for m in [md(), pdf(), code()] {
+            assert_eq!(
+                ingest_config_signature(&base, &m),
+                ingest_config_signature(&on, &m),
+                "image OCR toggle must NOT touch {m:?}"
+            );
+        }
+    }
+
+    /// When OCR is enabled, changing the OCR model changes the image
+    /// signature; when OCR is off, the model field is irrelevant.
+    #[test]
+    fn image_ocr_model_matters_only_when_enabled() {
+        let mut off_a = Config::defaults();
+        let mut off_b = off_a.clone();
+        off_b.image.ocr.model = "some-other-model".to_string();
+        assert_eq!(
+            ingest_config_signature(&off_a, &img()),
+            ingest_config_signature(&off_b, &img()),
+            "OCR model is irrelevant while OCR is off"
+        );
+
+        off_a.image.ocr.enabled = true;
+        let mut on_b = off_a.clone();
+        on_b.image.ocr.model = "some-other-model".to_string();
+        assert_ne!(
+            ingest_config_signature(&off_a, &img()),
+            ingest_config_signature(&on_b, &img()),
+            "OCR model change matters while OCR is on"
+        );
+    }
+
+    /// Image caption toggle + prompt-template-version change invalidate images.
+    #[test]
+    fn image_caption_toggle_and_prompt_invalidate_image() {
+        let base = Config::defaults();
+        let mut on = base.clone();
+        on.image.caption.enabled = true;
+        assert_ne!(
+            ingest_config_signature(&base, &img()),
+            ingest_config_signature(&on, &img())
+        );
+
+        let mut prompt = on.clone();
+        prompt.image.caption.prompt_template_version = "caption-v9".to_string();
+        assert_ne!(
+            ingest_config_signature(&on, &img()),
+            ingest_config_signature(&prompt, &img()),
+            "caption prompt version change matters while caption is on"
+        );
+    }
+
+    /// PDF OCR `enabled` and `always_on` both invalidate PDFs (either turns
+    /// OCR on); they do not touch other media types.
+    #[test]
+    fn pdf_ocr_toggle_invalidates_pdf_only() {
+        let base = Config::defaults();
+        let mut enabled = base.clone();
+        enabled.pdf.ocr.enabled = true;
+        assert_ne!(
+            ingest_config_signature(&base, &pdf()),
+            ingest_config_signature(&enabled, &pdf()),
+            "pdf.ocr.enabled toggle must invalidate PDFs"
+        );
+
+        let mut always = base.clone();
+        always.pdf.ocr.always_on = true;
+        assert_ne!(
+            ingest_config_signature(&base, &pdf()),
+            ingest_config_signature(&always, &pdf()),
+            "pdf.ocr.always_on toggle must invalidate PDFs"
+        );
+
+        for m in [md(), img(), code()] {
+            assert_eq!(
+                ingest_config_signature(&base, &m),
+                ingest_config_signature(&enabled, &m),
+                "pdf OCR toggle must NOT touch {m:?}"
+            );
+        }
+    }
+
+    /// Each `[ingest.code]` option change invalidates code assets only.
+    #[test]
+    fn code_options_invalidate_code_only() {
+        let base = Config::defaults();
+
+        let mut variants = Vec::new();
+        let mut v = base.clone();
+        v.ingest.code.skip_generated_header = !base.ingest.code.skip_generated_header;
+        variants.push(v);
+        let mut v = base.clone();
+        v.ingest.code.max_file_bytes += 1;
+        variants.push(v);
+        let mut v = base.clone();
+        v.ingest.code.max_file_lines += 1;
+        variants.push(v);
+        let mut v = base.clone();
+        v.ingest.code.extra_skip_globs.push("**/vendor/**".to_string());
+        variants.push(v);
+        let mut v = base.clone();
+        v.ingest.code.ast_chunk_max_lines += 1;
+        variants.push(v);
+        let mut v = base.clone();
+        v.ingest.code.fallback_lines_per_chunk += 1;
+        variants.push(v);
+        let mut v = base.clone();
+        v.ingest.code.fallback_lines_overlap += 1;
+        variants.push(v);
+
+        for v in &variants {
+            assert_ne!(
+                ingest_config_signature(&base, &code()),
+                ingest_config_signature(v, &code()),
+                "code option change must invalidate code assets"
+            );
+            // ...but must NOT touch md / image / pdf.
+            for m in [md(), img(), pdf()] {
+                assert_eq!(
+                    ingest_config_signature(&base, &m),
+                    ingest_config_signature(v, &m),
+                    "code option change must NOT touch {m:?}"
+                );
+            }
+        }
+    }
+
+    /// Regression guard: search / rag / nli / ui / logging / storage /
+    /// workspace settings — and ingest runtime-only knobs that do NOT change
+    /// indexed output — never change the signature for ANY media type.
+    #[test]
+    fn unrelated_settings_never_invalidate() {
+        let base = Config::defaults();
+        let mut other = base.clone();
+        // search
+        other.search.default_k += 5;
+        other.search.rrf_k += 1;
+        other.search.snippet_chars += 10;
+        // rag
+        other.rag.score_gate += 0.1;
+        other.rag.prompt_template_version = "rag-v99".to_string();
+        // ui
+        other.ui.theme = "light".to_string();
+        // image runtime-only (non-output) knobs
+        other.image.ocr.max_pixels += 100;
+        other.image.ocr.languages.push("jpn".to_string());
+        other.image.ocr.request_timeout_secs += 10;
+        // pdf runtime-only knobs
+        other.pdf.ocr.max_pixels += 100;
+        other.pdf.ocr.request_timeout_secs += 10;
+        other.pdf.ocr.languages.push("jpn".to_string());
+
+        for m in [md(), img(), pdf(), code()] {
+            assert_eq!(
+                ingest_config_signature(&base, &m),
+                ingest_config_signature(&other, &m),
+                "unrelated/runtime-only settings must NOT invalidate {m:?}"
+            );
+        }
+    }
+}
