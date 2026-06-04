@@ -37,7 +37,11 @@ rename 매핑:
 
 `PdfOcrCfg` 에 paddle 대칭 6키 추가. `ser_f32_clean` 으로 f32 직렬화 정리(`0.30000001192092896`→`0.3`). per-option 인라인 주석(`key_comment`)을 init/migrate 산출 config 에 부착.
 
-**도그푸딩.** (T10 후 채움)
+**도그푸딩 (v0.28.0 release 빌드).**
+
+1. **사용자 실제 v2 config 변환** (`/build/dogfood/config-v3-test/`): `kebab config migrate` → `v2 → v3 (11 changes)`, `.bak` 백업. schema_version 2→3, 섹션 헤더만 [ingest.*] 로 이동(`[indexing]`/`[chunking]`/`[image.ocr]`/`[image.caption]`/`[pdf.ocr]` → `[ingest.*]`). 사용자 값 보존(`root`, `model = "snowflake-arctic-embed2"`, `endpoint = "http://192.168.0.2:11943"`, `score_gate = 0.30000001192092896` 그대로) + 대안 주석 보존(`# engine = "ollama-vision"`, `# provider = "candle"`). 재실행 멱등(`config 이미 최신입니다`).
+
+2. **재색인 0 실증** (`/build/dogfood/config-v3-reindex/`, lexical-only `provider = "none"`): v2 config(디스크 schema_version=2)로 first ingest `new=2`. (a) 동일 v2 config 재ingest(메모리 자동변환) → `new=0 updated=0 unchanged=2`. (b) 디스크 파일을 v3 로 `config migrate` 후 재ingest → `new=0 updated=0 unchanged=2`. signature 바이트 불변이 실제 업그레이드 경로(v2 자동변환 ↔ v3 디스크)에서 재색인 0 으로 확인됨 — 불변식 #1 검증.
 
 ## 2026-06-04 — PP-OCRv5 ONNX Rust 네이티브 OCR 엔진 (v0.27.0)
 
