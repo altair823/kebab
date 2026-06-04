@@ -1321,6 +1321,34 @@ impl Config {
                 "KEBAB_PDF_OCR_LANG_HINT" => {
                     self.ingest.pdf.ocr.lang_hint = if v.is_empty() { None } else { Some(v.clone()) };
                 }
+                // pdf paddle-onnx engine overrides (v3). image.ocr paddle 패턴 복제.
+                // Empty string → None (fall back to bundled / KEBAB_IMAGE_OCR_MODEL_DIR).
+                "KEBAB_PDF_OCR_DET_MODEL" => {
+                    self.ingest.pdf.ocr.det_model =
+                        if v.is_empty() { None } else { Some(v.clone()) };
+                }
+                "KEBAB_PDF_OCR_REC_MODEL" => {
+                    self.ingest.pdf.ocr.rec_model =
+                        if v.is_empty() { None } else { Some(v.clone()) };
+                }
+                "KEBAB_PDF_OCR_DICT" => {
+                    self.ingest.pdf.ocr.dict = if v.is_empty() { None } else { Some(v.clone()) };
+                }
+                "KEBAB_PDF_OCR_SCORE_THRESH" => {
+                    if let Ok(f) = v.parse::<f32>() {
+                        self.ingest.pdf.ocr.score_thresh = f;
+                    }
+                }
+                "KEBAB_PDF_OCR_UNCLIP_RATIO" => {
+                    if let Ok(f) = v.parse::<f32>() {
+                        self.ingest.pdf.ocr.unclip_ratio = f;
+                    }
+                }
+                "KEBAB_PDF_OCR_MAX_BOXES" => {
+                    if let Ok(n) = v.parse::<usize>() {
+                        self.ingest.pdf.ocr.max_boxes = n;
+                    }
+                }
 
                 // Unknown KEBAB_* keys are silently ignored — see
                 // `env_unknown_key_is_ignored` test.
@@ -1592,6 +1620,34 @@ max_pixels = 1600
         env.insert("KEBAB_SEARCH_DEFAULT_K".to_string(), "25".to_string());
         let c = Config::defaults().apply_env(&env);
         assert_eq!(c.search.default_k, 25);
+    }
+
+    /// 불변식 #2: env override 이름(LHS) 100% 보존 — struct 경로가 바뀌어도
+    /// 기존 `KEBAB_*` 스크립트가 새 경로로 대입되어 무파손.
+    #[test]
+    fn env_names_preserved_target_new_paths() {
+        let mut env = HashMap::new();
+        env.insert("KEBAB_CHUNKING_TARGET_TOKENS".into(), "640".into());
+        env.insert("KEBAB_INDEXING_MAX_PARALLEL_EXTRACTORS".into(), "6".into());
+        env.insert("KEBAB_IMAGE_OCR_ENABLED".into(), "true".into());
+        env.insert("KEBAB_PDF_OCR_ENGINE".into(), "paddle-onnx".into());
+        let c = Config::defaults().apply_env(&env);
+        assert_eq!(c.ingest.chunking.target_tokens, 640);
+        assert_eq!(c.ingest.max_parallel_extractors, 6);
+        assert!(c.ingest.image.ocr.enabled);
+        assert_eq!(c.ingest.pdf.ocr.engine, "paddle-onnx");
+    }
+
+    #[test]
+    fn env_pdf_paddle_symmetric_overrides() {
+        let mut env = HashMap::new();
+        env.insert("KEBAB_PDF_OCR_DET_MODEL".into(), "/d.onnx".into());
+        env.insert("KEBAB_PDF_OCR_SCORE_THRESH".into(), "0.4".into());
+        env.insert("KEBAB_PDF_OCR_MAX_BOXES".into(), "500".into());
+        let c = Config::defaults().apply_env(&env);
+        assert_eq!(c.ingest.pdf.ocr.det_model.as_deref(), Some("/d.onnx"));
+        assert!((c.ingest.pdf.ocr.score_thresh - 0.4).abs() < 1e-6);
+        assert_eq!(c.ingest.pdf.ocr.max_boxes, 500);
     }
 
     #[test]
