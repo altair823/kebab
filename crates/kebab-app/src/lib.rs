@@ -855,6 +855,17 @@ fn build_image_ocr_engine(
 /// endpoint fallback to `models.llm.endpoint`). The paddle-onnx arm shares
 /// the same bundled ONNX models as image OCR (resolved from `image.ocr`
 /// overrides) — PaddleOCR is page-agnostic and carries no per-engine prompt.
+///
+/// # Paddle-ONNX asymmetry
+///
+/// When `pdf.ocr.engine = "paddle-onnx"`, the model paths and tuning knobs
+/// (`det_model`, `rec_model`, `dict`, `score_thresh`, `unclip_ratio`,
+/// `max_boxes`, `max_pixels`) are read from **`[image.ocr]`**, not
+/// `[pdf.ocr]`. PaddleOCR has no PDF-specific prompt or page-level config;
+/// `[pdf.ocr]` fields other than `engine` / `enabled` / `always_on` /
+/// `valid_ratio_threshold` / `min_char_count` / `lang_hint` are effectively
+/// ignored for the paddle path. This asymmetry is intentional — one set of
+/// tuned ONNX knobs serves both image and PDF pages.
 fn build_pdf_ocr_engine(
     config: &kebab_config::Config,
 ) -> anyhow::Result<Box<dyn OcrEngine>> {

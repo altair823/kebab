@@ -51,6 +51,9 @@ const REC_CLASSES: usize = 11947;
 const DET_LIMIT_SIDE_LEN: u32 = 960;
 /// rec input height (PP-OCRv5 mobile).
 const REC_HEIGHT: u32 = 48;
+/// DBNet probability-map binarization threshold. Looser than Paddle's default
+/// `box_thresh` (0.6) to keep recall high on low-contrast Korean text.
+const DET_BIN_THRESH: f32 = 0.3;
 
 /// ImageNet normalization (det preprocessing — RGB).
 const IMAGENET_MEAN: [f32; 3] = [0.485, 0.456, 0.406];
@@ -204,16 +207,6 @@ impl OnnxPaddleOcr {
         })
     }
 
-    /// Map a CTC class index to its output string. `None` for blank.
-    /// `index 0 = blank`, `1..=11945 = dict[index-1]`, `11946 = space`.
-    fn class_to_str(&self, idx: usize) -> Option<&str> {
-        match idx {
-            CTC_BLANK => None,
-            CTC_SPACE => Some(" "),
-            i if (1..=DICT_LINES).contains(&i) => Some(self.dict[i - 1].as_str()),
-            _ => None, // out-of-range guard (should not happen for 11947 classes)
-        }
-    }
 }
 
 impl OcrEngine for OnnxPaddleOcr {
@@ -343,7 +336,7 @@ impl OnnxPaddleOcr {
             }
         }
         let input = Value::from_array(arr).context("det Value::from_array")?;
-        let sess = self.det.lock().expect("det session mutex poisoned");
+        let sess = self.det.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let outputs = sess
             .run(ort::inputs![self.det_input_name.as_str() => input]?)
             .context("det session run")?;
@@ -380,7 +373,7 @@ impl OnnxPaddleOcr {
             }
         }
         let input = Value::from_array(arr).context("rec Value::from_array")?;
-        let sess = self.rec.lock().expect("rec session mutex poisoned");
+        let sess = self.rec.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let outputs = sess
             .run(ort::inputs![self.rec_input_name.as_str() => input]?)
             .context("rec session run")?;
@@ -401,37 +394,53 @@ impl OnnxPaddleOcr {
         Ok(self.ctc_greedy_decode(&data, t, c))
     }
 
-    /// CTC greedy decode over `[T, C]` logits/probs (row-major). Per timestep
-    /// argmax → collapse consecutive duplicates → drop blank → map class→str.
+    /// CTC greedy decode over `[T, C]` logits/probs (row-major). Delegates to
+    /// [`ctc_greedy_decode_with_dict`] so the algorithm is testable without
+    /// loading ONNX sessions (see `tests::ctc_greedy_decode_golden`).
     fn ctc_greedy_decode(&self, data: &[f32], t: usize, c: usize) -> (String, f32) {
-        let mut out = String::new();
-        let mut confs: Vec<f32> = Vec::new();
-        let mut prev = usize::MAX;
-        for ti in 0..t {
-            let row = &data[ti * c..(ti + 1) * c];
-            let mut best = 0usize;
-            let mut best_v = f32::MIN;
-            for (i, &v) in row.iter().enumerate() {
-                if v > best_v {
-                    best_v = v;
-                    best = i;
-                }
-            }
-            if best != prev && best != CTC_BLANK {
-                if let Some(s) = self.class_to_str(best) {
-                    out.push_str(s);
-                    confs.push(best_v);
-                }
-            }
-            prev = best;
-        }
-        let conf = if confs.is_empty() {
-            0.0
-        } else {
-            confs.iter().sum::<f32>() / confs.len() as f32
-        };
-        (out, conf)
+        ctc_greedy_decode_with_dict(data, t, c, &self.dict)
     }
+}
+
+/// CTC greedy decode: per-timestep argmax → collapse consecutive duplicates →
+/// drop blank (index 0) → map class index to string via `dict`.
+/// Pure Rust, no I/O — usable in unit tests without loading ONNX sessions.
+fn ctc_greedy_decode_with_dict(data: &[f32], t: usize, c: usize, dict: &[String]) -> (String, f32) {
+    let class_to_str = |idx: usize| -> Option<&str> {
+        match idx {
+            CTC_BLANK => None,
+            CTC_SPACE => Some(" "),
+            i if (1..=DICT_LINES).contains(&i) => Some(dict[i - 1].as_str()),
+            _ => None,
+        }
+    };
+    let mut out = String::new();
+    let mut confs: Vec<f32> = Vec::new();
+    let mut prev = usize::MAX;
+    for ti in 0..t {
+        let row = &data[ti * c..(ti + 1) * c];
+        let mut best = 0usize;
+        let mut best_v = f32::MIN;
+        for (i, &v) in row.iter().enumerate() {
+            if v > best_v {
+                best_v = v;
+                best = i;
+            }
+        }
+        if best != prev && best != CTC_BLANK {
+            if let Some(s) = class_to_str(best) {
+                out.push_str(s);
+                confs.push(best_v);
+            }
+        }
+        prev = best;
+    }
+    let conf = if confs.is_empty() {
+        0.0
+    } else {
+        confs.iter().sum::<f32>() / confs.len() as f32
+    };
+    (out, conf)
 }
 
 fn empty_ocr(e: &OnnxPaddleOcr) -> OcrText {
@@ -517,8 +526,6 @@ impl ProbMap {
 #[derive(Clone, Debug)]
 struct DetBox {
     corners: [(f32, f32); 4],
-    #[allow(dead_code)]
-    score: f32,
 }
 
 impl DetBox {
@@ -561,7 +568,7 @@ fn det_postprocess(
     let mut bin = GrayImage::new(w as u32, h as u32);
     for y in 0..h {
         for x in 0..w {
-            let v = if prob.at(x, y) > 0.3 { 255u8 } else { 0u8 };
+            let v = if prob.at(x, y) > DET_BIN_THRESH { 255u8 } else { 0u8 };
             bin.put_pixel(x as u32, y as u32, Luma([v]));
         }
     }
@@ -586,10 +593,7 @@ fn det_postprocess(
             continue;
         }
         let unclipped = unclip_rect(&rect, unclip_ratio);
-        boxes.push(DetBox {
-            corners: unclipped,
-            score,
-        });
+        boxes.push(DetBox { corners: unclipped });
     }
     boxes
 }
@@ -898,5 +902,84 @@ mod tests {
         let orig_minx = 0.0;
         let new_minx = out.iter().map(|p| p.0).fold(f32::MAX, f32::min);
         assert!(new_minx < orig_minx, "expected expansion, got {new_minx}");
+    }
+
+    /// Golden pin: verify `ctc_greedy_decode_with_dict` against pre-recorded
+    /// argmax sequences in `tests/golden/ctc_rec_golden.json`. No ONNX sessions
+    /// needed — only the bundled dict is loaded.
+    #[test]
+    fn ctc_greedy_decode_golden() {
+        let json_str = include_str!("../tests/golden/ctc_rec_golden.json");
+        let golden: serde_json::Value = serde_json::from_str(json_str).unwrap();
+        let dict_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets/paddleocr-onnx/korean_dict.txt");
+        let dict = load_dict(&dict_path).expect("bundled dict must load");
+
+        for case in golden["rec_cases"].as_array().unwrap() {
+            let t = case["T"].as_u64().unwrap() as usize;
+            let c = case["C"].as_u64().unwrap() as usize;
+            let argmax_idx: Vec<usize> = case["argmax_idx"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap() as usize)
+                .collect();
+            let expected = case["decoded"].as_str().unwrap();
+            // build one-hot logits: timestep t fires class argmax_idx[t] = 1.0
+            let mut data = vec![0.0f32; t * c];
+            for (ti, &idx) in argmax_idx.iter().enumerate() {
+                data[ti * c + idx] = 1.0;
+            }
+            let (decoded, _conf) = ctc_greedy_decode_with_dict(&data, t, c, &dict);
+            assert_eq!(
+                decoded, expected,
+                "CTC decode mismatch for text={:?}",
+                case["text"]
+            );
+        }
+    }
+
+    /// Golden pin: verify `box_score` and `unclip_rect` against corner data
+    /// from `tests/golden/det_boxes_clean_paragraph.json`. No ONNX needed.
+    #[test]
+    fn det_box_score_golden() {
+        let json_str = include_str!("../tests/golden/det_boxes_clean_paragraph.json");
+        let golden: serde_json::Value = serde_json::from_str(json_str).unwrap();
+
+        let hw = golden["det_input_hw"].as_array().unwrap();
+        let h = hw[0].as_u64().unwrap() as usize;
+        let w = hw[1].as_u64().unwrap() as usize;
+        let thresh = golden["thresh"].as_f64().unwrap() as f32;
+        let unclip_ratio = golden["unclip_ratio"].as_f64().unwrap() as f32;
+
+        // uniform prob map at 0.9 — all boxes must score above det thresh
+        let prob = ProbMap { w, h, data: vec![0.9f32; w * h] };
+
+        for box_entry in golden["boxes"].as_array().unwrap() {
+            let poly = box_entry["poly"].as_array().unwrap();
+            let corners: [(f32, f32); 4] = [
+                (poly[0][0].as_f64().unwrap() as f32, poly[0][1].as_f64().unwrap() as f32),
+                (poly[1][0].as_f64().unwrap() as f32, poly[1][1].as_f64().unwrap() as f32),
+                (poly[2][0].as_f64().unwrap() as f32, poly[2][1].as_f64().unwrap() as f32),
+                (poly[3][0].as_f64().unwrap() as f32, poly[3][1].as_f64().unwrap() as f32),
+            ];
+            // box_score must be above det threshold
+            let score = box_score(&prob, &corners);
+            assert!(
+                score > thresh,
+                "box_score {score:.4} ≤ thresh {thresh} for poly {poly:?}"
+            );
+            // unclip_rect must expand the bounding box (min x strictly decreases)
+            let rect_w = (corners[1].0 - corners[0].0).abs().max(1.0);
+            let rect_h = (corners[3].1 - corners[0].1).abs().max(1.0);
+            let rot = RotRect { corners, width: rect_w, height: rect_h };
+            let expanded = unclip_rect(&rot, unclip_ratio);
+            let orig_min_x = corners.iter().map(|p| p.0).fold(f32::MAX, f32::min);
+            let exp_min_x = expanded.iter().map(|p| p.0).fold(f32::MAX, f32::min);
+            assert!(
+                exp_min_x < orig_min_x,
+                "unclip_rect must expand: orig_min_x={orig_min_x} exp_min_x={exp_min_x}"
+            );
+        }
     }
 }

@@ -561,7 +561,9 @@ pub struct PdfOcrCfg {
     /// scanned pages only. `true` — vision LLM 호출 on every page
     /// (vector PDF 의 dual-text confidence boost — doubles chunk count).
     pub always_on: bool,
-    /// Engine identifier. v1 only ships `"ollama-vision"`.
+    /// Engine identifier: `"ollama-vision"` or `"paddle-onnx"`. When set to
+    /// `"paddle-onnx"`, model paths and tuning knobs are read from
+    /// `[image.ocr]`, not `[pdf.ocr]` — PaddleOCR has no PDF-specific tuning.
     pub engine: String,
     /// Vision model id. Default `"qwen2.5vl:3b"` per PoC (§3.5 family
     /// asymmetry vs image OCR's gemma4:e4b is acknowledged).
