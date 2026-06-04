@@ -95,12 +95,14 @@ model_dir = "{data_dir}/models"
 runs_dir = "{data_dir}/runs"
 copy_threshold_mb = 100
 
-[indexing]
+# v0.28.0: 모든 형식 ingest 설정의 우산. 병렬도(← 옛 [indexing])는 [ingest] 스칼라로,
+# chunking/code/image/pdf 는 [ingest.*] 하위로 통합. 옛 v2 파일은 로드 시 자동 변환됨.
+[ingest]
 max_parallel_extractors = 2
 max_parallel_embeddings = 1
 watch_filesystem = false
 
-[chunking]
+[ingest.chunking]
 target_tokens = 500
 overlap_tokens = 80
 respect_markdown_headings = true
@@ -329,7 +331,7 @@ MCP tool 동등:
 [workspace]
 include = ["**/*.md", "**/*.png", "**/*.jpg"]
 
-[image.ocr]
+[ingest.image.ocr]
 enabled = true                        # vision LM 으로 이미지 안 텍스트 전사
 engine = "ollama-vision"
 model = "gemma4:e4b"                  # 사용자 환경의 비전 모델
@@ -337,12 +339,12 @@ endpoint = "http://192.168.0.47:11434"  # 비우면 models.llm.endpoint fallback
 languages = ["eng", "kor"]
 max_pixels = 1600                     # long-edge cap
 
-[image.caption]
+[ingest.image.caption]
 enabled = true                        # vision LM 으로 한 문장 객관 설명 생성
 max_pixels = 768
 prompt_template_version = "caption-v1"
 
-[pdf.ocr]
+[ingest.pdf.ocr]
 enabled = true               # smoke test 의 OCR path 활성화 (manual invoke)
 always_on = false
 engine = "ollama-vision"
@@ -358,13 +360,13 @@ lang_hint = "kor"
 
 이미지 자산 한 장당 OCR 1 호출 + Caption 1 호출 → ~3-6초 (`gemma4:e4b` 기준). 다이어그램 / 카메라 사진 / 스크린샷 위주 워크스페이스에 권장. 책 / 스캔본은 P7 PDF 라인으로.
 
-**v0.27.0 — paddle-onnx 엔진 (오프라인, Ollama 불필요).** `[image.ocr] engine = "paddle-onnx"` 로 바꾸면 PP-OCRv5 ONNX 를 in-process 로 실행한다 (원격 vision LM 불필요, 큰 페이지 CPU <4초). embedding 까지 끄려면 `[models.embedding] provider = "none"` (lexical-only) 로 두면 Ollama 없이 OCR→FTS5 검색 전체 경로를 스모크할 수 있다:
+**v0.27.0 — paddle-onnx 엔진 (오프라인, Ollama 불필요).** `[ingest.image.ocr] engine = "paddle-onnx"` 로 바꾸면 PP-OCRv5 ONNX 를 in-process 로 실행한다 (원격 vision LM 불필요, 큰 페이지 CPU <4초). embedding 까지 끄려면 `[models.embedding] provider = "none"` (lexical-only) 로 두면 Ollama 없이 OCR→FTS5 검색 전체 경로를 스모크할 수 있다:
 
 ```toml
 [models.embedding]
 provider = "none"            # lexical-only — Ollama 불필요
 
-[image.ocr]
+[ingest.image.ocr]
 enabled = true
 engine = "paddle-onnx"       # PP-OCRv5 ONNX in-process (Python/원격 0)
 model = "ppocrv5-mobile-kor"
