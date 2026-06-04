@@ -1,0 +1,33 @@
+PP-OCRv5 mobile ONNX models bundled with kebab (paddle-onnx OCR engine)
+=======================================================================
+
+These model weights and the recognition dictionary are derived from
+PaddleOCR (https://github.com/PaddlePaddle/PaddleOCR), licensed under the
+Apache License, Version 2.0.
+
+  Copyright (c) PaddlePaddle Authors.
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use these files except in compliance with the License.
+  You may obtain a copy of the License at
+      http://www.apache.org/licenses/LICENSE-2.0
+
+Files
+-----
+  ppocrv5_mobile_det.onnx          PP-OCRv5_mobile detection model (DBNet)
+  korean_ppocrv5_mobile_rec.onnx   korean_PP-OCRv5_mobile recognition model (CTC)
+  korean_dict.txt                  recognition dictionary (11,945 chars: KR + Latin + digits + symbols)
+
+These were converted from the official PaddlePaddle inference models to ONNX
+via paddle2onnx for in-process execution with onnxruntime (`ort`). No model
+architecture or weights were modified; only the serialization format changed.
+
+The recognition CTC class layout (empirically confirmed, see
+tests/golden/ctc_rec_golden.json):
+  index 0          = CTC blank
+  index 1..11945   = korean_dict.txt line N -> class N (dict[N-1])
+  index 11946      = space ' '
+  total classes    = 11947 (= 11945 dict + blank + space)
+
+If any post-processing source (min-area-rect / polygon unclip) is later
+ported verbatim from oar-ocr (Apache-2.0), record the per-file provenance
+here as required by the Apache-2.0 attribution clause.

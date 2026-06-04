@@ -30,9 +30,11 @@ mod dims;
 mod exif_extract;
 mod image_prep;
 pub mod ocr;
+pub mod paddle_onnx;
 
 pub use caption::{apply_caption, caption_image};
-pub use ocr::{OcrEngine, OllamaVisionOcr, apply_ocr};
+pub use ocr::{OLLAMA_VISION_ENGINE, OcrEngine, OllamaVisionOcr, apply_ocr};
+pub use paddle_onnx::{ModelPaths, OnnxPaddleOcr, PADDLE_ONNX_ENGINE, engine_version_for_config};
 
 use anyhow::{Context, Result};
 use kebab_core::{

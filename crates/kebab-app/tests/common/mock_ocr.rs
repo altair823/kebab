@@ -39,6 +39,11 @@ impl OcrEngine for MockOcrEngine {
         "mock-v1".to_string()
     }
 
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn model(&self) -> &str {
+        "mock-model"
+    }
+
     fn recognize(&self, _img: &[u8], _hint: Option<&Lang>) -> Result<OcrText> {
         if self.fail {
             anyhow::bail!("mock failure");

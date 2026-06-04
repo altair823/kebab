@@ -1,0 +1,6 @@
+# PP-OCRv5 ONNX OCR models (paddle-onnx engine). git-lfs is not installed on
+# this host, so they are committed as plain binary blobs (treated as binary —
+# no textual diff/merge). If/when git-lfs becomes available, migrate with
+# `git lfs migrate import --include='*.onnx'` and restore the filter line:
+#   *.onnx filter=lfs diff=lfs merge=lfs -text
+*.onnx -text

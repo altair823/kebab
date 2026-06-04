@@ -358,6 +358,24 @@ lang_hint = "kor"
 
 이미지 자산 한 장당 OCR 1 호출 + Caption 1 호출 → ~3-6초 (`gemma4:e4b` 기준). 다이어그램 / 카메라 사진 / 스크린샷 위주 워크스페이스에 권장. 책 / 스캔본은 P7 PDF 라인으로.
 
+**v0.27.0 — paddle-onnx 엔진 (오프라인, Ollama 불필요).** `[image.ocr] engine = "paddle-onnx"` 로 바꾸면 PP-OCRv5 ONNX 를 in-process 로 실행한다 (원격 vision LM 불필요, 큰 페이지 CPU <4초). embedding 까지 끄려면 `[models.embedding] provider = "none"` (lexical-only) 로 두면 Ollama 없이 OCR→FTS5 검색 전체 경로를 스모크할 수 있다:
+
+```toml
+[models.embedding]
+provider = "none"            # lexical-only — Ollama 불필요
+
+[image.ocr]
+enabled = true
+engine = "paddle-onnx"       # PP-OCRv5 ONNX in-process (Python/원격 0)
+model = "ppocrv5-mobile-kor"
+languages = ["kor", "eng"]
+max_pixels = 1600
+# det_model / rec_model / dict 로 번들 모델 경로 override 가능 (생략 시 번들 사용)
+# score_thresh = 0.3 / unclip_ratio = 1.5 / max_boxes = 1000 으로 검출 튜닝
+```
+
+스모크: `kebab ingest --config <cfg>` 후 `kebab search --config <cfg> --mode lexical "<이미지 안 한국어 단어>"` 가 그 image chunk 를 반환하면 OCR→FTS5 wiring 정상. engine 또는 모델을 바꾸면 다음 ingest 가 영향 이미지를 자동 재색인한다.
+
 ## P7-3 PDF ingestion
 
 `config.toml` 의 `[workspace] include` 에 `**/*.pdf` 를 추가하면 `kebab ingest` 가 텍스트 PDF 자산도 색인합니다. 외부 service 의존 없음 — `kebab-parse-pdf` 가 lopdf 로 페이지 단위 텍스트 추출, `kebab-chunk::PdfPageV1Chunker` 가 페이지 경계를 절대 넘지 않는 chunk 생성.

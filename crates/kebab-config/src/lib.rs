@@ -377,6 +377,36 @@ pub struct OcrCfg {
     /// `86400`).
     #[serde(default = "default_ocr_request_timeout_secs")]
     pub request_timeout_secs: u64,
+
+    // ── paddle-onnx engine overrides (v0.27.0) ──────────────────────────
+    // Only consulted when `engine == "paddle-onnx"`; the ollama-vision
+    // engine ignores them. All `#[serde(default)]` so pre-v0.27 config
+    // files load unchanged.
+    /// Override path to the detection ONNX model. `None` → bundled
+    /// `assets/paddleocr-onnx/ppocrv5_mobile_det.onnx` (or the directory
+    /// named by `KEBAB_IMAGE_OCR_MODEL_DIR`).
+    #[serde(default)]
+    pub det_model: Option<String>,
+    /// Override path to the recognition ONNX model. `None` → bundled
+    /// `assets/paddleocr-onnx/korean_ppocrv5_mobile_rec.onnx`.
+    #[serde(default)]
+    pub rec_model: Option<String>,
+    /// Override path to the character dictionary. `None` → bundled
+    /// `assets/paddleocr-onnx/korean_dict.txt`.
+    #[serde(default)]
+    pub dict: Option<String>,
+    /// DBNet detection box score threshold (0.0..=1.0). Boxes whose mean
+    /// probability is below this are dropped. Default `0.3`.
+    #[serde(default = "default_ocr_score_thresh")]
+    pub score_thresh: f32,
+    /// Polygon unclip ratio applied to each detected box before crop.
+    /// Larger = more padding around the text. Default `1.5`.
+    #[serde(default = "default_ocr_unclip_ratio")]
+    pub unclip_ratio: f32,
+    /// Hard cap on detected boxes per image (runaway guard). Extra boxes
+    /// past this count are truncated with a warning. Default `1000`.
+    #[serde(default = "default_ocr_max_boxes")]
+    pub max_boxes: usize,
 }
 
 impl OcrCfg {
@@ -389,8 +419,27 @@ impl OcrCfg {
             languages: vec!["eng".to_string(), "kor".to_string()],
             max_pixels: 1600,
             request_timeout_secs: default_ocr_request_timeout_secs(),
+            det_model: None,
+            rec_model: None,
+            dict: None,
+            score_thresh: default_ocr_score_thresh(),
+            unclip_ratio: default_ocr_unclip_ratio(),
+            max_boxes: default_ocr_max_boxes(),
         }
     }
+}
+
+/// paddle-onnx DBNet box score threshold default. See [`OcrCfg::score_thresh`].
+fn default_ocr_score_thresh() -> f32 {
+    0.3
+}
+/// paddle-onnx unclip ratio default. See [`OcrCfg::unclip_ratio`].
+fn default_ocr_unclip_ratio() -> f32 {
+    1.5
+}
+/// paddle-onnx box-count cap default. See [`OcrCfg::max_boxes`].
+fn default_ocr_max_boxes() -> usize {
+    1000
 }
 
 /// v0.17.2 post-dogfood: matches the legacy hard-coded ceiling so
@@ -512,7 +561,9 @@ pub struct PdfOcrCfg {
     /// scanned pages only. `true` — vision LLM 호출 on every page
     /// (vector PDF 의 dual-text confidence boost — doubles chunk count).
     pub always_on: bool,
-    /// Engine identifier. v1 only ships `"ollama-vision"`.
+    /// Engine identifier: `"ollama-vision"` or `"paddle-onnx"`. When set to
+    /// `"paddle-onnx"`, model paths and tuning knobs are read from
+    /// `[image.ocr]`, not `[pdf.ocr]` — PaddleOCR has no PDF-specific tuning.
     pub engine: String,
     /// Vision model id. Default `"qwen2.5vl:3b"` per PoC (§3.5 family
     /// asymmetry vs image OCR's gemma4:e4b is acknowledged).
@@ -1096,6 +1147,34 @@ impl Config {
                 "KEBAB_IMAGE_OCR_REQUEST_TIMEOUT_SECS" => {
                     if let Ok(n) = v.parse::<u64>() {
                         self.image.ocr.request_timeout_secs = n;
+                    }
+                }
+                // paddle-onnx engine overrides (v0.27.0). Empty string → None
+                // (fall back to bundled / KEBAB_IMAGE_OCR_MODEL_DIR).
+                "KEBAB_IMAGE_OCR_DET_MODEL" => {
+                    self.image.ocr.det_model =
+                        if v.is_empty() { None } else { Some(v.clone()) };
+                }
+                "KEBAB_IMAGE_OCR_REC_MODEL" => {
+                    self.image.ocr.rec_model =
+                        if v.is_empty() { None } else { Some(v.clone()) };
+                }
+                "KEBAB_IMAGE_OCR_DICT" => {
+                    self.image.ocr.dict = if v.is_empty() { None } else { Some(v.clone()) };
+                }
+                "KEBAB_IMAGE_OCR_SCORE_THRESH" => {
+                    if let Ok(f) = v.parse::<f32>() {
+                        self.image.ocr.score_thresh = f;
+                    }
+                }
+                "KEBAB_IMAGE_OCR_UNCLIP_RATIO" => {
+                    if let Ok(f) = v.parse::<f32>() {
+                        self.image.ocr.unclip_ratio = f;
+                    }
+                }
+                "KEBAB_IMAGE_OCR_MAX_BOXES" => {
+                    if let Ok(n) = v.parse::<usize>() {
+                        self.image.ocr.max_boxes = n;
                     }
                 }
 

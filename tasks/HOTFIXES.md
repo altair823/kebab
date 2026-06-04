@@ -14,6 +14,39 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-04 — PP-OCRv5 ONNX Rust 네이티브 OCR 엔진 (v0.27.0)
+
+**무엇을 추가했나.** 이미지 OCR 에 두 번째 백엔드 `paddle-onnx` 를 붙였다. 기존 `ollama-vision`
+(원격 vision LM, 이미지당 ~50초)은 default 로 유지하고, `[image.ocr] engine = "paddle-onnx"` 로
+PP-OCRv5(검출 DBNet + 인식 CTC) ONNX 모델을 `ort`(=2.0.0-rc.9) 로 **in-process** 실행한다 —
+Python 런타임/원격 호출 없이 큰 페이지 CPU <4초. `OcrEngine` trait 의 두 번째 구현
+`OnnxPaddleOcr`(`crates/kebab-parse-image/src/paddle_onnx.rs`), 팩토리는
+`kebab-app::build_image_ocr_engine`/`build_pdf_ocr_engine` (`match engine`). 검출 후처리
+(min-area rect = rotating calipers, unclip = polygon offset)는 clipper2/OpenCV 없이 pure-Rust.
+
+**T11 e2e 에서 발견·수정한 핵심 버그 (unclip).** 첫 실측 CER 이 0.26(게이트 0.05) 으로 크게
+초과. 단계 골든(`crates/kebab-parse-image/tests/golden/`) 와 prediction dump 로 국소화한 결과
+`unclip_rect` 가 corner 를 centroid 기준 **방사(radial) 확장**하고 있었다. 텍스트 박스는
+wide/short(예 586×15)라 대각선이 거의 수평 → 방사 확장 시 corner 가 수평으로만 ~11px 움직이고
+**세로로는 거의 안 커져** 글자 윗/아랫부분이 잘렸다(ㄷ→ㄴ 로 `다`→`나`, ascender 손실).
+PaddleOCR pyclipper 처럼 **edge 별로 바깥으로 offset**(width·height 각각 2·distance 증가) 하도록
+rect 자체 (u,v) 축 기준 확장으로 재작성. 결과: mean gate CER **0.2585 → 0.0049**
+(clean_paragraph/korean_heavy/numbers_table/tech_terms = 0.0), PoC 0.024 baseline 보다 우수.
+큰 페이지 3.9초 < 5초 게이트. **교훈**: 회전 사각형 unclip 은 방사 확장이 아니라 polygon edge
+offset 이어야 한다.
+
+**Config / 서명 cascade.** `[image.ocr]` 에 `det_model`/`rec_model`/`dict`(Option, override) +
+`score_thresh`(0.3)/`unclip_ratio`(1.5)/`max_boxes`(1000) serde-default 필드 + `KEBAB_IMAGE_OCR_*`
+env 추가(기존 config 무수정 로드 — forward-compat). `ingest_config_signature` 의 image/pdf 브랜치를
+`|ocr:1:{model}` → `|ocr:1:{engine}:{engine_version}` 로 바꿔 engine 전환(ollama↔paddle) 또는
+모델 변경 시 영향 자산 자동 재색인. paddle engine_version 은 모델 3-asset blake3 를 **per-process
+1회만** 계산(triple 키 memo) — 자산마다 17MB 재해시 회피.
+
+**모델 배포.** ONNX 2개(det 4.7MB / rec 13MB) + dict + NOTICE 를 `crates/kebab-parse-image/
+assets/paddleocr-onnx/` 에 둔다(Git LFS). 테스트는 `KEBAB_IMAGE_OCR_MODEL_DIR`(기본 = 번들 dir)
+에서 로드, e2e(`tests/paddle_e2e.rs`)는 모델/fixture 부재 시 깨끗이 skip(CI green). 자세한 설계:
+spec/plan `docs/superpowers/{specs,plans}/2026-06-04-rust-native-ocr-*.md`.
+
 ## 2026-06-03 — ingest 출력 영향 설정 변경 시 영향 자산 자동 재색인 (v0.26.2)
 
 **무엇이 깨졌나.** `[image.ocr]` / `[image.caption]` 를 off→색인→on 으로 바꿔도 증분
