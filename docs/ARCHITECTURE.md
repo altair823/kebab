@@ -20,7 +20,7 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 | 한국어 형태소분석 | `lindera-ko-dic` (FTS5 외부 tokenizer, v0.20.1) — 2자 이상 한국어 query 지원 |
 | LLM | Ollama HTTP (default `gemma4:e4b` ─ OCR / caption 와 family 통일. 사용자가 더 큰 variant `gemma4:26b` 등으로 override 가능) |
 | 음성 ASR | `whisper.cpp` (via `whisper-rs`) — P8 보류, 시스템 dep brainstorm 후 |
-| OCR (image) | Ollama vision LM (default `gemma4:e4b`) — `OcrEngine` trait 으로 Tesseract / Apple Vision 등 future swap (HOTFIXES P6-2) |
+| OCR (image) | `OcrEngine` trait, 2 백엔드: **`ollama-vision`** (default, `gemma4:e4b`) / **`paddle-onnx`** (v0.27.0 — PP-OCRv5 ONNX in-process via `ort` =2.0.0-rc.9, DBNet det + CTC rec, 후처리 min-area rect/unclip pure-Rust, Python 런타임 0). engine 선택은 `[image.ocr] engine`, 팩토리는 `kebab-app::build_image_ocr_engine`. e2e CER 0.005 / 큰 페이지 <4초. (HOTFIXES P6-2, 2026-06-04) |
 | OCR (PDF, v0.20.0+) | Ollama vision LM (default `qwen2.5vl:3b`) — post-extract enrichment via `kebab-app::pdf_ocr_apply` (H-1 resolution). DCTDecode-only v1 (FlateDecode/CCITTFax skip + warning). family asymmetry vs image OCR: PoC alnum 94.79% (qwen2.5vl) >> 27% (gemma4:e4b 받침), 본 단계에서 PDF OCR 만 qwen2.5vl. |
 | Image caption | Ollama vision LM, runtime gate `image.caption.enabled` (default OFF) |
 | RAG groundedness 검증 | `kebab-nli` 의 mDeBERTa-v3 XNLI 가 `(packed_chunks, generated_answer)` entailment 검사 (fb-41). `[rag] nli_threshold > 0` (default 0 = disabled, production 권장 0.5) 일 때 활성 — 미달 시 `refusal_reason = nli_verification_failed` (LLM self-judge ceiling 보완). 첫 호출 시 ~280 MB ONNX 자동 다운로드 |
@@ -212,7 +212,7 @@ kebab/
 │   ├── kebab-rag/                                     # RAG pipeline (P4-3)
 │   ├── kebab-nli/                                     # NLI verifier (mDeBERTa-v3 XNLI, fb-41 PR-9a/9b/9c-1)
 │   ├── kebab-eval/                                    # golden query runner + metrics (P5-1, P5-2)
-│   ├── kebab-parse-image/                             # ImageExtractor + Ollama OCR + caption (P6)
+│   ├── kebab-parse-image/                             # ImageExtractor + OCR (ollama-vision + paddle-onnx ONNX) + caption (P6)
 │   ├── kebab-parse-pdf/                               # lopdf per-page text extractor (P7-1)
 │   ├── kebab-parse-code/                              # tree-sitter AST extractors: Rust (P10-1A-2), Python + TypeScript + JavaScript (P10-1B), Go (P10-1C-Go), Java + Kotlin (P10-1C-JK — java.rs + kotlin.rs), C + C++ (P10-1D — c.rs + cpp.rs); chunker lives in kebab-chunk
 │   ├── kebab-app/                                     # facade (P0 시그니처 + P3-5/P6-4/P7-3 본체). src/derivation_payload.rs = 캐시 payload 인코딩 (v0.21.0)

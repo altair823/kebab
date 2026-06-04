@@ -33,7 +33,7 @@ fn cer(gt: &str, pred: &str) -> f64 {
     for i in 1..=m {
         let mut cur = vec![i; n + 1];
         for j in 1..=n {
-            let cost = if g[i - 1] == p[j - 1] { 0 } else { 1 };
+            let cost = usize::from(g[i - 1] != p[j - 1]);
             cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
         }
         prev = cur;
@@ -42,11 +42,10 @@ fn cer(gt: &str, pred: &str) -> f64 {
 }
 
 fn fixture_dir() -> PathBuf {
-    std::env::var("KEBAB_TEST_OCR_FIXTURE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            PathBuf::from("/build/dogfood/corpus/images/synthetic-ocr-bench")
-        })
+    std::env::var("KEBAB_TEST_OCR_FIXTURE_DIR").map_or_else(
+        |_| PathBuf::from("/build/dogfood/corpus/images/synthetic-ocr-bench"),
+        PathBuf::from,
+    )
 }
 
 /// T10: undecodable image bytes must surface as an error (the kebab-app caller

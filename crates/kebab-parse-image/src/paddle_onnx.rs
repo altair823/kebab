@@ -3,13 +3,13 @@
 //! production dependency (see crate-level rationale + `assets/paddleocr-onnx/NOTICE`).
 //!
 //! Pipeline (`recognize`):
-//!   1. decode (RGB) + downscale long edge to `max_pixels`
-//!   2. det:  ImageNet-normalized NCHW → DBNet prob map `[1,1,H,W]`
-//!            → threshold 0.3 → contours → min-area rect (rotating calipers,
-//!            pure Rust) → unclip(ratio 1.5, pure Rust) → boxes
-//!   3. crop+rectify: perspective warp each rotated box to a horizontal strip
-//!   4. rec:  48×W normalized `(x-0.5)/0.5` → `[1,T,11947]` → CTC greedy decode
-//!   5. assemble reading-order `OcrText`
+//! 1. decode (RGB) + downscale long edge to `max_pixels`
+//! 2. det: ImageNet-normalized NCHW → DBNet prob map `[1,1,H,W]` → threshold
+//!    0.3 → contours → min-area rect (rotating calipers, pure Rust) →
+//!    unclip(ratio 1.5, pure Rust) → boxes
+//! 3. crop+rectify: perspective warp each rotated box to a horizontal strip
+//! 4. rec: 48×W normalized `(x-0.5)/0.5` → `[1,T,11947]` → CTC greedy decode
+//! 5. assemble reading-order `OcrText`
 //!
 //! ## Confirmed CTC facts (empirically derived in T0a, see
 //! `tests/golden/ctc_rec_golden.json` — do NOT re-derive):
@@ -82,7 +82,7 @@ impl std::fmt::Debug for OnnxPaddleOcr {
             .field("unclip_ratio", &self.unclip_ratio)
             .field("max_boxes", &self.max_boxes)
             .field("max_pixels", &self.max_pixels)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -100,11 +100,10 @@ impl ModelPaths {
     /// Default bundled-asset directory: `KEBAB_IMAGE_OCR_MODEL_DIR` if set,
     /// else the crate's `assets/paddleocr-onnx/`.
     pub fn from_default_dir() -> Self {
-        let dir = std::env::var("KEBAB_IMAGE_OCR_MODEL_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/paddleocr-onnx")
-            });
+        let dir = std::env::var("KEBAB_IMAGE_OCR_MODEL_DIR").map_or_else(
+            |_| Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/paddleocr-onnx"),
+            PathBuf::from,
+        );
         Self {
             det: dir.join("ppocrv5_mobile_det.onnx"),
             rec: dir.join("korean_ppocrv5_mobile_rec.onnx"),
@@ -211,7 +210,7 @@ impl OnnxPaddleOcr {
         match idx {
             CTC_BLANK => None,
             CTC_SPACE => Some(" "),
-            i if i >= 1 && i <= DICT_LINES => Some(self.dict[i - 1].as_str()),
+            i if (1..=DICT_LINES).contains(&i) => Some(self.dict[i - 1].as_str()),
             _ => None, // out-of-range guard (should not happen for 11947 classes)
         }
     }
@@ -226,6 +225,10 @@ impl OcrEngine for OnnxPaddleOcr {
         self.engine_version.clone()
     }
 
+    // The trait method's elided lifetime ties the return to `&self`; the body
+    // returns a literal, but the signature must match the trait, so allow the
+    // `'static`-narrowing lint here.
+    #[allow(clippy::unnecessary_literal_bound)]
     fn model(&self) -> &str {
         // Static label for the progress display; the per-asset hash lives
         // in `engine_version`.
@@ -335,7 +338,7 @@ impl OnnxPaddleOcr {
         for (x, y, px) in det_img.enumerate_pixels() {
             let (xi, yi) = (x as usize, y as usize);
             for c in 0..3 {
-                let v = px[c] as f32 / 255.0;
+                let v = f32::from(px[c]) / 255.0;
                 arr[[0, c, yi, xi]] = (v - IMAGENET_MEAN[c]) / IMAGENET_STD[c];
             }
         }
@@ -372,7 +375,7 @@ impl OnnxPaddleOcr {
         for (x, y, px) in resized.enumerate_pixels() {
             let (xi, yi) = (x as usize, y as usize);
             for c in 0..3 {
-                let v = px[c] as f32 / 255.0;
+                let v = f32::from(px[c]) / 255.0;
                 arr[[0, c, yi, xi]] = (v - 0.5) / 0.5; // [-1, 1]
             }
         }
@@ -447,7 +450,7 @@ fn load_dict(path: &Path) -> Result<Vec<String>> {
     let raw = std::fs::read_to_string(path)?;
     // split on '\n'; drop a single trailing empty element from the final newline
     let mut lines: Vec<String> = raw.split('\n').map(|s| s.trim_end_matches('\r').to_string()).collect();
-    if lines.last().map(|s| s.is_empty()).unwrap_or(false) {
+    if lines.last().is_some_and(String::is_empty) {
         lines.pop();
     }
     Ok(lines)
