@@ -254,12 +254,16 @@ mod tests {
     fn annotated_default_has_all_sections_and_parses_back_to_defaults() {
         let doc = annotated_default_document();
         let text = doc.to_string();
-        // PdfCfg/ImageCfg/ModelsCfg/IngestCfg 는 스칼라 필드가 없어 bare
-        // `[pdf]` 등은 안 나오고 `[pdf.ocr]` 같은 하위 테이블만 직렬화된다.
+        // v3: 미디어 형식 섹션이 전부 `[ingest.*]` 하위로 통합됐다. IngestCfg
+        // 는 스칼라(병렬도) 필드가 있어 bare `[ingest]` + 하위 테이블이 함께
+        // 직렬화된다.
         for section in [
             "[workspace]",
+            "[ingest]",
+            "[ingest.chunking]",
             "[ingest.code]",
-            "[pdf.ocr]",
+            "[ingest.image.ocr]",
+            "[ingest.pdf.ocr]",
             "[logging]",
             "[ui]",
         ] {
