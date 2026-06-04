@@ -35,6 +35,20 @@ kamadak-exif = "0.6"
 # transitive tokio runtime is brought in once.
 reqwest      = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 base64       = { workspace = true }
+thiserror    = { workspace = true }
+# paddle-onnx OCR engine (PP-OCRv5, in-process). We reuse the workspace ort
+# pin (=2.0.0-rc.9) so the ONNX Runtime native lib stays single-versioned with
+# fastembed / kebab-nli (oar-ocr is intentionally NOT a dep — it would pull
+# ort rc.12 + ndarray 0.17, splitting the native `links` and threatening the
+# embedding stack). `download-binaries` extends the pin the same way
+# `kebab-nli/Cargo.toml:23` does: this crate isn't in fastembed's build graph,
+# so a standalone `cargo test -p kebab-parse-image` needs it to link onnxruntime.
+ort          = { workspace = true, features = ["ndarray", "download-binaries"] }
+ndarray      = { workspace = true }
+# imageproc: connected-components / contours for DBNet det post-processing.
+# min-area rotated-rect (rotating calipers) and polygon unclip are implemented
+# in pure Rust (clipper2 is C++ FFI — would break the single-binary guarantee).
+imageproc    = "0.25"
 
 [dev-dependencies]
 tempfile     = { workspace = true }
