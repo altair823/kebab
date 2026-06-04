@@ -22,8 +22,8 @@ fn ollama_endpoint() -> String {
 
 fn make_ocr_env_real() -> TestEnv {
     let mut env = TestEnv::lexical_only();
-    env.config.pdf.ocr.enabled = true;
-    env.config.pdf.ocr.endpoint = Some(ollama_endpoint());
+    env.config.ingest.pdf.ocr.enabled = true;
+    env.config.ingest.pdf.ocr.endpoint = Some(ollama_endpoint());
     env.config.models.embedding.provider = "none".to_string();
 
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -92,8 +92,8 @@ fn ocr_text_indexed_and_searchable() {
 #[test]
 fn ingest_with_cancel_aborts_mid_pdf() {
     let mut env = TestEnv::lexical_only();
-    env.config.pdf.ocr.enabled = true;
-    env.config.pdf.ocr.endpoint = Some("http://127.0.0.1:1".to_string());
+    env.config.ingest.pdf.ocr.enabled = true;
+    env.config.ingest.pdf.ocr.endpoint = Some("http://127.0.0.1:1".to_string());
 
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()

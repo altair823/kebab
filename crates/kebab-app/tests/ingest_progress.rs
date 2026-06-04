@@ -196,9 +196,9 @@ fn pdf_ocr_progress_emits_started_finished_events() {
     config.storage.data_dir = data_dir.to_string_lossy().into_owned();
     config.models.embedding.provider = "none".to_string();
     config.models.embedding.dimensions = 0;
-    config.pdf.ocr.enabled = true;
+    config.ingest.pdf.ocr.enabled = true;
     if let Ok(endpoint) = std::env::var("KEBAB_PDF_OCR_ENDPOINT") {
-        config.pdf.ocr.endpoint = Some(endpoint);
+        config.ingest.pdf.ocr.endpoint = Some(endpoint);
     }
 
     let scope = kebab_core::SourceScope {

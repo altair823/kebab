@@ -23,8 +23,8 @@ fn minimal_config(workspace: &std::path::Path, log_dir: &std::path::Path) -> Con
     cfg.storage.model_dir = model_dir.to_string_lossy().into_owned();
     cfg.models.embedding.provider = "none".to_string();
     cfg.models.embedding.dimensions = 0;
-    cfg.chunking.target_tokens = 80;
-    cfg.chunking.overlap_tokens = 20;
+    cfg.ingest.chunking.target_tokens = 80;
+    cfg.ingest.chunking.overlap_tokens = 20;
     cfg.logging = LoggingCfg {
         ingest_log_enabled: true,
         ingest_log_dir: log_dir.to_path_buf(),

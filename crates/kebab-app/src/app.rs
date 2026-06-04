@@ -924,7 +924,7 @@ impl App {
             k: u32::try_from(query.k).unwrap_or(u32::MAX),
             snippet_chars: u32::try_from(self.config.search.snippet_chars).unwrap_or(u32::MAX),
             embedding_version,
-            chunker_version: self.config.chunking.chunker_version.clone(),
+            chunker_version: self.config.ingest.chunking.chunker_version.clone(),
             corpus_revision: self.sqlite.corpus_revision(),
         })
     }
@@ -1025,7 +1025,7 @@ impl App {
 fn lexical_index_version(config: &kebab_config::Config) -> IndexVersion {
     IndexVersion(format!(
         "lex:{}:fts5-v009-korean-morphological",
-        config.chunking.chunker_version
+        config.ingest.chunking.chunker_version
     ))
 }
 

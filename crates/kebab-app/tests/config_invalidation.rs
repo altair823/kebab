@@ -63,7 +63,7 @@ fn chunking_change_reindexes_all_types() {
     let scanned = first.scanned;
 
     // Bump target_tokens — folds into every type's signature.
-    env.config.chunking.target_tokens += 100;
+    env.config.ingest.chunking.target_tokens += 100;
 
     let second = reingest(&env);
     assert_eq!(second.scanned, scanned);

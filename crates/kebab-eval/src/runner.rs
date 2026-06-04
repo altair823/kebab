@@ -220,7 +220,7 @@ fn build_config_snapshot(cfg: &kebab_config::Config, eval_k: usize) -> Result<se
     Ok(serde_json::json!({
         "config": cfg_value,
         "eval_k": eval_k,
-        "chunker_version": cfg.chunking.chunker_version,
+        "chunker_version": cfg.ingest.chunking.chunker_version,
         "embedding": {
             "model": cfg.models.embedding.model,
             "version": cfg.models.embedding.version,

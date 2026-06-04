@@ -49,9 +49,9 @@ async fn ingest_dual_write_doc_id_matches_ndjson() {
     let result = spawn_blocking(move || {
         let mut env = TestEnv::lexical_only();
         // Enable PDF OCR + set up mock endpoint
-        env.config.pdf.ocr.enabled = true;
-        env.config.pdf.ocr.endpoint = Some(mock_url.clone());
-        env.config.pdf.ocr.model = "qwen2.5vl:3b".to_string();
+        env.config.ingest.pdf.ocr.enabled = true;
+        env.config.ingest.pdf.ocr.endpoint = Some(mock_url.clone());
+        env.config.ingest.pdf.ocr.model = "qwen2.5vl:3b".to_string();
         // Enable ingest log
         let log_dir = env.temp.path().join("logs");
         std::fs::create_dir_all(&log_dir).unwrap();

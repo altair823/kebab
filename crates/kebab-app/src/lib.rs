@@ -360,12 +360,12 @@ pub fn ingest_with_config_opts(
     // loop is correct and cheap. Construction failure (e.g. invalid
     // endpoint) aborts ingest fail-fast — better than silently disabling
     // OCR/caption mid-run.
-    let ocr_engine: Option<Box<dyn OcrEngine>> = if app.config.image.ocr.enabled {
+    let ocr_engine: Option<Box<dyn OcrEngine>> = if app.config.ingest.image.ocr.enabled {
         Some(build_image_ocr_engine(&app.config).context("kb-app::ingest: build image OCR engine")?)
     } else {
         None
     };
-    let caption_llm: Option<Box<dyn LanguageModel>> = if app.config.image.caption.enabled {
+    let caption_llm: Option<Box<dyn LanguageModel>> = if app.config.ingest.image.caption.enabled {
         Some(Box::new(OllamaLanguageModel::new(&app.config).context(
             "kb-app::ingest: build OllamaLanguageModel for caption",
         )?))
@@ -380,7 +380,7 @@ pub fn ingest_with_config_opts(
     // p10 / v0.20 sub-item 1: PDF OCR engine eager init (H-5 resolution).
     // image OCR pattern mirror — per-ingest 1회 build, fallible → fail-fast.
     let pdf_ocr_engine: Option<Box<dyn OcrEngine>> =
-        if app.config.pdf.ocr.enabled || app.config.pdf.ocr.always_on {
+        if app.config.ingest.pdf.ocr.enabled || app.config.ingest.pdf.ocr.always_on {
             Some(
                 build_pdf_ocr_engine(&app.config)
                     .context("kb-app::ingest: build pdf OCR engine")?,
@@ -825,7 +825,7 @@ fn mint_ingest_run_id(scope_json: &str, at: time::OffsetDateTime) -> String {
 type SqliteStoreAlias = kebab_store_sqlite::SqliteStore;
 
 /// v0.27.0 (T8): build the image OCR engine selected by
-/// `config.image.ocr.engine`. Returns a boxed trait object so the ingest
+/// `config.ingest.image.ocr.engine`. Returns a boxed trait object so the ingest
 /// pipeline is engine-agnostic. Construction is fail-fast (model load /
 /// hash / endpoint validation) — mirrors the prior concrete-type behaviour.
 ///
@@ -835,7 +835,7 @@ type SqliteStoreAlias = kebab_store_sqlite::SqliteStore;
 fn build_image_ocr_engine(
     config: &kebab_config::Config,
 ) -> anyhow::Result<Box<dyn OcrEngine>> {
-    match config.image.ocr.engine.as_str() {
+    match config.ingest.image.ocr.engine.as_str() {
         OLLAMA_VISION_ENGINE => Ok(Box::new(
             OllamaVisionOcr::new(config).context("build OllamaVisionOcr")?,
         )),
@@ -850,7 +850,7 @@ fn build_image_ocr_engine(
 }
 
 /// v0.27.0 (T8): build the PDF OCR engine selected by
-/// `config.pdf.ocr.engine`. The ollama-vision arm uses the PDF-specific
+/// `config.ingest.pdf.ocr.engine`. The ollama-vision arm uses the PDF-specific
 /// `model` / `languages` / `max_pixels` / `request_timeout_secs` knobs (and
 /// endpoint fallback to `models.llm.endpoint`). The paddle-onnx arm shares
 /// the same bundled ONNX models as image OCR (resolved from `image.ocr`
@@ -869,9 +869,9 @@ fn build_image_ocr_engine(
 fn build_pdf_ocr_engine(
     config: &kebab_config::Config,
 ) -> anyhow::Result<Box<dyn OcrEngine>> {
-    match config.pdf.ocr.engine.as_str() {
+    match config.ingest.pdf.ocr.engine.as_str() {
         OLLAMA_VISION_ENGINE => {
-            let cfg = &config.pdf.ocr;
+            let cfg = &config.ingest.pdf.ocr;
             let endpoint = match cfg.endpoint.as_deref() {
                 Some(s) if !s.is_empty() => s.to_string(),
                 _ => config.models.llm.endpoint.clone(),
@@ -2144,7 +2144,7 @@ fn sweep_deleted_files(
 ///   asset rollback on embed-fail is a P+ task).
 ///
 /// `chunker_version` is hard-coded to `pdf-page-v1` (HOTFIXES entry —
-/// `config.chunking.chunker_version` is single-valued today and serves
+/// `config.ingest.chunking.chunker_version` is single-valued today and serves
 /// the markdown path; per-medium config split is a P+ chunker registry
 /// task).
 #[allow(clippy::too_many_arguments)]
@@ -2229,15 +2229,15 @@ fn ingest_one_pdf_asset(
     // v0.20 sub-item 1: post-extract OCR enrichment (PR #187 registry
     // dispatch invariant 보존 — extract_for 가 normal entry).
     let (pdf_ocr_pages, pdf_ocr_ms_total): (Option<u32>, Option<u64>) =
-        if app.config.pdf.ocr.enabled || app.config.pdf.ocr.always_on {
+        if app.config.ingest.pdf.ocr.enabled || app.config.ingest.pdf.ocr.always_on {
             match pdf_ocr_engine {
                 Some(engine) => {
                     let ocr_opts = crate::pdf_ocr_apply::PdfOcrOpts {
-                        enabled: app.config.pdf.ocr.enabled || app.config.pdf.ocr.always_on,
-                        always_on: app.config.pdf.ocr.always_on,
-                        valid_ratio_threshold: app.config.pdf.ocr.valid_ratio_threshold,
-                        min_char_count: app.config.pdf.ocr.min_char_count,
-                        lang_hint: app.config.pdf.ocr.lang_hint.clone().map(kebab_core::Lang),
+                        enabled: app.config.ingest.pdf.ocr.enabled || app.config.ingest.pdf.ocr.always_on,
+                        always_on: app.config.ingest.pdf.ocr.always_on,
+                        valid_ratio_threshold: app.config.ingest.pdf.ocr.valid_ratio_threshold,
+                        min_char_count: app.config.ingest.pdf.ocr.min_char_count,
+                        lang_hint: app.config.ingest.pdf.ocr.lang_hint.clone().map(kebab_core::Lang),
                         cancel: cancel.cloned(),
                     };
                     // v0.20.x Hook 2: pre-clone Arcs for capture by OCR closure.
@@ -2356,7 +2356,7 @@ fn ingest_one_pdf_asset(
         };
 
     // Per-medium chunker selection: PDF docs always use pdf-page-v1
-    // regardless of `config.chunking.chunker_version`. The chunker
+    // regardless of `config.ingest.chunking.chunker_version`. The chunker
     // validates every block carries `SourceSpan::Page`; failure here
     // means the parser drifted from its contract.
     let chunker = PdfPageV1Chunker;
@@ -3056,10 +3056,10 @@ fn build_body_hints(asset: &RawAsset) -> BodyHints {
 /// Build a `ChunkPolicy` from the active config.
 fn chunk_policy_from_config(config: &kebab_config::Config) -> ChunkPolicy {
     ChunkPolicy {
-        target_tokens: config.chunking.target_tokens,
-        overlap_tokens: config.chunking.overlap_tokens,
-        respect_markdown_headings: config.chunking.respect_markdown_headings,
-        chunker_version: ChunkerVersion(config.chunking.chunker_version.clone()),
+        target_tokens: config.ingest.chunking.target_tokens,
+        overlap_tokens: config.ingest.chunking.overlap_tokens,
+        respect_markdown_headings: config.ingest.chunking.respect_markdown_headings,
+        chunker_version: ChunkerVersion(config.ingest.chunking.chunker_version.clone()),
     }
 }
 
@@ -3099,7 +3099,7 @@ fn ocr_engine_version_for_sig(config: &kebab_config::Config, engine: &str, model
         // stable per-model revision, so engine/model is the identity.
         return format!("ollama/{model}");
     }
-    let ocr = &config.image.ocr;
+    let ocr = &config.ingest.image.ocr;
     let key = format!(
         "{}|{}|{}",
         ocr.det_model.as_deref().unwrap_or("<bundled>"),
@@ -3130,7 +3130,7 @@ fn ingest_config_signature(config: &kebab_config::Config, media: &MediaType) -> 
     // Common (every media type): chunking parameters that move chunk
     // boundaries. `target_tokens` / `overlap_tokens` change re-chunking for
     // markdown / image / pdf / code alike, so a change re-indexes all types.
-    let c = &config.chunking;
+    let c = &config.ingest.chunking;
     let mut sig = format!(
         "chunk:{}:{}:{}:{}",
         c.target_tokens, c.overlap_tokens, c.respect_markdown_headings, c.chunker_version
@@ -3140,7 +3140,7 @@ fn ingest_config_signature(config: &kebab_config::Config, media: &MediaType) -> 
             // OCR / caption only affect output when their `enabled` flag is
             // on; the model / prompt version matters only then. Off ↔ off is
             // a stable empty token so re-running the same config skips.
-            let ocr = &config.image.ocr;
+            let ocr = &config.ingest.image.ocr;
             if ocr.enabled {
                 // v0.27.0 (T9): engine + engine_version so switching engine
                 // (ollama-vision ↔ paddle-onnx) OR changing the model/assets
@@ -3153,7 +3153,7 @@ fn ingest_config_signature(config: &kebab_config::Config, media: &MediaType) -> 
             } else {
                 sig.push_str("|ocr:0");
             }
-            let cap = &config.image.caption;
+            let cap = &config.ingest.image.caption;
             if cap.enabled {
                 sig.push_str(&format!("|cap:1:{}", cap.prompt_template_version));
             } else {
@@ -3163,7 +3163,7 @@ fn ingest_config_signature(config: &kebab_config::Config, media: &MediaType) -> 
         MediaType::Pdf => {
             // PDF OCR is active when EITHER `enabled` or `always_on` is set
             // (mirrors the ingest gate). `model` only matters when active.
-            let ocr = &config.pdf.ocr;
+            let ocr = &config.ingest.pdf.ocr;
             if ocr.enabled || ocr.always_on {
                 // v0.27.0 (T9): engine + engine_version (same cascade rule as
                 // image OCR above) alongside the enabled/always_on gate.

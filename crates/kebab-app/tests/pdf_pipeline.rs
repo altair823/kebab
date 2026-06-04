@@ -121,8 +121,8 @@ fn cfg_with_pdf(env: &TestEnv) -> Config {
     // PDF ingest does not need OCR / caption / LM — leave defaults
     // (ocr.enabled=false, caption.enabled=false). The image pipeline
     // construction step skips both adapters.
-    cfg.image.ocr.enabled = false;
-    cfg.image.caption.enabled = false;
+    cfg.ingest.image.ocr.enabled = false;
+    cfg.ingest.image.caption.enabled = false;
     cfg
 }
 

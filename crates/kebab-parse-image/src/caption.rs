@@ -18,7 +18,7 @@
 //!
 //! The original P6-3 spec asked for a cargo feature `caption` (default
 //! OFF at compile time). We collapse this into a single runtime gate
-//! (`config.image.caption.enabled = false`, default OFF). Reasoning:
+//! (`config.ingest.image.caption.enabled = false`, default OFF). Reasoning:
 //! the captioning module's only extra deps are `base64` + `image` +
 //! `kebab-llm` trait — all already pulled in by the rest of the
 //! crate. A cargo feature would only complicate the build matrix
@@ -50,13 +50,13 @@ const CAPTION_MAX_TOKENS: usize = 96;
 
 /// Run a caption pass and return the resulting `ModelCaption`.
 ///
-/// Pure raw operation — does **not** consult `config.image.caption.enabled`.
+/// Pure raw operation — does **not** consult `config.ingest.image.caption.enabled`.
 /// The runtime feature gate lives in [`apply_caption`]; this entry
 /// always invokes the LM. Tests pinning the produced `ModelCaption`
 /// shape can call this directly without flipping the config flag.
 ///
 /// Honours the `[MIN_CAPTION_LONG_EDGE, MAX_CAPTION_LONG_EDGE]` clamp
-/// on `config.image.caption.max_pixels` so a hostile config cannot
+/// on `config.ingest.image.caption.max_pixels` so a hostile config cannot
 /// blow up prompt cost.
 pub fn caption_image(
     llm: &dyn LanguageModel,
@@ -65,15 +65,16 @@ pub fn caption_image(
     cfg: &kebab_config::Config,
 ) -> Result<ModelCaption> {
     let max_pixels = cfg
+        .ingest
         .image
         .caption
         .max_pixels
         .clamp(MIN_CAPTION_LONG_EDGE, MAX_CAPTION_LONG_EDGE);
-    if max_pixels != cfg.image.caption.max_pixels {
+    if max_pixels != cfg.ingest.image.caption.max_pixels {
         tracing::warn!(
             target: "kebab-parse-image",
             "image.caption.max_pixels = {} clamped to {} (legal range [{}, {}])",
-            cfg.image.caption.max_pixels,
+            cfg.ingest.image.caption.max_pixels,
             max_pixels,
             MIN_CAPTION_LONG_EDGE,
             MAX_CAPTION_LONG_EDGE
@@ -129,7 +130,7 @@ pub fn caption_image(
     let caption_text = text.trim().to_string();
 
     let model_ref = llm.model_ref();
-    let prompt_v = &cfg.image.caption.prompt_template_version;
+    let prompt_v = &cfg.ingest.image.caption.prompt_template_version;
     let model_version = format!(
         "{provider}/{prompt}",
         provider = model_ref.provider,
@@ -151,7 +152,7 @@ pub fn caption_image(
     })
 }
 
-/// Pipeline entry point — gate-checks `config.image.caption.enabled`
+/// Pipeline entry point — gate-checks `config.ingest.image.caption.enabled`
 /// then mutates `block.caption` in place via [`caption_image`].
 ///
 /// When `enabled = false` the function is a clean no-op (returns
@@ -167,7 +168,7 @@ pub fn apply_caption(
     cfg: &kebab_config::Config,
     events: &mut Vec<ProvenanceEvent>,
 ) -> Result<()> {
-    if !cfg.image.caption.enabled {
+    if !cfg.ingest.image.caption.enabled {
         tracing::debug!(
             target: "kebab-parse-image",
             "captioning skipped — image.caption.enabled = false"

@@ -122,7 +122,7 @@ impl ModelPaths {
     /// [`from_default_dir`]: ModelPaths::from_default_dir
     pub fn from_config(config: &kebab_config::Config) -> Self {
         let defaults = Self::from_default_dir();
-        let ocr = &config.image.ocr;
+        let ocr = &config.ingest.image.ocr;
         Self {
             det: ocr.det_model.as_ref().map(PathBuf::from).unwrap_or(defaults.det),
             rec: ocr.rec_model.as_ref().map(PathBuf::from).unwrap_or(defaults.rec),
@@ -138,7 +138,7 @@ impl OnnxPaddleOcr {
     /// here are fail-fast (matches the Ollama adapter's construction contract).
     pub fn new(config: &kebab_config::Config) -> Result<Self> {
         let paths = ModelPaths::from_config(config);
-        let ocr = &config.image.ocr;
+        let ocr = &config.ingest.image.ocr;
         Self::from_paths(
             &paths,
             ocr.score_thresh,
@@ -882,8 +882,8 @@ mod tests {
         assert!(def.dict.ends_with("korean_dict.txt"), "{:?}", def.dict);
 
         // Override det + dict; rec stays bundled (partial override allowed).
-        cfg.image.ocr.det_model = Some("/custom/det.onnx".to_string());
-        cfg.image.ocr.dict = Some("/custom/dict.txt".to_string());
+        cfg.ingest.image.ocr.det_model = Some("/custom/det.onnx".to_string());
+        cfg.ingest.image.ocr.dict = Some("/custom/dict.txt".to_string());
         let ov = ModelPaths::from_config(&cfg);
         assert_eq!(ov.det, PathBuf::from("/custom/det.onnx"));
         assert_eq!(ov.dict, PathBuf::from("/custom/dict.txt"));
