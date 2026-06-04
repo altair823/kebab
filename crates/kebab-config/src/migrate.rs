@@ -90,6 +90,46 @@ fn section_comment(path: &str) -> Option<&'static str> {
     })
 }
 
+/// leaf 키 인라인 주석. dotted path(예: `ingest.chunking.target_tokens`) → 한 줄.
+/// 값 뒤에 `  # ...` suffix 로 부착된다(`#` 없이 본문만 반환).
+fn key_comment(path: &str) -> Option<&'static str> {
+    Some(match path {
+        "workspace.root" => "색인 루트. 절대/~/${VAR}/상대(=이 파일 기준).",
+        "workspace.exclude" => "denylist glob.",
+        "storage.copy_threshold_mb" => "이 크기(MB) 초과 파일은 사본 대신 참조.",
+        "models.embedding.provider" => "fastembed | candle | ollama | none.",
+        "models.embedding.dimensions" => "모델 출력 차원. 틀리면 검색 0건.",
+        "models.embedding.num_threads" => "candle 전용 CPU 스레드 cap(0=auto).",
+        "models.embedding.endpoint" => "ollama provider 시 HTTP. 비우면 llm.endpoint fallback.",
+        "models.llm.request_timeout_secs" => "단일 HTTP 상한. 0=즉시실패(비활성화 아님).",
+        "ingest.max_parallel_extractors" => "동시 extractor 수.",
+        "ingest.max_parallel_embeddings" => "동시 임베딩 수.",
+        "ingest.chunking.target_tokens" => "청크 목표 토큰(전 형식 공통).",
+        "ingest.chunking.respect_markdown_headings" => "markdown heading 경계 존중.",
+        "ingest.image.ocr.enabled" => "이미지 OCR(기본 off, asset 당 비용).",
+        "ingest.image.ocr.engine" => "ollama-vision | paddle-onnx.",
+        "ingest.image.ocr.model" => "ollama-vision 전용. paddle-onnx 는 번들 모델 사용(이 값 무시).",
+        "ingest.image.ocr.request_timeout_secs" => "0=즉시실패(비활성화 아님).",
+        "ingest.image.ocr.score_thresh" => "DBNet box 점수 하한(paddle).",
+        "ingest.image.ocr.unclip_ratio" => "box 패딩 비율(paddle).",
+        "ingest.image.ocr.max_boxes" => "이미지당 box cap(paddle).",
+        "ingest.image.caption.enabled" => "이미지 캡션(기본 off).",
+        "ingest.pdf.ocr.enabled" => "scanned PDF OCR(기본 off, page 당 비용).",
+        "ingest.pdf.ocr.always_on" => "true=모든 page vision 호출(dual-text).",
+        "ingest.pdf.ocr.engine" => "ollama-vision | paddle-onnx.",
+        "ingest.pdf.ocr.model" => "ollama-vision 전용. paddle-onnx 는 번들 모델 사용.",
+        "ingest.pdf.ocr.valid_ratio_threshold" => "유효문자 비율 < 이면 scanned 판정.",
+        "ingest.pdf.ocr.min_char_count" => "page 문자수 < 이면 auto-scanned.",
+        "ingest.pdf.ocr.request_timeout_secs" => "0=즉시실패(비활성화 아님).",
+        "rag.score_gate" => "검색 점수 게이트.",
+        "rag.nli_threshold" => "0=NLI 게이트 off.",
+        "search.default_k" => "기본 검색 결과 수.",
+        "ui.theme" => "dark | light.",
+        "logging.ingest_log_enabled" => "ingest 로그(기본 on).",
+        _ => return None,
+    })
+}
+
 /// Config::defaults() 를 직렬화 + 주석 부착한 "완전체" 문서.
 /// init 과 migrate reconciliation 의 단일 참조 원천.
 pub fn annotated_default_document() -> DocumentMut {
@@ -123,6 +163,12 @@ fn annotate_table(table: &mut toml_edit::Table, prefix_path: &str) {
                     sub.decor_mut().set_prefix(format!("\n{c}\n"));
                 }
                 annotate_table(sub, &path);
+            } else if let Some(kc) = key_comment(&path) {
+                // 스칼라/배열 leaf: 값 뒤 인라인 주석 suffix. 배열(exclude 등)은
+                // 멀티라인 직렬화돼도 닫는 `]` 뒤로 가 유효.
+                if let Some(v) = item.as_value_mut() {
+                    v.decor_mut().set_suffix(format!("  # {kc}"));
+                }
             }
         }
     }
@@ -249,6 +295,21 @@ pub fn migrate_document(text: &str) -> MigrationOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn annotated_default_has_per_key_comments() {
+        let text = annotated_default_document().to_string();
+        // 대표 키 인라인 주석 존재.
+        assert!(text.contains("# 색인 루트"), "workspace.root 주석 누락:\n{text}");
+        assert!(text.contains("0=즉시실패"), "request_timeout 주석 누락:\n{text}");
+        assert!(
+            text.contains("paddle-onnx 는 번들 모델"),
+            "ocr.model 주석 누락:\n{text}"
+        );
+        // 주석 추가가 파싱을 깨지 않는다.
+        let back: crate::Config = toml::from_str(&text).expect("parse annotated default");
+        assert_eq!(back, crate::Config::defaults());
+    }
 
     #[test]
     fn annotated_default_has_all_sections_and_parses_back_to_defaults() {
