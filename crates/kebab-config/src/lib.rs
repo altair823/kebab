@@ -986,7 +986,33 @@ impl Config {
             }
         }
 
-        let mut cfg: Self = toml::from_str(&text).map_err(|e| {
+        // v3: 파일의 schema_version 이 CURRENT 보다 낮으면 메모리에서 변환한다
+        // (디스크 미변경 — 파일 갱신은 `kebab config migrate`). 미변환 v2 파일도
+        // 설정 유실 없이 로드(불변식 #3). non-additive relocation(v2→v3) 은
+        // serde default forward-compat 로는 커버 안 되므로 반드시 거쳐야 한다.
+        let parse_text = {
+            let from = toml::from_str::<toml::Value>(&text)
+                .ok()
+                .and_then(|v| v.get("schema_version").and_then(toml::Value::as_integer))
+                .unwrap_or(1) as u32;
+            if from < crate::migrate::CURRENT_SCHEMA_VERSION {
+                static MIGRATE_WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+                MIGRATE_WARNED.get_or_init(|| {
+                    tracing::warn!(
+                        target: "kebab-config",
+                        config = %path.display(),
+                        from,
+                        to = crate::migrate::CURRENT_SCHEMA_VERSION,
+                        "config 가 옛 스키마입니다 — 이번 실행은 메모리에서 변환됨. 파일 갱신: `kebab config migrate`."
+                    );
+                });
+                crate::migrate::migrate_document(&text).new_text
+            } else {
+                text.clone()
+            }
+        };
+
+        let mut cfg: Self = toml::from_str(&parse_text).map_err(|e| {
             anyhow::Error::new(ConfigInvalid {
                 path: path.to_path_buf(),
                 cause: format!("parse_failed: {e}"),
@@ -1477,6 +1503,47 @@ theme = "dark"
         let toml_text = toml::to_string(&c).unwrap();
         let back: Config = toml::from_str(&toml_text).unwrap();
         assert_eq!(c, back);
+    }
+
+    /// 불변식 #3: `from_file` 이 v2 파일을 디스크 미변경으로 메모리에서 v3
+    /// 변환 — 미변환 v2 파일도 설정 유실 0.
+    #[test]
+    fn from_file_auto_migrates_v2_in_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("config.toml");
+        std::fs::write(
+            &p,
+            "\
+schema_version = 2
+
+[workspace]
+root = \"/my/notes\"
+exclude = []
+
+[chunking]
+target_tokens = 777
+
+[image.ocr]
+enabled = true
+engine = \"ollama-vision\"
+model = \"gemma4:e4b\"
+languages = [\"kor\"]
+max_pixels = 1600
+",
+        )
+        .unwrap();
+        let c = Config::from_file(&p).expect("v2 auto-migrate load");
+        // 사용자 v2 값이 새 경로로 살아있어야(기본값 유실 X).
+        assert_eq!(c.ingest.chunking.target_tokens, 777);
+        assert!(c.ingest.image.ocr.enabled);
+        assert_eq!(c.ingest.image.ocr.languages, vec!["kor"]);
+        // 디스크 파일은 안 바뀜(여전히 schema_version = 2 + [chunking]).
+        let on_disk = std::fs::read_to_string(&p).unwrap();
+        assert!(
+            on_disk.contains("schema_version = 2"),
+            "파일이 변경됨:\n{on_disk}"
+        );
+        assert!(on_disk.contains("[chunking]"), "파일이 변경됨:\n{on_disk}");
     }
 
     #[test]
