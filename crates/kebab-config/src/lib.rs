@@ -964,26 +964,27 @@ impl Config {
             })
         })?;
 
-        // p9-fb-25: probe for the legacy `workspace.include` key — if
-        // present, emit a one-shot deprecation warning. Detection uses
-        // raw `toml::Value` lookup; the warning fires via a process-
-        // level OnceLock so a long-running TUI / CLI run doesn't spam
-        // the log on every Config::load.
-        if let Ok(value) = toml::from_str::<toml::Value>(&text) {
-            if value
-                .get("workspace")
-                .and_then(|v| v.get("include"))
-                .is_some()
-            {
-                static DEPRECATION_FIRED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-                DEPRECATION_FIRED.get_or_init(|| {
-                    tracing::warn!(
-                        target: "kebab-config",
-                        config = %path.display(),
-                        "deprecated config: `workspace.include` 필드는 더 이상 사용되지 않습니다 (p9-fb-25, v0.2.1+). 처리 가능한 형식 (md / png / jpg / pdf) 은 extractor 가 자동 결정. config 에서 이 필드를 제거해도 안전 — 더 이상 enforce 안 됨."
-                    );
-                });
-            }
+        // raw `toml::Value` 를 한 번만 파싱해 (1) legacy `workspace.include`
+        // deprecation probe (p9-fb-25) 와 (2) `schema_version` 감지(v3 자동변환)
+        // 에 함께 쓴다 — config load 는 매 CLI 호출마다 일어나므로 파싱 1회로.
+        let probe = toml::from_str::<toml::Value>(&text).ok();
+
+        // p9-fb-25: legacy `workspace.include` 키가 있으면 일회성 deprecation
+        // 경고(process-level OnceLock 로 장기 실행 시 로그 도배 방지).
+        if probe
+            .as_ref()
+            .and_then(|v| v.get("workspace"))
+            .and_then(|v| v.get("include"))
+            .is_some()
+        {
+            static DEPRECATION_FIRED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+            DEPRECATION_FIRED.get_or_init(|| {
+                tracing::warn!(
+                    target: "kebab-config",
+                    config = %path.display(),
+                    "deprecated config: `workspace.include` 필드는 더 이상 사용되지 않습니다 (p9-fb-25, v0.2.1+). 처리 가능한 형식 (md / png / jpg / pdf) 은 extractor 가 자동 결정. config 에서 이 필드를 제거해도 안전 — 더 이상 enforce 안 됨."
+                );
+            });
         }
 
         // v3: 파일의 schema_version 이 CURRENT 보다 낮으면 메모리에서 변환한다
@@ -991,8 +992,8 @@ impl Config {
         // 설정 유실 없이 로드(불변식 #3). non-additive relocation(v2→v3) 은
         // serde default forward-compat 로는 커버 안 되므로 반드시 거쳐야 한다.
         let parse_text = {
-            let from = toml::from_str::<toml::Value>(&text)
-                .ok()
+            let from = probe
+                .as_ref()
                 .and_then(|v| v.get("schema_version").and_then(toml::Value::as_integer))
                 .unwrap_or(1) as u32;
             if from < crate::migrate::CURRENT_SCHEMA_VERSION {
