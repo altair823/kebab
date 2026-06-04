@@ -474,6 +474,26 @@ pub fn engine_version_for_config(config: &kebab_config::Config) -> Result<String
     compute_engine_version(&ModelPaths::from_config(config))
 }
 
+/// v3: `engine_version` 을 명시적 (det,rec,dict) override 로부터 계산한다.
+/// `ingest_config_signature` 의 미디어별 경로(image 는 `[ingest.image.ocr]`,
+/// pdf 는 `[ingest.pdf.ocr]`)를 받아 쓰기 위함 — v2 의 "pdf 가 image paddle
+/// 경로를 빌려쓰던" 비대칭 제거. `None` override 는 번들 모델로 fallback.
+/// `engine_version_for_config` 과 동일하게 ~17 MB 를 읽으므로 호출자가
+/// (det,rec,dict) triple 별로 memoize 해야 한다.
+pub fn engine_version_for_paths(
+    det: Option<&str>,
+    rec: Option<&str>,
+    dict: Option<&str>,
+) -> Result<String> {
+    let defaults = ModelPaths::from_default_dir();
+    let paths = ModelPaths {
+        det: det.map(PathBuf::from).unwrap_or(defaults.det),
+        rec: rec.map(PathBuf::from).unwrap_or(defaults.rec),
+        dict: dict.map(PathBuf::from).unwrap_or(defaults.dict),
+    };
+    compute_engine_version(&paths)
+}
+
 /// blake3 over det + rec + dict bytes → stable `engine_version`.
 fn compute_engine_version(paths: &ModelPaths) -> Result<String> {
     let mut hasher = blake3::Hasher::new();

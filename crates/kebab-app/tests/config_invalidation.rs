@@ -146,3 +146,24 @@ fn search_setting_change_reindexes_nothing() {
     assert_eq!(second.new, 0);
     assert_eq!(second.errors, 0);
 }
+
+/// v3 불변식 #1: `ingest_config_signature` 출력 문자열은 값 기반이라 struct
+/// 경로 재편(미디어 ingest 통합) 후에도 v2 와 **바이트 동일**해야 한다. 깨지면
+/// 업그레이드 시 전체 재색인 발생. paddle-onnx image 분기 형식 골든.
+#[test]
+fn ingest_signature_image_paddle_byte_stable() {
+    let mut cfg = kebab_config::Config::defaults();
+    cfg.ingest.image.ocr.enabled = true;
+    cfg.ingest.image.ocr.engine = "paddle-onnx".into();
+    let sig = kebab_app::test_ingest_config_signature(
+        &cfg,
+        &kebab_core::MediaType::Image(kebab_core::ImageType::Png),
+    );
+    // 골든: chunk:... |ocr:1:paddle-onnx:<engine_version> |cap:0
+    assert!(
+        sig.starts_with("chunk:500:80:true:md-heading-v1"),
+        "chunk prefix drift: {sig}"
+    );
+    assert!(sig.contains("|ocr:1:paddle-onnx:"), "ocr token drift: {sig}");
+    assert!(sig.ends_with("|cap:0"), "cap token drift: {sig}");
+}
