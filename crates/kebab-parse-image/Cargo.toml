@@ -45,6 +45,10 @@ thiserror    = { workspace = true }
 # so a standalone `cargo test -p kebab-parse-image` needs it to link onnxruntime.
 ort          = { workspace = true, features = ["ndarray", "download-binaries"] }
 ndarray      = { workspace = true }
+# blake3: engine_version hash over the bundled det/rec/dict assets (computed
+# once at OnnxPaddleOcr construction, cached — `ingest_config_signature` calls
+# engine_version() per asset).
+blake3       = { workspace = true }
 # imageproc: connected-components / contours for DBNet det post-processing.
 # min-area rotated-rect (rotating calipers) and polygon unclip are implemented
 # in pure Rust (clipper2 is C++ FFI — would break the single-binary guarantee).
