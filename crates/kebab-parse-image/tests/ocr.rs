@@ -19,10 +19,10 @@ use crate::common::red_100x50_png;
 
 fn cfg_for_endpoint(endpoint: &str) -> Config {
     let mut cfg = Config::defaults();
-    cfg.image.ocr.endpoint = Some(endpoint.to_string());
-    cfg.image.ocr.model = "gemma4:e4b".to_string();
-    cfg.image.ocr.languages = vec!["eng".to_string(), "kor".to_string()];
-    cfg.image.ocr.max_pixels = 1024;
+    cfg.ingest.image.ocr.endpoint = Some(endpoint.to_string());
+    cfg.ingest.image.ocr.model = "gemma4:e4b".to_string();
+    cfg.ingest.image.ocr.languages = vec!["eng".to_string(), "kor".to_string()];
+    cfg.ingest.image.ocr.max_pixels = 1024;
     cfg
 }
 
@@ -375,9 +375,9 @@ async fn ocr_integration_real_ollama_transcribes_text() {
     };
     let cfg = {
         let mut c = Config::defaults();
-        c.image.ocr.endpoint = Some(endpoint);
-        c.image.ocr.model = model;
-        c.image.ocr.max_pixels = 1024;
+        c.ingest.image.ocr.endpoint = Some(endpoint);
+        c.ingest.image.ocr.model = model;
+        c.ingest.image.ocr.max_pixels = 1024;
         c
     };
     let text = tokio::task::spawn_blocking(move || run_recognize(cfg, bytes, None))

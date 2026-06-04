@@ -14,6 +14,35 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-04 — config 스키마 v2→v3 재편: 미디어 ingest 통합 (v0.28.0)
+
+**무엇을 바꿨나.** `config.toml` 의 미디어 형식 설정을 `[ingest.*]` 우산 아래로 통합했다. 첫 non-additive rename 마이그레이션.
+
+rename 매핑:
+
+| v2 (top-level) | v3 (`[ingest.*]`) |
+|---|---|
+| `[indexing]` (스칼라 키) | `[ingest]` 스칼라 (`max_parallel_extractors`/`max_parallel_embeddings`/`watch_filesystem`) |
+| `[chunking]` | `[ingest.chunking]` |
+| `[image.ocr]` | `[ingest.image.ocr]` |
+| `[image.caption]` | `[ingest.image.caption]` |
+| `[pdf.ocr]` | `[ingest.pdf.ocr]` |
+| `[ingest.code]` | `[ingest.code]` (불변) |
+
+**보장한 3가지 불변식.**
+
+1. **signature 바이트 불변** — `ingest_config_signature` 출력은 값 기반이라 struct 경로 재편 후에도 v2 와 바이트 동일. 업그레이드 시 전체 재색인 발생 안 함. paddle 경로(det/rec/dict)는 미디어별로 호출자가 넘기도록 인자화(`ocr_engine_version_for_sig` + `engine_version_for_paths`); v2 의 "pdf 가 image paddle 을 빌려쓰던" 비대칭은 `step_2_to_3` 의 값 복사(`copy_image_paddle_to_pdf`)로 보존.
+2. **env override 이름 100% 보존** — `apply_env` whitelist 의 키 문자열(LHS, 예 `KEBAB_CHUNKING_TARGET_TOKENS`/`KEBAB_INDEXING_MAX_PARALLEL_EXTRACTORS`)은 불변, 대입 대상(RHS)만 `self.ingest.*` 로. 기존 `KEBAB_*` 스크립트 무파손. 신규 `KEBAB_PDF_OCR_{DET_MODEL,REC_MODEL,DICT,SCORE_THRESH,UNCLIP_RATIO,MAX_BOXES}` 6키 추가(image.ocr paddle 대칭).
+3. **load 시 메모리 내 자동 변환** — `Config::from_file` 이 `schema_version < 3` 파일을 디스크 미변경으로 메모리에서 v3 변환(`migrate_document` 경유). 미변환 v2 파일도 설정 유실 0. 파일 갱신은 `kebab config migrate` (값·주석·대안 줄 보존, 멱등).
+
+`PdfOcrCfg` 에 paddle 대칭 6키 추가. `ser_f32_clean` 으로 f32 직렬화 정리(`0.30000001192092896`→`0.3`). per-option 인라인 주석(`key_comment`)을 init/migrate 산출 config 에 부착.
+
+**도그푸딩 (v0.28.0 release 빌드).**
+
+1. **사용자 실제 v2 config 변환** (`/build/dogfood/config-v3-test/`): `kebab config migrate` → `v2 → v3 (11 changes)`, `.bak` 백업. schema_version 2→3, 섹션 헤더만 [ingest.*] 로 이동(`[indexing]`/`[chunking]`/`[image.ocr]`/`[image.caption]`/`[pdf.ocr]` → `[ingest.*]`). 사용자 값 보존(`root`, `model = "snowflake-arctic-embed2"`, `endpoint = "http://192.168.0.2:11943"`, `score_gate = 0.30000001192092896` 그대로) + 대안 주석 보존(`# engine = "ollama-vision"`, `# provider = "candle"`). 재실행 멱등(`config 이미 최신입니다`).
+
+2. **재색인 0 실증** (`/build/dogfood/config-v3-reindex/`, lexical-only `provider = "none"`): v2 config(디스크 schema_version=2)로 first ingest `new=2`. (a) 동일 v2 config 재ingest(메모리 자동변환) → `new=0 updated=0 unchanged=2`. (b) 디스크 파일을 v3 로 `config migrate` 후 재ingest → `new=0 updated=0 unchanged=2`. signature 바이트 불변이 실제 업그레이드 경로(v2 자동변환 ↔ v3 디스크)에서 재색인 0 으로 확인됨 — 불변식 #1 검증.
+
 ## 2026-06-04 — PP-OCRv5 ONNX Rust 네이티브 OCR 엔진 (v0.27.0)
 
 **무엇을 추가했나.** 이미지 OCR 에 두 번째 백엔드 `paddle-onnx` 를 붙였다. 기존 `ollama-vision`

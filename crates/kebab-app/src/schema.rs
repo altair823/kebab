@@ -205,7 +205,7 @@ fn collect_models(cfg: &Config, store: &kebab_store_sqlite::SqliteStore) -> Mode
         // maintain their own versions; surface those when SchemaV1.models
         // becomes a multi-medium map (P+).
         parser_version: kebab_parse_md::PARSER_VERSION.to_string(),
-        chunker_version: cfg.chunking.chunker_version.clone(),
+        chunker_version: cfg.ingest.chunking.chunker_version.clone(),
         active_parsers,
         active_chunkers,
         // EmbeddingModelCfg uses `.model` (not `.id`) — adapt from plan.

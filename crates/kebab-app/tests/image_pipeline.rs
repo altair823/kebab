@@ -34,11 +34,11 @@ fn cfg_with_image_pipeline(env: &TestEnv, mock_endpoint: &str) -> Config {
     let mut cfg = env.config.clone();
     // p9-fb-25: workspace.include removed; extension routing is now
     // handled by extractor matching alone (no config knob).
-    cfg.image.ocr.enabled = true;
-    cfg.image.ocr.endpoint = Some(mock_endpoint.to_string());
-    cfg.image.ocr.model = "vision-mock:1b".to_string();
-    cfg.image.ocr.max_pixels = 512;
-    cfg.image.caption.enabled = false; // tested separately below
+    cfg.ingest.image.ocr.enabled = true;
+    cfg.ingest.image.ocr.endpoint = Some(mock_endpoint.to_string());
+    cfg.ingest.image.ocr.model = "vision-mock:1b".to_string();
+    cfg.ingest.image.ocr.max_pixels = 512;
+    cfg.ingest.image.caption.enabled = false; // tested separately below
     cfg.models.llm.endpoint = mock_endpoint.to_string();
     cfg.models.llm.model = "vision-mock:1b".to_string();
     cfg
@@ -161,8 +161,8 @@ async fn ingest_image_with_ocr_and_caption_populates_both_fields() {
     let env = TestEnv::lexical_only();
     write_red_png(&env.workspace_root, "diagram.png");
     let mut cfg = cfg_with_image_pipeline(&env, &server.uri());
-    cfg.image.caption.enabled = true;
-    cfg.image.caption.max_pixels = 384;
+    cfg.ingest.image.caption.enabled = true;
+    cfg.ingest.image.caption.max_pixels = 384;
 
     let cfg_clone = cfg.clone();
     let scope = env.scope();
@@ -270,8 +270,8 @@ async fn image_indexed_with_filename_when_ocr_and_caption_disabled() {
     let mut cfg = env.config.clone();
     // p9-fb-25: workspace.include removed; extension routing is now
     // handled by extractor matching alone (no config knob).
-    cfg.image.ocr.enabled = false;
-    cfg.image.caption.enabled = false;
+    cfg.ingest.image.ocr.enabled = false;
+    cfg.ingest.image.caption.enabled = false;
 
     let cfg_clone = cfg.clone();
     let scope = env.scope();
@@ -334,8 +334,8 @@ async fn garbage_png_increments_errors_counter_exactly_once() {
     let mut cfg = env.config.clone();
     // p9-fb-25: workspace.include removed; extension routing is now
     // handled by extractor matching alone (no config knob).
-    cfg.image.ocr.enabled = false;
-    cfg.image.caption.enabled = false;
+    cfg.ingest.image.ocr.enabled = false;
+    cfg.ingest.image.caption.enabled = false;
 
     let cfg_clone = cfg.clone();
     let scope = env.scope();

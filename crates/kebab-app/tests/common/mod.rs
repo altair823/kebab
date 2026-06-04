@@ -62,8 +62,8 @@ impl TestEnv {
         // Drop in a small chunk policy so the fixture's small files
         // emit at least a couple of chunks even with overlap_tokens
         // honored.
-        config.chunking.target_tokens = 80;
-        config.chunking.overlap_tokens = 20;
+        config.ingest.chunking.target_tokens = 80;
+        config.ingest.chunking.overlap_tokens = 20;
 
         Self {
             temp,

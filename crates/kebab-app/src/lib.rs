@@ -54,7 +54,7 @@ use kebab_core::{
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_parse_image::{
     OLLAMA_VISION_ENGINE, OcrEngine, OllamaVisionOcr, OnnxPaddleOcr, PADDLE_ONNX_ENGINE,
-    apply_caption, apply_ocr, engine_version_for_config,
+    apply_caption, apply_ocr, engine_version_for_paths,
 };
 use kebab_parse_md::{BodyHints, build_canonical_document, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
@@ -360,12 +360,12 @@ pub fn ingest_with_config_opts(
     // loop is correct and cheap. Construction failure (e.g. invalid
     // endpoint) aborts ingest fail-fast — better than silently disabling
     // OCR/caption mid-run.
-    let ocr_engine: Option<Box<dyn OcrEngine>> = if app.config.image.ocr.enabled {
+    let ocr_engine: Option<Box<dyn OcrEngine>> = if app.config.ingest.image.ocr.enabled {
         Some(build_image_ocr_engine(&app.config).context("kb-app::ingest: build image OCR engine")?)
     } else {
         None
     };
-    let caption_llm: Option<Box<dyn LanguageModel>> = if app.config.image.caption.enabled {
+    let caption_llm: Option<Box<dyn LanguageModel>> = if app.config.ingest.image.caption.enabled {
         Some(Box::new(OllamaLanguageModel::new(&app.config).context(
             "kb-app::ingest: build OllamaLanguageModel for caption",
         )?))
@@ -380,7 +380,7 @@ pub fn ingest_with_config_opts(
     // p10 / v0.20 sub-item 1: PDF OCR engine eager init (H-5 resolution).
     // image OCR pattern mirror — per-ingest 1회 build, fallible → fail-fast.
     let pdf_ocr_engine: Option<Box<dyn OcrEngine>> =
-        if app.config.pdf.ocr.enabled || app.config.pdf.ocr.always_on {
+        if app.config.ingest.pdf.ocr.enabled || app.config.ingest.pdf.ocr.always_on {
             Some(
                 build_pdf_ocr_engine(&app.config)
                     .context("kb-app::ingest: build pdf OCR engine")?,
@@ -825,7 +825,7 @@ fn mint_ingest_run_id(scope_json: &str, at: time::OffsetDateTime) -> String {
 type SqliteStoreAlias = kebab_store_sqlite::SqliteStore;
 
 /// v0.27.0 (T8): build the image OCR engine selected by
-/// `config.image.ocr.engine`. Returns a boxed trait object so the ingest
+/// `config.ingest.image.ocr.engine`. Returns a boxed trait object so the ingest
 /// pipeline is engine-agnostic. Construction is fail-fast (model load /
 /// hash / endpoint validation) — mirrors the prior concrete-type behaviour.
 ///
@@ -835,7 +835,7 @@ type SqliteStoreAlias = kebab_store_sqlite::SqliteStore;
 fn build_image_ocr_engine(
     config: &kebab_config::Config,
 ) -> anyhow::Result<Box<dyn OcrEngine>> {
-    match config.image.ocr.engine.as_str() {
+    match config.ingest.image.ocr.engine.as_str() {
         OLLAMA_VISION_ENGINE => Ok(Box::new(
             OllamaVisionOcr::new(config).context("build OllamaVisionOcr")?,
         )),
@@ -850,7 +850,7 @@ fn build_image_ocr_engine(
 }
 
 /// v0.27.0 (T8): build the PDF OCR engine selected by
-/// `config.pdf.ocr.engine`. The ollama-vision arm uses the PDF-specific
+/// `config.ingest.pdf.ocr.engine`. The ollama-vision arm uses the PDF-specific
 /// `model` / `languages` / `max_pixels` / `request_timeout_secs` knobs (and
 /// endpoint fallback to `models.llm.endpoint`). The paddle-onnx arm shares
 /// the same bundled ONNX models as image OCR (resolved from `image.ocr`
@@ -869,9 +869,9 @@ fn build_image_ocr_engine(
 fn build_pdf_ocr_engine(
     config: &kebab_config::Config,
 ) -> anyhow::Result<Box<dyn OcrEngine>> {
-    match config.pdf.ocr.engine.as_str() {
+    match config.ingest.pdf.ocr.engine.as_str() {
         OLLAMA_VISION_ENGINE => {
-            let cfg = &config.pdf.ocr;
+            let cfg = &config.ingest.pdf.ocr;
             let endpoint = match cfg.endpoint.as_deref() {
                 Some(s) if !s.is_empty() => s.to_string(),
                 _ => config.models.llm.endpoint.clone(),
@@ -2144,7 +2144,7 @@ fn sweep_deleted_files(
 ///   asset rollback on embed-fail is a P+ task).
 ///
 /// `chunker_version` is hard-coded to `pdf-page-v1` (HOTFIXES entry —
-/// `config.chunking.chunker_version` is single-valued today and serves
+/// `config.ingest.chunking.chunker_version` is single-valued today and serves
 /// the markdown path; per-medium config split is a P+ chunker registry
 /// task).
 #[allow(clippy::too_many_arguments)]
@@ -2229,15 +2229,15 @@ fn ingest_one_pdf_asset(
     // v0.20 sub-item 1: post-extract OCR enrichment (PR #187 registry
     // dispatch invariant 보존 — extract_for 가 normal entry).
     let (pdf_ocr_pages, pdf_ocr_ms_total): (Option<u32>, Option<u64>) =
-        if app.config.pdf.ocr.enabled || app.config.pdf.ocr.always_on {
+        if app.config.ingest.pdf.ocr.enabled || app.config.ingest.pdf.ocr.always_on {
             match pdf_ocr_engine {
                 Some(engine) => {
                     let ocr_opts = crate::pdf_ocr_apply::PdfOcrOpts {
-                        enabled: app.config.pdf.ocr.enabled || app.config.pdf.ocr.always_on,
-                        always_on: app.config.pdf.ocr.always_on,
-                        valid_ratio_threshold: app.config.pdf.ocr.valid_ratio_threshold,
-                        min_char_count: app.config.pdf.ocr.min_char_count,
-                        lang_hint: app.config.pdf.ocr.lang_hint.clone().map(kebab_core::Lang),
+                        enabled: app.config.ingest.pdf.ocr.enabled || app.config.ingest.pdf.ocr.always_on,
+                        always_on: app.config.ingest.pdf.ocr.always_on,
+                        valid_ratio_threshold: app.config.ingest.pdf.ocr.valid_ratio_threshold,
+                        min_char_count: app.config.ingest.pdf.ocr.min_char_count,
+                        lang_hint: app.config.ingest.pdf.ocr.lang_hint.clone().map(kebab_core::Lang),
                         cancel: cancel.cloned(),
                     };
                     // v0.20.x Hook 2: pre-clone Arcs for capture by OCR closure.
@@ -2356,7 +2356,7 @@ fn ingest_one_pdf_asset(
         };
 
     // Per-medium chunker selection: PDF docs always use pdf-page-v1
-    // regardless of `config.chunking.chunker_version`. The chunker
+    // regardless of `config.ingest.chunking.chunker_version`. The chunker
     // validates every block carries `SourceSpan::Page`; failure here
     // means the parser drifted from its contract.
     let chunker = PdfPageV1Chunker;
@@ -3056,10 +3056,10 @@ fn build_body_hints(asset: &RawAsset) -> BodyHints {
 /// Build a `ChunkPolicy` from the active config.
 fn chunk_policy_from_config(config: &kebab_config::Config) -> ChunkPolicy {
     ChunkPolicy {
-        target_tokens: config.chunking.target_tokens,
-        overlap_tokens: config.chunking.overlap_tokens,
-        respect_markdown_headings: config.chunking.respect_markdown_headings,
-        chunker_version: ChunkerVersion(config.chunking.chunker_version.clone()),
+        target_tokens: config.ingest.chunking.target_tokens,
+        overlap_tokens: config.ingest.chunking.overlap_tokens,
+        respect_markdown_headings: config.ingest.chunking.respect_markdown_headings,
+        chunker_version: ChunkerVersion(config.ingest.chunking.chunker_version.clone()),
     }
 }
 
@@ -3090,21 +3090,31 @@ static PADDLE_OCR_VERSION_MEMO: std::sync::OnceLock<
     std::sync::Mutex<std::collections::HashMap<String, String>>,
 > = std::sync::OnceLock::new();
 
-/// T9: resolve the OCR `engine_version` string used inside the ingest config
+/// T9/v3: resolve the OCR `engine_version` string used inside the ingest config
 /// signature. ollama-vision is self-describing from `engine/model` (cheap, no
 /// I/O). paddle-onnx hashes the bundled/override model assets (memoized).
-fn ocr_engine_version_for_sig(config: &kebab_config::Config, engine: &str, model: &str) -> String {
+///
+/// v3: paddle 경로(det/rec/dict)는 **호출자가 미디어별로** 넘긴다 — image 는
+/// `[ingest.image.ocr]`, pdf 는 `[ingest.pdf.ocr]`. v2 의 "pdf 가 image paddle
+/// 을 빌려쓰던" 비대칭을 제거한다. 마이그레이션(T5)이 pdf 대칭 키를 image 값
+/// 으로 채우므로 미변환 v2 → v3 의 signature 는 바이트 동일하게 유지된다.
+fn ocr_engine_version_for_sig(
+    engine: &str,
+    model: &str,
+    det: Option<&str>,
+    rec: Option<&str>,
+    dict: Option<&str>,
+) -> String {
     if engine != PADDLE_ONNX_ENGINE {
         // ollama-vision (and any non-paddle engine): the daemon exposes no
         // stable per-model revision, so engine/model is the identity.
         return format!("ollama/{model}");
     }
-    let ocr = &config.image.ocr;
     let key = format!(
         "{}|{}|{}",
-        ocr.det_model.as_deref().unwrap_or("<bundled>"),
-        ocr.rec_model.as_deref().unwrap_or("<bundled>"),
-        ocr.dict.as_deref().unwrap_or("<bundled>"),
+        det.unwrap_or("<bundled>"),
+        rec.unwrap_or("<bundled>"),
+        dict.unwrap_or("<bundled>"),
     );
     let memo = PADDLE_OCR_VERSION_MEMO.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
     if let Some(v) = memo.lock().unwrap().get(&key) {
@@ -3114,7 +3124,7 @@ fn ocr_engine_version_for_sig(config: &kebab_config::Config, engine: &str, model
     // ingest the engine was already built (fail-fast) so the assets are
     // present and this succeeds; the path-derived identity below is an
     // unreachable-in-practice guard that keeps the signature total.
-    let version = engine_version_for_config(config).unwrap_or_else(|e| {
+    let version = engine_version_for_paths(det, rec, dict).unwrap_or_else(|e| {
         tracing::warn!(
             target: "kebab-app::ingest",
             error = %e,
@@ -3126,11 +3136,19 @@ fn ocr_engine_version_for_sig(config: &kebab_config::Config, engine: &str, model
     version
 }
 
+/// v3: signature 바이트 불변 골든을 위한 테스트 seam. `ingest_config_signature`
+/// 는 private 이라 통합 테스트에서 직접 못 부른다. 값 기반이라 struct 경로가
+/// 바뀌어도(미디어 ingest 통합) 출력 문자열은 v2 와 바이트 동일해야 한다.
+#[doc(hidden)]
+pub fn test_ingest_config_signature(c: &kebab_config::Config, m: &MediaType) -> String {
+    ingest_config_signature(c, m)
+}
+
 fn ingest_config_signature(config: &kebab_config::Config, media: &MediaType) -> String {
     // Common (every media type): chunking parameters that move chunk
     // boundaries. `target_tokens` / `overlap_tokens` change re-chunking for
     // markdown / image / pdf / code alike, so a change re-indexes all types.
-    let c = &config.chunking;
+    let c = &config.ingest.chunking;
     let mut sig = format!(
         "chunk:{}:{}:{}:{}",
         c.target_tokens, c.overlap_tokens, c.respect_markdown_headings, c.chunker_version
@@ -3140,7 +3158,7 @@ fn ingest_config_signature(config: &kebab_config::Config, media: &MediaType) -> 
             // OCR / caption only affect output when their `enabled` flag is
             // on; the model / prompt version matters only then. Off ↔ off is
             // a stable empty token so re-running the same config skips.
-            let ocr = &config.image.ocr;
+            let ocr = &config.ingest.image.ocr;
             if ocr.enabled {
                 // v0.27.0 (T9): engine + engine_version so switching engine
                 // (ollama-vision ↔ paddle-onnx) OR changing the model/assets
@@ -3148,12 +3166,18 @@ fn ingest_config_signature(config: &kebab_config::Config, media: &MediaType) -> 
                 sig.push_str(&format!(
                     "|ocr:1:{}:{}",
                     ocr.engine,
-                    ocr_engine_version_for_sig(config, &ocr.engine, &ocr.model)
+                    ocr_engine_version_for_sig(
+                        &ocr.engine,
+                        &ocr.model,
+                        ocr.det_model.as_deref(),
+                        ocr.rec_model.as_deref(),
+                        ocr.dict.as_deref(),
+                    )
                 ));
             } else {
                 sig.push_str("|ocr:0");
             }
-            let cap = &config.image.caption;
+            let cap = &config.ingest.image.caption;
             if cap.enabled {
                 sig.push_str(&format!("|cap:1:{}", cap.prompt_template_version));
             } else {
@@ -3163,7 +3187,7 @@ fn ingest_config_signature(config: &kebab_config::Config, media: &MediaType) -> 
         MediaType::Pdf => {
             // PDF OCR is active when EITHER `enabled` or `always_on` is set
             // (mirrors the ingest gate). `model` only matters when active.
-            let ocr = &config.pdf.ocr;
+            let ocr = &config.ingest.pdf.ocr;
             if ocr.enabled || ocr.always_on {
                 // v0.27.0 (T9): engine + engine_version (same cascade rule as
                 // image OCR above) alongside the enabled/always_on gate.
@@ -3172,7 +3196,13 @@ fn ingest_config_signature(config: &kebab_config::Config, media: &MediaType) -> 
                     ocr.enabled,
                     ocr.always_on,
                     ocr.engine,
-                    ocr_engine_version_for_sig(config, &ocr.engine, &ocr.model)
+                    ocr_engine_version_for_sig(
+                        &ocr.engine,
+                        &ocr.model,
+                        ocr.det_model.as_deref(),
+                        ocr.rec_model.as_deref(),
+                        ocr.dict.as_deref(),
+                    )
                 ));
             } else {
                 sig.push_str("|pdfocr:0");
@@ -3739,7 +3769,7 @@ mod ingest_config_signature_tests {
     fn chunking_change_invalidates_all_types() {
         let base = Config::defaults();
         let mut bumped = base.clone();
-        bumped.chunking.target_tokens += 100;
+        bumped.ingest.chunking.target_tokens += 100;
         for m in [md(), img(), pdf(), code()] {
             assert_ne!(
                 ingest_config_signature(&base, &m),
@@ -3749,14 +3779,14 @@ mod ingest_config_signature_tests {
         }
 
         let mut overlap = base.clone();
-        overlap.chunking.overlap_tokens += 10;
+        overlap.ingest.chunking.overlap_tokens += 10;
         assert_ne!(
             ingest_config_signature(&base, &md()),
             ingest_config_signature(&overlap, &md())
         );
 
         let mut headings = base.clone();
-        headings.chunking.respect_markdown_headings = !base.chunking.respect_markdown_headings;
+        headings.ingest.chunking.respect_markdown_headings = !base.ingest.chunking.respect_markdown_headings;
         assert_ne!(
             ingest_config_signature(&base, &md()),
             ingest_config_signature(&headings, &md())
@@ -3768,9 +3798,9 @@ mod ingest_config_signature_tests {
     #[test]
     fn image_ocr_toggle_invalidates_image_only() {
         let base = Config::defaults();
-        assert!(!base.image.ocr.enabled, "default OCR is off");
+        assert!(!base.ingest.image.ocr.enabled, "default OCR is off");
         let mut on = base.clone();
-        on.image.ocr.enabled = true;
+        on.ingest.image.ocr.enabled = true;
 
         assert_ne!(
             ingest_config_signature(&base, &img()),
@@ -3792,16 +3822,16 @@ mod ingest_config_signature_tests {
     fn image_ocr_model_matters_only_when_enabled() {
         let mut off_a = Config::defaults();
         let mut off_b = off_a.clone();
-        off_b.image.ocr.model = "some-other-model".to_string();
+        off_b.ingest.image.ocr.model = "some-other-model".to_string();
         assert_eq!(
             ingest_config_signature(&off_a, &img()),
             ingest_config_signature(&off_b, &img()),
             "OCR model is irrelevant while OCR is off"
         );
 
-        off_a.image.ocr.enabled = true;
+        off_a.ingest.image.ocr.enabled = true;
         let mut on_b = off_a.clone();
-        on_b.image.ocr.model = "some-other-model".to_string();
+        on_b.ingest.image.ocr.model = "some-other-model".to_string();
         assert_ne!(
             ingest_config_signature(&off_a, &img()),
             ingest_config_signature(&on_b, &img()),
@@ -3814,14 +3844,14 @@ mod ingest_config_signature_tests {
     fn image_caption_toggle_and_prompt_invalidate_image() {
         let base = Config::defaults();
         let mut on = base.clone();
-        on.image.caption.enabled = true;
+        on.ingest.image.caption.enabled = true;
         assert_ne!(
             ingest_config_signature(&base, &img()),
             ingest_config_signature(&on, &img())
         );
 
         let mut prompt = on.clone();
-        prompt.image.caption.prompt_template_version = "caption-v9".to_string();
+        prompt.ingest.image.caption.prompt_template_version = "caption-v9".to_string();
         assert_ne!(
             ingest_config_signature(&on, &img()),
             ingest_config_signature(&prompt, &img()),
@@ -3835,7 +3865,7 @@ mod ingest_config_signature_tests {
     fn pdf_ocr_toggle_invalidates_pdf_only() {
         let base = Config::defaults();
         let mut enabled = base.clone();
-        enabled.pdf.ocr.enabled = true;
+        enabled.ingest.pdf.ocr.enabled = true;
         assert_ne!(
             ingest_config_signature(&base, &pdf()),
             ingest_config_signature(&enabled, &pdf()),
@@ -3843,7 +3873,7 @@ mod ingest_config_signature_tests {
         );
 
         let mut always = base.clone();
-        always.pdf.ocr.always_on = true;
+        always.ingest.pdf.ocr.always_on = true;
         assert_ne!(
             ingest_config_signature(&base, &pdf()),
             ingest_config_signature(&always, &pdf()),
@@ -3921,13 +3951,13 @@ mod ingest_config_signature_tests {
         // ui
         other.ui.theme = "light".to_string();
         // image runtime-only (non-output) knobs
-        other.image.ocr.max_pixels += 100;
-        other.image.ocr.languages.push("jpn".to_string());
-        other.image.ocr.request_timeout_secs += 10;
+        other.ingest.image.ocr.max_pixels += 100;
+        other.ingest.image.ocr.languages.push("jpn".to_string());
+        other.ingest.image.ocr.request_timeout_secs += 10;
         // pdf runtime-only knobs
-        other.pdf.ocr.max_pixels += 100;
-        other.pdf.ocr.request_timeout_secs += 10;
-        other.pdf.ocr.languages.push("jpn".to_string());
+        other.ingest.pdf.ocr.max_pixels += 100;
+        other.ingest.pdf.ocr.request_timeout_secs += 10;
+        other.ingest.pdf.ocr.languages.push("jpn".to_string());
 
         for m in [md(), img(), pdf(), code()] {
             assert_eq!(
@@ -3946,10 +3976,10 @@ mod ingest_config_signature_tests {
     #[test]
     fn image_ocr_engine_switch_invalidates_image() {
         let mut ollama = Config::defaults();
-        ollama.image.ocr.enabled = true;
+        ollama.ingest.image.ocr.enabled = true;
         // same `model` string on both — only the engine differs
         let mut paddle = ollama.clone();
-        paddle.image.ocr.engine = "paddle-onnx".to_string();
+        paddle.ingest.image.ocr.engine = "paddle-onnx".to_string();
         assert_ne!(
             ingest_config_signature(&ollama, &img()),
             ingest_config_signature(&paddle, &img()),
@@ -3962,10 +3992,10 @@ mod ingest_config_signature_tests {
     #[test]
     fn image_ocr_engine_version_change_invalidates_image() {
         let mut a = Config::defaults();
-        a.image.ocr.enabled = true;
-        a.image.ocr.model = "gemma4:e4b".to_string();
+        a.ingest.image.ocr.enabled = true;
+        a.ingest.image.ocr.model = "gemma4:e4b".to_string();
         let mut b = a.clone();
-        b.image.ocr.model = "qwen2.5vl:3b".to_string();
+        b.ingest.image.ocr.model = "qwen2.5vl:3b".to_string();
         assert_ne!(
             ingest_config_signature(&a, &img()),
             ingest_config_signature(&b, &img()),
@@ -3978,10 +4008,10 @@ mod ingest_config_signature_tests {
     #[test]
     fn image_ocr_paddle_model_path_change_invalidates_image() {
         let mut base = Config::defaults();
-        base.image.ocr.enabled = true;
-        base.image.ocr.engine = "paddle-onnx".to_string();
+        base.ingest.image.ocr.enabled = true;
+        base.ingest.image.ocr.engine = "paddle-onnx".to_string();
         let mut overridden = base.clone();
-        overridden.image.ocr.det_model = Some("/some/other/det.onnx".to_string());
+        overridden.ingest.image.ocr.det_model = Some("/some/other/det.onnx".to_string());
         assert_ne!(
             ingest_config_signature(&base, &img()),
             ingest_config_signature(&overridden, &img()),
@@ -3994,11 +4024,11 @@ mod ingest_config_signature_tests {
     #[test]
     fn paddle_image_signature_stable_for_unrelated_change() {
         let mut base = Config::defaults();
-        base.image.ocr.enabled = true;
-        base.image.ocr.engine = "paddle-onnx".to_string();
+        base.ingest.image.ocr.enabled = true;
+        base.ingest.image.ocr.engine = "paddle-onnx".to_string();
         let mut other = base.clone();
         other.search.default_k += 3;
-        other.image.ocr.max_pixels += 100; // runtime-only knob
+        other.ingest.image.ocr.max_pixels += 100; // runtime-only knob
         assert_eq!(
             ingest_config_signature(&base, &img()),
             ingest_config_signature(&other, &img()),
@@ -4010,9 +4040,9 @@ mod ingest_config_signature_tests {
     #[test]
     fn pdf_ocr_engine_switch_invalidates_pdf() {
         let mut ollama = Config::defaults();
-        ollama.pdf.ocr.enabled = true;
+        ollama.ingest.pdf.ocr.enabled = true;
         let mut paddle = ollama.clone();
-        paddle.pdf.ocr.engine = "paddle-onnx".to_string();
+        paddle.ingest.pdf.ocr.engine = "paddle-onnx".to_string();
         assert_ne!(
             ingest_config_signature(&ollama, &pdf()),
             ingest_config_signature(&paddle, &pdf()),

@@ -39,7 +39,7 @@ use crate::image_prep;
 /// Engine name written into `OcrText.engine` for the Ollama-vision adapter.
 pub const OLLAMA_VISION_ENGINE: &str = "ollama-vision";
 
-/// Lower bound on `config.image.ocr.max_pixels`. Anything below this is
+/// Lower bound on `config.ingest.image.ocr.max_pixels`. Anything below this is
 /// silently bumped to keep the model from receiving an unreadable thumbnail.
 const MIN_LONG_EDGE: u32 = 256;
 
@@ -126,14 +126,14 @@ pub struct OllamaVisionOcr {
 
 impl OllamaVisionOcr {
     /// Build an adapter from a workspace [`kebab_config::Config`].
-    /// Reads `config.image.ocr.{model, endpoint, languages, max_pixels}`;
+    /// Reads `config.ingest.image.ocr.{model, endpoint, languages, max_pixels}`;
     /// when `endpoint` is empty falls back to `config.models.llm.endpoint`
     /// so the same Ollama host serves both LLM and OCR by default.
     ///
     /// Construction does NOT touch the network — the first HTTP call
     /// happens inside [`OcrEngine::recognize`].
     pub fn new(config: &kebab_config::Config) -> Result<Self> {
-        let ocr = &config.image.ocr;
+        let ocr = &config.ingest.image.ocr;
         let endpoint = match ocr.endpoint.as_deref() {
             Some(s) if !s.is_empty() => s.to_string(),
             _ => config.models.llm.endpoint.clone(),

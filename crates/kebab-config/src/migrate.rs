@@ -5,11 +5,11 @@
 //! non-additive 변환(deprecated 제거 등). 자세한 계약은 spec
 //! `docs/superpowers/specs/2026-05-31-config-migration-design.md`.
 
-use toml_edit::DocumentMut;
+use toml_edit::{DocumentMut, Item};
 
 /// 현재 바이너리가 이해하는 config 스키마 버전. 마이그레이션 완료 시
 /// 사용자 파일의 `schema_version` 을 이 값으로 stamp 한다.
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 /// 한 번의 마이그레이션에서 발생한 개별 변경.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -77,15 +77,56 @@ fn section_comment(path: &str) -> Option<&'static str> {
         "models.nli" => "# NLI(groundedness) 모델.",
         "search" => "# 검색 기본 k·stale 기준·fusion.",
         "rag" => "# 답변 생성: prompt 템플릿·score gate·NLI.",
-        "image" => "# 이미지 OCR + 캡션(기본 off, asset 당 모델 호출 비용).",
-        "image.ocr" => "# 이미지 OCR(기본 off).",
-        "image.caption" => "# 이미지 캡션(기본 off).",
         "ui" => "# TUI 팔레트·role 스타일.",
-        "ingest" => "# ingest 정책(code skip 등).",
+        "ingest" => "# 모든 형식 ingest 우산: 병렬도 + chunking/code/image/pdf.",
+        "ingest.chunking" => "# 청크 크기·오버랩·heading 존중(전 형식 공통).",
         "ingest.code" => "# code ingest skip 정책(.gitignore 자동 honor).",
-        "pdf" => "# PDF ingest. scanned PDF OCR 은 기본 off(page 당 cost).",
-        "pdf.ocr" => "# scanned PDF page-단위 OCR(기본 off).",
+        "ingest.image" => "# 이미지 OCR + 캡션(기본 off, asset 당 모델 호출 비용).",
+        "ingest.image.ocr" => "# 이미지 OCR(기본 off).",
+        "ingest.image.caption" => "# 이미지 캡션(기본 off).",
+        "ingest.pdf" => "# PDF ingest. scanned PDF OCR 은 기본 off(page 당 cost).",
+        "ingest.pdf.ocr" => "# scanned PDF page-단위 OCR(기본 off).",
         "logging" => "# ingest 로그(기본 on, ~/.local/state/kebab/logs).",
+        _ => return None,
+    })
+}
+
+/// leaf 키 인라인 주석. dotted path(예: `ingest.chunking.target_tokens`) → 한 줄.
+/// 값 뒤에 `  # ...` suffix 로 부착된다(`#` 없이 본문만 반환).
+fn key_comment(path: &str) -> Option<&'static str> {
+    Some(match path {
+        "workspace.root" => "색인 루트. 절대/~/${VAR}/상대(=이 파일 기준).",
+        "workspace.exclude" => "denylist glob.",
+        "storage.copy_threshold_mb" => "이 크기(MB) 초과 파일은 사본 대신 참조.",
+        "models.embedding.provider" => "fastembed | candle | ollama | none.",
+        "models.embedding.dimensions" => "모델 출력 차원. 틀리면 검색 0건.",
+        "models.embedding.num_threads" => "candle 전용 CPU 스레드 cap(0=auto).",
+        "models.embedding.endpoint" => "ollama provider 시 HTTP. 비우면 llm.endpoint fallback.",
+        "models.llm.request_timeout_secs" => "단일 HTTP 상한. 0=즉시실패(비활성화 아님).",
+        "ingest.max_parallel_extractors" => "동시 extractor 수.",
+        "ingest.max_parallel_embeddings" => "동시 임베딩 수.",
+        "ingest.chunking.target_tokens" => "청크 목표 토큰(전 형식 공통).",
+        "ingest.chunking.respect_markdown_headings" => "markdown heading 경계 존중.",
+        "ingest.image.ocr.enabled" => "이미지 OCR(기본 off, asset 당 비용).",
+        "ingest.image.ocr.engine" => "ollama-vision | paddle-onnx.",
+        "ingest.image.ocr.model" => "ollama-vision 전용. paddle-onnx 는 번들 모델 사용(이 값 무시).",
+        "ingest.image.ocr.request_timeout_secs" => "0=즉시실패(비활성화 아님).",
+        "ingest.image.ocr.score_thresh" => "DBNet box 점수 하한(paddle).",
+        "ingest.image.ocr.unclip_ratio" => "box 패딩 비율(paddle).",
+        "ingest.image.ocr.max_boxes" => "이미지당 box cap(paddle).",
+        "ingest.image.caption.enabled" => "이미지 캡션(기본 off).",
+        "ingest.pdf.ocr.enabled" => "scanned PDF OCR(기본 off, page 당 비용).",
+        "ingest.pdf.ocr.always_on" => "true=모든 page vision 호출(dual-text).",
+        "ingest.pdf.ocr.engine" => "ollama-vision | paddle-onnx.",
+        "ingest.pdf.ocr.model" => "ollama-vision 전용. paddle-onnx 는 번들 모델 사용.",
+        "ingest.pdf.ocr.valid_ratio_threshold" => "유효문자 비율 < 이면 scanned 판정.",
+        "ingest.pdf.ocr.min_char_count" => "page 문자수 < 이면 auto-scanned.",
+        "ingest.pdf.ocr.request_timeout_secs" => "0=즉시실패(비활성화 아님).",
+        "rag.score_gate" => "검색 점수 게이트.",
+        "rag.nli_threshold" => "0=NLI 게이트 off.",
+        "search.default_k" => "기본 검색 결과 수.",
+        "ui.theme" => "dark | light.",
+        "logging.ingest_log_enabled" => "ingest 로그(기본 on).",
         _ => return None,
     })
 }
@@ -123,6 +164,12 @@ fn annotate_table(table: &mut toml_edit::Table, prefix_path: &str) {
                     sub.decor_mut().set_prefix(format!("\n{c}\n"));
                 }
                 annotate_table(sub, &path);
+            } else if let Some(kc) = key_comment(&path) {
+                // 스칼라/배열 leaf: 값 뒤 인라인 주석 suffix. 배열(exclude 등)은
+                // 멀티라인 직렬화돼도 닫는 `]` 뒤로 가 유효.
+                if let Some(v) = item.as_value_mut() {
+                    v.decor_mut().set_suffix(format!("  # {kc}"));
+                }
             }
         }
     }
@@ -191,12 +238,152 @@ pub fn step_1_to_2(doc: &mut DocumentMut, changes: &mut Vec<MigrationChange>) {
     }
 }
 
+/// `from_path` 의 마지막 키를 통째(decor 포함) remove 해 `to_path` 의 dotted
+/// 경로에 삽입한다(중간 테이블 자동 생성). 대상 키가 이미 있으면 덮어쓰지
+/// 않는다(사용자 명시 우선). 원본이 없으면 no-op(멱등).
+fn move_table(
+    doc: &mut DocumentMut,
+    from_path: &[&str],
+    to_path: &[&str],
+    changes: &mut Vec<MigrationChange>,
+) {
+    // from 의 부모까지 내려가 마지막 키를 remove.
+    let (from_parent, from_key) = from_path.split_at(from_path.len() - 1);
+    let mut cur = doc.as_table_mut();
+    for k in from_parent {
+        match cur.get_mut(k).and_then(Item::as_table_mut) {
+            Some(t) => cur = t,
+            None => return, // 원본 없음 → no-op.
+        }
+    }
+    let Some(item) = cur.remove(from_key[0]) else {
+        return;
+    };
+
+    // to 경로의 부모 테이블 확보(없으면 생성), 마지막 키에 삽입.
+    let (to_parent, to_key) = to_path.split_at(to_path.len() - 1);
+    let mut cur = doc.as_table_mut();
+    for k in to_parent {
+        if cur.get(k).is_none() {
+            cur.insert(k, Item::Table(toml_edit::Table::new()));
+        }
+        cur = cur
+            .get_mut(k)
+            .and_then(Item::as_table_mut)
+            .expect("just inserted");
+    }
+    if cur.get(to_key[0]).is_none() {
+        cur.insert(to_key[0], item);
+        changes.push(MigrationChange {
+            kind: ChangeKind::AddedSection,
+            path: to_path.join("."),
+            detail: format!("{} → {}", from_path.join("."), to_path.join(".")),
+        });
+    }
+}
+
+/// 옛 `[indexing]` 의 bare 스칼라 키들을 `[ingest]` 로 옮긴다(테이블 자체가
+/// 아니라 키 단위). 대상에 이미 있는 키는 덮어쓰지 않는다.
+fn move_indexing_keys(doc: &mut DocumentMut, changes: &mut Vec<MigrationChange>) {
+    let Some(idx) = doc.as_table_mut().remove("indexing") else {
+        return;
+    };
+    let Some(idx_tbl) = idx.as_table().cloned() else {
+        return;
+    };
+    if doc.get("ingest").is_none() {
+        doc["ingest"] = Item::Table(toml_edit::Table::new());
+    }
+    let ingest = doc["ingest"].as_table_mut().expect("ingest table");
+    for (k, v) in idx_tbl.iter() {
+        if ingest.get(k).is_none() {
+            ingest.insert(k, v.clone());
+        }
+    }
+    changes.push(MigrationChange {
+        kind: ChangeKind::AddedKey,
+        path: "ingest".to_string(),
+        detail: "indexing → ingest (병렬도 키)".to_string(),
+    });
+}
+
+/// v3: pdf paddle 동작 보존. v2 는 pdf paddle 이 `[image.ocr]` 의 모델 경로를
+/// 빌려썼다. relocation 후 image.ocr 의 paddle 6키 실제 값을 pdf.ocr 대칭
+/// 키로 복사한다(pdf 가 이미 명시한 키는 덮어쓰지 않음, pdf 가 paddle 일 때만).
+fn copy_image_paddle_to_pdf(doc: &mut DocumentMut) {
+    const PADDLE_KEYS: [&str; 6] = [
+        "det_model",
+        "rec_model",
+        "dict",
+        "score_thresh",
+        "unclip_ratio",
+        "max_boxes",
+    ];
+    let img = doc
+        .get("ingest")
+        .and_then(|i| i.get("image"))
+        .and_then(|i| i.get("ocr"))
+        .and_then(Item::as_table)
+        .cloned();
+    let Some(img) = img else {
+        return;
+    };
+    let pdf_is_paddle = doc
+        .get("ingest")
+        .and_then(|i| i.get("pdf"))
+        .and_then(|i| i.get("ocr"))
+        .and_then(|o| o.get("engine"))
+        .and_then(Item::as_str)
+        == Some("paddle-onnx");
+    if !pdf_is_paddle {
+        return;
+    }
+    let Some(pdf) = doc["ingest"]["pdf"]["ocr"].as_table_mut() else {
+        return;
+    };
+    for k in PADDLE_KEYS {
+        if pdf.get(k).is_none() {
+            if let Some(v) = img.get(k) {
+                pdf.insert(k, v.clone());
+            }
+        }
+    }
+}
+
+/// v2 → v3: 미디어 테이블을 `[ingest.*]` 로 relocation(값·주석 보존) + pdf
+/// paddle 값 보존. 멱등(이미 v3 면 원본 테이블이 없어 전부 no-op).
+pub fn step_2_to_3(doc: &mut DocumentMut, changes: &mut Vec<MigrationChange>) {
+    move_indexing_keys(doc, changes);
+    move_table(doc, &["chunking"], &["ingest", "chunking"], changes);
+    move_table(doc, &["image", "ocr"], &["ingest", "image", "ocr"], changes);
+    move_table(
+        doc,
+        &["image", "caption"],
+        &["ingest", "image", "caption"],
+        changes,
+    );
+    move_table(doc, &["pdf", "ocr"], &["ingest", "pdf", "ocr"], changes);
+
+    // 빈 껍데기 [image] / [pdf] 제거.
+    for empty in ["image", "pdf"] {
+        if let Some(t) = doc.get(empty).and_then(Item::as_table) {
+            if t.is_empty() {
+                doc.as_table_mut().remove(empty);
+            }
+        }
+    }
+
+    copy_image_paddle_to_pdf(doc);
+}
+
 /// 파일의 schema_version(없으면 1) 부터 CURRENT 까지 step 적용.
 fn run_steps(doc: &mut DocumentMut, from: u32, changes: &mut Vec<MigrationChange>) {
     if from < 2 {
         step_1_to_2(doc, changes);
     }
-    // 미래 step: if from < 3 { step_2_to_3(...) } ...
+    if from < 3 {
+        step_2_to_3(doc, changes);
+    }
 }
 
 /// 사용자 config.toml 텍스트를 받아 step 체인 + reconciliation + version
@@ -251,15 +438,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn annotated_default_has_per_key_comments() {
+        let text = annotated_default_document().to_string();
+        // 대표 키 인라인 주석 존재.
+        assert!(text.contains("# 색인 루트"), "workspace.root 주석 누락:\n{text}");
+        assert!(text.contains("0=즉시실패"), "request_timeout 주석 누락:\n{text}");
+        assert!(
+            text.contains("paddle-onnx 는 번들 모델"),
+            "ocr.model 주석 누락:\n{text}"
+        );
+        // 주석 추가가 파싱을 깨지 않는다.
+        let back: crate::Config = toml::from_str(&text).expect("parse annotated default");
+        assert_eq!(back, crate::Config::defaults());
+    }
+
+    #[test]
     fn annotated_default_has_all_sections_and_parses_back_to_defaults() {
         let doc = annotated_default_document();
         let text = doc.to_string();
-        // PdfCfg/ImageCfg/ModelsCfg/IngestCfg 는 스칼라 필드가 없어 bare
-        // `[pdf]` 등은 안 나오고 `[pdf.ocr]` 같은 하위 테이블만 직렬화된다.
+        // v3: 미디어 형식 섹션이 전부 `[ingest.*]` 하위로 통합됐다. IngestCfg
+        // 는 스칼라(병렬도) 필드가 있어 bare `[ingest]` + 하위 테이블이 함께
+        // 직렬화된다.
         for section in [
             "[workspace]",
+            "[ingest]",
+            "[ingest.chunking]",
             "[ingest.code]",
-            "[pdf.ocr]",
+            "[ingest.image.ocr]",
+            "[ingest.pdf.ocr]",
             "[logging]",
             "[ui]",
         ] {
@@ -380,6 +586,66 @@ include = [\"*.md\"]
         let again = migrate_document(&outcome.new_text);
         assert!(!again.changed(), "not idempotent: {:?}", again.changes);
         assert_eq!(again.new_text, outcome.new_text);
+    }
+
+    fn changes_after_second_pass(text: &str) -> Vec<MigrationChange> {
+        let mut doc: DocumentMut = text.parse().unwrap();
+        let mut ch = Vec::new();
+        step_2_to_3(&mut doc, &mut ch);
+        ch
+    }
+
+    #[test]
+    fn step_2_to_3_relocates_media_tables() {
+        let v2 = "\
+schema_version = 2
+
+[indexing]
+max_parallel_extractors = 4
+watch_filesystem = true
+
+[chunking]
+target_tokens = 700
+
+[image.ocr]
+enabled = true
+engine = \"paddle-onnx\"
+det_model = \"/custom/det.onnx\"
+
+[image.caption]
+enabled = true
+
+[pdf.ocr]
+enabled = false
+engine = \"paddle-onnx\"
+";
+        let mut doc: DocumentMut = v2.parse().unwrap();
+        let mut changes = Vec::new();
+        step_2_to_3(&mut doc, &mut changes);
+        let out = doc.to_string();
+        // 새 위치 존재.
+        assert!(out.contains("[ingest]"), "{out}");
+        assert!(out.contains("max_parallel_extractors = 4"));
+        assert!(out.contains("watch_filesystem = true"));
+        assert!(out.contains("[ingest.chunking]"));
+        assert!(out.contains("target_tokens = 700"));
+        assert!(out.contains("[ingest.image.ocr]"));
+        assert!(out.contains("det_model = \"/custom/det.onnx\""));
+        assert!(out.contains("[ingest.image.caption]"));
+        assert!(out.contains("[ingest.pdf.ocr]"));
+        // 옛 위치 제거.
+        assert!(!out.contains("[indexing]"));
+        assert!(!out.contains("\n[chunking]"));
+        assert!(!out.contains("\n[image.ocr]"));
+        assert!(!out.contains("\n[image.caption]"));
+        assert!(!out.contains("\n[pdf.ocr]"));
+        // pdf paddle 동작 보존: image paddle det_model 이 pdf 대칭 키로 복사.
+        let reparsed: DocumentMut = out.parse().unwrap();
+        let pdf_det = reparsed["ingest"]["pdf"]["ocr"].get("det_model");
+        assert_eq!(pdf_det.and_then(|v| v.as_str()), Some("/custom/det.onnx"));
+        // 멱등.
+        let again = changes_after_second_pass(&out);
+        assert!(again.is_empty(), "not idempotent: {again:?}");
     }
 
     #[test]

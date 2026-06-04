@@ -12,6 +12,18 @@ mod paths;
 pub mod migrate;
 pub use paths::{expand_path, expand_path_with_base};
 
+/// f32 의 shortest round-trip(Display)을 f64 로 재파싱해 직렬화한다.
+/// `0.3_f32` 가 `0.30000001192092896` 으로 새지 않고 `0.3` 으로 출력되게 한다.
+/// 마이그레이션 시 toml_edit relocation 의 무손실 비교를 깨지 않도록, 그리고
+/// `kebab config migrate` 산출물이 사람이 읽기 좋게.
+fn ser_f32_clean<S>(v: &f32, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let clean: f64 = format!("{v}").parse().unwrap_or(f64::from(*v));
+    s.serialize_f64(clean)
+}
+
 /// Signal: `Config::from_file` / `Config::load` failed due to missing path,
 /// I/O failure, TOML parse failure, or post-parse validation failure.
 ///
@@ -39,32 +51,20 @@ pub struct Config {
     pub schema_version: u32,
     pub workspace: WorkspaceCfg,
     pub storage: StorageCfg,
-    pub indexing: IndexingCfg,
-    pub chunking: ChunkingCfg,
     pub models: ModelsCfg,
+    /// v3: 모든 미디어 형식 ingest 설정의 우산 — 병렬도(← 옛 `[indexing]`),
+    /// chunking, code, image, pdf 가 전부 `[ingest.*]` 하위로 통합됐다.
+    /// `#[serde(default)]` 로 두어 미변환 / 부분 config 도 로드된다(자동
+    /// 변환은 `Config::from_file` 가 메모리에서 수행 — T6).
+    #[serde(default)]
+    pub ingest: IngestCfg,
     pub search: SearchCfg,
     pub rag: RagCfg,
-    /// Image-pipeline settings (P6: OCR, captioning). Tagged
-    /// `#[serde(default)]` so pre-P6 config files that predate the
-    /// `[image]` section still load — defaults disable OCR / caption
-    /// (they cost a model call per asset).
-    #[serde(default = "ImageCfg::defaults")]
-    pub image: ImageCfg,
     /// p9-fb-14: TUI palette + role-style mapping. `#[serde(default)]`
     /// so configs that predate this section still load (defaults to
     /// `dark`).
     #[serde(default = "UiCfg::defaults")]
     pub ui: UiCfg,
-    /// p10-1A-1: code ingest settings. `#[serde(default)]` so existing
-    /// config files without an `[ingest]` / `[ingest.code]` section
-    /// load cleanly with built-in defaults.
-    #[serde(default)]
-    pub ingest: IngestCfg,
-    /// v0.20.0 sub-item 1: PDF ingest pipeline settings. `#[serde(default)]`
-    /// so pre-v0.20 config files without a `[pdf]` section load with
-    /// built-in defaults (OCR disabled — opt-in for scanned PDF KB).
-    #[serde(default = "PdfCfg::defaults")]
-    pub pdf: PdfCfg,
     /// v0.20.x ingest log surface. `#[serde(default)]` so pre-v0.20
     /// config files without a `[logging]` section load with built-in
     /// defaults (enabled=true, dir=~/.local/state/kebab/logs).
@@ -105,18 +105,22 @@ pub struct StorageCfg {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct IndexingCfg {
-    pub max_parallel_extractors: u32,
-    pub max_parallel_embeddings: u32,
-    pub watch_filesystem: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChunkingCfg {
     pub target_tokens: usize,
     pub overlap_tokens: usize,
     pub respect_markdown_headings: bool,
     pub chunker_version: String,
+}
+
+impl ChunkingCfg {
+    pub fn defaults() -> Self {
+        Self {
+            target_tokens: 500,
+            overlap_tokens: 80,
+            respect_markdown_headings: true,
+            chunker_version: "md-heading-v1".to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -186,6 +190,7 @@ pub struct LlmCfg {
     pub model: String,
     pub context_tokens: usize,
     pub endpoint: String,
+    #[serde(serialize_with = "ser_f32_clean")]
     pub temperature: f32,
     pub seed: u64,
     /// v0.17.0 post-dogfood: Hard ceiling on a single HTTP exchange to
@@ -244,6 +249,7 @@ fn default_stale_threshold_days() -> u32 {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RagCfg {
     pub prompt_template_version: String,
+    #[serde(serialize_with = "ser_f32_clean")]
     pub score_gate: f32,
     pub explain_default: bool,
     pub max_context_tokens: usize,
@@ -293,7 +299,7 @@ pub struct RagCfg {
     ///
     /// Single-pass `ask` ignores this knob entirely — only multi-hop
     /// runs through the verification step (PR-9c-2 wires it).
-    #[serde(default = "default_nli_threshold")]
+    #[serde(default = "default_nli_threshold", serialize_with = "ser_f32_clean")]
     pub nli_threshold: f32,
 }
 
@@ -397,11 +403,11 @@ pub struct OcrCfg {
     pub dict: Option<String>,
     /// DBNet detection box score threshold (0.0..=1.0). Boxes whose mean
     /// probability is below this are dropped. Default `0.3`.
-    #[serde(default = "default_ocr_score_thresh")]
+    #[serde(default = "default_ocr_score_thresh", serialize_with = "ser_f32_clean")]
     pub score_thresh: f32,
     /// Polygon unclip ratio applied to each detected box before crop.
     /// Larger = more padding around the text. Default `1.5`.
-    #[serde(default = "default_ocr_unclip_ratio")]
+    #[serde(default = "default_ocr_unclip_ratio", serialize_with = "ser_f32_clean")]
     pub unclip_ratio: f32,
     /// Hard cap on detected boxes per image (runaway guard). Extra boxes
     /// past this count are truncated with a warning. Default `1000`.
@@ -583,7 +589,7 @@ pub struct PdfOcrCfg {
     /// Valid char ratio threshold (0.0..=1.0). Page with ratio below
     /// this is classified as scanned/mojibake → OCR fallback. Default
     /// `0.5`.
-    #[serde(default = "default_pdf_ocr_valid_ratio")]
+    #[serde(default = "default_pdf_ocr_valid_ratio", serialize_with = "ser_f32_clean")]
     pub valid_ratio_threshold: f32,
     /// Minimum char count per page below which page is auto-scanned.
     /// Default `20`.
@@ -592,6 +598,30 @@ pub struct PdfOcrCfg {
     /// Single-page lang hint. Default `Some("kor")`. `None` = no hint.
     #[serde(default = "default_pdf_ocr_lang_hint")]
     pub lang_hint: Option<String>,
+
+    // ── paddle-onnx engine overrides (v3) ───────────────────────────────
+    // Symmetric with `[ingest.image.ocr]`. v2 의 "pdf paddle 이 image 의
+    // 모델 경로를 빌려쓰던" 비대칭을 제거 — pdf 자체 키로 옮긴다. 마이그레이션
+    // (T5)이 image 값을 이 키로 복사해 signature 바이트 동일 유지. 전부
+    // `#[serde(default)]` 이라 pre-v3 config 도 로드.
+    /// Override path to the detection ONNX model. `None` → bundled.
+    #[serde(default)]
+    pub det_model: Option<String>,
+    /// Override path to the recognition ONNX model. `None` → bundled.
+    #[serde(default)]
+    pub rec_model: Option<String>,
+    /// Override path to the character dictionary. `None` → bundled.
+    #[serde(default)]
+    pub dict: Option<String>,
+    /// DBNet detection box score threshold (0.0..=1.0). Default `0.3`.
+    #[serde(default = "default_ocr_score_thresh", serialize_with = "ser_f32_clean")]
+    pub score_thresh: f32,
+    /// Polygon unclip ratio applied to each detected box. Default `1.5`.
+    #[serde(default = "default_ocr_unclip_ratio", serialize_with = "ser_f32_clean")]
+    pub unclip_ratio: f32,
+    /// Hard cap on detected boxes per page (runaway guard). Default `1000`.
+    #[serde(default = "default_ocr_max_boxes")]
+    pub max_boxes: usize,
 }
 
 impl PdfOcrCfg {
@@ -608,6 +638,12 @@ impl PdfOcrCfg {
             valid_ratio_threshold: default_pdf_ocr_valid_ratio(),
             min_char_count: default_pdf_ocr_min_char_count(),
             lang_hint: default_pdf_ocr_lang_hint(),
+            det_model: None,
+            rec_model: None,
+            dict: None,
+            score_thresh: default_ocr_score_thresh(),
+            unclip_ratio: default_ocr_unclip_ratio(),
+            max_boxes: default_ocr_max_boxes(),
         }
     }
 }
@@ -659,12 +695,47 @@ impl UiCfg {
     }
 }
 
-/// p10-1A-1: top-level ingest configuration wrapper. Contains per-media-type
-/// sub-sections; currently only `code` is defined.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+/// v3: 모든 미디어 형식 ingest 설정의 우산. 스칼라(병렬도)는 ← 옛 `[indexing]`,
+/// 미디어별 하위 테이블(chunking/code/image/pdf)은 ← 옛 top-level 섹션.
+/// 직렬화 순서 = 필드 순서: 스칼라(병렬도) 먼저, 하위 테이블 뒤
+/// (TOML 의 "bare key 는 sub-table header 앞" 규칙 준수).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IngestCfg {
+    #[serde(default = "default_max_parallel_extractors")]
+    pub max_parallel_extractors: u32,
+    #[serde(default = "default_max_parallel_embeddings")]
+    pub max_parallel_embeddings: u32,
+    #[serde(default)]
+    pub watch_filesystem: bool,
+    #[serde(default = "ChunkingCfg::defaults")]
+    pub chunking: ChunkingCfg,
+    #[serde(default)]
     pub code: IngestCodeCfg,
+    #[serde(default = "ImageCfg::defaults")]
+    pub image: ImageCfg,
+    #[serde(default = "PdfCfg::defaults")]
+    pub pdf: PdfCfg,
+}
+
+impl Default for IngestCfg {
+    fn default() -> Self {
+        Self {
+            max_parallel_extractors: default_max_parallel_extractors(),
+            max_parallel_embeddings: default_max_parallel_embeddings(),
+            watch_filesystem: false,
+            chunking: ChunkingCfg::defaults(),
+            code: IngestCodeCfg::default(),
+            image: ImageCfg::defaults(),
+            pdf: PdfCfg::defaults(),
+        }
+    }
+}
+
+fn default_max_parallel_extractors() -> u32 {
+    2
+}
+fn default_max_parallel_embeddings() -> u32 {
+    1
 }
 
 /// p10-1A-1: settings for the code ingest pipeline. All fields have
@@ -728,17 +799,6 @@ impl Config {
                 runs_dir: "{data_dir}/runs".to_string(),
                 copy_threshold_mb: 100,
             },
-            indexing: IndexingCfg {
-                max_parallel_extractors: 2,
-                max_parallel_embeddings: 1,
-                watch_filesystem: false,
-            },
-            chunking: ChunkingCfg {
-                target_tokens: 500,
-                overlap_tokens: 80,
-                respect_markdown_headings: true,
-                chunker_version: "md-heading-v1".to_string(),
-            },
             models: ModelsCfg {
                 embedding: EmbeddingModelCfg {
                     provider: "fastembed".to_string(),
@@ -765,6 +825,15 @@ impl Config {
                 },
                 nli: NliCfg::defaults(),
             },
+            ingest: IngestCfg {
+                max_parallel_extractors: 2,
+                max_parallel_embeddings: 1,
+                watch_filesystem: false,
+                chunking: ChunkingCfg::defaults(),
+                code: IngestCodeCfg::default(),
+                image: ImageCfg::defaults(),
+                pdf: PdfCfg::defaults(),
+            },
             search: SearchCfg {
                 default_k: 10,
                 hybrid_fusion: "rrf".to_string(),
@@ -783,10 +852,7 @@ impl Config {
                 multi_hop_max_pool_chunks: default_multi_hop_max_pool_chunks(),
                 nli_threshold: default_nli_threshold(),
             },
-            image: ImageCfg::defaults(),
             ui: UiCfg::defaults(),
-            ingest: IngestCfg::default(),
-            pdf: PdfCfg::defaults(),
             logging: LoggingCfg::default(),
             // p9-fb-05: defaults are not loaded from disk, so no
             // source_dir. Relative `workspace.root` (rare with
@@ -898,29 +964,56 @@ impl Config {
             })
         })?;
 
-        // p9-fb-25: probe for the legacy `workspace.include` key — if
-        // present, emit a one-shot deprecation warning. Detection uses
-        // raw `toml::Value` lookup; the warning fires via a process-
-        // level OnceLock so a long-running TUI / CLI run doesn't spam
-        // the log on every Config::load.
-        if let Ok(value) = toml::from_str::<toml::Value>(&text) {
-            if value
-                .get("workspace")
-                .and_then(|v| v.get("include"))
-                .is_some()
-            {
-                static DEPRECATION_FIRED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-                DEPRECATION_FIRED.get_or_init(|| {
+        // raw `toml::Value` 를 한 번만 파싱해 (1) legacy `workspace.include`
+        // deprecation probe (p9-fb-25) 와 (2) `schema_version` 감지(v3 자동변환)
+        // 에 함께 쓴다 — config load 는 매 CLI 호출마다 일어나므로 파싱 1회로.
+        let probe = toml::from_str::<toml::Value>(&text).ok();
+
+        // p9-fb-25: legacy `workspace.include` 키가 있으면 일회성 deprecation
+        // 경고(process-level OnceLock 로 장기 실행 시 로그 도배 방지).
+        if probe
+            .as_ref()
+            .and_then(|v| v.get("workspace"))
+            .and_then(|v| v.get("include"))
+            .is_some()
+        {
+            static DEPRECATION_FIRED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+            DEPRECATION_FIRED.get_or_init(|| {
+                tracing::warn!(
+                    target: "kebab-config",
+                    config = %path.display(),
+                    "deprecated config: `workspace.include` 필드는 더 이상 사용되지 않습니다 (p9-fb-25, v0.2.1+). 처리 가능한 형식 (md / png / jpg / pdf) 은 extractor 가 자동 결정. config 에서 이 필드를 제거해도 안전 — 더 이상 enforce 안 됨."
+                );
+            });
+        }
+
+        // v3: 파일의 schema_version 이 CURRENT 보다 낮으면 메모리에서 변환한다
+        // (디스크 미변경 — 파일 갱신은 `kebab config migrate`). 미변환 v2 파일도
+        // 설정 유실 없이 로드(불변식 #3). non-additive relocation(v2→v3) 은
+        // serde default forward-compat 로는 커버 안 되므로 반드시 거쳐야 한다.
+        let parse_text = {
+            let from = probe
+                .as_ref()
+                .and_then(|v| v.get("schema_version").and_then(toml::Value::as_integer))
+                .unwrap_or(1) as u32;
+            if from < crate::migrate::CURRENT_SCHEMA_VERSION {
+                static MIGRATE_WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+                MIGRATE_WARNED.get_or_init(|| {
                     tracing::warn!(
                         target: "kebab-config",
                         config = %path.display(),
-                        "deprecated config: `workspace.include` 필드는 더 이상 사용되지 않습니다 (p9-fb-25, v0.2.1+). 처리 가능한 형식 (md / png / jpg / pdf) 은 extractor 가 자동 결정. config 에서 이 필드를 제거해도 안전 — 더 이상 enforce 안 됨."
+                        from,
+                        to = crate::migrate::CURRENT_SCHEMA_VERSION,
+                        "config 가 옛 스키마입니다 — 이번 실행은 메모리에서 변환됨. 파일 갱신: `kebab config migrate`."
                     );
                 });
+                crate::migrate::migrate_document(&text).new_text
+            } else {
+                text.clone()
             }
-        }
+        };
 
-        let mut cfg: Self = toml::from_str(&text).map_err(|e| {
+        let mut cfg: Self = toml::from_str(&parse_text).map_err(|e| {
             anyhow::Error::new(ConfigInvalid {
                 path: path.to_path_buf(),
                 cause: format!("parse_failed: {e}"),
@@ -963,33 +1056,33 @@ impl Config {
                 // indexing
                 "KEBAB_INDEXING_MAX_PARALLEL_EXTRACTORS" => {
                     if let Ok(n) = v.parse::<u32>() {
-                        self.indexing.max_parallel_extractors = n;
+                        self.ingest.max_parallel_extractors = n;
                     }
                 }
                 "KEBAB_INDEXING_MAX_PARALLEL_EMBEDDINGS" => {
                     if let Ok(n) = v.parse::<u32>() {
-                        self.indexing.max_parallel_embeddings = n;
+                        self.ingest.max_parallel_embeddings = n;
                     }
                 }
                 "KEBAB_INDEXING_WATCH_FILESYSTEM" => {
-                    self.indexing.watch_filesystem = parse_bool(v);
+                    self.ingest.watch_filesystem = parse_bool(v);
                 }
 
                 // chunking
                 "KEBAB_CHUNKING_TARGET_TOKENS" => {
                     if let Ok(n) = v.parse::<usize>() {
-                        self.chunking.target_tokens = n;
+                        self.ingest.chunking.target_tokens = n;
                     }
                 }
                 "KEBAB_CHUNKING_OVERLAP_TOKENS" => {
                     if let Ok(n) = v.parse::<usize>() {
-                        self.chunking.overlap_tokens = n;
+                        self.ingest.chunking.overlap_tokens = n;
                     }
                 }
                 "KEBAB_CHUNKING_RESPECT_MARKDOWN_HEADINGS" => {
-                    self.chunking.respect_markdown_headings = parse_bool(v);
+                    self.ingest.chunking.respect_markdown_headings = parse_bool(v);
                 }
-                "KEBAB_CHUNKING_CHUNKER_VERSION" => self.chunking.chunker_version = v.clone(),
+                "KEBAB_CHUNKING_CHUNKER_VERSION" => self.ingest.chunking.chunker_version = v.clone(),
 
                 // models.embedding
                 "KEBAB_MODELS_EMBEDDING_PROVIDER" => self.models.embedding.provider = v.clone(),
@@ -1122,18 +1215,18 @@ impl Config {
 
                 // image.ocr
                 "KEBAB_IMAGE_OCR_ENABLED" => {
-                    self.image.ocr.enabled = parse_bool(v);
+                    self.ingest.image.ocr.enabled = parse_bool(v);
                 }
-                "KEBAB_IMAGE_OCR_ENGINE" => self.image.ocr.engine = v.clone(),
-                "KEBAB_IMAGE_OCR_MODEL" => self.image.ocr.model = v.clone(),
+                "KEBAB_IMAGE_OCR_ENGINE" => self.ingest.image.ocr.engine = v.clone(),
+                "KEBAB_IMAGE_OCR_MODEL" => self.ingest.image.ocr.model = v.clone(),
                 "KEBAB_IMAGE_OCR_ENDPOINT" => {
                     // Empty env value is treated the same as "fall back
                     // to models.llm.endpoint" — i.e. set None.
-                    self.image.ocr.endpoint = if v.is_empty() { None } else { Some(v.clone()) };
+                    self.ingest.image.ocr.endpoint = if v.is_empty() { None } else { Some(v.clone()) };
                 }
                 "KEBAB_IMAGE_OCR_LANGUAGES" => {
                     // Comma-separated list, e.g. "eng,kor".
-                    self.image.ocr.languages = v
+                    self.ingest.image.ocr.languages = v
                         .split(',')
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
@@ -1141,66 +1234,66 @@ impl Config {
                 }
                 "KEBAB_IMAGE_OCR_MAX_PIXELS" => {
                     if let Ok(n) = v.parse::<u32>() {
-                        self.image.ocr.max_pixels = n;
+                        self.ingest.image.ocr.max_pixels = n;
                     }
                 }
                 "KEBAB_IMAGE_OCR_REQUEST_TIMEOUT_SECS" => {
                     if let Ok(n) = v.parse::<u64>() {
-                        self.image.ocr.request_timeout_secs = n;
+                        self.ingest.image.ocr.request_timeout_secs = n;
                     }
                 }
                 // paddle-onnx engine overrides (v0.27.0). Empty string → None
                 // (fall back to bundled / KEBAB_IMAGE_OCR_MODEL_DIR).
                 "KEBAB_IMAGE_OCR_DET_MODEL" => {
-                    self.image.ocr.det_model =
+                    self.ingest.image.ocr.det_model =
                         if v.is_empty() { None } else { Some(v.clone()) };
                 }
                 "KEBAB_IMAGE_OCR_REC_MODEL" => {
-                    self.image.ocr.rec_model =
+                    self.ingest.image.ocr.rec_model =
                         if v.is_empty() { None } else { Some(v.clone()) };
                 }
                 "KEBAB_IMAGE_OCR_DICT" => {
-                    self.image.ocr.dict = if v.is_empty() { None } else { Some(v.clone()) };
+                    self.ingest.image.ocr.dict = if v.is_empty() { None } else { Some(v.clone()) };
                 }
                 "KEBAB_IMAGE_OCR_SCORE_THRESH" => {
                     if let Ok(f) = v.parse::<f32>() {
-                        self.image.ocr.score_thresh = f;
+                        self.ingest.image.ocr.score_thresh = f;
                     }
                 }
                 "KEBAB_IMAGE_OCR_UNCLIP_RATIO" => {
                     if let Ok(f) = v.parse::<f32>() {
-                        self.image.ocr.unclip_ratio = f;
+                        self.ingest.image.ocr.unclip_ratio = f;
                     }
                 }
                 "KEBAB_IMAGE_OCR_MAX_BOXES" => {
                     if let Ok(n) = v.parse::<usize>() {
-                        self.image.ocr.max_boxes = n;
+                        self.ingest.image.ocr.max_boxes = n;
                     }
                 }
 
                 // image.caption (P6-3)
                 "KEBAB_IMAGE_CAPTION_ENABLED" => {
-                    self.image.caption.enabled = parse_bool(v);
+                    self.ingest.image.caption.enabled = parse_bool(v);
                 }
                 "KEBAB_IMAGE_CAPTION_MAX_PIXELS" => {
                     if let Ok(n) = v.parse::<u32>() {
-                        self.image.caption.max_pixels = n;
+                        self.ingest.image.caption.max_pixels = n;
                     }
                 }
                 "KEBAB_IMAGE_CAPTION_PROMPT_TEMPLATE_VERSION" => {
-                    self.image.caption.prompt_template_version = v.clone();
+                    self.ingest.image.caption.prompt_template_version = v.clone();
                 }
 
                 // pdf.ocr (v0.20.0 sub-item 1)
-                "KEBAB_PDF_OCR_ENABLED" => self.pdf.ocr.enabled = parse_bool(v),
-                "KEBAB_PDF_OCR_ALWAYS_ON" => self.pdf.ocr.always_on = parse_bool(v),
-                "KEBAB_PDF_OCR_ENGINE" => self.pdf.ocr.engine = v.clone(),
-                "KEBAB_PDF_OCR_MODEL" => self.pdf.ocr.model = v.clone(),
+                "KEBAB_PDF_OCR_ENABLED" => self.ingest.pdf.ocr.enabled = parse_bool(v),
+                "KEBAB_PDF_OCR_ALWAYS_ON" => self.ingest.pdf.ocr.always_on = parse_bool(v),
+                "KEBAB_PDF_OCR_ENGINE" => self.ingest.pdf.ocr.engine = v.clone(),
+                "KEBAB_PDF_OCR_MODEL" => self.ingest.pdf.ocr.model = v.clone(),
                 "KEBAB_PDF_OCR_ENDPOINT" => {
-                    self.pdf.ocr.endpoint = if v.is_empty() { None } else { Some(v.clone()) };
+                    self.ingest.pdf.ocr.endpoint = if v.is_empty() { None } else { Some(v.clone()) };
                 }
                 "KEBAB_PDF_OCR_LANGUAGES" => {
-                    self.pdf.ocr.languages = v
+                    self.ingest.pdf.ocr.languages = v
                         .split(',')
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
@@ -1208,26 +1301,54 @@ impl Config {
                 }
                 "KEBAB_PDF_OCR_MAX_PIXELS" => {
                     if let Ok(n) = v.parse::<u32>() {
-                        self.pdf.ocr.max_pixels = n;
+                        self.ingest.pdf.ocr.max_pixels = n;
                     }
                 }
                 "KEBAB_PDF_OCR_REQUEST_TIMEOUT_SECS" => {
                     if let Ok(n) = v.parse::<u64>() {
-                        self.pdf.ocr.request_timeout_secs = n;
+                        self.ingest.pdf.ocr.request_timeout_secs = n;
                     }
                 }
                 "KEBAB_PDF_OCR_VALID_RATIO_THRESHOLD" => {
                     if let Ok(n) = v.parse::<f32>() {
-                        self.pdf.ocr.valid_ratio_threshold = n.clamp(0.0, 1.0);
+                        self.ingest.pdf.ocr.valid_ratio_threshold = n.clamp(0.0, 1.0);
                     }
                 }
                 "KEBAB_PDF_OCR_MIN_CHAR_COUNT" => {
                     if let Ok(n) = v.parse::<u32>() {
-                        self.pdf.ocr.min_char_count = n;
+                        self.ingest.pdf.ocr.min_char_count = n;
                     }
                 }
                 "KEBAB_PDF_OCR_LANG_HINT" => {
-                    self.pdf.ocr.lang_hint = if v.is_empty() { None } else { Some(v.clone()) };
+                    self.ingest.pdf.ocr.lang_hint = if v.is_empty() { None } else { Some(v.clone()) };
+                }
+                // pdf paddle-onnx engine overrides (v3). image.ocr paddle 패턴 복제.
+                // Empty string → None (fall back to bundled / KEBAB_IMAGE_OCR_MODEL_DIR).
+                "KEBAB_PDF_OCR_DET_MODEL" => {
+                    self.ingest.pdf.ocr.det_model =
+                        if v.is_empty() { None } else { Some(v.clone()) };
+                }
+                "KEBAB_PDF_OCR_REC_MODEL" => {
+                    self.ingest.pdf.ocr.rec_model =
+                        if v.is_empty() { None } else { Some(v.clone()) };
+                }
+                "KEBAB_PDF_OCR_DICT" => {
+                    self.ingest.pdf.ocr.dict = if v.is_empty() { None } else { Some(v.clone()) };
+                }
+                "KEBAB_PDF_OCR_SCORE_THRESH" => {
+                    if let Ok(f) = v.parse::<f32>() {
+                        self.ingest.pdf.ocr.score_thresh = f;
+                    }
+                }
+                "KEBAB_PDF_OCR_UNCLIP_RATIO" => {
+                    if let Ok(f) = v.parse::<f32>() {
+                        self.ingest.pdf.ocr.unclip_ratio = f;
+                    }
+                }
+                "KEBAB_PDF_OCR_MAX_BOXES" => {
+                    if let Ok(n) = v.parse::<usize>() {
+                        self.ingest.pdf.ocr.max_boxes = n;
+                    }
                 }
 
                 // Unknown KEBAB_* keys are silently ignored — see
@@ -1413,11 +1534,68 @@ theme = "dark"
         assert_eq!(c, back);
     }
 
+    /// 불변식 #3: `from_file` 이 v2 파일을 디스크 미변경으로 메모리에서 v3
+    /// 변환 — 미변환 v2 파일도 설정 유실 0.
+    #[test]
+    fn from_file_auto_migrates_v2_in_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("config.toml");
+        std::fs::write(
+            &p,
+            "\
+schema_version = 2
+
+[workspace]
+root = \"/my/notes\"
+exclude = []
+
+[chunking]
+target_tokens = 777
+
+[image.ocr]
+enabled = true
+engine = \"ollama-vision\"
+model = \"gemma4:e4b\"
+languages = [\"kor\"]
+max_pixels = 1600
+",
+        )
+        .unwrap();
+        let c = Config::from_file(&p).expect("v2 auto-migrate load");
+        // 사용자 v2 값이 새 경로로 살아있어야(기본값 유실 X).
+        assert_eq!(c.ingest.chunking.target_tokens, 777);
+        assert!(c.ingest.image.ocr.enabled);
+        assert_eq!(c.ingest.image.ocr.languages, vec!["kor"]);
+        // 디스크 파일은 안 바뀜(여전히 schema_version = 2 + [chunking]).
+        let on_disk = std::fs::read_to_string(&p).unwrap();
+        assert!(
+            on_disk.contains("schema_version = 2"),
+            "파일이 변경됨:\n{on_disk}"
+        );
+        assert!(on_disk.contains("[chunking]"), "파일이 변경됨:\n{on_disk}");
+    }
+
+    #[test]
+    fn v3_layout_nests_media_under_ingest() {
+        let c = Config::defaults();
+        // 새 경로가 컴파일·접근 가능해야 한다.
+        assert_eq!(c.ingest.max_parallel_extractors, 2);
+        assert_eq!(c.ingest.chunking.target_tokens, 500);
+        assert_eq!(c.ingest.code.max_file_bytes, 262_144);
+        assert_eq!(c.ingest.image.ocr.engine, "ollama-vision");
+        assert_eq!(c.ingest.image.caption.max_pixels, 768);
+        assert_eq!(c.ingest.pdf.ocr.model, "qwen2.5vl:3b");
+        // pdf paddle 대칭 키 존재 + 기본값.
+        assert_eq!(c.ingest.pdf.ocr.score_thresh, 0.3);
+        assert_eq!(c.ingest.pdf.ocr.max_boxes, 1000);
+        assert!(c.ingest.pdf.ocr.det_model.is_none());
+    }
+
     #[test]
     fn defaults_match_design_64_score_gate() {
         let c = Config::defaults();
         assert_eq!(c.rag.score_gate, 0.30);
-        assert_eq!(c.chunking.target_tokens, 500);
+        assert_eq!(c.ingest.chunking.target_tokens, 500);
         assert_eq!(c.models.embedding.model, "multilingual-e5-large");
         assert_eq!(c.models.embedding.dimensions, 1024);
         assert_eq!(c.search.rrf_k, 60);
@@ -1445,6 +1623,34 @@ theme = "dark"
         assert_eq!(c.search.default_k, 25);
     }
 
+    /// 불변식 #2: env override 이름(LHS) 100% 보존 — struct 경로가 바뀌어도
+    /// 기존 `KEBAB_*` 스크립트가 새 경로로 대입되어 무파손.
+    #[test]
+    fn env_names_preserved_target_new_paths() {
+        let mut env = HashMap::new();
+        env.insert("KEBAB_CHUNKING_TARGET_TOKENS".into(), "640".into());
+        env.insert("KEBAB_INDEXING_MAX_PARALLEL_EXTRACTORS".into(), "6".into());
+        env.insert("KEBAB_IMAGE_OCR_ENABLED".into(), "true".into());
+        env.insert("KEBAB_PDF_OCR_ENGINE".into(), "paddle-onnx".into());
+        let c = Config::defaults().apply_env(&env);
+        assert_eq!(c.ingest.chunking.target_tokens, 640);
+        assert_eq!(c.ingest.max_parallel_extractors, 6);
+        assert!(c.ingest.image.ocr.enabled);
+        assert_eq!(c.ingest.pdf.ocr.engine, "paddle-onnx");
+    }
+
+    #[test]
+    fn env_pdf_paddle_symmetric_overrides() {
+        let mut env = HashMap::new();
+        env.insert("KEBAB_PDF_OCR_DET_MODEL".into(), "/d.onnx".into());
+        env.insert("KEBAB_PDF_OCR_SCORE_THRESH".into(), "0.4".into());
+        env.insert("KEBAB_PDF_OCR_MAX_BOXES".into(), "500".into());
+        let c = Config::defaults().apply_env(&env);
+        assert_eq!(c.ingest.pdf.ocr.det_model.as_deref(), Some("/d.onnx"));
+        assert!((c.ingest.pdf.ocr.score_thresh - 0.4).abs() < 1e-6);
+        assert_eq!(c.ingest.pdf.ocr.max_boxes, 500);
+    }
+
     #[test]
     fn env_unknown_key_is_ignored() {
         let baseline = Config::defaults();
@@ -1462,7 +1668,7 @@ theme = "dark"
             "777".to_string(),
         );
         let c = Config::defaults().apply_env(&env);
-        assert_eq!(c.chunking.target_tokens, 777);
+        assert_eq!(c.ingest.chunking.target_tokens, 777);
     }
 
     #[test]
@@ -1517,24 +1723,24 @@ theme = "dark"
             "true".to_string(),
         );
         let c = Config::defaults().apply_env(&env);
-        assert!(c.indexing.watch_filesystem);
+        assert!(c.ingest.watch_filesystem);
     }
 
     #[test]
     fn image_ocr_defaults_disabled_with_ollama_vision() {
         let c = Config::defaults();
-        assert!(!c.image.ocr.enabled);
-        assert_eq!(c.image.ocr.engine, "ollama-vision");
-        assert_eq!(c.image.ocr.model, "gemma4:e4b");
-        assert_eq!(c.image.ocr.languages, vec!["eng", "kor"]);
-        assert_eq!(c.image.ocr.max_pixels, 1600);
+        assert!(!c.ingest.image.ocr.enabled);
+        assert_eq!(c.ingest.image.ocr.engine, "ollama-vision");
+        assert_eq!(c.ingest.image.ocr.model, "gemma4:e4b");
+        assert_eq!(c.ingest.image.ocr.languages, vec!["eng", "kor"]);
+        assert_eq!(c.ingest.image.ocr.max_pixels, 1600);
     }
 
     /// v0.17.2 post-dogfood: matches the legacy hard-coded 300s cap so
     /// existing configs that omit the new field keep behaving identically.
     #[test]
     fn default_ocr_request_timeout_secs_is_300() {
-        assert_eq!(Config::defaults().image.ocr.request_timeout_secs, 300);
+        assert_eq!(Config::defaults().ingest.image.ocr.request_timeout_secs, 300);
     }
 
     #[test]
@@ -1545,7 +1751,7 @@ theme = "dark"
             "900".to_string(),
         );
         let c = Config::defaults().apply_env(&env);
-        assert_eq!(c.image.ocr.request_timeout_secs, 900);
+        assert_eq!(c.ingest.image.ocr.request_timeout_secs, 900);
     }
 
     /// post-v0.17.1 dogfood: a config file written before the OCR
@@ -1555,7 +1761,7 @@ theme = "dark"
     #[test]
     fn legacy_config_without_ocr_request_timeout_secs_uses_default() {
         let c: Config = toml::from_str(LEGACY_PRE_TIMEOUT_TOML).expect("parse legacy config");
-        assert_eq!(c.image.ocr.request_timeout_secs, 300);
+        assert_eq!(c.ingest.image.ocr.request_timeout_secs, 300);
     }
 
     // ── p9-fb-41: multi-hop RAG knobs ────────────────────────────────────
@@ -1707,14 +1913,14 @@ theme = "dark"
         );
         env.insert("KEBAB_IMAGE_OCR_MAX_PIXELS".to_string(), "2048".to_string());
         let c = Config::defaults().apply_env(&env);
-        assert!(c.image.ocr.enabled);
-        assert_eq!(c.image.ocr.model, "gemma4:31b");
+        assert!(c.ingest.image.ocr.enabled);
+        assert_eq!(c.ingest.image.ocr.model, "gemma4:31b");
         assert_eq!(
-            c.image.ocr.endpoint.as_deref(),
+            c.ingest.image.ocr.endpoint.as_deref(),
             Some("http://192.168.0.47:11434")
         );
-        assert_eq!(c.image.ocr.languages, vec!["eng", "kor", "jpn"]);
-        assert_eq!(c.image.ocr.max_pixels, 2048);
+        assert_eq!(c.ingest.image.ocr.languages, vec!["eng", "kor", "jpn"]);
+        assert_eq!(c.ingest.image.ocr.max_pixels, 2048);
     }
 
     /// Pre-P6 config files don't have an `[image]` section. The
@@ -1723,9 +1929,9 @@ theme = "dark"
     #[test]
     fn image_caption_defaults_disabled() {
         let c = Config::defaults();
-        assert!(!c.image.caption.enabled);
-        assert_eq!(c.image.caption.max_pixels, 768);
-        assert_eq!(c.image.caption.prompt_template_version, "caption-v1");
+        assert!(!c.ingest.image.caption.enabled);
+        assert_eq!(c.ingest.image.caption.max_pixels, 768);
+        assert_eq!(c.ingest.image.caption.prompt_template_version, "caption-v1");
     }
 
     #[test]
@@ -1744,9 +1950,9 @@ theme = "dark"
             "caption-v2".to_string(),
         );
         let c = Config::defaults().apply_env(&env);
-        assert!(c.image.caption.enabled);
-        assert_eq!(c.image.caption.max_pixels, 1024);
-        assert_eq!(c.image.caption.prompt_template_version, "caption-v2");
+        assert!(c.ingest.image.caption.enabled);
+        assert_eq!(c.ingest.image.caption.max_pixels, 1024);
+        assert_eq!(c.ingest.image.caption.prompt_template_version, "caption-v2");
     }
 
     /// `KEBAB_IMAGE_OCR_ENDPOINT=""` (empty value) should map to `None`
@@ -1757,7 +1963,7 @@ theme = "dark"
         let mut env = HashMap::new();
         env.insert("KEBAB_IMAGE_OCR_ENDPOINT".to_string(), String::new());
         let c = Config::defaults().apply_env(&env);
-        assert_eq!(c.image.ocr.endpoint, None);
+        assert_eq!(c.ingest.image.ocr.endpoint, None);
     }
 
     #[test]
@@ -1820,7 +2026,7 @@ explain_default = false
 max_context_tokens = 8000
 "#;
         let c: Config = toml::from_str(toml_text).expect("pre-P6 TOML must still parse");
-        assert_eq!(c.image, ImageCfg::defaults());
+        assert_eq!(c.ingest.image, ImageCfg::defaults());
     }
 
     /// p9-fb-25: legacy config with `workspace.include = [...]` must

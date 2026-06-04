@@ -22,8 +22,8 @@ use crate::common::red_100x50_png;
 
 fn cfg_with_caption_enabled() -> Config {
     let mut cfg = Config::defaults();
-    cfg.image.caption.enabled = true;
-    cfg.image.caption.max_pixels = 512;
+    cfg.ingest.image.caption.enabled = true;
+    cfg.ingest.image.caption.max_pixels = 512;
     cfg
 }
 
@@ -67,7 +67,7 @@ fn mk_mock(canned: &str) -> MockLanguageModel {
 #[test]
 fn apply_caption_no_op_when_feature_disabled() {
     let mut cfg = Config::defaults();
-    cfg.image.caption.enabled = false;
+    cfg.ingest.image.caption.enabled = false;
     let mock = mk_mock("ignored");
     let mut block = empty_image_block();
     let mut events: Vec<ProvenanceEvent> = Vec::new();
@@ -292,8 +292,8 @@ fn caption_image_deterministic_with_identical_inputs() {
 #[test]
 fn caption_image_clamps_oversized_max_pixels() {
     let mut cfg = Config::defaults();
-    cfg.image.caption.enabled = true;
-    cfg.image.caption.max_pixels = 99_999; // way over MAX_CAPTION_LONG_EDGE
+    cfg.ingest.image.caption.enabled = true;
+    cfg.ingest.image.caption.max_pixels = 99_999; // way over MAX_CAPTION_LONG_EDGE
     let captured_images: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let mock = CapturingMock {
         captured_system: Arc::new(Mutex::new(None)),
@@ -339,8 +339,8 @@ fn caption_integration_real_ollama_describes_image() {
     use kebab_llm_local::OllamaLanguageModel;
 
     let mut cfg = Config::defaults();
-    cfg.image.caption.enabled = true;
-    cfg.image.caption.max_pixels = 768;
+    cfg.ingest.image.caption.enabled = true;
+    cfg.ingest.image.caption.max_pixels = 768;
     if let Ok(ep) = std::env::var("KEBAB_MODELS_LLM_ENDPOINT") {
         cfg.models.llm.endpoint = ep;
     } else {

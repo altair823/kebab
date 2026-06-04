@@ -1,0 +1,149 @@
+# kebab config — `~/.config/kebab/config.toml`.
+#
+## `workspace.root` accepts:
+#   • absolute paths       (`/home/me/KnowledgeBase`)
+#   • tilde                (`~/KnowledgeBase`)         ← default
+#   • env vars             (`${XDG_DATA_HOME}/kebab`)
+#   • relative paths       (`./notes`, `notes`, `../shared/x`)
+#     — relative paths resolve against the directory of THIS
+#       config file, NOT the user's `cwd` at invocation time.
+#
+# 처리 가능한 형식 (extractor 가 자동 결정 — config 에 명시할 수 없음):
+#   • Markdown: .md
+#   • 이미지:   .png .jpg .jpeg  (OCR + caption)
+#   • PDF:      .pdf
+# 다른 확장자는 ingest 시 자동 skip + warning. 처리 대상 폴더의
+# 일부만 ingest 하고 싶으면 `kebab ingest <path>` 로 root 명시
+# 또는 `.kebabignore` 파일 / 본 `workspace.exclude` 로 denylist.
+#
+# Override individual keys at runtime with `KEBAB_*` env vars
+# (e.g. `KEBAB_WORKSPACE_ROOT=/tmp/test kebab ingest`).
+schema_version = 2
+
+[workspace]
+root = "/Users/user/Obsidian/Default"
+exclude = [
+    ".git/**",
+    "node_modules/**",
+    ".obsidian/**",
+]
+
+[storage]
+data_dir = "${XDG_DATA_HOME:-~/.local/share}/kebab"
+sqlite = "{data_dir}/kebab.sqlite"
+vector_dir = "{data_dir}/lancedb"
+asset_dir = "{data_dir}/assets"
+artifact_dir = "{data_dir}/artifacts"
+model_dir = "{data_dir}/models"
+runs_dir = "{data_dir}/runs"
+copy_threshold_mb = 100
+
+[indexing]
+max_parallel_extractors = 2
+max_parallel_embeddings = 1
+watch_filesystem = false
+
+[chunking]
+target_tokens = 500
+overlap_tokens = 80
+respect_markdown_headings = true
+chunker_version = "md-heading-v1"
+
+[models.embedding]
+provider = "ollama"
+endpoint = "http://127.0.0.1:11434"
+# endpoint = "http://192.168.0.2:11943"
+model = "snowflake-arctic-embed2"
+# provider = "candle"
+# model    = "snowflake-arctic-embed-l-v2.0"
+version = "v1"
+dimensions = 1024
+batch_size = 64
+num_threads = 0
+
+[models.llm]
+provider = "ollama"
+model = "gemma4:e4b"
+context_tokens = 32768
+# endpoint = "http://127.0.0.1:11434"
+endpoint = "http://192.168.0.2:11943"
+temperature = 0.0
+seed = 0
+request_timeout_secs = 300
+
+# NLI(groundedness) 모델.
+[models.nli]
+model = "Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7"
+provider = "onnx"
+
+[search]
+default_k = 10
+hybrid_fusion = "rrf"
+rrf_k = 60
+snippet_chars = 220
+cache_capacity = 256
+stale_threshold_days = 30
+
+[rag]
+prompt_template_version = "rag-v3"
+score_gate = 0.30000001192092896
+explain_default = false
+max_context_tokens = 8000
+multi_hop_max_depth = 3
+multi_hop_max_sub_queries_per_iter = 5
+multi_hop_max_pool_chunks = 15
+nli_threshold = 0.0
+
+[image.ocr]
+enabled = true
+engine = "paddle-onnx"
+# engine = "ollama-vision"
+model = "gemma4:e4b"
+languages = [
+    "eng",
+    "kor",
+]
+max_pixels = 1600
+request_timeout_secs = 300
+
+[image.caption]
+enabled = true
+max_pixels = 768
+prompt_template_version = "caption-v1"
+
+[ui]
+theme = "dark"
+
+# code ingest skip 정책(.gitignore 자동 honor).
+[ingest.code]
+skip_generated_header = false
+max_file_bytes = 262144
+max_file_lines = 5000
+extra_skip_globs = []
+ast_chunk_max_lines = 200
+fallback_lines_per_chunk = 80
+fallback_lines_overlap = 20
+
+# scanned PDF page-단위 OCR(기본 off).
+[pdf.ocr]
+enabled = false
+always_on = false
+engine = "paddle-onnx"
+# engine = "ollama-vision"
+model = "qwen2.5vl:3b"
+languages = [
+    "eng",
+    "kor",
+]
+max_pixels = 2048
+request_timeout_secs = 180
+valid_ratio_threshold = 0.5
+min_char_count = 20
+lang_hint = "kor"
+
+# ingest 로그(기본 on, ~/.local/state/kebab/logs).
+[logging]
+ingest_log_enabled = true
+ingest_log_dir = "{state_dir}/logs"
+keep_recent_runs = 100
+retention_days = 30

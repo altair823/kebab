@@ -68,7 +68,7 @@ rsync -a <src-data_dir>/lancedb/      user@server:<dst-data_dir>/lancedb/
 
 ### 멀티미디어 색인
 
-Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go/Java/Kotlin/C/C++ AST) · 리소스(YAML/Dockerfile/TOML/JSON/XML 등)를 확장자에 따라 자동으로 적절한 chunker 에 라우팅한다. embedded text 가 없는 scanned PDF 는 `[pdf.ocr]` 로 page-단위 OCR (opt-in). 전체 확장자→chunker 매핑은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go/Java/Kotlin/C/C++ AST) · 리소스(YAML/Dockerfile/TOML/JSON/XML 등)를 확장자에 따라 자동으로 적절한 chunker 에 라우팅한다. embedded text 가 없는 scanned PDF 는 `[ingest.pdf.ocr]` 로 page-단위 OCR (opt-in). 전체 확장자→chunker 매핑은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### RAG (근거 인용 + 거절)
 
@@ -182,10 +182,11 @@ prompt_template_version = "rag-v3"   # 답변 언어 = 질문 언어. rag-v1/v2 
 nli_threshold = 0.0                  # >0 (예: 0.5) 면 mDeBERTa XNLI groundedness 검증.
 ```
 
+- **`[ingest]`** (v0.28.0) — 모든 형식 ingest 설정의 우산. 병렬도(`max_parallel_extractors`/`max_parallel_embeddings`/`watch_filesystem`, ← 옛 `[indexing]`)와 형식별 하위 절(`[ingest.chunking]` ← 옛 `[chunking]`, `[ingest.code]`, `[ingest.image.ocr]` ← 옛 `[image.ocr]`, `[ingest.pdf.ocr]` ← 옛 `[pdf.ocr]`)이 전부 이 아래로 모인다. 기존 v2 `config.toml` 은 그대로 둬도 로드 시 메모리에서 자동 변환되며, 파일을 새 레이아웃으로 갱신하려면 `kebab config migrate` (값·주석 보존).
 - **파생물 캐시** — embedding 결과를 내용 해시로 자동 캐싱한다 (위 「핵심 기능」 참고). 설정 항목 없음.
 - **`[ingest.code]`** — code ingest 의 skip 정책 (`skip_generated_header`, `max_file_bytes`, `extra_skip_globs`). `.gitignore` 자동 honor, `.kebabignore` 는 추가 layer.
-- **`[image.ocr]`** — 이미지 OCR (default off / opt-in). `engine` 으로 백엔드 선택: `"ollama-vision"` (default, 원격 vision LM) 또는 `"paddle-onnx"` (v0.27.0 신규 — PP-OCRv5 ONNX 를 in-process 로 실행, Python 런타임 불필요, 큰 페이지 CPU <4초, 오프라인). `paddle-onnx` 는 워크스페이스에 번들된 모델을 쓰며 `det_model`/`rec_model`/`dict` 로 경로 override, `score_thresh`(0.3)/`unclip_ratio`(1.5)/`max_boxes`(1000) 로 검출 튜닝 가능 (`KEBAB_IMAGE_OCR_*` env 동일 지원). engine 또는 모델을 바꾸면 영향 이미지가 자동 재색인된다.
-- **`[pdf.ocr]`** — scanned PDF 의 page-단위 OCR (default off / opt-in, page 당 ~수십 초 cost). `engine` 은 `[image.ocr]` 과 동일하게 `"ollama-vision"`/`"paddle-onnx"` 선택. 활성화 후 v0.19 시절 색인분은 `kebab ingest --force-reingest` 로 재처리.
+- **`[ingest.image.ocr]`** — 이미지 OCR (default off / opt-in). `engine` 으로 백엔드 선택: `"ollama-vision"` (default, 원격 vision LM) 또는 `"paddle-onnx"` (PP-OCRv5 ONNX 를 in-process 로 실행, Python 런타임 불필요, 큰 페이지 CPU <4초, 오프라인). `paddle-onnx` 는 워크스페이스에 번들된 모델을 쓰며 `det_model`/`rec_model`/`dict` 로 경로 override, `score_thresh`(0.3)/`unclip_ratio`(1.5)/`max_boxes`(1000) 로 검출 튜닝 가능 (`KEBAB_IMAGE_OCR_*` env 동일 지원 — env 이름은 v3 에서도 불변). engine 또는 모델을 바꾸면 영향 이미지가 자동 재색인된다.
+- **`[ingest.pdf.ocr]`** — scanned PDF 의 page-단위 OCR (default off / opt-in, page 당 ~수십 초 cost). `engine` 은 `[ingest.image.ocr]` 과 동일하게 `"ollama-vision"`/`"paddle-onnx"` 선택. v3 에서 paddle 모델 경로 키(`det_model`/`rec_model`/`dict`/`score_thresh`/`unclip_ratio`/`max_boxes`)를 PDF 자체적으로 가질 수 있다(`KEBAB_PDF_OCR_*` env 동일). 활성화 후 옛 색인분은 `kebab ingest --force-reingest` 로 재처리.
 - **`--config <path>`** — 임시 워크스페이스 / 격리 테스트용 (CLI · TUI 모두 honor).
 - **`kebab config migrate`** — 새 버전에서 추가된 config 섹션을 기존 `config.toml` 에 설명 주석과 함께 채워 넣는다 (사용자가 손본 값·주석·순서는 보존, 멱등, 변경 시 자동 `.bak` 백업). `--dry-run` 으로 변경 미리보기. `kebab doctor` 가 갱신 필요 시 안내한다. `kebab init` 으로 새로 생성되는 config.toml 도 섹션별 주석을 포함한다.
 - **`KEBAB_*` env** — 일부 키 override (`KEBAB_RAG_SCORE_GATE`, `KEBAB_EVAL_GOLDEN` 등).

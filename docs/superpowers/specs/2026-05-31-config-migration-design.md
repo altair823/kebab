@@ -266,3 +266,6 @@ config load 체크 직후 `config_migration` 체크 1개 추가:
 - kickoff 인계 문서와의 차이: kickoff §4.2 는 "버전별 변환 함수 체인"만 제안했으나,
   kebab 의 serde-default 특성상 additive 변경은 step 으로 표현하기 부적절(버전 무관) →
   **reconciliation 을 1급 메커니즘으로 승격**하고 step 은 non-additive 전용으로 한정.
+- 2026-06-04 v3 재편(첫 non-additive rename)에서 `step_2_to_3`(미디어 테이블
+  `[ingest.*]` relocation) + `Config::from_file` load 시 메모리 자동변환 추가 —
+  `docs/superpowers/specs/2026-06-04-config-schema-reorg-design.md`.

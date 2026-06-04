@@ -12,8 +12,8 @@ fn minimal_config(data_dir: &std::path::Path, workspace_root: &std::path::Path) 
     cfg.storage.model_dir = data_dir.join("models").to_string_lossy().into_owned();
     cfg.models.embedding.provider = "none".to_string();
     cfg.models.embedding.dimensions = 0;
-    cfg.chunking.target_tokens = 80;
-    cfg.chunking.overlap_tokens = 20;
+    cfg.ingest.chunking.target_tokens = 80;
+    cfg.ingest.chunking.overlap_tokens = 20;
     cfg
 }
 
