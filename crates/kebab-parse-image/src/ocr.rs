@@ -65,6 +65,13 @@ pub trait OcrEngine: Send + Sync {
     /// through to engines that benefit from it (Tesseract languages,
     /// LLM prompt steering); ignore otherwise.
     fn recognize(&self, image_bytes: &[u8], lang_hint: Option<&Lang>) -> Result<OcrText>;
+
+    /// Human-facing model label for the ingest progress display
+    /// (`AssetPhase{phase:"ocr", model}`). Distinct from
+    /// [`engine_version`](Self::engine_version), which is the cache-key
+    /// hash. E.g. `"gemma4:e4b"` (ollama-vision) or `"ppocrv5-mobile-kor"`
+    /// (paddle-onnx).
+    fn model(&self) -> &str;
 }
 
 /// Mutate `block.ocr` in place by running `engine` over `image_bytes`,
@@ -209,13 +216,6 @@ impl OllamaVisionOcr {
         self.max_pixels
     }
 
-    /// The Ollama model id this engine drives (e.g. `gemma4:e4b`).
-    /// Surfaced so the ingest progress display can name the model
-    /// running a slow OCR phase (`AssetPhase{phase:"ocr", model}`).
-    pub fn model(&self) -> &str {
-        &self.model
-    }
-
     fn build_prompt(&self, lang_hint: Option<&Lang>) -> String {
         let langs = if self.languages.is_empty() {
             "any".to_string()
@@ -245,6 +245,10 @@ impl OcrEngine for OllamaVisionOcr {
         // ("ollama-vision/gemma4:e4b") — the Ollama daemon does not
         // expose a stable per-model revision string we could pin.
         format!("ollama/{}", self.model)
+    }
+
+    fn model(&self) -> &str {
+        &self.model
     }
 
     fn recognize(&self, image_bytes: &[u8], lang_hint: Option<&Lang>) -> Result<OcrText> {

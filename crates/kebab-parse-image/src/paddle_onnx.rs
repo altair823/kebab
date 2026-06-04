@@ -111,6 +111,22 @@ impl ModelPaths {
             dict: dir.join("korean_dict.txt"),
         }
     }
+
+    /// Resolve model paths from the `image.ocr` config (T7). Each of
+    /// `det_model` / `rec_model` / `dict` overrides the corresponding bundled
+    /// path when set; unset fields fall back to [`from_default_dir`], so a
+    /// caller can override just one asset.
+    ///
+    /// [`from_default_dir`]: ModelPaths::from_default_dir
+    pub fn from_config(config: &kebab_config::Config) -> Self {
+        let defaults = Self::from_default_dir();
+        let ocr = &config.image.ocr;
+        Self {
+            det: ocr.det_model.as_ref().map(PathBuf::from).unwrap_or(defaults.det),
+            rec: ocr.rec_model.as_ref().map(PathBuf::from).unwrap_or(defaults.rec),
+            dict: ocr.dict.as_ref().map(PathBuf::from).unwrap_or(defaults.dict),
+        }
+    }
 }
 
 impl OnnxPaddleOcr {
@@ -119,13 +135,14 @@ impl OnnxPaddleOcr {
     /// Construction loads both ONNX sessions and hashes the assets — failures
     /// here are fail-fast (matches the Ollama adapter's construction contract).
     pub fn new(config: &kebab_config::Config) -> Result<Self> {
-        let paths = ModelPaths::from_default_dir();
+        let paths = ModelPaths::from_config(config);
+        let ocr = &config.image.ocr;
         Self::from_paths(
             &paths,
-            0.3,
-            1.5,
-            1000,
-            config.image.ocr.max_pixels,
+            ocr.score_thresh,
+            ocr.unclip_ratio,
+            ocr.max_boxes,
+            ocr.max_pixels,
         )
     }
 
@@ -207,6 +224,12 @@ impl OcrEngine for OnnxPaddleOcr {
 
     fn engine_version(&self) -> String {
         self.engine_version.clone()
+    }
+
+    fn model(&self) -> &str {
+        // Static label for the progress display; the per-asset hash lives
+        // in `engine_version`.
+        "ppocrv5-mobile-kor"
     }
 
     fn recognize(&self, image_bytes: &[u8], _lang_hint: Option<&Lang>) -> Result<OcrText> {
@@ -428,6 +451,15 @@ fn load_dict(path: &Path) -> Result<Vec<String>> {
         lines.pop();
     }
     Ok(lines)
+}
+
+/// Resolve the paddle-onnx `engine_version` for `config` without loading the
+/// ONNX sessions (T9). This is the same blake3-over-assets string that a
+/// constructed [`OnnxPaddleOcr`] exposes via [`OcrEngine::engine_version`], so
+/// the ingest config signature can include it. Reads ~17 MB of model bytes —
+/// callers MUST memoize per (det,rec,dict) triple (m3: never re-hash per asset).
+pub fn engine_version_for_config(config: &kebab_config::Config) -> Result<String> {
+    compute_engine_version(&ModelPaths::from_config(config))
 }
 
 /// blake3 over det + rec + dict bytes → stable `engine_version`.
@@ -800,6 +832,24 @@ mod tests {
         let (lo, hi) = (r.width.min(r.height), r.width.max(r.height));
         assert!((lo - 5.0).abs() < 1e-3, "short side {lo}");
         assert!((hi - 20.0).abs() < 1e-3, "long side {hi}");
+    }
+
+    #[test]
+    fn model_paths_from_config_uses_overrides() {
+        // T7: unset overrides → bundled default asset paths.
+        let mut cfg = kebab_config::Config::defaults();
+        let def = ModelPaths::from_config(&cfg);
+        assert!(def.det.ends_with("ppocrv5_mobile_det.onnx"), "{:?}", def.det);
+        assert!(def.rec.ends_with("korean_ppocrv5_mobile_rec.onnx"), "{:?}", def.rec);
+        assert!(def.dict.ends_with("korean_dict.txt"), "{:?}", def.dict);
+
+        // Override det + dict; rec stays bundled (partial override allowed).
+        cfg.image.ocr.det_model = Some("/custom/det.onnx".to_string());
+        cfg.image.ocr.dict = Some("/custom/dict.txt".to_string());
+        let ov = ModelPaths::from_config(&cfg);
+        assert_eq!(ov.det, PathBuf::from("/custom/det.onnx"));
+        assert_eq!(ov.dict, PathBuf::from("/custom/dict.txt"));
+        assert!(ov.rec.ends_with("korean_ppocrv5_mobile_rec.onnx"), "{:?}", ov.rec);
     }
 
     #[test]
