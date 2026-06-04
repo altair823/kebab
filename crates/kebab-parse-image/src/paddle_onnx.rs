@@ -718,21 +718,32 @@ fn unclip_rect(rect: &RotRect, ratio: f32) -> [(f32, f32); 4] {
         return rect.corners;
     }
     let distance = area * ratio / perimeter;
-    // expand around centroid
-    let cx = rect.corners.iter().map(|p| p.0).sum::<f32>() / 4.0;
-    let cy = rect.corners.iter().map(|p| p.1).sum::<f32>() / 4.0;
-    let mut out = rect.corners;
-    for p in &mut out {
-        let dx = p.0 - cx;
-        let dy = p.1 - cy;
+    // Offset every EDGE outward by `distance` (PaddleOCR pyclipper polygon
+    // offset): width and height each grow by 2*distance. A naive radial
+    // push-from-centroid is WRONG for text boxes — a wide/short box has an
+    // almost-horizontal diagonal, so radial expansion barely grows the height
+    // and clips character tops/bottoms (ㄷ→ㄴ, ascenders lost). We instead
+    // expand along the rect's own (u, v) axes recovered from its ordered
+    // corners (c0=min_u,min_v; c1=max_u,min_v; c2=max_u,max_v; c3=min_u,max_v).
+    let c = &rect.corners;
+    let unit = |dx: f32, dy: f32| -> (f32, f32) {
         let len = (dx * dx + dy * dy).sqrt();
-        if len > 1e-6 {
-            // push each corner outward along its diagonal by `distance`
-            p.0 += dx / len * distance;
-            p.1 += dy / len * distance;
-        }
-    }
-    out
+        if len > 1e-6 { (dx / len, dy / len) } else { (0.0, 0.0) }
+    };
+    let u = unit(c[1].0 - c[0].0, c[1].1 - c[0].1); // +u (along width)
+    let v = unit(c[3].0 - c[0].0, c[3].1 - c[0].1); // +v (along height)
+    let off = |p: (f32, f32), su: f32, sv: f32| -> (f32, f32) {
+        (
+            p.0 + su * distance * u.0 + sv * distance * v.0,
+            p.1 + su * distance * u.1 + sv * distance * v.1,
+        )
+    };
+    [
+        off(c[0], -1.0, -1.0),
+        off(c[1], 1.0, -1.0),
+        off(c[2], 1.0, 1.0),
+        off(c[3], -1.0, 1.0),
+    ]
 }
 
 // ── crop + rectify ───────────────────────────────────────────────────────────
@@ -832,6 +843,26 @@ mod tests {
         let (lo, hi) = (r.width.min(r.height), r.width.max(r.height));
         assert!((lo - 5.0).abs() < 1e-3, "short side {lo}");
         assert!((hi - 20.0).abs() < 1e-3, "long side {hi}");
+    }
+
+    #[test]
+    fn dict_length_mismatch_is_construction_error() {
+        // T10: a dict whose line count != DICT_LINES must fail at construction
+        // (before loading the ONNX sessions) rather than mis-decoding silently.
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let dict_path = dir.path().join("bad_dict.txt");
+        let mut f = std::fs::File::create(&dict_path).unwrap();
+        writeln!(f, "a\nb\nc").unwrap(); // 3 lines, not DICT_LINES
+        let paths = ModelPaths {
+            det: dir.path().join("unused_det.onnx"),
+            rec: dir.path().join("unused_rec.onnx"),
+            dict: dict_path,
+        };
+        let err = OnnxPaddleOcr::from_paths(&paths, 0.3, 1.5, 1000, 1600)
+            .expect_err("dict mismatch must error");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("dict has 3 lines"), "unexpected error: {msg}");
     }
 
     #[test]
