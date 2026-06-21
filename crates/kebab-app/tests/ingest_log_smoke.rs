@@ -17,7 +17,7 @@ fn minimal_config(workspace: &std::path::Path, log_dir: &std::path::Path) -> Con
     std::fs::create_dir_all(&model_dir).unwrap();
 
     let mut cfg = Config::defaults();
-    cfg.workspace.root = workspace.to_string_lossy().into_owned();
+    cfg.workspace.root = Some(workspace.to_string_lossy().into_owned());
     cfg.workspace.exclude.clear();
     cfg.storage.data_dir = data_dir.to_string_lossy().into_owned();
     cfg.storage.model_dir = model_dir.to_string_lossy().into_owned();
@@ -130,7 +130,7 @@ fn ingest_log_disabled_emits_no_file() {
     std::fs::create_dir_all(&model_dir).unwrap();
 
     let mut cfg = Config::defaults();
-    cfg.workspace.root = workspace.to_string_lossy().into_owned();
+    cfg.workspace.root = Some(workspace.to_string_lossy().into_owned());
     cfg.workspace.exclude.clear();
     cfg.storage.data_dir = data_dir.to_string_lossy().into_owned();
     cfg.storage.model_dir = model_dir.to_string_lossy().into_owned();

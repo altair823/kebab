@@ -20,7 +20,7 @@ use kebab_source_fs::FsSourceConnector;
 
 fn cfg_with_root(root: &str) -> Config {
     let mut c = Config::defaults();
-    c.workspace.root = root.to_string();
+    c.workspace.root = Some(root.to_string());
     c.workspace.exclude.clear();
     // Disable size / generated caps so small test files always pass.
     c.ingest.code.max_file_bytes = u64::MAX;

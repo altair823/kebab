@@ -67,6 +67,7 @@ fn manifest_doc(lang: &str, manifest_text: &str) -> CanonicalDocument {
             git_branch: Some("main".into()),
             git_commit: Some("0".repeat(40)),
             code_lang: Some(lang.into()),
+            source_id: None,
         },
         provenance: Provenance { events: vec![] },
         parser_version: pv,

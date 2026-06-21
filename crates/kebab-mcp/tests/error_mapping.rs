@@ -10,7 +10,7 @@ async fn schema_tool_emits_error_v1_when_db_missing() {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::defaults();
     cfg.storage.data_dir = dir.path().to_string_lossy().into_owned();
-    cfg.workspace.root = dir.path().join("notes").to_string_lossy().into_owned();
+    cfg.workspace.root = Some(dir.path().join("notes").to_string_lossy().into_owned());
     cfg.models.embedding.provider = "none".to_string();
     cfg.models.embedding.dimensions = 0;
     // Note: NO ingest call — kebab.sqlite is absent → schema_with_config

@@ -131,6 +131,7 @@ impl Extractor for CAstExtractor {
             git_branch,
             git_commit,
             code_lang: Some("c".to_string()),
+            source_id: None,
         };
 
         tracing::debug!(

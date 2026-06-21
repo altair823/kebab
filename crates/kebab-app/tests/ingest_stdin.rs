@@ -12,7 +12,7 @@ fn fresh_cfg(dir: &std::path::Path) -> Config {
     fs::create_dir_all(&data).unwrap();
 
     let mut cfg = Config::defaults();
-    cfg.workspace.root = workspace.to_string_lossy().into_owned();
+    cfg.workspace.root = Some(workspace.to_string_lossy().into_owned());
     cfg.storage.data_dir = data.to_string_lossy().into_owned();
     cfg.models.embedding.provider = "none".to_string();
     cfg.models.embedding.dimensions = 0;
@@ -34,7 +34,7 @@ fn ingest_stdin_writes_frontmatter_and_reports_new() {
     assert_eq!(report.new, 1, "{report:?}");
 
     // _external/ contains exactly one .md file with frontmatter.
-    let ext_dir = std::path::PathBuf::from(&cfg.workspace.root).join("_external");
+    let ext_dir = cfg.resolve_workspace_root().join("_external");
     let entries: Vec<_> = fs::read_dir(&ext_dir)
         .unwrap()
         .filter_map(std::result::Result::ok)
@@ -56,7 +56,7 @@ fn ingest_stdin_without_source_uri() {
         kebab_app::ingest_stdin_with_config(cfg.clone(), "## Body", "Title", None).unwrap();
     assert_eq!(report.new, 1);
 
-    let ext_dir = std::path::PathBuf::from(&cfg.workspace.root).join("_external");
+    let ext_dir = cfg.resolve_workspace_root().join("_external");
     let entries: Vec<_> = fs::read_dir(&ext_dir)
         .unwrap()
         .filter_map(std::result::Result::ok)

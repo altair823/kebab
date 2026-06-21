@@ -9,7 +9,7 @@ use kebab_tui::{App, Mode, Pane, mode_intercept};
 fn fresh_app(focus: Pane) -> App {
     let mut config = Config::defaults();
     config.storage.data_dir = "/tmp/kebab-tui-mode-tests-noop".to_string();
-    config.workspace.root = "/tmp/kebab-tui-mode-tests-noop/workspace".to_string();
+    config.workspace.root = Some("/tmp/kebab-tui-mode-tests-noop/workspace".to_string());
     let mut app = App::new(config).expect("App::new");
     app.focus = focus;
     app.mode = Mode::auto_for(focus);

@@ -36,6 +36,14 @@ pub struct Metadata {
     /// for markdown / pdf / image. Set by the local-filesystem source connector during ingest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_lang: Option<String>,
+
+    /// `[[workspace.sources]]`: id of the named source this document was
+    /// ingested from (the `id` of the matching `[[workspace.sources]]`
+    /// entry; `"default"` for single-root workspaces normalized to the
+    /// implicit `default` source). null on documents ingested before the
+    /// multi-source feature; the store column defaults to `"default"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -105,12 +113,14 @@ mod tests {
             git_branch: None,
             git_commit: None,
             code_lang: None,
+            source_id: None,
         };
         let v = serde_json::to_value(&m).unwrap();
         assert!(v.get("repo").is_none());
         assert!(v.get("git_branch").is_none());
         assert!(v.get("git_commit").is_none());
         assert!(v.get("code_lang").is_none());
+        assert!(v.get("source_id").is_none());
     }
 
     #[test]
@@ -128,8 +138,10 @@ mod tests {
             git_branch: Some("main".into()),
             git_commit: Some("a".repeat(40)),
             code_lang: Some("rust".into()),
+            source_id: Some("notes".into()),
         };
         let v = serde_json::to_value(&m).unwrap();
+        assert_eq!(v["source_id"], "notes");
         assert_eq!(v["repo"], "kebab");
         assert_eq!(v["git_branch"], "main");
         assert_eq!(v["git_commit"].as_str().unwrap().len(), 40);

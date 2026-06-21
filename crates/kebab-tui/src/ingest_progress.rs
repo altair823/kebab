@@ -34,11 +34,10 @@ pub fn start_ingest(app: &mut App) -> anyhow::Result<()> {
         anyhow::bail!("ingest already running");
     }
     let cfg = app.config.clone();
-    let scope = SourceScope {
-        root: std::path::PathBuf::from(&cfg.workspace.root),
-        exclude: cfg.workspace.exclude.clone(),
-        ..Default::default()
-    };
+    // [[workspace.sources]]: leave `scope.root` empty so the app iterates
+    // every configured source (`config.resolved_sources()`), mirroring the
+    // CLI `kebab ingest` path. Each source carries its own merged exclude.
+    let scope = SourceScope::default();
     let (tx, rx) = mpsc::channel::<IngestEvent>();
     let cancel = Arc::new(AtomicBool::new(false));
     let cancel_for_worker = cancel.clone();

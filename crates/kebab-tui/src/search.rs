@@ -304,10 +304,11 @@ pub fn handle_key_search(state: &mut App, key: KeyEvent) -> KeyOutcome {
             // `terminal.clear()` couldn't happen — leaving the
             // previous frame leaking through the new draw.
             let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
-            // `~/...` / `${XDG_…}` expansion via `kebab-config::expand_path`
-            // — same helper used by the markdown / image / PDF ingest
-            // paths (HOTFIXES 2026-05-02 P9-4 follow-up).
-            let workspace_root = kebab_config::expand_path(&state.config.workspace.root, "");
+            // [[workspace.sources]]: resolve the primary workspace root
+            // (first source / legacy `root`). `resolve_workspace_root` applies
+            // the same `~` / `${XDG_…}` / relative-to-config expansion as the
+            // markdown / image / PDF ingest paths (HOTFIXES 2026-05-02 P9-4).
+            let workspace_root = state.config.resolve_workspace_root();
             state.pending_editor = Some(crate::app::EditorRequest {
                 citation: citation.unwrap(),
                 editor_env: editor,

@@ -144,6 +144,7 @@ impl Extractor for TypescriptAstExtractor {
             git_branch,
             git_commit,
             code_lang: Some("typescript".to_string()),
+            source_id: None,
         };
 
         tracing::debug!(

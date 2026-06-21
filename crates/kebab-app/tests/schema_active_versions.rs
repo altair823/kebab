@@ -6,7 +6,7 @@ use kebab_core::SourceScope;
 
 fn minimal_config(data_dir: &std::path::Path, workspace_root: &std::path::Path) -> Config {
     let mut cfg = Config::defaults();
-    cfg.workspace.root = workspace_root.to_string_lossy().into_owned();
+    cfg.workspace.root = Some(workspace_root.to_string_lossy().into_owned());
     cfg.workspace.exclude.clear();
     cfg.storage.data_dir = data_dir.to_string_lossy().into_owned();
     cfg.storage.model_dir = data_dir.join("models").to_string_lossy().into_owned();

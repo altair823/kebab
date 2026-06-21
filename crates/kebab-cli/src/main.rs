@@ -193,6 +193,31 @@ enum Cmd {
         )]
         code_lang: Vec<String>,
 
+        /// Phase-2: filter by document source_type
+        /// (`markdown`, `note`, `paper`, `reference`, `inbox`).
+        /// Repeatable or comma-separated. Empty = no filter.
+        /// The clean source/provenance lever for mixed-source KBs.
+        #[arg(
+            long = "source-type",
+            value_name = "TYPE",
+            num_args = 1,
+            value_delimiter = ','
+        )]
+        source_type: Vec<String>,
+
+        /// [[workspace.sources]]: filter by source id — the `id` of the
+        /// `[[workspace.sources]]` entry a document was ingested from
+        /// (e.g. `default`, `notes`, `code`). Repeatable or
+        /// comma-separated. Empty = no filter. The named-source
+        /// provenance lever for multi-source KBs.
+        #[arg(
+            long = "source",
+            value_name = "ID",
+            num_args = 1,
+            value_delimiter = ','
+        )]
+        source: Vec<String>,
+
         /// p9-fb-37: emit pre-fusion lexical / vector / RRF candidate
         /// lists + per-stage timing in the response. Bypasses cache
         /// (debug intent — fresh run guaranteed). Requires embeddings
@@ -615,12 +640,18 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             force_reingest,
         } => {
             let cfg = kebab_config::Config::load(cli.config.as_deref())?;
-            let scope = kebab_core::SourceScope {
-                root: root
-                    .clone()
-                    .unwrap_or_else(|| PathBuf::from(&cfg.workspace.root)),
-                exclude: cfg.workspace.exclude.clone(),
-                ..Default::default()
+            // [[workspace.sources]]: when the user passes `--root <dir>` we pin
+            // that single root (one ad-hoc `default` source). Otherwise we
+            // leave `scope.root` EMPTY so the app iterates every configured
+            // source (`config.resolved_sources()`); a bare empty scope.exclude
+            // is fine because each source carries its own merged exclude.
+            let scope = match root.clone() {
+                Some(r) => kebab_core::SourceScope {
+                    root: r,
+                    exclude: cfg.workspace.exclude.clone(),
+                    ..Default::default()
+                },
+                None => kebab_core::SourceScope::default(),
             };
 
             // p9-fb-02: spawn the progress display on a background
@@ -629,8 +660,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             // call returns, the `Sender` drops and the display thread
             // sees `recv()` return Err — exits cleanly.
             let plain_env = std::env::var("KEBAB_PROGRESS")
-                .map(|v| v.eq_ignore_ascii_case("plain"))
-                .unwrap_or(false);
+                .is_ok_and(|v| v.eq_ignore_ascii_case("plain"));
             let mode = progress::ProgressMode::from_flags(cli.json, cli.quiet, plain_env);
 
             // Surface the active embedding backend/device on the terminal so the
@@ -828,6 +858,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             doc_id,
             repo,
             code_lang,
+            source_type,
+            source,
             trace,
             bulk,
         } => {
@@ -967,6 +999,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 doc_id: doc_id.as_ref().map(|s| kebab_core::DocumentId(s.clone())),
                 repo: repo.clone(),
                 code_lang: code_lang.clone(),
+                source_type: source_type.clone(),
+                source_id: source.clone(),
             };
 
             let q = kebab_core::SearchQuery {

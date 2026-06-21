@@ -136,6 +136,7 @@ impl Extractor for RustAstExtractor {
             git_branch,
             git_commit,
             code_lang: Some("rust".to_string()),
+            source_id: None,
         };
 
         tracing::debug!(

@@ -397,6 +397,22 @@ $KB search 'tokenizer' --mode lexical --json | jq '.hits | length' # ≥ 1 if co
 - `--lang` ISO code.
 - `--path-glob` workspace_path glob.
 
+### §2.4bis Source / provenance filters (`--source` / `--source-type`, v0.29.0)
+
+```bash
+# 출처 id 필터 ([[workspace.sources]] 의 id; 단일 root 는 "default").
+"$RELEASE_BIN" search --config "$DOGFOOD/config.toml" "query" --source jira --json | jq '.hits | length'
+# source_type 필터 (markdown/note/paper/reference/inbox).
+"$RELEASE_BIN" search --config "$DOGFOOD/config.toml" "query" --source-type reference,markdown --json
+```
+
+**verify**:
+- `--source` / `--source-type` repeatable + comma-sep, OR within.
+- lexical · vector · hybrid 모든 모드에 동일 적용 (직접 인덱스 컬럼 `documents.source_id` / `source_type`).
+- 모르는 값 → silently empty (no error).
+- 멀티소스 KB 측정: `--source wiki` 가 개념 질의 오염 회복(MRR 0.780→0.810), `--source jira` 가 incident 0.918→0.975 (HOTFIXES 2026-06-21).
+- trust precedence: `[[workspace.sources]]` 의 per-source `trust_level` 가 frontmatter 부재 시 적용 → `--trust-min primary` 와 조합 시 secondary source 배제.
+
 ### §2.5 Search pagination (p9-fb-34)
 
 ```bash

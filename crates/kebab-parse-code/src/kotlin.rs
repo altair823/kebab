@@ -149,6 +149,7 @@ impl Extractor for KotlinAstExtractor {
             git_branch,
             git_commit,
             code_lang: Some("kotlin".to_string()),
+            source_id: None,
         };
 
         tracing::debug!(

@@ -14,6 +14,85 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-21 — provenance 출처 필터: `[[workspace.sources]]` 멀티소스 + `--source` / `--source-type` (v0.29.0)
+
+**무엇을 추가했나.** 혼합 출처 KB(예: 위키 문서 + jira 이슈)에서 "출처별로
+검색을 좁히는" provenance 레버를 두 층으로 붙였다. 검색에 `--source-type`
+(Phase-2) 와 `--source <id>` (Phase-3) 필터, config 에 `[[workspace.sources]]`
+명명 멀티소스 선언, 저장소에 `documents.source_id` 컬럼(V014)을 추가했다.
+기존 단일-root 사용자는 **아무것도 손대지 않아도 된다** — load 시 단일 `root`
+가 implicit `default` source 로 정규화되고, V014 는 additive(컬럼 DEFAULT
+`'default'`)라 재색인이 발생하지 않는다.
+
+**왜 필터인가 — 전역 trust 가중(weighted-RRF)은 반증됨.** Phase-1 통제 실험
+(`/home/user/large_data/out/kebab-ab/`, MongoDB 도메인 정합 corpus)에서 jira 를
+docs KB 에 섞으면 **개념 질의는 약하게 오염**(concept ΔMRR −0.072,
+CI[−0.159,−0.004]; top-3 정답은 유지, rank1→2 강등)되지만 **운영/이슈 질의는
+크게 개선**(incident ΔMRR +0.972, jira_only hit@10 0/10 → 10/10)됨을 측정했다.
+Phase-2 에서 골든셋을 142 쿼리로 확장(`golden_v2.json`: 워크플로 12토픽 병렬생성
+96 + 원본 46)해 재현(concept 70 −0.03 유의, incident 66 +0.92~0.97)한 뒤, θ
+sweep 시뮬(`eval_phase2.py`)로 **전역 trust 곱셈가중을 반증**했다 — jira 에
+θ=0.85 만 곱해도 RAG 점수 압축 때문에 incident MRR 0.918→0.340 으로 절벽 하락.
+작은 오염을 잡으려다 큰 개선을 버리는 see-saw 라 **빌드하지 않았다**. 올바른
+레버는 see-saw 없는 **출처 필터링**: 색인은 전부 하되 질의 시 출처로 좁힌다.
+
+**구현 표면.**
+
+- **config 스키마** (`kebab-config`): `WorkspaceCfg.root` 가 `Option<String>` 으로,
+  신규 `WorkspaceCfg.sources: Vec<SourceCfg>` 추가. `SourceCfg { id, root,
+  exclude?, trust_level?, source_type? }`. `Config::resolved_sources()` 가
+  단일 entry point — `sources` 가 비면 `workspace.root` 를 implicit `default`
+  source 로 합성, 있으면 각 entry 의 root 확장 + `workspace.exclude` ∪ per-source
+  exclude. `validate_sources()` 가 id 비어있음/중복을 `ConfigInvalid` 로 거절.
+- **config v3→v4 migration** (`migrate.rs::step_3_to_4`): 단일 `workspace.root`
+  를 `[[workspace.sources]]` id=default 로 **미러**(기존 root 키는 보존 — 둘 다
+  default 를 가리켜 무해). `[[workspace.sources]]` 가 이미 있으면 no-op. 멱등.
+  `CURRENT_SCHEMA_VERSION` 3→4. load 시 메모리 자동 변환 + `kebab config migrate`
+  로 디스크 갱신(값·주석 보존) — v0.28.0 v2→v3 패턴 동일.
+- **저장소** (V014 `documents_source_id.sql`): `documents.source_id TEXT NOT NULL
+  DEFAULT 'default'` + `idx_docs_source_id`. additive — 기존 row 는 DEFAULT 로
+  `'default'`, 재색인/`corpus_revision` bump 불요. DEFAULT 리터럴은
+  `kebab_config::DEFAULT_SOURCE_ID` 와 동기.
+- **도메인/파서**: `Metadata.source_id: Option<String>` 추가(`skip_serializing_if
+  = Option::is_none`). `BodyHints` 에 `source_id` + `fallback_trust_level` 추가 —
+  markdown derive 의 trust precedence 가 **frontmatter > per-source 기본값 >
+  하드코딩 Primary**. source_id 는 frontmatter 가 덮지 않는 ingest-time
+  provenance stamp.
+- **ingest** (`kebab-app`): `--root` 미지정 시 `resolved_sources()` 를 순회하며
+  각 source 를 own root+exclude 로 스캔하고 asset→source_id 매핑을 만든 뒤 doc
+  마다 source_id + source 기본 trust 를 stamp. `--root`/single-file/include 지정
+  시는 ad-hoc `default` source 한 개(기존 동작 보존). `FsScanSkips::merge` 로
+  멀티소스 스킵 집계.
+- **검색 필터**: `SearchFilters` 에 `source_type: Vec<String>` + `source_id:
+  Vec<String>`(빈 vec = 무필터, multi-value = OR). lexical(FTS5
+  `kebab-search/lexical.rs`)·vector(`kebab-store-sqlite/filters.rs`) **두 site
+  모두** `d.source_type IN (...)` / `d.source_id IN (...)` 직접 인덱스 컬럼 필터.
+  CLI `kebab search --source-type <TYPE>` + `--source <ID>`(repeatable/comma-sep).
+
+**검증(도그푸딩, v0.29.0 release 빌드, 실험 corpus xdg_sources KB).** ingest
+620 문서 / 0 error, `source_id = {jira: 400, wiki: 220}`. **trust precedence
+실측**: jira source 기본값 secondary(frontmatter 없어도) → `--trust-min primary`
+시 jira 0/6 노출, wiki primary 유지. **출처 필터 실측**: `--source wiki` → 개념
+질의 MRR 0.780→0.810 (KB_wiki 수준 오염 회복), `--source jira` → incident
+0.918→0.975. Phase-2 `--source-type reference`/`markdown` 도 동일 효과(concept
+0.810, incident 0.975). weighted-RRF 절벽과 대비해 필터는 see-saw 없음.
+
+**Known limitations / follow-up.**
+
+- **MCP search 도구 미노출**: `kebab-mcp/tools/search.rs` 는 `source_type` /
+  `source_id` 를 빈 vec 로 채워 컴파일만 맞춤 — agent 가 MCP 로 출처 필터를 못
+  건다. `SearchInput` 에 두 필드 추가가 다음 additive 후보.
+- **`kebab list` / `doc_summary.v1` 에 source_id 미노출**: `documents.source_id`
+  는 stamp/필터되지만 list 출력(`DocSummary`)에는 안 실린다 — 사용자가 "이 문서가
+  어느 source 냐" 를 list 로 못 본다. additive 후보.
+- **RAG provenance 라벨 미구현**: `kebab ask` citation 에 source 라벨 없음. 검색은
+  필터 가능하나 답변 근거의 출처 표기는 다음 단계.
+- **구현 교훈**: `Metadata`(Default 없음 · 60+ 곳에서 literal 구성)에 필수 필드
+  추가는 churn 이 큼(이 PR 의 90+ 파일 대부분이 `source_id: None` 추가). 차라리
+  store 레이어에서 stamp 하면 저-churn — 다음 리팩터 후보.
+
+관련 메모리: jira-contamination-ab-experiment(Phase-1/2/3 측정), jira-wiki-dogfood-kb.
+
 ## 2026-06-04 — config 스키마 v2→v3 재편: 미디어 ingest 통합 (v0.28.0)
 
 **무엇을 바꿨나.** `config.toml` 의 미디어 형식 설정을 `[ingest.*]` 우산 아래로 통합했다. 첫 non-additive rename 마이그레이션.

@@ -11,11 +11,16 @@ const USER_V2: &str = include_str!("fixtures/user_v2_config.toml");
 fn user_v2_migrates_losslessly() {
     let out = migrate_document(USER_V2);
     assert_eq!(out.from_schema_version, 2);
-    assert_eq!(out.to_schema_version, 3);
+    // v2 → CURRENT(=4): v3 의 [ingest.*] relocation 에 더해 v4 의
+    // [[workspace.sources]] default source 미러링까지 적용된다.
+    assert_eq!(out.to_schema_version, 4);
     let t = &out.new_text;
 
     // 사용자 값 보존.
     assert!(t.contains("root = \"/Users/user/Obsidian/Default\""), "{t}");
+    // v4: workspace.root → [[workspace.sources]] id=default 미러링.
+    assert!(t.contains("[[workspace.sources]]"), "v4 sources 누락:\n{t}");
+    assert!(t.contains("id = \"default\""), "default source 누락:\n{t}");
     assert!(t.contains("model = \"snowflake-arctic-embed2\""));
     assert!(t.contains("endpoint = \"http://192.168.0.2:11943\""));
     // 사용자 주석/대안 줄 보존.

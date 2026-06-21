@@ -151,6 +151,7 @@ impl Extractor for JavascriptAstExtractor {
             git_branch,
             git_commit,
             code_lang: Some("javascript".to_string()),
+            source_id: None,
         };
 
         tracing::debug!(

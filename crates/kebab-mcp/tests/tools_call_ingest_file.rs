@@ -15,7 +15,7 @@ async fn ingest_file_tool_returns_ingest_report_v1() {
     fs::create_dir_all(&data).unwrap();
 
     let mut cfg = Config::defaults();
-    cfg.workspace.root = workspace.to_string_lossy().into_owned();
+    cfg.workspace.root = Some(workspace.to_string_lossy().into_owned());
     cfg.storage.data_dir = data.to_string_lossy().into_owned();
     cfg.models.embedding.provider = "none".to_string();
     cfg.models.embedding.dimensions = 0;
@@ -61,7 +61,7 @@ async fn ingest_file_tool_idempotent_on_second_call() {
     std::fs::create_dir_all(&data).unwrap();
 
     let mut cfg = kebab_config::Config::defaults();
-    cfg.workspace.root = workspace.to_string_lossy().into_owned();
+    cfg.workspace.root = Some(workspace.to_string_lossy().into_owned());
     cfg.storage.data_dir = data.to_string_lossy().into_owned();
     cfg.models.embedding.provider = "none".to_string();
     cfg.models.embedding.dimensions = 0;

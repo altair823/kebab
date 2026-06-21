@@ -57,6 +57,8 @@ fn document_and_chunks_round_trip_through_sqlite() {
         fs_ctime: asset.discovered_at,
         fs_mtime: asset.discovered_at,
         fallback_lang: Some("en".into()),
+        source_id: None,
+        fallback_trust_level: None,
     };
     let (mut metadata, _fm_span, _fm_warns) = parse_frontmatter(&bytes, &hints).unwrap();
     let (parsed_blocks, parse_warns) = parse_blocks(&bytes, 1).unwrap();

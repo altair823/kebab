@@ -23,7 +23,7 @@ use time::OffsetDateTime;
 fn fresh_app() -> App {
     let mut config = Config::defaults();
     config.storage.data_dir = "/tmp/kebab-tui-inspect-tests-noop".to_string();
-    config.workspace.root = "/tmp/kebab-tui-inspect-tests-noop/workspace".to_string();
+    config.workspace.root = Some("/tmp/kebab-tui-inspect-tests-noop/workspace".to_string());
     let mut app = App::new(config).expect("App::new");
     app.focus = Pane::Inspect;
     app.inspect = Some(InspectState::default());
@@ -85,6 +85,7 @@ fn make_doc() -> CanonicalDocument {
             git_branch: None,
             git_commit: None,
             code_lang: None,
+            source_id: None,
         },
         provenance: Provenance {
             events: vec![ProvenanceEvent {

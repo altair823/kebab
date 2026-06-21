@@ -244,6 +244,7 @@ mod tests {
                 git_branch: Some("main".into()),
                 git_commit: Some("0".repeat(40)),
                 code_lang: Some("typescript".into()),
+                source_id: None,
             },
             provenance: Provenance { events: vec![] },
             parser_version: pv,

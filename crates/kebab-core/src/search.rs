@@ -69,6 +69,20 @@ pub struct SearchFilters {
     /// Unknown values produce empty hits (consistent with `media` policy).
     #[serde(default)]
     pub code_lang: Vec<String>,
+    /// Phase-2 (jira-contamination experiment): filter by `documents.source_type`
+    /// (`markdown` | `note` | `paper` | `reference` | `inbox`). Empty = no filter;
+    /// multi-value = OR. Direct indexed column — the clean provenance/source lever:
+    /// filtering recovers concept-query precision without the see-saw of global
+    /// trust-weighting (see tasks/HOTFIXES.md A/B evidence).
+    #[serde(default)]
+    pub source_type: Vec<String>,
+    /// `[[workspace.sources]]`: filter by `documents.source_id` (the `id` of
+    /// the `[[workspace.sources]]` entry a document was ingested from; e.g.
+    /// `default`, `notes`, `code`). Empty = no filter; multi-value = OR.
+    /// Direct indexed column (idx_docs_source_id) — the named-source
+    /// provenance lever for multi-source KBs.
+    #[serde(default)]
+    pub source_id: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

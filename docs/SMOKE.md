@@ -290,6 +290,21 @@ kebab search "rust" --doc-id "<doc-id>" --tag rust --json
 Bad `--ingested-after` → `error.v1.code = config_invalid`, exit 2.
 Unknown `--media` value → silently empty (no error).
 
+### Source filters (`--source` / `--source-type`)
+
+````bash
+# 단일 root 워크스페이스는 implicit `default` source 로 정규화되므로
+# 모든 문서가 source_id="default" — 이 필터는 전체와 동일하다.
+kebab search "rust" --source default --json | jq '.hits | length'
+
+# source_type 필터 (frontmatter 의 source_type: 또는 source 기본값).
+kebab search "rust" --source-type markdown,reference --json | jq '.hits | length'
+````
+
+멀티소스 KB 는 `[[workspace.sources]]` 로 명명 source 를 선언하면
+`--source <id>` 로 출처를 좁힌다 (예: `--source jira` → jira 문서만).
+빈 값 = 무필터, 콤마/반복 = OR. 모르는 값 → silently empty (no error).
+
 ### Trace + stats (fb-37)
 
 Re-run a search with `--trace` to see per-stage candidate lists + timing:

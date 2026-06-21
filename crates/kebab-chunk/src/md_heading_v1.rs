@@ -450,6 +450,7 @@ mod tests {
                 git_branch: None,
                 git_commit: None,
                 code_lang: None,
+                source_id: None,
             },
             provenance: Provenance { events: vec![] },
             parser_version: kebab_core::ParserVersion("test-parser-0".into()),

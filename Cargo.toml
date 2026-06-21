@@ -32,7 +32,7 @@ edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/altair823/kebab"
-version       = "0.28.0"   # v0.28.0 — config 스키마 v2→v3 재편: 미디어 형식 설정을 `[ingest.*]` 우산으로 통합(`[indexing]`→`[ingest]` 스칼라, `[chunking]`/`[image.ocr]`/`[image.caption]`/`[pdf.ocr]`→`[ingest.*]`). 기존 v2 파일은 load 시 메모리 자동 변환(디스크 미변경), 파일 갱신은 `kebab config migrate`(값·주석 보존). env 이름(LHS) 100% 보존 + RHS 만 새 경로, 신규 `KEBAB_PDF_OCR_{DET_MODEL,REC_MODEL,DICT,SCORE_THRESH,UNCLIP_RATIO,MAX_BOXES}`. `ingest_config_signature` 바이트 불변(재색인 0). PdfOcrCfg paddle 대칭 키. 신규 인터페이스(config 레이아웃 rename + env 추가) → minor. — CLAUDE.md §Release
+version       = "0.29.0"   # v0.29.0 — provenance 출처 필터: `[[workspace.sources]]` 멀티소스 + 검색 `--source <id>` / `--source-type <type>`(lexical+vector 두 site, OR). `documents.source_id` 컬럼(V014, additive·DEFAULT 'default'·재색인 0) + config v3→v4 migration(`step_3_to_4`, 단일 root→implicit `default` source 미러, 멱등). per-source `trust_level`/`source_type` 기본값(우선순위 frontmatter > source 기본값 > Primary). 단일 root 사용자 무영향. 설계 근거: 전역 trust 곱셈가중(weighted-RRF)은 A/B 반증(incident MRR 절벽), 출처 필터가 see-saw 없는 레버. 신규 CLI flag + config 키 + migration → minor. — CLAUDE.md §Release
 
 # pre-v0.18 workspace-wide cleanup: enable clippy::pedantic group with
 # intentional allow-list. The allowed lints are either cosmetic (doc style),

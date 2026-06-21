@@ -86,7 +86,7 @@ Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go
 | `kebab ingest [<path>]` | 워크스페이스 스캔 후 새/변경 문서 색인 (idempotent · incremental, `--force-reingest` 로 강제 재처리). 미지원 확장자는 자동 skip. 진행바는 현재 **파일명** · 느린 **phase(ocr/caption/embed)+모델명** · **경과초**`(Ns)` · 문서별 청크 수 · phase별 소요시간(parse/chunk/ocr/caption/embed/store)을 표시하고, 종료 시 **최장 소요 파일 top-5** 를 요약한다 (`--json` 은 `asset_phase`/`asset_chunked`/`asset_timings` 이벤트로, 사람용 요약은 미출력) |
 | `kebab ingest-file <path>` | 단일 파일 ingest (workspace 외부 가능 — `_external/` 로 deterministic copy) |
 | `kebab ingest-stdin --title <T>` | stdin 의 markdown 본문 ingest |
-| `kebab search --mode {lexical,vector,hybrid} "<query>" [flags]` | 검색 (default hybrid = RRF fusion, citation 포함). 필터/budget flag 는 `--help` |
+| `kebab search --mode {lexical,vector,hybrid} "<query>" [flags]` | 검색 (default hybrid = RRF fusion, citation 포함). 출처 필터 `--source <id>` (`[[workspace.sources]]` id) · `--source-type {markdown,note,paper,reference,inbox}` (둘 다 repeatable/comma-sep, OR). 그 외 필터/budget flag 는 `--help` |
 | `kebab ask "<query>" [flags]` | RAG 답변 + 근거 인용 (Ollama 필요). `--session` (multi-turn) · `--stream` · `--multi-hop` |
 | `kebab list docs` | 색인된 문서 목록 |
 | `kebab inspect doc <id>` / `inspect chunk <id>` | raw record 보기 |
@@ -108,6 +108,19 @@ Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go
 [workspace]
 root = "~/KnowledgeBase"   # 색인할 폴더. 절대 / tilde / env / 상대 경로 가능.
                           # 상대 경로의 base 는 config.toml 위치 (cwd 무관).
+                          # 단일 root 는 implicit `default` source 로 정규화된다.
+
+# 멀티소스 (선택) — 출처별로 검색을 좁히려면 root 대신 명명 source 를 선언한다.
+# 각 source 의 id 가 모든 문서에 stamp 되고, `kebab search --source <id>` 로 필터.
+# trust_level / source_type 은 frontmatter 가 없을 때의 source 기본값
+# (우선순위: frontmatter > source 기본값 > 하드코딩 Primary/Markdown).
+# [[workspace.sources]]
+# id = "notes"
+# root = "~/KnowledgeBase/notes"
+# [[workspace.sources]]
+# id = "jira"
+# root = "~/exports/jira"
+# trust_level = "secondary"   # 낮은 신뢰 출처 — `--trust-min primary` 로 배제 가능.
 
 [models.embedding]
 provider = "fastembed"            # "fastembed"(기본, onnxruntime) / "candle"(순수 Rust)

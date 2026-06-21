@@ -42,6 +42,16 @@ pub struct BodyHints {
     /// Optional language fallback used when neither frontmatter nor lingua
     /// detection produce a value. If `None` the final fallback is `"und"`.
     pub fallback_lang: Option<String>,
+    /// `[[workspace.sources]]`: id of the source this document is being
+    /// ingested from. Copied verbatim into `Metadata.source_id` (frontmatter
+    /// does not override the source id — it is an ingest-time provenance
+    /// stamp, not a user-authored field). `None` when single-root /
+    /// unspecified, in which case `Metadata.source_id` stays `None`.
+    pub source_id: Option<String>,
+    /// `[[workspace.sources]]`: per-source default `trust_level`. Consulted
+    /// only when the frontmatter does not specify `trust_level`. Precedence:
+    /// frontmatter > this source default > hardcoded `Primary`.
+    pub fallback_trust_level: Option<TrustLevel>,
 }
 
 /// Byte range of the frontmatter region inside the input slice.
@@ -444,8 +454,12 @@ fn derive_metadata(
     };
 
     // ---- trust_level ----
+    // Precedence: frontmatter > per-source default (hints.fallback_trust_level)
+    // > hardcoded Primary. An *unknown* frontmatter value warns and also falls
+    // through to the source default (then Primary), so a typo doesn't silently
+    // promote past the source's intended trust.
     let trust_level = match raw.trust_level.as_deref() {
-        None => TrustLevel::Primary,
+        None => hints.fallback_trust_level.unwrap_or(TrustLevel::Primary),
         Some(s) => {
             if let Some(tl) = parse_trust_level(s) {
                 tl
@@ -454,7 +468,7 @@ fn derive_metadata(
                     kind: WarningKind::MalformedFrontmatter,
                     note: format!("unknown trust_level={s}, defaulted to primary"),
                 });
-                TrustLevel::Primary
+                hints.fallback_trust_level.unwrap_or(TrustLevel::Primary)
             }
         }
     };
@@ -477,6 +491,10 @@ fn derive_metadata(
         git_branch: None,
         git_commit: None,
         code_lang: None,
+        // `[[workspace.sources]]`: ingest-time provenance stamp. Frontmatter
+        // does not override the source id — it is supplied by the caller
+        // (kebab-app) from the matching source's config `id`.
+        source_id: hints.source_id.clone(),
     }
 }
 
@@ -604,6 +622,8 @@ mod tests {
             fs_ctime: datetime!(2024-01-01 00:00:00 UTC),
             fs_mtime: datetime!(2024-01-02 00:00:00 UTC),
             fallback_lang: None,
+            source_id: None,
+            fallback_trust_level: None,
         }
     }
 
@@ -693,6 +713,47 @@ source_type: alien\n\
         );
         assert!(warns.iter().any(|w| w.note.contains("trust_level=weird")));
         assert!(warns.iter().any(|w| w.note.contains("source_type=alien")));
+    }
+
+    fn hints_with_source(id: &str, trust: Option<TrustLevel>) -> BodyHints {
+        BodyHints {
+            source_id: Some(id.to_string()),
+            fallback_trust_level: trust,
+            ..hints()
+        }
+    }
+
+    #[test]
+    fn source_default_trust_applied_when_frontmatter_absent() {
+        // No `trust_level:` in frontmatter → the per-source default wins
+        // over the hardcoded Primary.
+        let md = b"---\ntitle: Doc\n---\nbody\n";
+        let (meta, _span, warns) =
+            parse_frontmatter(md, &hints_with_source("notes", Some(TrustLevel::Secondary)))
+                .unwrap();
+        assert!(warns.is_empty(), "warnings: {warns:?}");
+        assert_eq!(meta.trust_level, TrustLevel::Secondary);
+        assert_eq!(meta.source_id.as_deref(), Some("notes"));
+    }
+
+    #[test]
+    fn frontmatter_trust_overrides_source_default() {
+        // Explicit frontmatter trust beats the per-source default.
+        let md = b"---\ntrust_level: generated\n---\nbody\n";
+        let (meta, _span, _warns) =
+            parse_frontmatter(md, &hints_with_source("notes", Some(TrustLevel::Secondary)))
+                .unwrap();
+        assert_eq!(meta.trust_level, TrustLevel::Generated);
+        assert_eq!(meta.source_id.as_deref(), Some("notes"));
+    }
+
+    #[test]
+    fn no_source_id_leaves_metadata_source_id_none() {
+        let md = b"---\ntitle: Doc\n---\nbody\n";
+        let (meta, _span, _warns) = parse_frontmatter(md, &hints()).unwrap();
+        assert_eq!(meta.source_id, None);
+        // Without a source default, hardcoded Primary still applies.
+        assert_eq!(meta.trust_level, TrustLevel::Primary);
     }
 
     #[test]

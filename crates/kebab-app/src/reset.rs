@@ -114,7 +114,7 @@ pub fn estimate_size_bytes(paths: &[PathBuf]) -> u64 {
             if ft.is_dir() {
                 total += walk(&e.path());
             } else if ft.is_file() {
-                total += e.metadata().map(|m| m.len()).unwrap_or(0);
+                total += e.metadata().map_or(0, |m| m.len());
             }
         }
         total
