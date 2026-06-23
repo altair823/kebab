@@ -9,7 +9,7 @@ use toml_edit::{DocumentMut, Item};
 
 /// 현재 바이너리가 이해하는 config 스키마 버전. 마이그레이션 완료 시
 /// 사용자 파일의 `schema_version` 을 이 값으로 stamp 한다.
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 /// 한 번의 마이그레이션에서 발생한 개별 변경.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -68,6 +68,7 @@ const HEADER: &str = "\
 fn section_comment(path: &str) -> Option<&'static str> {
     Some(match path {
         "workspace" => "# 색인 대상 워크스페이스.",
+        "workspace.sources" => "# named multi-source (각 source 의 id 가 documents.source_id 로 stamp).",
         "storage" => "# XDG 저장 경로(데이터/sqlite/벡터/에셋/모델).",
         "indexing" => "# 병렬도 + 파일시스템 watch.",
         "chunking" => "# 청크 크기·오버랩·heading 존중.",
@@ -376,6 +377,39 @@ pub fn step_2_to_3(doc: &mut DocumentMut, changes: &mut Vec<MigrationChange>) {
     copy_image_paddle_to_pdf(doc);
 }
 
+/// v3 → v4: 단일 `workspace.root` 를 `[[workspace.sources]]` 의 implicit
+/// `default` source 로 미러링한다(`id = "default"`, `root = <기존 root>`).
+/// 기존 `workspace.root` 키는 그대로 둔다 — `resolved_sources()` 가 sources
+/// 가 있으면 그쪽을 우선하므로 무해하고, defaults reconcile 이 root 를 다시
+/// 추가하려 하지 않게 한다. 멱등: `[[workspace.sources]]` 가 이미 있으면 no-op.
+pub fn step_3_to_4(doc: &mut DocumentMut, changes: &mut Vec<MigrationChange>) {
+    let Some(ws) = doc.get_mut("workspace").and_then(Item::as_table_mut) else {
+        return;
+    };
+    // 이미 sources 가 선언돼 있으면(array-of-tables 든 inline 이든) 손대지 않음.
+    if ws.contains_key("sources") {
+        return;
+    }
+    // root 가 없으면 만들 게 없음(defaults 에는 항상 있지만 방어).
+    let Some(root_val) = ws.get("root").and_then(Item::as_str).map(str::to_string) else {
+        return;
+    };
+
+    let mut entry = toml_edit::Table::new();
+    entry.insert("id", toml_edit::value("default"));
+    entry.insert("root", toml_edit::value(root_val));
+
+    let mut aot = toml_edit::ArrayOfTables::new();
+    aot.push(entry);
+    ws.insert("sources", Item::ArrayOfTables(aot));
+
+    changes.push(MigrationChange {
+        kind: ChangeKind::AddedSection,
+        path: "workspace.sources".to_string(),
+        detail: "workspace.root → [[workspace.sources]] id=default".to_string(),
+    });
+}
+
 /// 파일의 schema_version(없으면 1) 부터 CURRENT 까지 step 적용.
 fn run_steps(doc: &mut DocumentMut, from: u32, changes: &mut Vec<MigrationChange>) {
     if from < 2 {
@@ -383,6 +417,9 @@ fn run_steps(doc: &mut DocumentMut, from: u32, changes: &mut Vec<MigrationChange
     }
     if from < 3 {
         step_2_to_3(doc, changes);
+    }
+    if from < 4 {
+        step_3_to_4(doc, changes);
     }
 }
 
@@ -646,6 +683,76 @@ engine = \"paddle-onnx\"
         // 멱등.
         let again = changes_after_second_pass(&out);
         assert!(again.is_empty(), "not idempotent: {again:?}");
+    }
+
+    #[test]
+    fn step_3_to_4_mirrors_root_into_default_source() {
+        let v3 = "\
+schema_version = 3
+
+[workspace]
+root = \"/my/notes\"
+exclude = [\".git/**\"]
+";
+        let mut doc: DocumentMut = v3.parse().unwrap();
+        let mut changes = Vec::new();
+        step_3_to_4(&mut doc, &mut changes);
+        let out = doc.to_string();
+        // 새 array-of-tables 가 id=default 로 추가.
+        assert!(out.contains("[[workspace.sources]]"), "{out}");
+        assert!(out.contains("id = \"default\""), "{out}");
+        // 기존 root 는 보존(reconcile 이 다시 추가하지 않게).
+        assert!(out.contains("root = \"/my/notes\""), "{out}");
+        // 재파싱 후 sources.default 가 root 를 미러.
+        let reparsed: DocumentMut = out.parse().unwrap();
+        let src0 = reparsed["workspace"]["sources"][0].as_table().unwrap();
+        assert_eq!(src0["id"].as_str(), Some("default"));
+        assert_eq!(src0["root"].as_str(), Some("/my/notes"));
+        // 멱등.
+        let mut changes2 = Vec::new();
+        step_3_to_4(&mut doc, &mut changes2);
+        assert!(changes2.is_empty(), "step_3_to_4 not idempotent");
+    }
+
+    #[test]
+    fn step_3_to_4_noop_when_sources_already_present() {
+        let v4 = "\
+schema_version = 4
+
+[workspace]
+root = \"/my/notes\"
+exclude = []
+
+[[workspace.sources]]
+id = \"notes\"
+root = \"/my/notes\"
+";
+        let mut doc: DocumentMut = v4.parse().unwrap();
+        let mut changes = Vec::new();
+        step_3_to_4(&mut doc, &mut changes);
+        assert!(changes.is_empty(), "must not touch existing sources");
+        // 기존 source 만 존재(default 가 추가되지 않음).
+        assert!(!doc.to_string().contains("id = \"default\""));
+    }
+
+    #[test]
+    fn migrate_document_v3_to_v4_adds_sources_and_is_idempotent() {
+        let v3 = "\
+schema_version = 3
+
+[workspace]
+root = \"/n\"
+exclude = []
+";
+        let outcome = migrate_document(v3);
+        assert_eq!(outcome.from_schema_version, 3);
+        assert_eq!(outcome.to_schema_version, 4);
+        assert!(outcome.changed());
+        assert!(outcome.new_text.contains("[[workspace.sources]]"));
+        assert_eq!(read_schema_version(&outcome.new_text), 4);
+        let again = migrate_document(&outcome.new_text);
+        assert!(!again.changed(), "not idempotent: {:?}", again.changes);
+        assert_eq!(again.new_text, outcome.new_text);
     }
 
     #[test]

@@ -58,6 +58,7 @@ fn make_doc(
         git_branch: None,
         git_commit: None,
         code_lang: None,
+        source_id: None,
     };
     let doc = CanonicalDocument {
         doc_id,

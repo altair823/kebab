@@ -51,7 +51,7 @@ impl TestEnv {
         std::fs::create_dir_all(&model_dir).unwrap();
 
         let mut config = Config::defaults();
-        config.workspace.root = workspace_root.to_string_lossy().into_owned();
+        config.workspace.root = Some(workspace_root.to_string_lossy().into_owned());
         // Drop the ".obsidian" / "node_modules" excludes — they bring
         // in nothing useful for fixtures and just hide debugging.
         config.workspace.exclude.clear();

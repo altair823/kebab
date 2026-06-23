@@ -192,7 +192,7 @@ fn pdf_ocr_progress_emits_started_finished_events() {
     std::fs::create_dir_all(&data_dir).expect("create data dir");
 
     let mut config = kebab_config::Config::defaults();
-    config.workspace.root = workspace.to_string_lossy().into_owned();
+    config.workspace.root = Some(workspace.to_string_lossy().into_owned());
     config.storage.data_dir = data_dir.to_string_lossy().into_owned();
     config.models.embedding.provider = "none".to_string();
     config.models.embedding.dimensions = 0;

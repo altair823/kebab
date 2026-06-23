@@ -144,6 +144,7 @@ impl Extractor for JavaAstExtractor {
             git_branch,
             git_commit,
             code_lang: Some("java".to_string()),
+            source_id: None,
         };
 
         tracing::debug!(

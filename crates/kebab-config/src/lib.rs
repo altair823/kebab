@@ -12,6 +12,12 @@ mod paths;
 pub mod migrate;
 pub use paths::{expand_path, expand_path_with_base};
 
+/// Implicit source id used when a single-root `[workspace]` config (no
+/// `[[workspace.sources]]`) is normalized into the multi-source model, and
+/// the `DEFAULT` value of the `documents.source_id` column. Kept in sync
+/// with the migration default in `migrations/V0XX__documents_source_id.sql`.
+pub const DEFAULT_SOURCE_ID: &str = "default";
+
 /// f32 의 shortest round-trip(Display)을 f64 로 재파싱해 직렬화한다.
 /// `0.3_f32` 가 `0.30000001192092896` 으로 새지 않고 `0.3` 으로 출력되게 한다.
 /// 마이그레이션 시 toml_edit relocation 의 무손실 비교를 깨지 않도록, 그리고
@@ -88,8 +94,67 @@ pub struct Config {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceCfg {
-    pub root: String,
+    /// Single-root workspace (legacy / common case). `Option` so that a
+    /// config that declares only `[[workspace.sources]]` (no bare `root`)
+    /// parses — and, symmetrically, a legacy single-`root` config (no
+    /// `sources`) still parses unchanged. The load-time normalizer
+    /// ([`Config::normalize_sources`]) reconciles the two into a single
+    /// non-empty `sources` list (`id = "default"` synthesized from `root`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
     pub exclude: Vec<String>,
+    /// `[[workspace.sources]]`: named multi-source declaration. When empty
+    /// and `root` is set, the load path normalizes to a single implicit
+    /// `default` source. Each entry stamps its `id` onto every document it
+    /// ingests and supplies per-source `trust_level` / `source_type`
+    /// defaults (frontmatter still wins per the §0 Q9 derive table).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<SourceCfg>,
+}
+
+/// One named source under `[[workspace.sources]]`.
+///
+/// `trust_level` / `source_type` are the **source-level defaults**: they
+/// apply when a document's frontmatter does not specify the field. The
+/// precedence is `frontmatter > source default > hardcoded`
+/// (`TrustLevel::Primary` / `SourceType::Markdown`) — implemented in the
+/// markdown derive via `BodyHints::fallback_trust_level`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SourceCfg {
+    /// Stable identifier stamped onto `documents.source_id` for every
+    /// document ingested from this source. Must be unique and non-empty
+    /// across the workspace (enforced in [`Config::validate`]).
+    pub id: String,
+    /// Root directory to walk for this source. Accepts the same
+    /// absolute / `~` / `${VAR}` / relative(=config-dir-based) forms as
+    /// the legacy `workspace.root`.
+    pub root: String,
+    /// Per-source denylist globs, merged on top of `workspace.exclude`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude: Vec<String>,
+    /// Per-source default `trust_level` (frontmatter overrides it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_level: Option<kebab_core::TrustLevel>,
+    /// Per-source default `source_type` (frontmatter overrides it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<kebab_core::SourceType>,
+}
+
+/// A source with its `root` resolved to an absolute path and its `exclude`
+/// merged with `workspace.exclude`. Produced by [`Config::resolved_sources`]
+/// — the single entry point the ingest pipeline iterates over.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolvedSource {
+    /// Stamped onto `documents.source_id`.
+    pub id: String,
+    /// Absolute walk root (tilde / `${VAR}` / relative-to-config resolved).
+    pub root: PathBuf,
+    /// `workspace.exclude` ∪ per-source `exclude`.
+    pub exclude: Vec<String>,
+    /// Per-source default trust level (None → fall back to `Primary`).
+    pub trust_level: Option<kebab_core::TrustLevel>,
+    /// Per-source default source type (None → fall back to `Markdown`).
+    pub source_type: Option<kebab_core::SourceType>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -782,12 +847,13 @@ impl Config {
         Self {
             schema_version: crate::migrate::CURRENT_SCHEMA_VERSION,
             workspace: WorkspaceCfg {
-                root: "~/KnowledgeBase".to_string(),
+                root: Some("~/KnowledgeBase".to_string()),
                 exclude: vec![
                     ".git/**".to_string(),
                     "node_modules/**".to_string(),
                     ".obsidian/**".to_string(),
                 ],
+                sources: vec![],
             },
             storage: StorageCfg {
                 data_dir: "${XDG_DATA_HOME:-~/.local/share}/kebab".to_string(),
@@ -906,7 +972,78 @@ impl Config {
                 PathBuf::from(".")
             })
         });
-        paths::expand_path_with_base(&self.workspace.root, "", &base)
+        paths::expand_path_with_base(&self.primary_root_raw(), "", &base)
+    }
+
+    /// The raw (unexpanded) string for the *primary* workspace root, used by
+    /// [`resolve_workspace_root`](Self::resolve_workspace_root) and any
+    /// single-root code path. Order: first `[[workspace.sources]]` entry's
+    /// `root` → bare `workspace.root` → `~/KnowledgeBase` default. This keeps
+    /// every pre-existing single-root call site working when only `sources`
+    /// is declared.
+    fn primary_root_raw(&self) -> String {
+        if let Some(s) = self.workspace.sources.first() {
+            return s.root.clone();
+        }
+        self.workspace
+            .root
+            .clone()
+            .unwrap_or_else(|| "~/KnowledgeBase".to_string())
+    }
+
+    /// The base directory for resolving relative source roots: the config
+    /// file's directory when loaded from disk, else the current dir (mirrors
+    /// [`resolve_workspace_root`](Self::resolve_workspace_root)).
+    fn root_resolution_base(&self) -> PathBuf {
+        self.source_dir.clone().unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|e| {
+                tracing::warn!(
+                    target: "kebab-config",
+                    error = %e,
+                    "current_dir() failed; falling back to '.' for source root resolution"
+                );
+                PathBuf::from(".")
+            })
+        })
+    }
+
+    /// Normalized, resolved list of sources to ingest. Always non-empty:
+    ///
+    /// - If `[[workspace.sources]]` is declared, each entry is returned with
+    ///   its `root` expanded and `exclude` merged with `workspace.exclude`.
+    /// - Otherwise a single implicit source `id = "default"` is synthesized
+    ///   from `workspace.root` (the legacy single-root path).
+    ///
+    /// This is the single entry point the ingest pipeline iterates over, so
+    /// single-root and multi-source configs share one code path.
+    pub fn resolved_sources(&self) -> Vec<ResolvedSource> {
+        let base = self.root_resolution_base();
+        if self.workspace.sources.is_empty() {
+            let root = paths::expand_path_with_base(&self.primary_root_raw(), "", &base);
+            return vec![ResolvedSource {
+                id: DEFAULT_SOURCE_ID.to_string(),
+                root,
+                exclude: self.workspace.exclude.clone(),
+                trust_level: None,
+                source_type: None,
+            }];
+        }
+        self.workspace
+            .sources
+            .iter()
+            .map(|s| {
+                let root = paths::expand_path_with_base(&s.root, "", &base);
+                let mut exclude = self.workspace.exclude.clone();
+                exclude.extend(s.exclude.iter().cloned());
+                ResolvedSource {
+                    id: s.id.clone(),
+                    root,
+                    exclude,
+                    trust_level: s.trust_level,
+                    source_type: s.source_type,
+                }
+            })
+            .collect()
     }
 
     /// Read config from disk and merge env overrides on top of it. If the
@@ -1019,8 +1156,39 @@ impl Config {
                 cause: format!("parse_failed: {e}"),
             })
         })?;
+        cfg.validate_sources().map_err(|cause| {
+            anyhow::Error::new(ConfigInvalid {
+                path: path.to_path_buf(),
+                cause,
+            })
+        })?;
         cfg.source_dir = path.parent().map(Path::to_path_buf);
         Ok(cfg)
+    }
+
+    /// Validate `[[workspace.sources]]`: every `id` must be non-empty and
+    /// unique across the workspace. Empty `sources` (legacy single-root) is
+    /// always valid. Returns the failure cause string for `ConfigInvalid`.
+    fn validate_sources(&self) -> Result<(), String> {
+        let mut seen = std::collections::HashSet::new();
+        for s in &self.workspace.sources {
+            if s.id.trim().is_empty() {
+                return Err("workspace.sources: an entry has an empty `id`".to_string());
+            }
+            if s.root.trim().is_empty() {
+                return Err(format!(
+                    "workspace.sources: source `{}` has an empty `root`",
+                    s.id
+                ));
+            }
+            if !seen.insert(s.id.as_str()) {
+                return Err(format!(
+                    "workspace.sources: duplicate source id `{}` (ids must be unique)",
+                    s.id
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Apply `KEBAB_<SECTION>_<KEY>` env overrides. Unknown keys are ignored.
@@ -1037,7 +1205,7 @@ impl Config {
             }
             match k.as_str() {
                 // workspace
-                "KEBAB_WORKSPACE_ROOT" => self.workspace.root = v.clone(),
+                "KEBAB_WORKSPACE_ROOT" => self.workspace.root = Some(v.clone()),
 
                 // storage
                 "KEBAB_STORAGE_DATA_DIR" => self.storage.data_dir = v.clone(),
@@ -2034,7 +2202,7 @@ max_context_tokens = 8000
     #[test]
     fn legacy_include_field_is_ignored_silently() {
         let mut cfg = Config::defaults();
-        cfg.workspace.root = "/tmp/kebab-legacy".to_string();
+        cfg.workspace.root = Some("/tmp/kebab-legacy".to_string());
         let mut toml_text = toml::to_string(&cfg).expect("default round-trips");
         // Inject a legacy `include = [...]` line into the [workspace] block.
         toml_text = toml_text.replace(
@@ -2048,18 +2216,103 @@ max_context_tokens = 8000
             parsed.err()
         );
         let cfg = parsed.unwrap();
-        assert_eq!(cfg.workspace.root, "/tmp/kebab-legacy");
+        assert_eq!(cfg.workspace.root.as_deref(), Some("/tmp/kebab-legacy"));
     }
 
     /// p9-fb-25: `WorkspaceCfg` must NOT have an `include` field.
     /// Compile-time proof: exhaustive destructure.
     #[test]
-    fn workspace_cfg_has_only_root_and_exclude_fields() {
+    fn workspace_cfg_has_only_root_exclude_sources_fields() {
         let ws = Config::defaults().workspace;
         let WorkspaceCfg {
             root: _,
             exclude: _,
+            sources: _,
         } = &ws;
+    }
+
+    #[test]
+    fn legacy_single_root_normalizes_to_default_source() {
+        // A single-root config (no [[workspace.sources]]) must resolve to
+        // exactly one source `id = "default"` rooted at workspace.root.
+        let mut cfg = Config::defaults();
+        cfg.workspace.root = Some("/tmp/kb-notes".to_string());
+        let resolved = cfg.resolved_sources();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].id, DEFAULT_SOURCE_ID);
+        assert_eq!(resolved[0].root, std::path::PathBuf::from("/tmp/kb-notes"));
+        assert_eq!(resolved[0].trust_level, None);
+    }
+
+    #[test]
+    fn multi_source_config_resolves_each_with_merged_exclude() {
+        let mut cfg = Config::defaults();
+        cfg.workspace.root = None;
+        cfg.workspace.exclude = vec![".git/**".to_string()];
+        cfg.workspace.sources = vec![
+            SourceCfg {
+                id: "notes".to_string(),
+                root: "/tmp/notes".to_string(),
+                exclude: vec![],
+                trust_level: Some(kebab_core::TrustLevel::Primary),
+                source_type: None,
+            },
+            SourceCfg {
+                id: "refs".to_string(),
+                root: "/tmp/refs".to_string(),
+                exclude: vec!["draft/**".to_string()],
+                trust_level: Some(kebab_core::TrustLevel::Secondary),
+                source_type: Some(kebab_core::SourceType::Reference),
+            },
+        ];
+        // A multi-source config (no bare root) must round-trip through TOML.
+        let toml_text = toml::to_string(&cfg).expect("multi-source serializes");
+        let cfg: Config = toml::from_str(&toml_text).expect("multi-source parses");
+        cfg.validate_sources().expect("valid sources");
+        let resolved = cfg.resolved_sources();
+        assert_eq!(resolved.len(), 2);
+        assert_eq!(resolved[0].id, "notes");
+        assert_eq!(resolved[0].root, std::path::PathBuf::from("/tmp/notes"));
+        assert_eq!(resolved[0].exclude, vec![".git/**".to_string()]);
+        assert_eq!(resolved[0].trust_level, Some(kebab_core::TrustLevel::Primary));
+        assert_eq!(resolved[1].id, "refs");
+        // workspace.exclude ∪ per-source exclude.
+        assert_eq!(
+            resolved[1].exclude,
+            vec![".git/**".to_string(), "draft/**".to_string()]
+        );
+        assert_eq!(
+            resolved[1].source_type,
+            Some(kebab_core::SourceType::Reference)
+        );
+        assert_eq!(
+            resolved[1].trust_level,
+            Some(kebab_core::TrustLevel::Secondary)
+        );
+    }
+
+    fn source_cfg(id: &str, root: &str) -> SourceCfg {
+        SourceCfg {
+            id: id.to_string(),
+            root: root.to_string(),
+            exclude: vec![],
+            trust_level: None,
+            source_type: None,
+        }
+    }
+
+    #[test]
+    fn duplicate_source_ids_rejected() {
+        let mut cfg = Config::defaults();
+        cfg.workspace.sources = vec![source_cfg("dup", "/a"), source_cfg("dup", "/b")];
+        assert!(cfg.validate_sources().is_err(), "duplicate ids must fail");
+    }
+
+    #[test]
+    fn empty_source_id_rejected() {
+        let mut cfg = Config::defaults();
+        cfg.workspace.sources = vec![source_cfg("", "/a")];
+        assert!(cfg.validate_sources().is_err(), "empty id must fail");
     }
 
     #[test]

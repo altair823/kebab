@@ -80,7 +80,7 @@ pub fn breakdowns(conn: &Connection, threshold_days: u64) -> rusqlite::Result<Br
 /// the LanceDB directory tree. Missing files / dir = 0.
 pub fn index_bytes(data_dir: &Path) -> std::io::Result<IndexBytes> {
     fn file_size_or_zero(p: &Path) -> u64 {
-        std::fs::metadata(p).map(|m| m.len()).unwrap_or(0)
+        std::fs::metadata(p).map_or(0, |m| m.len())
     }
     fn dir_walk_sum(p: &Path) -> std::io::Result<u64> {
         if !p.exists() {

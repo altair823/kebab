@@ -206,6 +206,8 @@ fn parse_one(raw: &Value) -> Result<(SearchQuery, SearchOpts), String> {
         doc_id,
         repo: vec![],
         code_lang: vec![],
+        source_type: vec![],
+        source_id: vec![],
     };
 
     let opts = SearchOpts {

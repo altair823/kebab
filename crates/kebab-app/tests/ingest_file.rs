@@ -14,7 +14,7 @@ fn ingest_file_copies_external_md_and_reports_new() {
     fs::create_dir_all(&data).unwrap();
 
     let mut cfg = Config::defaults();
-    cfg.workspace.root = workspace.to_string_lossy().into_owned();
+    cfg.workspace.root = Some(workspace.to_string_lossy().into_owned());
     cfg.storage.data_dir = data.to_string_lossy().into_owned();
     cfg.models.embedding.provider = "none".to_string();
     cfg.models.embedding.dimensions = 0;
@@ -53,7 +53,7 @@ fn ingest_file_idempotent_on_second_call() {
     fs::create_dir_all(&data).unwrap();
 
     let mut cfg = Config::defaults();
-    cfg.workspace.root = workspace.to_string_lossy().into_owned();
+    cfg.workspace.root = Some(workspace.to_string_lossy().into_owned());
     cfg.storage.data_dir = data.to_string_lossy().into_owned();
     cfg.models.embedding.provider = "none".to_string();
     cfg.models.embedding.dimensions = 0;
@@ -78,7 +78,7 @@ fn ingest_file_errors_on_missing_path() {
     fs::create_dir_all(&data).unwrap();
 
     let mut cfg = Config::defaults();
-    cfg.workspace.root = workspace.to_string_lossy().into_owned();
+    cfg.workspace.root = Some(workspace.to_string_lossy().into_owned());
     cfg.storage.data_dir = data.to_string_lossy().into_owned();
     cfg.models.embedding.provider = "none".to_string();
     cfg.models.embedding.dimensions = 0;
@@ -97,7 +97,7 @@ fn ingest_file_errors_on_unsupported_extension() {
     fs::create_dir_all(&data).unwrap();
 
     let mut cfg = Config::defaults();
-    cfg.workspace.root = workspace.to_string_lossy().into_owned();
+    cfg.workspace.root = Some(workspace.to_string_lossy().into_owned());
     cfg.storage.data_dir = data.to_string_lossy().into_owned();
     cfg.models.embedding.provider = "none".to_string();
     cfg.models.embedding.dimensions = 0;

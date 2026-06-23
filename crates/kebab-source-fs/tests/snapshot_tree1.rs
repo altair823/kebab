@@ -50,7 +50,7 @@ fn baseline_path() -> PathBuf {
 
 fn cfg_for_fixture(root: &str) -> Config {
     let mut c = Config::defaults();
-    c.workspace.root = root.to_string();
+    c.workspace.root = Some(root.to_string());
     // Clear default excludes (`.git/**`, `node_modules/**`, `.obsidian/**`)
     // so the snapshot is purely a function of the fixture + .kebabignore +
     // baked-in default-excludes.

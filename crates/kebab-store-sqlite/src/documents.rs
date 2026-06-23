@@ -745,6 +745,14 @@ fn upsert_document(
     // `markdown` for the column).
     let source_type = source_type_label(&doc.metadata.source_type);
     let trust_level = trust_level_label(&doc.metadata.trust_level);
+    // `[[workspace.sources]]`: id of the source this doc came from. Falls back
+    // to the column default `"default"` for docs without an explicit source
+    // (single-root workspaces / pre-multi-source ingests).
+    let source_id = doc
+        .metadata
+        .source_id
+        .as_deref()
+        .unwrap_or(kebab_config::DEFAULT_SOURCE_ID);
     let created_at = doc
         .metadata
         .created_at
@@ -757,11 +765,11 @@ fn upsert_document(
     tx.execute(
         "INSERT INTO documents (
             doc_id, asset_id, workspace_path, title, lang,
-            source_type, trust_level, parser_version,
+            source_type, trust_level, source_id, parser_version,
             doc_version, schema_version, metadata_json,
             provenance_json, created_at, updated_at,
             last_chunker_version, last_embedding_version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(doc_id) DO UPDATE SET
             asset_id              = excluded.asset_id,
             workspace_path        = excluded.workspace_path,
@@ -769,6 +777,7 @@ fn upsert_document(
             lang                  = excluded.lang,
             source_type           = excluded.source_type,
             trust_level           = excluded.trust_level,
+            source_id             = excluded.source_id,
             parser_version        = excluded.parser_version,
             -- doc_version: bump on update. excluded.doc_version is the
             -- caller's submitted value; we ignore it and add 1 to the
@@ -788,6 +797,7 @@ fn upsert_document(
             doc.lang.0,
             source_type,
             trust_level,
+            source_id,
             doc.parser_version.0,
             i64::from(doc.doc_version),
             i64::from(doc.schema_version),

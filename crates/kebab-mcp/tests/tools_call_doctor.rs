@@ -9,10 +9,10 @@ async fn doctor_tool_returns_doctor_v1_json() {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = Config::defaults();
     cfg.storage.data_dir = dir.path().join("data").to_string_lossy().into_owned();
-    cfg.workspace.root = dir.path().join("notes").to_string_lossy().into_owned();
+    cfg.workspace.root = Some(dir.path().join("notes").to_string_lossy().into_owned());
     cfg.models.embedding.provider = "none".to_string();
     cfg.models.embedding.dimensions = 0;
-    std::fs::create_dir_all(&cfg.workspace.root).unwrap();
+    std::fs::create_dir_all(cfg.resolve_workspace_root()).unwrap();
 
     // Pass None for config_path — doctor falls back to XDG default probe
     // (path won't exist in the tempdir, which is fine; doctor reports it

@@ -49,7 +49,8 @@ use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, Chunker, ChunkerVersion,
     DocFilter, DocSummary, DocumentId, DocumentStore, Embedder, EmbeddingInput, EmbeddingKind,
     ExtractContext, IngestReport, Lang, LanguageModel, MediaType, ParserVersion, RawAsset,
-    SearchHit, SearchQuery, SourceScope, SourceUri, VectorRecord, VectorStore,
+    SearchHit, SearchQuery, SourceScope, SourceType, SourceUri, TrustLevel, VectorRecord,
+    VectorStore,
 };
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_parse_image::{
@@ -304,7 +305,12 @@ pub fn ingest_with_config_opts(
             0
         });
 
-    // Walk the workspace.
+    // Walk the workspace. `[[workspace.sources]]`: when the caller did not
+    // pin an explicit `scope.root` (the normal `kebab ingest` path), iterate
+    // over every configured source — each scanned with its own root + exclude
+    // and tagged with its `id` + default trust. When `scope.root` IS pinned
+    // (single-file ingest, `--root` override), scan that one root as the
+    // implicit `default` source — preserving pre-multi-source behavior.
     crate::ingest_progress::emit(
         progress,
         crate::ingest_progress::IngestEvent::ScanStarted {
@@ -313,9 +319,50 @@ pub fn ingest_with_config_opts(
     );
     let connector =
         FsSourceConnector::new(&app.config).context("kb-app::ingest: build FsSourceConnector")?;
-    let (assets, fs_skips) = connector
-        .scan_with_skips(&scope)
-        .context("kb-app::ingest: scan workspace")?;
+
+    // Per-source scan plan: (source_id, source_trust, scan_scope).
+    let scan_plan: Vec<(String, Option<TrustLevel>, SourceScope)> =
+        if scope.root.as_os_str().is_empty() && scope.include.is_empty() {
+            app.config
+                .resolved_sources()
+                .into_iter()
+                .map(|s| {
+                    let scan_scope = SourceScope {
+                        root: s.root,
+                        include: scope.include.clone(),
+                        exclude: s.exclude,
+                    };
+                    (s.id, s.trust_level, scan_scope)
+                })
+                .collect()
+        } else {
+            // Explicit-root / single-file / include-restricted ingest: one
+            // ad-hoc `default` source rooted at the pinned scope.
+            vec![(
+                kebab_config::DEFAULT_SOURCE_ID.to_string(),
+                None,
+                scope.clone(),
+            )]
+        };
+
+    // Accumulate assets across sources + a per-path lookup of which source
+    // (id + trust) each asset came from. workspace_path is unique per asset
+    // within a scan; on the rare overlap across sources, last-write-wins
+    // (sources should not share roots — a config smell, not enforced).
+    let mut assets: Vec<RawAsset> = Vec::new();
+    let mut source_by_path: std::collections::HashMap<String, (String, Option<TrustLevel>)> =
+        std::collections::HashMap::new();
+    let mut fs_skips = kebab_source_fs::FsScanSkips::default();
+    for (sid, strust, scan_scope) in &scan_plan {
+        let (src_assets, src_skips) = connector
+            .scan_with_skips(scan_scope)
+            .with_context(|| format!("kb-app::ingest: scan source `{sid}`"))?;
+        for a in &src_assets {
+            source_by_path.insert(a.workspace_path.0.clone(), (sid.clone(), *strust));
+        }
+        assets.extend(src_assets);
+        fs_skips.merge(src_skips);
+    }
     crate::ingest_progress::emit(
         progress,
         crate::ingest_progress::IngestEvent::ScanCompleted {
@@ -468,6 +515,14 @@ pub fn ingest_with_config_opts(
                 media: crate::ingest_progress::media_label(&asset.media_type).to_string(),
             },
         );
+        // `[[workspace.sources]]`: resolve which source this asset came from.
+        // Missing only if an asset slipped in outside the scan plan (defensive
+        // — fall back to the implicit `default` source).
+        let (source_id, source_trust) = source_by_path
+            .get(&asset.workspace_path.0)
+            .map_or((kebab_config::DEFAULT_SOURCE_ID, None), |(id, trust)| {
+                (id.as_str(), *trust)
+            });
         let item = ingest_one_asset(
             &app,
             &asset,
@@ -478,6 +533,8 @@ pub fn ingest_with_config_opts(
             embedder.as_ref(),
             vector_store.as_ref(),
             &existing_doc_ids,
+            source_id,
+            source_trust,
             &image_pipeline,
             force_reingest,
             pdf_ocr_engine.as_deref(),
@@ -738,8 +795,8 @@ pub fn ingest_with_config_opts(
         if let Ok(mut w) = lw.lock() {
             let run_id = w.run_id().to_string();
             let ms_samples = ocr_ms_samples.lock().map(|v| v.clone()).unwrap_or_default();
-            let pages = ocr_pages_cnt.lock().map(|v| *v).unwrap_or(0);
-            let failures = ocr_failures_cnt.lock().map(|v| *v).unwrap_or(0);
+            let pages = ocr_pages_cnt.lock().map_or(0, |v| *v);
+            let failures = ocr_failures_cnt.lock().map_or(0, |v| *v);
             let summary = crate::ingest_log::IngestSummary::new(
                 crate::ingest_log::now_ts(),
                 run_id,
@@ -1173,6 +1230,11 @@ fn ingest_one_asset(
     embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
+    // `[[workspace.sources]]`: id of the source this asset belongs to (stamped
+    // onto `documents.source_id`) + that source's default trust level
+    // (markdown frontmatter overrides it).
+    source_id: &str,
+    source_trust: Option<TrustLevel>,
     image_pipeline: &ImagePipeline<'_>,
     force_reingest: bool,
     pdf_ocr_engine: Option<&dyn OcrEngine>,
@@ -1206,6 +1268,7 @@ fn ingest_one_asset(
                 embedder,
                 vector_store,
                 existing_doc_ids,
+                source_id,
                 image_pipeline,
                 force_reingest,
                 progress,
@@ -1221,6 +1284,7 @@ fn ingest_one_asset(
                 embedder,
                 vector_store,
                 existing_doc_ids,
+                source_id,
                 force_reingest,
                 pdf_ocr_engine,
                 progress,
@@ -1263,6 +1327,7 @@ fn ingest_one_asset(
                 existing_doc_ids,
                 force_reingest,
                 lang.as_str(),
+                source_id,
             );
         }
         // p10-1A-2: non-Rust Code, Audio, and Other are not yet wired;
@@ -1338,7 +1403,7 @@ fn ingest_one_asset(
     let bytes = std::fs::read(&path)
         .with_context(|| format!("read asset bytes from {}", path.display()))?;
 
-    let body_hints = build_body_hints(asset);
+    let body_hints = build_body_hints(asset, Some(source_id), source_trust);
 
     // Frontmatter — `parse_frontmatter` returns Ok even on malformed
     // frontmatter (warnings are surfaced through the `Vec<Warning>`).
@@ -1572,6 +1637,7 @@ fn ingest_one_image_asset(
     embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
+    source_id: &str,
     image_pipeline: &ImagePipeline<'_>,
     force_reingest: bool,
     progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
@@ -1646,6 +1712,9 @@ fn ingest_one_image_asset(
     // `image-meta-v1`, which already fixed doc_id). Skip compare + stored
     // field must agree for next-run detection.
     canonical.parser_version = eff_parser_version.clone();
+    // `[[workspace.sources]]`: stamp the owning source id (image extractor
+    // leaves it None).
+    canonical.metadata.source_id = Some(source_id.to_string());
     let parse_ms = u64::try_from(t_parse.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // 2 + 3. Apply OCR / caption when their adapters exist. Both are
@@ -2157,6 +2226,7 @@ fn ingest_one_pdf_asset(
     embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
     vector_store: Option<&Arc<kebab_store_vector::LanceVectorStore>>,
     existing_doc_ids: &std::collections::HashSet<String>,
+    source_id: &str,
     force_reingest: bool,
     pdf_ocr_engine: Option<&dyn OcrEngine>,
     progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
@@ -2224,6 +2294,9 @@ fn ingest_one_pdf_asset(
     // v0.26.2: store the composite parser_version (base `pdf-text-v1` already
     // fixed doc_id) so the next run's skip compare matches.
     canonical.parser_version = eff_parser_version.clone();
+    // `[[workspace.sources]]`: stamp the owning source id (pdf extractor
+    // leaves it None).
+    canonical.metadata.source_id = Some(source_id.to_string());
     let parse_ms = u64::try_from(t_parse.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // v0.20 sub-item 1: post-extract OCR enrichment (PR #187 registry
@@ -2523,6 +2596,7 @@ fn ingest_one_code_asset(
     existing_doc_ids: &std::collections::HashSet<String>,
     force_reingest: bool,
     code_lang: &str, // <-- NEW (p10-1b Task D)
+    source_id: &str,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     let path = match &asset.source_uri {
         SourceUri::File(p) => p.clone(),
@@ -2678,6 +2752,11 @@ fn ingest_one_code_asset(
                 .context("synthesize_tier2_document for tier 3 fallback after extract error")?
         }
     };
+
+    // `[[workspace.sources]]`: stamp the owning source id on the synthesized /
+    // extracted code doc (covers both Tier 1 extract_for and Tier 2/3
+    // synthesize paths — neither knows the source id).
+    canonical.metadata.source_id = Some(source_id.to_string());
 
     // p10-1b Task D/G/J/L: chunker per-lang.
     // p10-3: track whether the extract stage already fell back to Tier 3.
@@ -2898,7 +2977,7 @@ fn synthesize_tier2_document(
     use anyhow::Context as _;
     use kebab_core::{
         BlockId, CodeBlock, CommonBlock, Lang, Metadata, Provenance, ProvenanceEvent,
-        ProvenanceKind, SourceSpan, SourceType, TrustLevel, id_for_block, id_for_doc,
+        ProvenanceKind, SourceSpan, id_for_block, id_for_doc,
     };
 
     let text = std::str::from_utf8(bytes)
@@ -2986,6 +3065,10 @@ fn synthesize_tier2_document(
         git_branch,
         git_commit,
         code_lang: Some(code_lang.to_string()),
+        // `[[workspace.sources]]`: stamped by the caller
+        // (`ingest_one_code_asset`) post-build so Tier 1 (extract_for) and
+        // Tier 2/3 (this synthesizer) share one code path.
+        source_id: None,
     };
 
     tracing::debug!(
@@ -3044,12 +3127,20 @@ fn count_lines_in(bytes: &[u8]) -> u32 {
 /// overhead for large workspaces and the source-of-truth timestamps
 /// are written into the document's frontmatter when the user wants
 /// authoritative values.
-fn build_body_hints(asset: &RawAsset) -> BodyHints {
+fn build_body_hints(
+    asset: &RawAsset,
+    source_id: Option<&str>,
+    source_trust: Option<TrustLevel>,
+) -> BodyHints {
     BodyHints {
         first_h1: None,
         fs_ctime: asset.discovered_at,
         fs_mtime: asset.discovered_at,
         fallback_lang: None,
+        // `[[workspace.sources]]`: stamp the owning source id + inject the
+        // per-source default trust level (frontmatter still overrides it).
+        source_id: source_id.map(str::to_string),
+        fallback_trust_level: source_trust,
     }
 }
 

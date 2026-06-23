@@ -37,6 +37,8 @@ fn pinned_hints() -> BodyHints {
         fs_ctime: datetime!(2024-01-01 00:00:00 UTC),
         fs_mtime: datetime!(2024-01-02 00:00:00 UTC),
         fallback_lang: None,
+        source_id: None,
+        fallback_trust_level: None,
     }
 }
 

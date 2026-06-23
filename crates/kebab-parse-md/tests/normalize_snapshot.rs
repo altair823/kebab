@@ -86,6 +86,8 @@ fn code_and_table_canonical_snapshot() {
         fs_ctime: asset.discovered_at,
         fs_mtime: asset.discovered_at,
         fallback_lang: Some("en".into()),
+        source_id: None,
+        fallback_trust_level: None,
     };
     let (metadata, fm_span, _fm_warns) =
         parse_frontmatter(&bytes, &hints).expect("frontmatter parses");

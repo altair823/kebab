@@ -23,7 +23,7 @@ use kebab_source_fs::FsSourceConnector;
 
 fn cfg_with_root(root: &str) -> Config {
     let mut c = Config::defaults();
-    c.workspace.root = root.to_string();
+    c.workspace.root = Some(root.to_string());
     c.workspace.exclude.clear();
     c
 }

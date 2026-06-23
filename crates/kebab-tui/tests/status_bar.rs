@@ -9,7 +9,7 @@ use ratatui::layout::Rect;
 fn fresh_app(focus: Pane) -> App {
     let mut config = Config::defaults();
     config.storage.data_dir = "/tmp/kebab-tui-status-bar-tests-noop".to_string();
-    config.workspace.root = "/tmp/kebab-tui-status-bar-tests-noop/workspace".to_string();
+    config.workspace.root = Some("/tmp/kebab-tui-status-bar-tests-noop/workspace".to_string());
     let mut app = App::new(config).expect("App::new");
     app.focus = focus;
     app

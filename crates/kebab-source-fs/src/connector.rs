@@ -231,6 +231,47 @@ pub struct FsScanSkips {
     pub events: Vec<FsSkipEvent>,
 }
 
+impl FsScanSkips {
+    /// `[[workspace.sources]]`: fold another source's scan skips into `self`,
+    /// so a multi-source ingest reports aggregate counts. Counters add;
+    /// per-category sample vecs concatenate and re-cap at 5 (spec §5.5);
+    /// events concatenate.
+    pub fn merge(&mut self, other: FsScanSkips) {
+        self.skipped_gitignore = self.skipped_gitignore.saturating_add(other.skipped_gitignore);
+        self.skipped_kebabignore = self
+            .skipped_kebabignore
+            .saturating_add(other.skipped_kebabignore);
+        self.skipped_builtin_blacklist = self
+            .skipped_builtin_blacklist
+            .saturating_add(other.skipped_builtin_blacklist);
+        self.skipped_generated = self.skipped_generated.saturating_add(other.skipped_generated);
+        self.skipped_size_exceeded = self
+            .skipped_size_exceeded
+            .saturating_add(other.skipped_size_exceeded);
+
+        fn merge_samples(dst: &mut Vec<String>, src: Vec<String>) {
+            for s in src {
+                if dst.len() >= 5 {
+                    break;
+                }
+                dst.push(s);
+            }
+        }
+        merge_samples(&mut self.skip_examples.generated, other.skip_examples.generated);
+        merge_samples(
+            &mut self.skip_examples.size_exceeded,
+            other.skip_examples.size_exceeded,
+        );
+        merge_samples(
+            &mut self.skip_examples.builtin_blacklist,
+            other.skip_examples.builtin_blacklist,
+        );
+        merge_samples(&mut self.skip_examples.gitignore, other.skip_examples.gitignore);
+
+        self.events.extend(other.events);
+    }
+}
+
 /// A single per-file skip event for structured ingest log (v0.20.x).
 #[derive(Debug)]
 pub struct FsSkipEvent {
@@ -326,7 +367,7 @@ mod tests {
 
     fn cfg_with_root(root: &str) -> Config {
         let mut c = Config::defaults();
-        c.workspace.root = root.to_string();
+        c.workspace.root = Some(root.to_string());
         c.workspace.exclude.clear();
         c
     }

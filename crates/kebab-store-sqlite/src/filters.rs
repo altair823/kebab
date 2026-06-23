@@ -191,6 +191,31 @@ impl SqliteStore {
             }
         }
 
+        // Phase-2: source_type filter (IN-list on the direct `documents.source_type`
+        // column, idx_docs_source_type). Empty Vec = no filter; multi-value = OR.
+        if !filters.source_type.is_empty() {
+            let placeholders = std::iter::repeat_n("?", filters.source_type.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            sql.push_str(&format!(" AND d.source_type IN ({placeholders})"));
+            for st in &filters.source_type {
+                bind.push(Box::new(st.clone()));
+            }
+        }
+
+        // [[workspace.sources]]: source_id filter (IN-list on the direct
+        // `documents.source_id` column, idx_docs_source_id). Empty Vec = no
+        // filter; multi-value = OR. Mirrors the source_type filter above.
+        if !filters.source_id.is_empty() {
+            let placeholders = std::iter::repeat_n("?", filters.source_id.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            sql.push_str(&format!(" AND d.source_id IN ({placeholders})"));
+            for sid in &filters.source_id {
+                bind.push(Box::new(sid.clone()));
+            }
+        }
+
         // p9-fb-36: ingested_after filter.
         // `documents.updated_at` is RFC3339 TEXT (UTC `Z` per fb-32);
         // lexicographic >= compare is correct — but only when the filter
@@ -998,6 +1023,121 @@ mod tests {
             vec![cid(c1)],
             "only httpx chunk should survive repo filter"
         );
+    }
+
+    /// [[workspace.sources]]: the `source_id` filter keeps only chunks whose
+    /// owning document's `documents.source_id` column is in the IN-list.
+    #[test]
+    fn filter_chunks_source_id_keeps_matching_source() {
+        let tmp = TempDir::new().unwrap();
+        let store = open_store(&tmp);
+        let c1 = "11111111111111111111111111111111";
+        let c2 = "22222222222222222222222222222222";
+        let c3 = "33333333333333333333333333333333";
+        // Three docs, each with a distinct source_id column value.
+        seed_with_source_id(&store, c1, "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1", "notes/a.md", "notes");
+        seed_with_source_id(&store, c2, "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2", "code/b.rs", "code");
+        seed_with_source_id(
+            &store,
+            c3,
+            "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
+            "x.md",
+            "default",
+        );
+
+        // Single value.
+        let f = SearchFilters {
+            source_id: vec!["notes".to_string()],
+            ..Default::default()
+        };
+        let out = store
+            .filter_chunks(&[cid(c1), cid(c2), cid(c3)], &f)
+            .unwrap();
+        assert_eq!(out, vec![cid(c1)], "only the `notes` source chunk survives");
+
+        // Multi-value OR.
+        let f = SearchFilters {
+            source_id: vec!["notes".to_string(), "code".to_string()],
+            ..Default::default()
+        };
+        let out = store
+            .filter_chunks(&[cid(c1), cid(c2), cid(c3)], &f)
+            .unwrap();
+        assert_eq!(out, vec![cid(c1), cid(c2)], "notes OR code survive");
+
+        // Empty filter = no filtering.
+        let f = SearchFilters::default();
+        let out = store
+            .filter_chunks(&[cid(c1), cid(c2), cid(c3)], &f)
+            .unwrap();
+        assert_eq!(out, vec![cid(c1), cid(c2), cid(c3)]);
+    }
+
+    /// Seed one committed doc + chunk + embedding with an explicit
+    /// `documents.source_id` column value (the DEFAULT is `'default'`).
+    fn seed_with_source_id(
+        store: &SqliteStore,
+        chunk_id: &str,
+        doc_id: &str,
+        workspace_path: &str,
+        source_id: &str,
+    ) {
+        let asset_id = format!("a{}", &doc_id[..31]);
+        {
+            let conn = store.lock_conn();
+            conn.execute(
+                "INSERT INTO assets (
+                    asset_id, source_uri, workspace_path, media_type, byte_len,
+                    checksum, storage_kind, storage_path, discovered_at
+                 ) VALUES (?, ?, ?, '\"markdown\"', 1, ?, 'reference', ?,
+                           '1970-01-01T00:00:00Z')",
+                params![
+                    asset_id,
+                    format!("file://{workspace_path}"),
+                    workspace_path,
+                    workspace_path,
+                    workspace_path,
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO documents (
+                    doc_id, asset_id, workspace_path, title, lang, source_type,
+                    trust_level, source_id, parser_version, doc_version,
+                    schema_version, metadata_json, provenance_json,
+                    created_at, updated_at
+                 ) VALUES (?, ?, ?, NULL, 'en', 'markdown', 'primary', ?, 'v1',
+                           1, 1, '{}', '{}', '1970-01-01T00:00:00Z',
+                           '1970-01-01T00:00:00Z')",
+                params![doc_id, asset_id, workspace_path, source_id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO chunks (
+                    chunk_id, doc_id, text, heading_path_json, section_label,
+                    source_spans_json, token_estimate, chunker_version,
+                    policy_hash, block_ids_json, created_at
+                 ) VALUES (?, ?, 'hi', '[]', NULL, '[]', 1, 'v1', 'h', '[]',
+                           '1970-01-01T00:00:00Z')",
+                params![chunk_id, doc_id],
+            )
+            .unwrap();
+        }
+        let embed_row = EmbeddingRecordRow {
+            embedding_id: format!("e{}", &chunk_id[..31]),
+            chunk_id: chunk_id.to_string(),
+            model_id: "m".to_string(),
+            model_version: "v1".to_string(),
+            dimensions: 4,
+            lance_table: "t".to_string(),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+        };
+        store
+            .put_embedding_records_pending(std::slice::from_ref(&embed_row))
+            .unwrap();
+        store
+            .mark_embedding_records_committed(std::slice::from_ref(&embed_row.embedding_id))
+            .unwrap();
     }
 
     #[test]

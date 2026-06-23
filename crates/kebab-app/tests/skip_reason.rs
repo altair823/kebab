@@ -9,7 +9,7 @@ use common::TestEnv;
 #[test]
 fn unsupported_extension_skip_carries_warning_and_is_aggregated() {
     let env = TestEnv::lexical_only();
-    let workspace_root = std::path::PathBuf::from(&env.config.workspace.root);
+    let workspace_root = env.config.resolve_workspace_root();
     std::fs::write(workspace_root.join("legacy.docx"), b"unsupported").unwrap();
     std::fs::write(workspace_root.join("Makefile"), b"unsupported").unwrap();
 

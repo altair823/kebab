@@ -419,6 +419,31 @@ fn run_query(
         }
     }
 
+    // Phase-2: source_type filter (IN-list on the direct `documents.source_type`
+    // column). Empty Vec = no filter; multi-value = OR. Mirrors filters.rs.
+    if !filters.source_type.is_empty() {
+        let placeholders = std::iter::repeat_n("?", filters.source_type.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        sql.push_str(&format!(" AND d.source_type IN ({placeholders})"));
+        for st in &filters.source_type {
+            params.push(Box::new(st.clone()));
+        }
+    }
+
+    // [[workspace.sources]]: source_id filter (IN-list on the direct
+    // `documents.source_id` column). Empty Vec = no filter; multi-value = OR.
+    // Mirrors filters.rs.
+    if !filters.source_id.is_empty() {
+        let placeholders = std::iter::repeat_n("?", filters.source_id.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        sql.push_str(&format!(" AND d.source_id IN ({placeholders})"));
+        for sid in &filters.source_id {
+            params.push(Box::new(sid.clone()));
+        }
+    }
+
     // p9-fb-36: ingested_after filter.
     // `documents.updated_at` is RFC3339 stored as TEXT (always UTC `Z` per
     // fb-32 ingest path), so lexicographic >= compare is correct — but only

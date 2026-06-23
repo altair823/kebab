@@ -14,7 +14,7 @@ fn fresh_state(dir: &std::path::Path) -> KebabAppState {
     fs::create_dir_all(&data).unwrap();
 
     let mut cfg = Config::defaults();
-    cfg.workspace.root = workspace.to_string_lossy().into_owned();
+    cfg.workspace.root = Some(workspace.to_string_lossy().into_owned());
     cfg.storage.data_dir = data.to_string_lossy().into_owned();
     cfg.models.embedding.provider = "none".to_string();
     cfg.models.embedding.dimensions = 0;

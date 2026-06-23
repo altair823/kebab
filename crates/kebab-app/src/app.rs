@@ -727,8 +727,7 @@ impl App {
         // Load (or create) the session header.
         let now_unix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_secs() as i64);
         let existing = self.sqlite.get_session(session_id)?;
         let prior_turns = match &existing {
             Some(_) => self.sqlite.list_turns(session_id)?,
@@ -1111,7 +1110,7 @@ fn trim_to_chars(s: &str, n: usize) -> String {
 /// terminates early) rather than panic in the budget loop.
 fn estimate_chars(hits: &[SearchHit]) -> usize {
     hits.iter()
-        .map(|h| serde_json::to_string(h).map(|s| s.len()).unwrap_or(0))
+        .map(|h| serde_json::to_string(h).map_or(0, |s| s.len()))
         .sum()
 }
 

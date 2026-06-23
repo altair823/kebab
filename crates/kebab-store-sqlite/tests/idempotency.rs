@@ -45,6 +45,7 @@ fn make_metadata() -> Metadata {
         git_branch: None,
         git_commit: None,
         code_lang: None,
+        source_id: None,
     }
 }
 

@@ -34,6 +34,7 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 | RRF fusion_score | `[0, 1]` 정규화 — `2 / (k_rrf + 1)` 로 나눠 mode 간 비교 가능 (post-merge hotfix) |
 | ~~doc-side expansion 별칭 (v0.21.0)~~ | **제거됨 (v0.25.0, HOTFIXES 2026-06-03)** — 색인-시 청크당 LLM 별칭 생성 + 별칭 검색 채널을 완전히 제거. 별칭 ROI 음수(cross-lingual 은 e5-large 단독으로 충분, 기여는 설명형 +2 그룹뿐인데 대가가 청크당 색인-시 LLM). V013 마이그레이션이 `chunk_aliases_fts` + `chunks.aliases` DROP. 기존 KB 의 잔존 별칭 벡터는 검색 시 `strip_alias_suffix` 로 본문 chunk 에 매핑(graceful)되거나 `kebab reset` 으로 정리. spec: `docs/superpowers/specs/2026-06-03-remove-doc-expansion-spec.md`. |
 | 파생물 캐시 `derivation_cache` (V012, v0.21.0) | 비싼 ingest 파생물(embedding 벡터)을 청크 **내용 해시** 키로 SQLite 에 캐싱 → 재색인 시 내용 불변 청크는 재계산 skip. `cache_key = blake3(kind ‖ text_blake3 ‖ version_key)[:32]`; version_key 에 model/dimensions 포함 → §9 cascade 와 정합(버전 bump 시 자동 miss). 위치 기반 `chunk_id` 와 달리 내용이 같으면 문서·위치 무관 동일 키. 순수 가산 — `corpus_revision` bump 안 함, 손상/삭제돼도 정확성 영향 0(miss → 재계산). search/ask 는 `kebab.sqlite`+`lancedb` 만으로 동작하므로 외부 서버 색인 후 DB 만 복사하는 이식 워크플로 가능 (HOTFIXES 2026-05-31). (별칭 LLM 캐싱 kind 는 v0.25.0 에서 제거 — embedding kind 만 남음.) |
+| provenance 출처 필터 (v0.29.0) | 혼합 출처 KB 의 레버 = **질의 시 출처 필터링** (전역 trust 가중 아님). config `[[workspace.sources]]`(각 id/root/trust_level/source_type) → `documents.source_id` 컬럼(V014, additive·DEFAULT `'default'`) stamp + 검색 `--source <id>` / `--source-type <type>`(lexical+vector 두 site, OR). 단일 root 는 implicit `default` source 로 정규화(config v3→v4 `step_3_to_4` 미러). per-source trust/type 는 frontmatter 부재 시 기본값(우선순위 frontmatter > source 기본값 > Primary). **전역 trust 곱셈가중(weighted-RRF)은 반증** — A/B 에서 θ=0.85 만으로 incident MRR 0.918→0.340 절벽(점수 압축), 작은 오염 잡으려다 큰 개선 버리는 see-saw 라 빌드 안 함. 필터는 see-saw 없음. (HOTFIXES 2026-06-21) |
 | layout | XDG (`~/.local/share/kebab/`, `~/.config/kebab/`, …) |
 
 전체 frozen 설계는 [docs/superpowers/specs/2026-04-27-kebab-final-form-design.md](superpowers/specs/2026-04-27-kebab-final-form-design.md) 12 sections 참조.
@@ -219,7 +220,7 @@ kebab/
 │   ├── kebab-tui/                                     # Ratatui shell + Library 패널 (P9-1)
 │   ├── kebab-mcp/                                     # stdio MCP server — tools: schema, doctor, search, ask (P9-FB-30)
 │   └── kebab-cli/                                     # binary (P0 → 핫픽스로 --config flag wiring 강화)
-├── migrations/                                     # SQLite refinery V001..V012 (V012 = derivation_cache, v0.21.0)
+├── migrations/                                     # SQLite refinery V001..V014 (V012 = derivation_cache v0.21.0, V013 = drop chunk_aliases v0.25.0, V014 = documents.source_id v0.29.0)
 └── fixtures/                                       # 테스트 fixture 트리
 ```
 

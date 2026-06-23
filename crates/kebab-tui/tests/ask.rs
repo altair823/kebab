@@ -19,7 +19,7 @@ use time::OffsetDateTime;
 fn fresh_app() -> App {
     let mut config = Config::defaults();
     config.storage.data_dir = "/tmp/kebab-tui-ask-tests-noop".to_string();
-    config.workspace.root = "/tmp/kebab-tui-ask-tests-noop/workspace".to_string();
+    config.workspace.root = Some("/tmp/kebab-tui-ask-tests-noop/workspace".to_string());
     let mut app = App::new(config).expect("App::new");
     app.focus = Pane::Ask;
     // p9-fb-12 follow-up: mirror the run loop's auto-flip on pane

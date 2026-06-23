@@ -133,6 +133,7 @@ impl Extractor for GoAstExtractor {
             git_branch,
             git_commit,
             code_lang: Some("go".to_string()),
+            source_id: None,
         };
 
         tracing::debug!(

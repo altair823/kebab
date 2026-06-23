@@ -16,7 +16,7 @@ fn minimal_config(data_dir: &std::path::Path, workspace_root: &std::path::Path) 
     let mut cfg = Config::defaults();
     cfg.storage.data_dir = data_dir.to_string_lossy().into_owned();
     cfg.storage.model_dir = data_dir.join("models").to_string_lossy().into_owned();
-    cfg.workspace.root = workspace_root.to_string_lossy().into_owned();
+    cfg.workspace.root = Some(workspace_root.to_string_lossy().into_owned());
     cfg.workspace.exclude.clear();
     cfg.models.embedding.provider = "none".to_string();
     cfg.models.embedding.dimensions = 0;

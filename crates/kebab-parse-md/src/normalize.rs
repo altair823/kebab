@@ -469,6 +469,7 @@ mod tests {
             git_branch: None,
             git_commit: None,
             code_lang: None,
+            source_id: None,
         }
     }
 
