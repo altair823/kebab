@@ -63,14 +63,17 @@ fn pdf_ocr_defaults_off_with_qwen_3b() {
     assert_eq!(cfg.ingest.pdf.ocr.lang_hint.as_deref(), Some("kor"));
 }
 
-// Test 3: env var override — pdf-only keys + shared engine knob.
+// Test 3: env var override — pdf enabled + shared engine knob.
 // v5: `model` moved to the shared `KEBAB_OCR_MODEL` (sets both mediums);
-// `enabled`/`always_on`/`valid_ratio_threshold` stay pdf-specific.
+// `enabled` stays per-medium addressable.
+// KEBAB_PDF_OCR_ALWAYS_ON and KEBAB_PDF_OCR_VALID_RATIO_THRESHOLD removed
+// from env surface (config-only) in Unit 2 surface trim.
 #[test]
 fn pdf_ocr_env_overrides() {
     let mut env: HashMap<String, String> = HashMap::new();
     env.insert("KEBAB_PDF_OCR_ENABLED".to_string(), "true".to_string());
     env.insert("KEBAB_OCR_MODEL".to_string(), "qwen2.5vl:7b".to_string());
+    // always_on and valid_ratio_threshold arms gone — silently ignored below.
     env.insert("KEBAB_PDF_OCR_ALWAYS_ON".to_string(), "true".to_string());
     env.insert(
         "KEBAB_PDF_OCR_VALID_RATIO_THRESHOLD".to_string(),
@@ -81,8 +84,10 @@ fn pdf_ocr_env_overrides() {
 
     assert!(cfg.ingest.pdf.ocr.enabled);
     assert_eq!(cfg.ingest.pdf.ocr.model, "qwen2.5vl:7b");
-    assert!(cfg.ingest.pdf.ocr.always_on);
-    assert!((cfg.ingest.pdf.ocr.valid_ratio_threshold - 0.75).abs() < 1e-6);
+    // always_on arm gone — stays at default (false).
+    assert!(!cfg.ingest.pdf.ocr.always_on);
+    // valid_ratio_threshold arm gone — stays at default (0.5).
+    assert!((cfg.ingest.pdf.ocr.valid_ratio_threshold - 0.5).abs() < 1e-6);
 
     // 다른 env var 가 default 보존
     assert_eq!(cfg.ingest.pdf.ocr.engine, "ollama-vision");

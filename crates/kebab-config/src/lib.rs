@@ -1598,21 +1598,13 @@ impl Config {
                 // workspace
                 "KEBAB_WORKSPACE_ROOT" => self.workspace.root = Some(v.clone()),
 
-                // storage
+                // storage — only the root data directory is runtime-overridable;
+                // derived path templates (sqlite, vector_dir, …) and the
+                // copy_threshold_mb tuning knob stay config-only.
                 "KEBAB_STORAGE_DATA_DIR" => self.storage.data_dir = v.clone(),
-                "KEBAB_STORAGE_SQLITE" => self.storage.sqlite = v.clone(),
-                "KEBAB_STORAGE_VECTOR_DIR" => self.storage.vector_dir = v.clone(),
-                "KEBAB_STORAGE_ASSET_DIR" => self.storage.asset_dir = v.clone(),
-                "KEBAB_STORAGE_ARTIFACT_DIR" => self.storage.artifact_dir = v.clone(),
-                "KEBAB_STORAGE_MODEL_DIR" => self.storage.model_dir = v.clone(),
-                "KEBAB_STORAGE_RUNS_DIR" => self.storage.runs_dir = v.clone(),
-                "KEBAB_STORAGE_COPY_THRESHOLD_MB" => {
-                    if let Ok(n) = v.parse::<u64>() {
-                        self.storage.copy_threshold_mb = n;
-                    }
-                }
 
-                // indexing
+                // indexing parallelism — frequently tuned at run-time on
+                // different machines; watch_filesystem stays config-only.
                 "KEBAB_INDEXING_MAX_PARALLEL_EXTRACTORS" => {
                     if let Ok(n) = v.parse::<u32>() {
                         self.ingest.max_parallel_extractors = n;
@@ -1623,11 +1615,9 @@ impl Config {
                         self.ingest.max_parallel_embeddings = n;
                     }
                 }
-                "KEBAB_INDEXING_WATCH_FILESYSTEM" => {
-                    self.ingest.watch_filesystem = parse_bool(v);
-                }
 
-                // chunking
+                // chunking — target/overlap are the two knobs worth
+                // switching at run-time; the rest stay config-only.
                 "KEBAB_CHUNKING_TARGET_TOKENS" => {
                     if let Ok(n) = v.parse::<usize>() {
                         self.ingest.chunking.target_tokens = n;
@@ -1638,35 +1628,13 @@ impl Config {
                         self.ingest.chunking.overlap_tokens = n;
                     }
                 }
-                "KEBAB_CHUNKING_RESPECT_MARKDOWN_HEADINGS" => {
-                    self.ingest.chunking.respect_markdown_headings = parse_bool(v);
-                }
-                "KEBAB_CHUNKING_CHUNKER_VERSION" => self.ingest.chunking.chunker_version = v.clone(),
-                "KEBAB_CHUNKING_MAX_CHUNK_TOKENS" => {
-                    if let Ok(n) = v.parse::<usize>() {
-                        self.ingest.chunking.max_chunk_tokens = n;
-                    }
-                }
 
-                // models.embedding
+                // models.embedding — provider/model/endpoint are the
+                // three fields users swap per-run (e.g. switching to
+                // lemonade GPU host); dimension/batch/thread tuning stays
+                // config-only.
                 "KEBAB_MODELS_EMBEDDING_PROVIDER" => self.models.embedding.provider = v.clone(),
                 "KEBAB_MODELS_EMBEDDING_MODEL" => self.models.embedding.model = v.clone(),
-                "KEBAB_MODELS_EMBEDDING_VERSION" => self.models.embedding.version = v.clone(),
-                "KEBAB_MODELS_EMBEDDING_DIMENSIONS" => {
-                    if let Ok(n) = v.parse::<usize>() {
-                        self.models.embedding.dimensions = n;
-                    }
-                }
-                "KEBAB_MODELS_EMBEDDING_BATCH_SIZE" => {
-                    if let Ok(n) = v.parse::<usize>() {
-                        self.models.embedding.batch_size = n;
-                    }
-                }
-                "KEBAB_MODELS_EMBEDDING_NUM_THREADS" => {
-                    if let Ok(n) = v.parse::<u32>() {
-                        self.models.embedding.num_threads = n;
-                    }
-                }
                 "KEBAB_MODELS_EMBEDDING_ENDPOINT" => {
                     // Empty value → None (= fall back to models.llm.endpoint),
                     // mirroring the OCR endpoint override semantics.
@@ -1674,119 +1642,39 @@ impl Config {
                         if v.is_empty() { None } else { Some(v.clone()) };
                 }
 
-                // models.llm
+                // models.llm — provider/model/endpoint; per-call tuning
+                // knobs (temperature, seed, context_tokens, timeout) stay
+                // config-only.
                 "KEBAB_MODELS_LLM_PROVIDER" => self.models.llm.provider = v.clone(),
                 "KEBAB_MODELS_LLM_MODEL" => self.models.llm.model = v.clone(),
-                "KEBAB_MODELS_LLM_CONTEXT_TOKENS" => {
-                    if let Ok(n) = v.parse::<usize>() {
-                        self.models.llm.context_tokens = n;
-                    }
-                }
                 "KEBAB_MODELS_LLM_ENDPOINT" => self.models.llm.endpoint = v.clone(),
-                "KEBAB_MODELS_LLM_TEMPERATURE" => {
-                    if let Ok(f) = v.parse::<f32>() {
-                        self.models.llm.temperature = f;
-                    }
-                }
-                "KEBAB_MODELS_LLM_SEED" => {
-                    if let Ok(n) = v.parse::<u64>() {
-                        self.models.llm.seed = n;
-                    }
-                }
-                "KEBAB_MODELS_LLM_REQUEST_TIMEOUT_SECS" => {
-                    if let Ok(n) = v.parse::<u64>() {
-                        self.models.llm.request_timeout_secs = n;
-                    }
-                }
 
-                // models.nli (p9-fb-41 PR-9c-1)
+                // models.nli — model name only; provider stays config-only.
                 "KEBAB_MODELS_NLI_MODEL" => self.models.nli.model = v.clone(),
-                "KEBAB_MODELS_NLI_PROVIDER" => self.models.nli.provider = v.clone(),
 
-                // search
+                // search — default_k is the one knob commonly toggled at
+                // the CLI level; fusion/rrf/snippet/stale tuning stays
+                // config-only.
                 "KEBAB_SEARCH_DEFAULT_K" => {
                     if let Ok(n) = v.parse::<usize>() {
                         self.search.default_k = n;
                     }
                 }
-                "KEBAB_SEARCH_HYBRID_FUSION" => self.search.hybrid_fusion = v.clone(),
-                "KEBAB_SEARCH_RRF_K" => {
-                    if let Ok(n) = v.parse::<u32>() {
-                        self.search.rrf_k = n;
-                    }
-                }
-                "KEBAB_SEARCH_SNIPPET_CHARS" => {
-                    if let Ok(n) = v.parse::<usize>() {
-                        self.search.snippet_chars = n;
-                    }
-                }
-                "KEBAB_SEARCH_STALE_THRESHOLD_DAYS" => {
-                    if let Ok(n) = v.parse::<u32>() {
-                        self.search.stale_threshold_days = n;
-                    }
-                }
 
-                // rag
+                // rag — prompt template version is a release-level toggle;
+                // the per-call tuning knobs (score_gate, explain_default,
+                // max_context_tokens, multi_hop_*, nli_threshold) stay
+                // config-only.
                 "KEBAB_RAG_PROMPT_TEMPLATE_VERSION" => {
                     self.rag.prompt_template_version = v.clone();
                 }
-                "KEBAB_RAG_SCORE_GATE" => {
-                    if let Ok(f) = v.parse::<f32>() {
-                        self.rag.score_gate = f;
-                    }
-                }
-                "KEBAB_RAG_EXPLAIN_DEFAULT" => {
-                    self.rag.explain_default = parse_bool(v);
-                }
-                "KEBAB_RAG_MAX_CONTEXT_TOKENS" => {
-                    if let Ok(n) = v.parse::<usize>() {
-                        self.rag.max_context_tokens = n;
-                    }
-                }
-                "KEBAB_RAG_MULTI_HOP_MAX_DEPTH" => {
-                    if let Ok(n) = v.parse::<u32>() {
-                        self.rag.multi_hop_max_depth = n;
-                    }
-                }
-                "KEBAB_RAG_MULTI_HOP_MAX_SUB_QUERIES_PER_ITER" => {
-                    if let Ok(n) = v.parse::<u32>() {
-                        self.rag.multi_hop_max_sub_queries_per_iter = n;
-                    }
-                }
-                "KEBAB_RAG_MULTI_HOP_MAX_POOL_CHUNKS" => {
-                    if let Ok(n) = v.parse::<u32>() {
-                        self.rag.multi_hop_max_pool_chunks = n;
-                    }
-                }
-                // p9-fb-41 PR-9c-1: NLI gate threshold. Parse failure
-                // emits a `tracing::warn!` (not silent like the other
-                // numeric env overrides) because this knob gates the
-                // NLI verification entirely — a malformed env value
-                // would silently disable a security-flavored gate the
-                // user thought they enabled, which is the failure mode
-                // most worth surfacing. The default (`0.0`) survives
-                // on parse failure so behaviour stays well-defined.
-                "KEBAB_RAG_NLI_THRESHOLD" => match v.parse::<f32>() {
-                    Ok(f) => self.rag.nli_threshold = f,
-                    Err(e) => tracing::warn!(
-                        target: "kebab-config",
-                        env_key = "KEBAB_RAG_NLI_THRESHOLD",
-                        env_value = %v,
-                        error = %e,
-                        "invalid KEBAB_RAG_NLI_THRESHOLD; keeping prior value (0.0 = NLI gate disabled)"
-                    ),
-                },
 
                 // ── shared OCR engine (v5: KEBAB_OCR_*) ──────────────────
-                // The 13 engine-level knobs collapsed from the v4
-                // KEBAB_IMAGE_OCR_* / KEBAB_PDF_OCR_* duplicate sets. Each
-                // arm writes BOTH the image and pdf concrete blocks (env is a
-                // deliberate "set the OCR engine for the whole workspace"
-                // override — applied after load-time `resolve_ocr`, with no
-                // toml presence to consult). Per-medium `enabled` stays
-                // separately addressable below (KEBAB_IMAGE_OCR_ENABLED /
-                // KEBAB_PDF_OCR_ENABLED) so a user can turn image OCR on
-                // without forcing pdf OCR on.
+                // Engine/model/endpoint/languages are the four knobs users
+                // toggle to point at a different OCR backend at run-time.
+                // Per-image paddle tuning knobs (score_thresh, unclip_ratio,
+                // max_boxes, det_model, rec_model, dict, max_pixels,
+                // request_timeout_secs) stay config-only.
                 "KEBAB_OCR_ENGINE" => {
                     self.ingest.image.ocr.engine = v.clone();
                     self.ingest.pdf.ocr.engine = v.clone();
@@ -1811,93 +1699,21 @@ impl Config {
                     self.ingest.image.ocr.languages = langs.clone();
                     self.ingest.pdf.ocr.languages = langs;
                 }
-                "KEBAB_OCR_MAX_PIXELS" => {
-                    if let Ok(n) = v.parse::<u32>() {
-                        self.ingest.image.ocr.max_pixels = n;
-                        self.ingest.pdf.ocr.max_pixels = n;
-                    }
-                }
-                "KEBAB_OCR_REQUEST_TIMEOUT_SECS" => {
-                    if let Ok(n) = v.parse::<u64>() {
-                        self.ingest.image.ocr.request_timeout_secs = n;
-                        self.ingest.pdf.ocr.request_timeout_secs = n;
-                    }
-                }
-                // paddle-onnx engine overrides. Empty string → None
-                // (fall back to bundled / KEBAB_IMAGE_OCR_MODEL_DIR).
-                "KEBAB_OCR_DET_MODEL" => {
-                    let m = if v.is_empty() { None } else { Some(v.clone()) };
-                    self.ingest.image.ocr.det_model = m.clone();
-                    self.ingest.pdf.ocr.det_model = m;
-                }
-                "KEBAB_OCR_REC_MODEL" => {
-                    let m = if v.is_empty() { None } else { Some(v.clone()) };
-                    self.ingest.image.ocr.rec_model = m.clone();
-                    self.ingest.pdf.ocr.rec_model = m;
-                }
-                "KEBAB_OCR_DICT" => {
-                    let m = if v.is_empty() { None } else { Some(v.clone()) };
-                    self.ingest.image.ocr.dict = m.clone();
-                    self.ingest.pdf.ocr.dict = m;
-                }
-                "KEBAB_OCR_SCORE_THRESH" => {
-                    if let Ok(f) = v.parse::<f32>() {
-                        self.ingest.image.ocr.score_thresh = f;
-                        self.ingest.pdf.ocr.score_thresh = f;
-                    }
-                }
-                "KEBAB_OCR_UNCLIP_RATIO" => {
-                    if let Ok(f) = v.parse::<f32>() {
-                        self.ingest.image.ocr.unclip_ratio = f;
-                        self.ingest.pdf.ocr.unclip_ratio = f;
-                    }
-                }
-                "KEBAB_OCR_MAX_BOXES" => {
-                    if let Ok(n) = v.parse::<usize>() {
-                        self.ingest.image.ocr.max_boxes = n;
-                        self.ingest.pdf.ocr.max_boxes = n;
-                    }
-                }
 
                 // image OCR enabled toggle (kept per-medium addressable).
                 "KEBAB_IMAGE_OCR_ENABLED" => {
                     self.ingest.image.ocr.enabled = parse_bool(v);
                 }
 
-                // image.caption (P6-3)
+                // image.caption — enabled toggle only; max_pixels and
+                // prompt_template_version stay config-only.
                 "KEBAB_IMAGE_CAPTION_ENABLED" => {
                     self.ingest.image.caption.enabled = parse_bool(v);
                 }
-                "KEBAB_IMAGE_CAPTION_MAX_PIXELS" => {
-                    if let Ok(n) = v.parse::<u32>() {
-                        self.ingest.image.caption.max_pixels = n;
-                    }
-                }
-                "KEBAB_IMAGE_CAPTION_PROMPT_TEMPLATE_VERSION" => {
-                    self.ingest.image.caption.prompt_template_version = v.clone();
-                }
 
-                // ── pdf-only OCR knobs (v5: the 4 fields with no image
-                //    counterpart + the per-medium enabled toggle) ──────────
-                // The engine-level pdf knobs (engine/model/endpoint/languages/
-                // max_pixels/request_timeout_secs + the 6 paddle fields) moved
-                // to the shared KEBAB_OCR_* set above. These five have no
-                // image analogue, so they stay pdf-specific.
+                // pdf OCR enabled toggle; always_on / valid_ratio /
+                // min_char_count / lang_hint stay config-only.
                 "KEBAB_PDF_OCR_ENABLED" => self.ingest.pdf.ocr.enabled = parse_bool(v),
-                "KEBAB_PDF_OCR_ALWAYS_ON" => self.ingest.pdf.ocr.always_on = parse_bool(v),
-                "KEBAB_PDF_OCR_VALID_RATIO_THRESHOLD" => {
-                    if let Ok(n) = v.parse::<f32>() {
-                        self.ingest.pdf.ocr.valid_ratio_threshold = n.clamp(0.0, 1.0);
-                    }
-                }
-                "KEBAB_PDF_OCR_MIN_CHAR_COUNT" => {
-                    if let Ok(n) = v.parse::<u32>() {
-                        self.ingest.pdf.ocr.min_char_count = n;
-                    }
-                }
-                "KEBAB_PDF_OCR_LANG_HINT" => {
-                    self.ingest.pdf.ocr.lang_hint = if v.is_empty() { None } else { Some(v.clone()) };
-                }
 
                 // Unknown KEBAB_* keys are silently ignored — see
                 // `env_unknown_key_is_ignored` test.
@@ -2157,10 +1973,13 @@ max_pixels = 1600
 
     #[test]
     fn env_override_score_gate() {
+        // KEBAB_RAG_SCORE_GATE removed from env surface (config-only now);
+        // verify the default is still correct and unknown key is ignored.
         let mut env = HashMap::new();
         env.insert("KEBAB_RAG_SCORE_GATE".to_string(), "0.5".to_string());
         let c = Config::defaults().apply_env(&env);
-        assert!((c.rag.score_gate - 0.5).abs() < 1e-6);
+        // The arm is gone — value stays at default (0.30), key silently ignored.
+        assert!((c.rag.score_gate - 0.30).abs() < 1e-6);
     }
 
     #[test]
@@ -2189,8 +2008,8 @@ max_pixels = 1600
         assert_eq!(c.ingest.pdf.ocr.engine, "paddle-onnx");
     }
 
-    /// v5: the paddle engine overrides moved to the shared `KEBAB_OCR_*` set
-    /// and apply to BOTH mediums in one shot.
+    /// Paddle-onnx engine tuning knobs (det_model, score_thresh, max_boxes)
+    /// removed from env surface (config-only); keys silently ignored.
     #[test]
     fn env_shared_ocr_paddle_overrides_both_mediums() {
         let mut env = HashMap::new();
@@ -2198,12 +2017,13 @@ max_pixels = 1600
         env.insert("KEBAB_OCR_SCORE_THRESH".into(), "0.4".into());
         env.insert("KEBAB_OCR_MAX_BOXES".into(), "500".into());
         let c = Config::defaults().apply_env(&env);
-        assert_eq!(c.ingest.pdf.ocr.det_model.as_deref(), Some("/d.onnx"));
-        assert!((c.ingest.pdf.ocr.score_thresh - 0.4).abs() < 1e-6);
-        assert_eq!(c.ingest.pdf.ocr.max_boxes, 500);
-        assert_eq!(c.ingest.image.ocr.det_model.as_deref(), Some("/d.onnx"));
-        assert!((c.ingest.image.ocr.score_thresh - 0.4).abs() < 1e-6);
-        assert_eq!(c.ingest.image.ocr.max_boxes, 500);
+        // All three arms gone — keys silently ignored, defaults unchanged.
+        assert_eq!(c.ingest.pdf.ocr.det_model, None);
+        assert!((c.ingest.pdf.ocr.score_thresh - 0.3).abs() < 1e-6);
+        assert_eq!(c.ingest.pdf.ocr.max_boxes, 1000);
+        assert_eq!(c.ingest.image.ocr.det_model, None);
+        assert!((c.ingest.image.ocr.score_thresh - 0.3).abs() < 1e-6);
+        assert_eq!(c.ingest.image.ocr.max_boxes, 1000);
     }
 
     #[test]
@@ -2228,6 +2048,8 @@ max_pixels = 1600
 
     #[test]
     fn env_overrides_models_llm_endpoint_and_temperature() {
+        // KEBAB_MODELS_LLM_TEMPERATURE removed from env surface (config-only);
+        // endpoint override still works; temperature stays at default (0.0).
         let mut env = HashMap::new();
         env.insert(
             "KEBAB_MODELS_LLM_ENDPOINT".to_string(),
@@ -2239,7 +2061,8 @@ max_pixels = 1600
         );
         let c = Config::defaults().apply_env(&env);
         assert_eq!(c.models.llm.endpoint, "http://10.0.0.1:11434");
-        assert!((c.models.llm.temperature - 0.7).abs() < 1e-6);
+        // temperature arm gone — key silently ignored, value stays at default.
+        assert!((c.models.llm.temperature - 0.0).abs() < 1e-6);
     }
 
     /// v0.17.0 post-dogfood: matches the legacy hard-coded 300s cap so
@@ -2251,13 +2074,15 @@ max_pixels = 1600
 
     #[test]
     fn env_overrides_models_llm_request_timeout_secs() {
+        // KEBAB_MODELS_LLM_REQUEST_TIMEOUT_SECS removed from env surface
+        // (config-only); key is silently ignored, default (300) preserved.
         let mut env = HashMap::new();
         env.insert(
             "KEBAB_MODELS_LLM_REQUEST_TIMEOUT_SECS".to_string(),
             "1200".to_string(),
         );
         let c = Config::defaults().apply_env(&env);
-        assert_eq!(c.models.llm.request_timeout_secs, 1200);
+        assert_eq!(c.models.llm.request_timeout_secs, 300);
     }
 
     /// v0.17.0 post-dogfood: a config file written before the field
@@ -2272,13 +2097,15 @@ max_pixels = 1600
 
     #[test]
     fn env_overrides_indexing_watch_filesystem_bool() {
+        // KEBAB_INDEXING_WATCH_FILESYSTEM removed from env surface (config-only);
+        // verify the key is silently ignored and default (false) is unchanged.
         let mut env = HashMap::new();
         env.insert(
             "KEBAB_INDEXING_WATCH_FILESYSTEM".to_string(),
             "true".to_string(),
         );
         let c = Config::defaults().apply_env(&env);
-        assert!(c.ingest.watch_filesystem);
+        assert!(!c.ingest.watch_filesystem);
     }
 
     #[test]
@@ -2300,15 +2127,17 @@ max_pixels = 1600
 
     #[test]
     fn env_overrides_image_ocr_request_timeout_secs() {
+        // KEBAB_OCR_REQUEST_TIMEOUT_SECS removed from env surface (config-only);
+        // key is silently ignored, each medium keeps its own default.
         let mut env = HashMap::new();
-        // v5: shared KEBAB_OCR_REQUEST_TIMEOUT_SECS sets both mediums.
         env.insert(
             "KEBAB_OCR_REQUEST_TIMEOUT_SECS".to_string(),
             "900".to_string(),
         );
         let c = Config::defaults().apply_env(&env);
-        assert_eq!(c.ingest.image.ocr.request_timeout_secs, 900);
-        assert_eq!(c.ingest.pdf.ocr.request_timeout_secs, 900);
+        // image OCR default = 300s, pdf OCR default = 180s (HOTFIXES 2026-05-28).
+        assert_eq!(c.ingest.image.ocr.request_timeout_secs, 300);
+        assert_eq!(c.ingest.pdf.ocr.request_timeout_secs, 180);
     }
 
     /// post-v0.17.1 dogfood: a config file written before the OCR
@@ -2343,6 +2172,8 @@ max_pixels = 1600
 
     #[test]
     fn env_overrides_multi_hop_knobs() {
+        // Multi-hop tuning knobs removed from env surface (config-only);
+        // all three keys silently ignored, defaults preserved.
         let mut env = HashMap::new();
         env.insert("KEBAB_RAG_MULTI_HOP_MAX_DEPTH".to_string(), "5".to_string());
         env.insert(
@@ -2354,9 +2185,9 @@ max_pixels = 1600
             "50".to_string(),
         );
         let c = Config::defaults().apply_env(&env);
-        assert_eq!(c.rag.multi_hop_max_depth, 5);
-        assert_eq!(c.rag.multi_hop_max_sub_queries_per_iter, 7);
-        assert_eq!(c.rag.multi_hop_max_pool_chunks, 50);
+        assert_eq!(c.rag.multi_hop_max_depth, 3);
+        assert_eq!(c.rag.multi_hop_max_sub_queries_per_iter, 5);
+        assert_eq!(c.rag.multi_hop_max_pool_chunks, 15);
     }
 
     /// post-PR-3 fb-41: a config file written before the multi-hop
@@ -2410,14 +2241,18 @@ max_pixels = 1600
 
     #[test]
     fn env_override_nli_threshold() {
+        // KEBAB_RAG_NLI_THRESHOLD removed from env surface (config-only);
+        // key silently ignored, default (0.0) preserved.
         let mut env = HashMap::new();
         env.insert("KEBAB_RAG_NLI_THRESHOLD".to_string(), "0.5".to_string());
         let c = Config::defaults().apply_env(&env);
-        assert!((c.rag.nli_threshold - 0.5).abs() < 1e-6);
+        assert!((c.rag.nli_threshold - 0.0).abs() < 1e-6);
     }
 
     #[test]
     fn env_override_nli_model_and_provider() {
+        // KEBAB_MODELS_NLI_PROVIDER removed from env surface (config-only);
+        // KEBAB_MODELS_NLI_MODEL still works; provider stays at default.
         let mut env = HashMap::new();
         env.insert(
             "KEBAB_MODELS_NLI_MODEL".to_string(),
@@ -2429,13 +2264,11 @@ max_pixels = 1600
         );
         let c = Config::defaults().apply_env(&env);
         assert_eq!(c.models.nli.model, "user/custom-nli-model");
-        assert_eq!(c.models.nli.provider, "candle");
+        // provider arm gone — silently ignored, stays at default "onnx".
+        assert_eq!(c.models.nli.provider, "onnx");
     }
 
-    /// Malformed `KEBAB_RAG_NLI_THRESHOLD` keeps the prior value (does
-    /// NOT silently disable nor crash). The `tracing::warn!` surface
-    /// is observable only when the user has tracing wired; the
-    /// behavior contract is "default survives".
+    /// Malformed `KEBAB_RAG_NLI_THRESHOLD` is now silently ignored (arm removed).
     #[test]
     fn env_malformed_nli_threshold_keeps_prior_value() {
         let mut env = HashMap::new();
@@ -2446,12 +2279,13 @@ max_pixels = 1600
         let c = Config::defaults().apply_env(&env);
         assert_eq!(
             c.rag.nli_threshold, 0.0,
-            "malformed env value must keep the default unchanged"
+            "arm removed — unknown key ignored, default unchanged"
         );
     }
 
     /// v5: the engine-level OCR knobs come from the shared `KEBAB_OCR_*` set
     /// (sets image AND pdf); only `enabled` stays per-medium.
+    /// KEBAB_OCR_MAX_PIXELS removed from env surface (config-only).
     #[test]
     fn image_ocr_env_overrides() {
         let mut env = HashMap::new();
@@ -2467,6 +2301,7 @@ max_pixels = 1600
             "KEBAB_OCR_LANGUAGES".to_string(),
             "eng, kor, jpn".to_string(),
         );
+        // max_pixels arm removed — key silently ignored below.
         env.insert("KEBAB_OCR_MAX_PIXELS".to_string(), "2048".to_string());
         let c = Config::defaults().apply_env(&env);
         assert!(c.ingest.image.ocr.enabled);
@@ -2476,9 +2311,11 @@ max_pixels = 1600
             Some("http://192.168.0.47:11434")
         );
         assert_eq!(c.ingest.image.ocr.languages, vec!["eng", "kor", "jpn"]);
-        assert_eq!(c.ingest.image.ocr.max_pixels, 2048);
-        // shared knob also reached the pdf block.
+        // max_pixels arm gone — stays at image default (1600).
+        assert_eq!(c.ingest.image.ocr.max_pixels, 1600);
+        // shared model knob also reached the pdf block.
         assert_eq!(c.ingest.pdf.ocr.model, "gemma4:31b");
+        // max_pixels stays at pdf default (2048).
         assert_eq!(c.ingest.pdf.ocr.max_pixels, 2048);
     }
 
@@ -2495,6 +2332,8 @@ max_pixels = 1600
 
     #[test]
     fn image_caption_env_overrides() {
+        // KEBAB_IMAGE_CAPTION_MAX_PIXELS and KEBAB_IMAGE_CAPTION_PROMPT_TEMPLATE_VERSION
+        // removed from env surface (config-only); enabled toggle still works.
         let mut env = HashMap::new();
         env.insert(
             "KEBAB_IMAGE_CAPTION_ENABLED".to_string(),
@@ -2510,8 +2349,9 @@ max_pixels = 1600
         );
         let c = Config::defaults().apply_env(&env);
         assert!(c.ingest.image.caption.enabled);
-        assert_eq!(c.ingest.image.caption.max_pixels, 1024);
-        assert_eq!(c.ingest.image.caption.prompt_template_version, "caption-v2");
+        // max_pixels and prompt_template_version arms gone — defaults unchanged.
+        assert_eq!(c.ingest.image.caption.max_pixels, 768);
+        assert_eq!(c.ingest.image.caption.prompt_template_version, "caption-v1");
     }
 
     /// v5: `KEBAB_OCR_ENDPOINT=""` (empty value) should map to `None`
@@ -2799,6 +2639,8 @@ max_context_tokens = 8000
 
     #[test]
     fn env_override_stale_threshold() {
+        // KEBAB_SEARCH_STALE_THRESHOLD_DAYS removed from env surface
+        // (config-only); key silently ignored, default (30) preserved.
         let c = Config::defaults();
         let env: HashMap<String, String> = [(
             "KEBAB_SEARCH_STALE_THRESHOLD_DAYS".to_string(),
@@ -2807,7 +2649,7 @@ max_context_tokens = 8000
         .into_iter()
         .collect();
         let c = c.apply_env(&env);
-        assert_eq!(c.search.stale_threshold_days, 7);
+        assert_eq!(c.search.stale_threshold_days, 30);
     }
 
     #[test]

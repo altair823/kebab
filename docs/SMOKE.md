@@ -85,89 +85,64 @@ root = "/tmp/kebab-smoke/workspace"
 include = ["**/*.md"]
 exclude = [".git/**", "node_modules/**", ".obsidian/**"]
 
+# 멀티소스 (선택) — 출처별 필터링이 필요하면 root 대신 명명 source 를 선언한다.
+# [[workspace.sources]]
+# id = "notes"
+# root = "/tmp/kebab-smoke/workspace"
+
 [storage]
 data_dir = "/tmp/kebab-smoke/data"
-sqlite = "{data_dir}/kebab.sqlite"
-vector_dir = "{data_dir}/lancedb"
-asset_dir = "{data_dir}/assets"
-artifact_dir = "{data_dir}/artifacts"
-model_dir = "{data_dir}/models"
-runs_dir = "{data_dir}/runs"
-copy_threshold_mb = 100
+# 파생 경로(sqlite/vector_dir/asset_dir/…)와 copy_threshold_mb 는 기본값으로 충분.
+# 고급 설정은 `kebab init` 이 생성한 config.toml 주석 참고.
 
 # v0.28.0: 모든 형식 ingest 설정의 우산. 병렬도(← 옛 [indexing])는 [ingest] 스칼라로,
 # chunking/code/image/pdf 는 [ingest.*] 하위로 통합. 옛 v2 파일은 로드 시 자동 변환됨.
 [ingest]
 max_parallel_extractors = 2
 max_parallel_embeddings = 1
-watch_filesystem = false
 
 [ingest.chunking]
 target_tokens = 500
 overlap_tokens = 80
-respect_markdown_headings = true
-chunker_version = "md-heading-v2"
-max_chunk_tokens = 4000              # v0.30.0 — 이 byte/3 토큰 초과 청크는 줄(→UTF-8 char) 경계로 분할(거대 list/code/log 덤프 대비)
+# 고급 청킹 키(respect_markdown_headings, chunker_version, max_chunk_tokens)는
+# 기본값이 안정적 — 변경 시 영향 문서 자동 재청크됨.
 
 [models.embedding]
-provider = "fastembed"               # "fastembed"(기본, onnxruntime) / "candle"(순수 Rust, NUMA-안전)
-                                     # / "ollama"(원격 HTTP /api/embed) / "none"(lexical-only — Ollama 불필요)
-                                     # ⚠ provider/model 변경 시 아래 dimensions 도 맞춰야 함.
-model = "multilingual-e5-small"      # candle/ollama 는 "snowflake-arctic-embed-l-v2.0"
-                                     # (ollama 태그 "snowflake-arctic-embed2", 1024-dim) 도 지원 —
-                                     # 설명형 query recall 보강. e5↔arctic 전환은
-                                     # embedding_version cascade (재색인 필요).
-version = "v1"
-dimensions = 384                     # arctic / e5-large 는 1024.
-batch_size = 64
-num_threads = 0                      # candle 전용 CPU 스레드 캡 (0=auto). env KEBAB_EMBED_THREADS 우선.
+provider = "fastembed"               # "fastembed"(기본) / "ollama"(원격 HTTP) / "none"(lexical-only)
+model = "multilingual-e5-large"      # ollama: "snowflake-arctic-embed2" (1024-dim) 도 지원
+dimensions = 1024                    # provider/model 과 반드시 일치해야 함
 # endpoint = "http://127.0.0.1:11434"  # provider="ollama" 전용; 생략 시 [models.llm].endpoint fallback.
 
 [models.llm]
 provider = "ollama"
-model = "gemma4:26b"                 # 사용자 환경에 맞춰 교체
-context_tokens = 16384
-endpoint = "http://192.168.0.47:11434"
-temperature = 0.2
-seed = 42
+model = "gemma4:e4b"                 # 사용자 환경에 맞춰 교체
+endpoint = "http://127.0.0.1:11434"
 
 [search]
 default_k = 10
-hybrid_fusion = "rrf"
-rrf_k = 60
-snippet_chars = 220
-cache_capacity = 256                 # p9-fb-19 — in-process LRU cap; 0 disables, default 256
-stale_threshold_days = 30            # p9-fb-32 — 0 = disable. Marks hits/citations whose source doc was last reindexed > N days ago.
+stale_threshold_days = 30            # 0 = disable. 마지막 색인 후 N일 초과 hit/citation 에 stale 플래그.
 
 [rag]
-prompt_template_version = "rag-v4"   # default — 각 근거의 source/trust 라벨로 low-trust 출처 discount. rag-v3 는 legacy.
-score_gate = 0.05                    # RRF 정규화 후 [0, 1] 범위라 default 그대로 OK
-explain_default = false
-max_context_tokens = 6000
-# v0.18.0 fb-41 multi-hop NLI gate (default 0.0 = disabled).
-# `kebab ask --multi-hop` 사용 시 0.5 권장 — entailment < 0.5 면 refuse.
-# 첫 호출 시 mDeBERTa-v3 XNLI ONNX 모델 자동 다운로드 (~280 MB, ~30-60s),
-# RAM peak ~7-8 GB (gemma3:4b 기준, 16 GB 환경 안전). model 실패 시
-# `refusal_reason = "nli_model_unavailable"` — `nli_threshold = 0` 으로 disable.
-nli_threshold = 0.0
+prompt_template_version = "rag-v4"   # 각 근거의 source/trust 라벨로 low-trust 출처 discount.
+# nli_threshold = 0.0                # >0 (예: 0.5) 면 mDeBERTa XNLI groundedness 검증 활성화.
+                                     # 첫 호출 시 ONNX 모델 자동 다운로드 (~280 MB).
 
 [ui]
-theme = "dark"                       # p9-fb-14 — TUI palette ("dark" / "light", default "dark")
+theme = "dark"                       # TUI palette ("dark" / "light")
 
 [ingest.code]
 skip_generated_header = true
 max_file_bytes = 262144
 max_file_lines = 5000
-extra_skip_globs = []                # 사용자 추가 skip 패턴 (gitignore syntax)
+extra_skip_globs = []
 
 [logging]
 ingest_log_enabled = true
 ingest_log_dir = "{state_dir}/logs"
-keep_recent_runs = 100               # v0.20.x r2: 최근 N 개 run log 파일 보존
-retention_days = 30                  # v0.20.x r2: N일 이상 된 log / OCR 이벤트 자동 삭제
+retention_days = 30
 ```
 
-`KEBAB_*` 환경변수로 override 가능 (`KEBAB_MODELS_LLM_MODEL=gemma4:26b kebab …` 등). 자세한 키 목록은 `crates/kebab-config/src/lib.rs` 의 `apply_env` 매치 암. `KEBAB_READONLY=1` — write-path 비활성화 (CI 안전망). `KEBAB_PROGRESS=plain` — non-TTY 환경에서 진행 상황을 plain 한 줄씩 stderr 출력 (spinner 대신).
+`KEBAB_*` 환경변수로 런타임 override 가능. 노출된 ~22개 키: 엔드포인트(`KEBAB_MODELS_LLM_ENDPOINT`, `KEBAB_MODELS_EMBEDDING_ENDPOINT`, `KEBAB_OCR_ENDPOINT`), 모델/프로바이더(`KEBAB_MODELS_LLM_MODEL`, `KEBAB_MODELS_LLM_PROVIDER`, `KEBAB_MODELS_EMBEDDING_MODEL`, `KEBAB_MODELS_EMBEDDING_PROVIDER`, `KEBAB_MODELS_NLI_MODEL`), 경로(`KEBAB_WORKSPACE_ROOT`, `KEBAB_STORAGE_DATA_DIR`), 병렬도(`KEBAB_INDEXING_MAX_PARALLEL_EXTRACTORS`, `KEBAB_INDEXING_MAX_PARALLEL_EMBEDDINGS`), 청킹(`KEBAB_CHUNKING_TARGET_TOKENS`, `KEBAB_CHUNKING_OVERLAP_TOKENS`), OCR(`KEBAB_IMAGE_OCR_ENABLED`, `KEBAB_PDF_OCR_ENABLED`, `KEBAB_OCR_ENGINE`, `KEBAB_OCR_MODEL`, `KEBAB_OCR_LANGUAGES`), 기타(`KEBAB_IMAGE_CAPTION_ENABLED`, `KEBAB_SEARCH_DEFAULT_K`, `KEBAB_RAG_PROMPT_TEMPLATE_VERSION`). 나머지 세부 튜닝(score_gate, rrf_k, temperature 등)은 `config.toml` 전용. `KEBAB_READONLY=1` — write-path 비활성화 (CI 안전망). `KEBAB_PROGRESS=plain` — non-TTY 환경에서 진행 상황을 plain 한 줄씩 stderr 출력 (spinner 대신).
 
 ## 명령 시퀀스
 
