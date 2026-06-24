@@ -501,6 +501,8 @@ mod tests {
             asset: &asset,
             workspace_root: &root,
             config: &cfg,
+            source_id: None,
+            source_trust: None,
         };
         TypescriptAstExtractor::new().extract(&ctx, &bytes).unwrap()
     }
@@ -587,6 +589,8 @@ mod tests {
             asset: &asset,
             workspace_root: &root,
             config: &cfg,
+            source_id: None,
+            source_trust: None,
         };
         let doc = TypescriptAstExtractor::new().extract(&ctx, bytes).unwrap();
 
@@ -640,6 +644,8 @@ mod tests {
             asset: &asset,
             workspace_root: &root,
             config: &cfg,
+            source_id: None,
+            source_trust: None,
         };
         let doc = TypescriptAstExtractor::new().extract(&ctx, bytes).unwrap();
 

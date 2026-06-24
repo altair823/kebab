@@ -36,7 +36,7 @@ fn twin_files_second_ingest_is_unchanged() {
     std::fs::write(pkg_b.join("__init__.py"), content).unwrap();
 
     // First ingest — both files must be New.
-    let first = ingest_with_config(env.config.clone(), env.scope(), false)
+    let first = ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("first ingest must succeed");
     assert_eq!(first.errors, 0, "first ingest: no errors; report={first:?}");
 
@@ -59,7 +59,7 @@ fn twin_files_second_ingest_is_unchanged() {
     }
 
     // Second ingest — same files, same content → both must be Unchanged.
-    let second = ingest_with_config(env.config.clone(), env.scope(), false)
+    let second = ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("second ingest must succeed");
     assert_eq!(
         second.errors, 0,

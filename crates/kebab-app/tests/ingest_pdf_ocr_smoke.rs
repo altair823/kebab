@@ -2,7 +2,7 @@
 //!
 //! Tests 1 and 2 require a live Ollama endpoint — `#[ignore]` by default.
 //! Manual invoke:
-//!   KEBAB_PDF_OCR_ENDPOINT=http://192.168.0.47:11434 \
+//!   KEBAB_OCR_ENDPOINT=http://192.168.0.47:11434 \
 //!     cargo test -p kebab-app --test ingest_pdf_ocr_smoke --ignored -j 4
 //!
 //! Test 3 (cancel) uses a dummy endpoint + pre-set cancel — runs by default
@@ -17,7 +17,8 @@ use std::sync::atomic::AtomicBool;
 use common::TestEnv;
 
 fn ollama_endpoint() -> String {
-    std::env::var("KEBAB_PDF_OCR_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".to_string())
+    // v5: shared KEBAB_OCR_* env (manual harness reads it directly).
+    std::env::var("KEBAB_OCR_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".to_string())
 }
 
 fn make_ocr_env_real() -> TestEnv {
@@ -43,7 +44,7 @@ fn ingest_with_mock_ocr_yields_pdf_ocr_summary() {
     let env = make_ocr_env_real();
 
     let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).expect("ingest");
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).expect("ingest");
 
     assert!(report.new >= 1, "at least one PDF ingested: {report:?}");
 
@@ -71,7 +72,7 @@ fn ingest_with_mock_ocr_yields_pdf_ocr_summary() {
 fn ocr_text_indexed_and_searchable() {
     let env = make_ocr_env_real();
 
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).expect("ingest");
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).expect("ingest");
 
     // Search for a Korean morpheme expected to appear in qwen2.5vl:3b OCR
     // output of the PoC ground-truth page. "다음" is a high-frequency token
@@ -104,12 +105,13 @@ fn ingest_with_cancel_aborts_mid_pdf() {
 
     let cancel = Arc::new(AtomicBool::new(true)); // pre-set — abort immediately
 
-    let result = kebab_app::ingest_with_config_cancellable(
+    let result = kebab_app::ingest_with_config(
         env.config.clone(),
         env.scope(),
-        false,
-        None,
-        Some(cancel),
+        kebab_app::IngestOpts {
+            cancel: Some(cancel),
+            ..Default::default()
+        },
     );
     // Both Ok (pre-cancel exit) and Err (eager OCR engine fail) are acceptable —
     // key assertion is no panic/deadlock.

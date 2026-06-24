@@ -4,11 +4,10 @@
 //!
 //! ## Why this exists
 //!
-//! The candle backend ([`kebab-embed-candle`]) runs arctic-embed-l-v2.0
-//! in-process (pure Rust, NUMA-safe). This crate is the **fallback** path:
-//! it offloads embedding to a local/remote Ollama daemon (`snowflake-arctic-embed2`),
-//! which is exactly the route the recall measurements used — so it reproduces
-//! the measured numbers (recall@10 130/132) byte-for-route. Opt-in via
+//! This crate offloads embedding to a local/remote Ollama daemon
+//! (`snowflake-arctic-embed2`), which is exactly the route the recall
+//! measurements used — so it reproduces the measured numbers (recall@10
+//! 130/132) byte-for-route. Opt-in via
 //! `config.models.embedding.provider = "ollama"`.
 //!
 //! ## Wire shape
@@ -44,6 +43,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use kebab_config::EmbeddingModelCfg;
 use kebab_core::{Embedder, EmbeddingInput, EmbeddingKind, EmbeddingModelId, EmbeddingVersion};
 use serde::{Deserialize, Serialize};
 
@@ -64,10 +64,9 @@ const REQUEST_TIMEOUT_SECS: u64 = 300;
 
 /// Resolve the (query_prefix, doc_prefix) for an Ollama embedding model tag.
 ///
-/// Mirrors `kebab-embed-candle`'s `MODEL_REGISTRY`, but keyed on the **Ollama
-/// model tag** (which differs from the HF id — e.g. `snowflake-arctic-embed2`
-/// vs `Snowflake/snowflake-arctic-embed-l-v2.0`). Kept here rather than shared
-/// so this crate does not depend on the candle backend.
+/// Resolve the (query_prefix, doc_prefix) for an Ollama embedding model tag,
+/// keyed on the **Ollama model tag** (which differs from the HF id — e.g.
+/// `snowflake-arctic-embed2` vs `Snowflake/snowflake-arctic-embed-l-v2.0`).
 ///
 /// An unrecognized model gets no prefix (`("", "")`): many embedding models
 /// are not instruction-tuned, so embedding the raw text is the correct default
@@ -103,19 +102,15 @@ pub struct OllamaEmbedder {
 }
 
 impl OllamaEmbedder {
-    /// Build from a workspace [`kebab_config::Config`]. Reads
-    /// `config.models.embedding.{model, dimensions}` and resolves the endpoint
-    /// as `models.embedding.endpoint` → fallback `models.llm.endpoint`.
+    /// Build from the `[models.embedding]` slice + a resolved `endpoint`.
+    /// Reads `cfg.{model, dimensions}`; the caller resolves the endpoint
+    /// (`models.embedding.endpoint` → fallback `models.llm.endpoint`) and
+    /// passes it in.
     ///
     /// Does NOT touch the network. The caller (app layer) is expected to have
     /// validated `provider == "ollama"`.
-    pub fn new(config: &kebab_config::Config) -> Result<Self> {
-        let emb = &config.models.embedding;
-        let endpoint = emb
-            .endpoint
-            .clone()
-            .filter(|e| !e.is_empty())
-            .unwrap_or_else(|| config.models.llm.endpoint.clone());
+    pub fn new(cfg: &EmbeddingModelCfg, endpoint: String) -> Result<Self> {
+        let emb = cfg;
         if endpoint.is_empty() {
             anyhow::bail!(
                 "ollama embedding provider needs an endpoint: set \

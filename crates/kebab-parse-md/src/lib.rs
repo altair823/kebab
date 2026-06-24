@@ -18,6 +18,10 @@
 //! * [`build_canonical_document`] / [`derive_title`] — lift a parsed
 //!   markdown document into a `kebab_core::CanonicalDocument` (absorbed
 //!   from `kebab-normalize` — P1-4 / p9-fb-07 frozen API).
+//! * [`MarkdownExtractor`] — the [`kebab_core::Extractor`] impl that wraps
+//!   the three free functions above so markdown ingest flows through the
+//!   `App.extractors` registry like pdf / image / code (extract-stage
+//!   symmetry).
 //! * Parser intermediate types ([`ParsedBlock`], [`ParsedBlockKind`],
 //!   [`ParsedPayload`], [`Warning`], [`WarningKind`]) and 3 forward-declared
 //!   structs ([`ParsedImageRegion`], [`ParsedPdfPage`], [`ParsedAudioSegment`]) —
@@ -26,11 +30,13 @@
 //! Anything else in this crate is `pub(crate)` and may change without notice.
 
 pub mod blocks;
+mod extractor;
 pub mod frontmatter;
 mod normalize;
 mod types;
 
 pub use blocks::parse_blocks;
+pub use extractor::MarkdownExtractor;
 pub use frontmatter::{BodyHints, FrontmatterSpan, parse_frontmatter};
 
 // Spec §3.3 의 surface 보존 정책 — explicit (NOT glob) 으로 future addition leak 방지.

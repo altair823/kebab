@@ -454,6 +454,8 @@ mod tests {
             asset: &asset,
             workspace_root: &root,
             config: &cfg,
+            source_id: None,
+            source_trust: None,
         };
         JavaAstExtractor::new().extract(&ctx, &bytes).unwrap()
     }

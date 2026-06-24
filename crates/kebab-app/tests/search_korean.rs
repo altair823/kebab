@@ -24,7 +24,7 @@ fn korean_lexical_query_returns_korean_document() {
     .expect("write Korean fixture doc");
 
     // Ingest — lexical_only() disables fastembed so no AVX required.
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true)
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() })
         .expect("ingest must succeed");
 
     // Lexical search for "러스트" — must return the Korean document.
@@ -72,7 +72,7 @@ fn lexical_multi_token_korean_query_hits() {
         .join("hash-table.md");
     std::fs::copy(&src, &dest).expect("copy korean fixture");
 
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true)
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() })
         .expect("ingest must succeed");
 
     let hits =
@@ -108,7 +108,7 @@ fn lexical_mixed_korean_english_multi_token_query_hits() {
     )
     .expect("write rust-hash fixture");
 
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true)
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() })
         .expect("ingest must succeed");
 
     let hits =
@@ -144,7 +144,7 @@ fn korean_morphological_2char_query_lexical_mode() {
     )
     .expect("write korean-wiki fixture");
 
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true)
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() })
         .expect("ingest must succeed");
 
     let hits = kebab_app::search_with_config(env.config.clone(), common::lexical_query("한국"))
@@ -176,7 +176,7 @@ fn korean_morphological_mixed_english_korean_query() {
     )
     .expect("write rust-optimization fixture");
 
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true)
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() })
         .expect("ingest must succeed");
 
     let hits = kebab_app::search_with_config(env.config.clone(), common::lexical_query("Rust"))

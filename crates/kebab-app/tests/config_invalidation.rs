@@ -15,7 +15,7 @@ mod common;
 
 use common::TestEnv;
 
-use kebab_app::{IngestOpts, ingest_with_config, ingest_with_config_opts};
+use kebab_app::{IngestOpts, ingest_with_config};
 use kebab_core::IngestItemKind;
 
 /// Seed a workspace with a markdown + a rust file so both the markdown and
@@ -26,7 +26,7 @@ fn seed_and_first_ingest(env: &TestEnv) -> kebab_core::IngestReport {
         "/// adds two integers\npub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n",
     )
     .unwrap();
-    let first = ingest_with_config(env.config.clone(), env.scope(), false).expect("first ingest");
+    let first = ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).expect("first ingest");
     assert_eq!(first.errors, 0, "first ingest must not error: {first:?}");
     assert!(first.new >= 1, "first ingest creates docs: {first:?}");
     assert_eq!(first.unchanged, 0, "first ingest has no unchanged: {first:?}");
@@ -34,7 +34,7 @@ fn seed_and_first_ingest(env: &TestEnv) -> kebab_core::IngestReport {
 }
 
 fn reingest(env: &TestEnv) -> kebab_core::IngestReport {
-    ingest_with_config_opts(env.config.clone(), env.scope(), false, IngestOpts::default())
+    ingest_with_config(env.config.clone(), env.scope(), IngestOpts::default())
         .expect("re-ingest")
 }
 

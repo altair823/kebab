@@ -33,18 +33,15 @@
 //! in that mode [`App::embedder`] returns `None` and callers must fall
 //! back to lexical-only search.
 
-use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Result, anyhow};
-use lru::LruCache;
 
 use kebab_core::{
     Answer, DocumentStore, Embedder, ExtractContext, Extractor, IndexVersion, LanguageModel,
     MediaType, Retriever, SearchHit, SearchMode, SearchOpts, SearchQuery, VectorStore,
 };
-use kebab_embed_candle::CandleEmbedder;
-use kebab_embed_local::FastembedEmbedder;
+use kebab_embed_local::{FASTEMBED_CACHE_SUBDIR, FastembedEmbedder};
 use kebab_embed_ollama::OllamaEmbedder;
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_parse_code::{
@@ -52,6 +49,7 @@ use kebab_parse_code::{
     KotlinAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor,
 };
 use kebab_parse_image::ImageExtractor;
+use kebab_parse_md::MarkdownExtractor;
 use kebab_parse_pdf::PdfTextExtractor;
 use kebab_rag::{AskOpts, RagPipeline};
 use kebab_search::{HybridRetriever, LexicalRetriever, VectorRetriever};
@@ -102,9 +100,9 @@ pub struct App {
     pub(crate) sqlite: Arc<SqliteStore>,
     /// post-v0.18.0 extractor-dispatch-unification: polymorphic Extractor
     /// registry. App init 시 1회 등록되어 `extract_for(...)` 가 lookup
-    /// 한다. 현재 11 entry (ImageExtractor + PdfTextExtractor + 9 AST).
-    /// MarkdownExtractor 는 별 PR 에서 추가 — markdown ingest path 는
-    /// 본 PR 에서 free-function 그대로 유지.
+    /// 한다. 현재 12 entry (MarkdownExtractor + ImageExtractor +
+    /// PdfTextExtractor + 9 AST). MarkdownExtractor 가 마지막으로 합류해
+    /// 모든 media 가 `extract_for` 경유로 통일됨 (extract-stage 대칭화).
     pub(crate) extractors: Vec<Box<dyn Extractor + Send + Sync>>,
     /// Memoized embedder — built lazily on first `embedder()` call when
     /// embeddings are enabled. `OnceLock` keeps the struct `Sync` and
@@ -118,16 +116,10 @@ pub struct App {
     /// client per query (cheap, but still measurable on a 50-query
     /// suite).
     llm: OnceLock<Arc<dyn LanguageModel>>,
-    /// p9-fb-19: in-process LRU search-result cache. Capacity comes
-    /// from `config.search.cache_capacity` (default 256, ~1.3 MB
-    /// cap). `None` when capacity is 0 (cache disabled). The
-    /// `corpus_revision` snapshot embedded in `SearchCacheKey`
-    /// invalidates every entry the moment a new ingest commit lands.
-    search_cache: Option<Mutex<LruCache<SearchCacheKey, Vec<SearchHit>>>>,
     /// p9-fb-41 PR-9c-2: NLI verifier built eagerly at
     /// `open_with_config` time when `config.rag.nli_threshold > 0`,
-    /// consumed by `RagPipeline::with_verifier` on every `ask` /
-    /// `ask_with_session` call. `None` when the gate is disabled
+    /// consumed by `RagPipeline::with_verifier` on every `ask` call.
+    /// `None` when the gate is disabled
     /// (default, threshold = 0) — multi-hop skips step 8.5 entirely
     /// and single-pass never touches the verifier.
     ///
@@ -135,46 +127,6 @@ pub struct App {
     /// propagation surfaces NLI model construction errors at App
     /// boot time, before any user query runs.
     pipeline_verifier: Option<Arc<dyn kebab_nli::NliVerifier>>,
-}
-
-/// p9-fb-19: cache key for `App::search`. Includes every field that
-/// could change the result set:
-/// - normalized query (NFKC + trim + lowercase)
-/// - mode + k + snippet_chars (caller knobs)
-/// - embedding_version + chunker_version (model identity)
-/// - corpus_revision (monotonic counter that ingest bumps)
-///
-/// Lexical mode has no embedding identity → empty string in that
-/// slot, harmless because the rest of the key still distinguishes
-/// queries.
-///
-/// **Naming note**: spec p9-fb-19 calls the invalidation counter
-/// `index_version`, but the impl renames it to `corpus_revision` to
-/// avoid confusion with the pre-existing `IndexVersion` newtype
-/// (design §9 — embedding-index identity label, a completely
-/// different concept). The `corpus_revision` row in the §9
-/// versioning table documents the new dimension; HOTFIXES entry
-/// tracks the rename.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(crate) struct SearchCacheKey {
-    pub query_norm: String,
-    pub mode: SearchMode,
-    pub k: u32,
-    pub snippet_chars: u32,
-    pub embedding_version: String,
-    pub chunker_version: String,
-    pub corpus_revision: u64,
-}
-
-impl SearchCacheKey {
-    /// Normalize `query.text` per spec p9-fb-19: NFKC + trim +
-    /// lowercase. Means `"Foo"` / `"FOO"` / `" foo "` collapse to a
-    /// single cache entry — redundant work avoided when the user's
-    /// input differs only in shape.
-    pub fn normalize_query(text: &str) -> String {
-        use unicode_normalization::UnicodeNormalization;
-        text.trim().nfkc().collect::<String>().to_lowercase()
-    }
 }
 
 impl App {
@@ -187,7 +139,7 @@ impl App {
     /// internally drives a `tokio::Runtime::block_on`, which panics if
     /// invoked from inside another tokio runtime.
     pub fn open_with_config(config: kebab_config::Config) -> Result<Self> {
-        let sqlite = SqliteStore::open(&config).context("kb-app: open SqliteStore")?;
+        let sqlite = SqliteStore::open(&config.storage).context("kb-app: open SqliteStore")?;
         sqlite
             .run_migrations()
             .context("kb-app: run SqliteStore migrations")?;
@@ -219,17 +171,16 @@ impl App {
                 "korean tokenizer backfill complete: {backfill_count} chunks updated"
             );
         }
-        // p9-fb-19: build the LRU cache from config. Capacity 0 →
-        // `None` (cache disabled — every search hits the retrievers).
-        let search_cache = NonZeroUsize::new(config.search.cache_capacity)
-            .map(|cap| Mutex::new(LruCache::new(cap)));
-        // post-v0.18.0 extractor-dispatch-unification: build the 11-entry
+        // post-v0.18.0 extractor-dispatch-unification: build the 12-entry
         // Extractor registry. All entries are state-less unit structs with
         // zero-cost `new()`, so init cost is effectively 0 and side effects
         // are 0 — `pipeline_verifier` fallible `?` below may bail but the
-        // already-constructed `extractors` Vec drops without cost. Markdown
-        // is NOT registered (see field doc).
+        // already-constructed `extractors` Vec drops without cost.
+        // MarkdownExtractor is registered first so markdown ingest flows
+        // through `extract_for` like every other media (extract-stage
+        // symmetry — previously the only free-function arm).
         let extractors: Vec<Box<dyn Extractor + Send + Sync>> = vec![
+            Box::new(MarkdownExtractor::new()),
             Box::new(ImageExtractor::new()),
             Box::new(PdfTextExtractor::new()),
             Box::new(RustAstExtractor::new()),
@@ -264,7 +215,6 @@ impl App {
             embedder: OnceLock::new(),
             vector: OnceLock::new(),
             llm: OnceLock::new(),
-            search_cache,
             pipeline_verifier,
         })
     }
@@ -294,73 +244,13 @@ impl App {
     }
 
     /// Run a [`SearchQuery`] through the configured retriever stack and
-    /// return the top-k hits. p9-fb-19: result is served from the
-    /// in-process LRU cache when the same `(query_norm, mode, k,
-    /// snippet_chars, embedding_version, chunker_version,
-    /// corpus_revision)` tuple was seen before; cache miss falls
-    /// through to [`Self::search_uncached`].
+    /// return the top-k hits.
     ///
     /// Reuses any previously-built embedder / vector store on this `App`
     /// — long-lived callers (kb-eval, future TUI) get amortized cost
     /// across calls.
     pub fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>> {
-        let Some(cache) = self.search_cache.as_ref() else {
-            // Cache disabled (capacity = 0) — straight-line.
-            return self.search_uncached(query);
-        };
-        // Build the cache key. embedding_version is empty for lexical
-        // mode (no embedder identity); for vector/hybrid we need the
-        // embedder built (which forces the cold-start cost), but
-        // that's the cost the cache exists to amortize across
-        // *subsequent* identical queries.
-        let key = self.build_cache_key(&query)?;
-        // Lock the cache long enough to lookup; clone the hit out so
-        // we can drop the lock before returning. Mutex poison
-        // recovery: `into_inner()` of a poison error returns the
-        // (still-valid) underlying guard so we can keep using the
-        // cache after a panic in another thread. Log once so the
-        // poison itself is visible — the cache is still functional
-        // but a panic in a previous search is worth knowing about.
-        let mut guard = cache.lock().unwrap_or_else(|e| {
-            tracing::warn!(
-                target: "kebab-app",
-                "search_cache mutex was poisoned; recovering and continuing — \
-                 a previous search-thread panic preceded this call"
-            );
-            e.into_inner()
-        });
-        if let Some(hits) = guard.get(&key) {
-            tracing::debug!(
-                target: "kebab-app",
-                cache = "hit",
-                corpus_revision = key.corpus_revision,
-                "search served from LRU cache"
-            );
-            // p9-fb-32: re-stamp staleness on every cache hit. The cache
-            // entry was stamped at insert time against an older `now`
-            // and an older threshold; if either has shifted (config
-            // reload, time passing) the cached `stale: false` may now
-            // be wrong. Re-stamping is cheap (per-hit comparison) and
-            // avoids invalidating the cache on threshold changes.
-            let mut hits = hits.clone();
-            drop(guard);
-            let now = time::OffsetDateTime::now_utc();
-            crate::staleness::mark_stale_in_place(
-                &mut hits,
-                now,
-                self.config.search.stale_threshold_days,
-            );
-            return Ok(hits);
-        }
-        // Drop the lock before the (potentially slow) retriever call
-        // so other in-flight searches can use the cache concurrently.
-        drop(guard);
-        let hits = self.search_uncached(query)?;
-        let mut guard = cache
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        guard.put(key, hits.clone());
-        Ok(hits)
+        self.search_uncached(query)
     }
 
     /// p9-fb-19: bypass the LRU cache and run the search directly.
@@ -407,7 +297,7 @@ impl App {
                     vec_iv,
                     self.config.search.snippet_chars,
                 )) as Arc<dyn Retriever>;
-                let hybrid = HybridRetriever::new(&self.config, lex, vec_retr);
+                let hybrid = HybridRetriever::new(&self.config.search, lex, vec_retr);
                 hybrid.search(&query)?
             }
         };
@@ -505,7 +395,7 @@ impl App {
                     self.config.search.snippet_chars,
                 )) as Arc<dyn Retriever>
             };
-            let hybrid = HybridRetriever::new(&self.config, lex, vec_retr);
+            let hybrid = HybridRetriever::new(&self.config.search, lex, vec_retr);
             let (mut traced_hits, trace) = hybrid.search_with_trace(&fetch_query)?;
 
             // Stamp staleness — same as search_uncached.
@@ -639,8 +529,8 @@ impl App {
         pipeline.ask(query, opts)
     }
 
-    /// p9-fb-41 PR-9c-2: shared pipeline builder used by [`Self::ask`]
-    /// and [`Self::ask_with_session`]. Attaches the App-built NLI
+    /// p9-fb-41 PR-9c-2: shared pipeline builder used by [`Self::ask`].
+    /// Attaches the App-built NLI
     /// verifier (when `cfg.rag.nli_threshold > 0`) via
     /// `RagPipeline::with_verifier`, keeping the construction site in
     /// a single place so the two call paths can't drift.
@@ -649,15 +539,21 @@ impl App {
         retriever: Arc<dyn Retriever>,
         llm: Arc<dyn LanguageModel>,
     ) -> RagPipeline {
-        let pipeline = RagPipeline::new(self.config.clone(), retriever, llm, self.sqlite.clone());
+        let pipeline = RagPipeline::new(
+            self.config.rag.clone(),
+            self.config.models.clone(),
+            self.config.search.clone(),
+            retriever,
+            llm,
+            self.sqlite.clone(),
+        );
         match &self.pipeline_verifier {
             Some(v) => pipeline.with_verifier(v.clone()),
             None => pipeline,
         }
     }
 
-    /// p9-fb-18: shared retriever-stack builder used by [`Self::ask`]
-    /// and [`Self::ask_with_session`]. Lexical mode uses the FTS5
+    /// Shared retriever-stack builder used by [`Self::ask`]. Lexical mode uses the FTS5
     /// retriever directly; vector / hybrid require embeddings (and
     /// surface the same "switch to --mode lexical" error from
     /// [`Self::require_embeddings`] when disabled).
@@ -698,122 +594,9 @@ impl App {
                     vec_iv,
                     self.config.search.snippet_chars,
                 )) as Arc<dyn Retriever>;
-                Arc::new(HybridRetriever::new(&self.config, lex, vec_retr))
+                Arc::new(HybridRetriever::new(&self.config.search, lex, vec_retr))
             }
         })
-    }
-
-    /// p9-fb-18: ask under a persistent chat session. Loads the
-    /// session's prior turns (if any), runs the query through
-    /// `RagPipeline::ask_with_history`, then appends the new turn
-    /// + (auto-)creates the session row on first use.
-    ///
-    /// `session_id` is caller-supplied. If the session doesn't
-    /// exist yet, a new `chat_sessions` row is created with title
-    /// derived from the first question (≤40 chars, trimmed and
-    /// NFC-normalized). Subsequent calls with the same
-    /// `session_id` extend the conversation.
-    ///
-    /// The returned `Answer` carries `conversation_id = Some(
-    /// session_id)` and `turn_index = Some(n)` per p9-fb-15. The
-    /// new `chat_turns` row is committed before this method
-    /// returns; on persistence error, the answer is still returned
-    /// (don't lose the user's compute) but the error is logged so
-    /// the operator notices.
-    pub fn ask_with_session(&self, session_id: &str, query: &str, opts: AskOpts) -> Result<Answer> {
-        use kebab_core::traits::{ChatSessionRepo, ChatSessionRow, ChatTurnRow};
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        // Load (or create) the session header.
-        let now_unix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs() as i64);
-        let existing = self.sqlite.get_session(session_id)?;
-        let prior_turns = match &existing {
-            Some(_) => self.sqlite.list_turns(session_id)?,
-            None => Vec::new(),
-        };
-        let next_index = u32::try_from(prior_turns.len()).unwrap_or(u32::MAX);
-
-        // Build history Vec<Turn> from the persisted rows. Citations
-        // are decoded best-effort — a corrupted citations_json
-        // becomes an empty Vec rather than a panic (history is
-        // advisory, not authoritative).
-        let history: Vec<kebab_core::Turn> = prior_turns
-            .iter()
-            .map(|row| kebab_core::Turn {
-                question: row.question.clone(),
-                answer: row.answer.clone(),
-                citations: serde_json::from_str(&row.citations_json).unwrap_or_default(),
-                created_at: time::OffsetDateTime::from_unix_timestamp(row.created_at)
-                    .unwrap_or(time::OffsetDateTime::UNIX_EPOCH),
-            })
-            .collect();
-
-        // p9-fb-18 R1: shared retriever builder removes the prior
-        // copy of `ask`'s 35-line stack — see [`Self::build_retriever`].
-        // p9-fb-41 PR-9c-2: shared `build_pipeline` attaches the NLI
-        // verifier when the gate is enabled.
-        let retriever = self.build_retriever(opts.mode)?;
-        let llm = self.llm()?;
-        let pipeline = self.build_pipeline(retriever, llm);
-        let answer =
-            pipeline.ask_with_history(query, history, session_id.to_string(), next_index, opts)?;
-
-        // Auto-create the session header on first use. Title from
-        // the first question (≤40 chars after trim).
-        if existing.is_none() {
-            let title = first_question_title(query);
-            let session_row = ChatSessionRow {
-                session_id: session_id.to_string(),
-                created_at: now_unix,
-                updated_at: now_unix,
-                title: Some(title),
-                config_snapshot_json: serde_json::json!({
-                    "prompt_template_version": self.config.rag.prompt_template_version,
-                    "llm.model": self.config.models.llm.model,
-                    "max_context_tokens": self.config.rag.max_context_tokens,
-                })
-                .to_string(),
-            };
-            if let Err(e) = self.sqlite.create_session(&session_row) {
-                tracing::warn!(
-                    target: "kebab-app",
-                    error = %e,
-                    session_id = %session_id,
-                    "ask_with_session: create_session failed; continuing — turn append will surface a more useful error"
-                );
-            }
-        }
-
-        // Append the new turn. Failure is logged but does NOT mask
-        // the answer — the user still gets their response, the
-        // operator sees the persistence error in the warn log.
-        let turn_id = format!(
-            "{:032x}",
-            blake3_truncate(&format!("{session_id}:{next_index}")),
-        );
-        let turn_row = ChatTurnRow {
-            turn_id,
-            session_id: session_id.to_string(),
-            turn_index: next_index,
-            question: query.to_string(),
-            answer: answer.answer.clone(),
-            citations_json: serde_json::to_string(&answer.citations)
-                .unwrap_or_else(|_| "[]".to_string()),
-            created_at: now_unix,
-        };
-        if let Err(e) = self.sqlite.append_turn(&turn_row) {
-            tracing::warn!(
-                target: "kebab-app",
-                error = %e,
-                session_id = %session_id,
-                turn_index = next_index,
-                "ask_with_session: append_turn failed; answer returned regardless"
-            );
-        }
-
-        Ok(answer)
     }
 
     /// Returns `true` when the workspace has embeddings turned off
@@ -834,28 +617,48 @@ impl App {
         if let Some(e) = self.embedder.get() {
             return Ok(Some(e.clone()));
         }
-        // Provider branch (Track 1 spec §3 + arctic-embedder spec). The
-        // `embeddings_disabled()` check above already handled `"none"`; here we
-        // route the live providers. `fastembed`/`onnx`/(empty) keep the default
-        // onnxruntime path (vectors unchanged — `embedding_version` is
-        // preserved); `candle` selects the pure-Rust NUMA-safe backend (e5 or
-        // arctic via its model registry); `ollama` offloads to a remote
-        // `/api/embed` daemon.
+        // Provider branch (arctic-embedder spec). The `embeddings_disabled()`
+        // check above already handled `"none"`; here we route the live
+        // providers. `fastembed`/`onnx`/(empty) keep the default onnxruntime
+        // path (vectors unchanged — `embedding_version` is preserved); `ollama`
+        // offloads to a remote `/api/embed` daemon.
         let provider = self.config.models.embedding.provider.as_str();
         let emb: Arc<dyn Embedder + Send + Sync> = match provider {
-            "fastembed" | "onnx" | "" => Arc::new(
-                FastembedEmbedder::new(&self.config).context("kb-app: load FastembedEmbedder")?,
-            ),
-            "candle" => Arc::new(
-                CandleEmbedder::new(&self.config).context("kb-app: load CandleEmbedder")?,
-            ),
-            "ollama" => Arc::new(
-                OllamaEmbedder::new(&self.config).context("kb-app: load OllamaEmbedder")?,
-            ),
+            "fastembed" | "onnx" | "" => {
+                // Resolve `{data_dir}/models/fastembed/` here so the
+                // embedder constructor only takes the `[models.embedding]`
+                // slice + the final cache dir.
+                let data_dir = kebab_config::expand_path(&self.config.storage.data_dir, "");
+                let model_dir = kebab_config::expand_path(
+                    &self.config.storage.model_dir,
+                    &data_dir.to_string_lossy(),
+                );
+                let cache_dir = model_dir.join(FASTEMBED_CACHE_SUBDIR);
+                Arc::new(
+                    FastembedEmbedder::new(&self.config.models.embedding, &cache_dir)
+                        .context("kb-app: load FastembedEmbedder")?,
+                )
+            }
+            "ollama" => {
+                // Resolve the endpoint here: `models.embedding.endpoint`
+                // → fallback `models.llm.endpoint`.
+                let endpoint = self
+                    .config
+                    .models
+                    .embedding
+                    .endpoint
+                    .clone()
+                    .filter(|e| !e.is_empty())
+                    .unwrap_or_else(|| self.config.models.llm.endpoint.clone());
+                Arc::new(
+                    OllamaEmbedder::new(&self.config.models.embedding, endpoint)
+                        .context("kb-app: load OllamaEmbedder")?,
+                )
+            }
             other => {
                 return Err(anyhow!(
                     "kb-app: unknown embedding provider {other:?}; expected one of \
-                     `fastembed` (default), `candle`, `ollama`, or `none` (lexical-only)"
+                     `fastembed` (default), `ollama`, or `none` (lexical-only)"
                 ));
             }
         };
@@ -876,7 +679,7 @@ impl App {
             return Ok(Some(v.clone()));
         }
         let store = Arc::new(
-            LanceVectorStore::new(&self.config, self.sqlite.clone())
+            LanceVectorStore::new(&self.config.storage, self.sqlite.clone())
                 .context("kb-app: open LanceVectorStore")?,
         );
         let _ = self.vector.set(store.clone());
@@ -896,48 +699,6 @@ impl App {
         );
         let _ = self.llm.set(llm.clone());
         Ok(self.llm.get().cloned().unwrap_or(llm))
-    }
-
-    /// p9-fb-19: build a `SearchCacheKey` for `query`. For lexical
-    /// mode the embedding_version slot is left empty (no embedder
-    /// identity contributes to the result). For vector / hybrid
-    /// modes the embedder is built (cold-start) so the version
-    /// label can be read; that's the cost the cache exists to
-    /// amortize over the next few identical queries.
-    fn build_cache_key(&self, query: &SearchQuery) -> Result<SearchCacheKey> {
-        let embedding_version = match query.mode {
-            SearchMode::Lexical => String::new(),
-            SearchMode::Vector | SearchMode::Hybrid => {
-                let emb = self.embedder()?.ok_or_else(|| {
-                    anyhow!(
-                        "embeddings disabled; vector / hybrid search require an \
-                         embedder — switch to --mode lexical or enable a provider"
-                    )
-                })?;
-                vector_index_version(emb.as_ref()).0
-            }
-        };
-        Ok(SearchCacheKey {
-            query_norm: SearchCacheKey::normalize_query(&query.text),
-            mode: query.mode,
-            k: u32::try_from(query.k).unwrap_or(u32::MAX),
-            snippet_chars: u32::try_from(self.config.search.snippet_chars).unwrap_or(u32::MAX),
-            embedding_version,
-            chunker_version: self.config.ingest.chunking.chunker_version.clone(),
-            corpus_revision: self.sqlite.corpus_revision(),
-        })
-    }
-
-    /// p9-fb-19: clear the in-process search cache. Useful for tests
-    /// and for explicit user actions (e.g. a future `kebab cache
-    /// clear` admin command). No-op when the cache is disabled.
-    pub fn clear_search_cache(&self) {
-        if let Some(cache) = self.search_cache.as_ref() {
-            let mut guard = cache
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            guard.clear();
-        }
     }
 
     /// p10-1A-2 Task 8b: back-fill `SearchHit.repo` from the originating
@@ -1057,33 +818,6 @@ fn vector_index_version(embedder: &dyn Embedder) -> IndexVersion {
         embedder.model_version().0,
         embedder.dimensions(),
     ))
-}
-
-/// p9-fb-18: derive a chat-session title from the first question.
-/// Trim, NFC, take first ~40 chars. Always non-empty (falls back
-/// to `"untitled"`) — same defensive shape as kebab-normalize's
-/// derive_title.
-fn first_question_title(question: &str) -> String {
-    use unicode_normalization::UnicodeNormalization;
-    let nfc: String = question.trim().nfc().collect();
-    let truncated: String = nfc.chars().take(40).collect();
-    if truncated.is_empty() {
-        "untitled".to_string()
-    } else {
-        truncated
-    }
-}
-
-/// p9-fb-18: 32-hex `turn_id` derived from session_id + turn_index.
-/// blake3 hash truncated to first 16 bytes; format as 32-char lowercase
-/// hex so it slots into the `chat_turns.turn_id` column without
-/// collision concerns under any realistic per-session turn count.
-fn blake3_truncate(input: &str) -> u128 {
-    let hash = blake3::hash(input.as_bytes());
-    let bytes = hash.as_bytes();
-    let mut buf = [0u8; 16];
-    buf.copy_from_slice(&bytes[..16]);
-    u128::from_be_bytes(buf)
 }
 
 /// p9-fb-34: trim `s` to at most `n` Unicode scalar chars. Cheap
@@ -1347,49 +1081,6 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// p9-fb-18: title trims, NFC-normalizes, caps at 40 chars.
-    #[test]
-    fn first_question_title_trims_and_caps() {
-        assert_eq!(first_question_title("  hello  "), "hello");
-        let long = "a".repeat(100);
-        assert_eq!(first_question_title(&long).chars().count(), 40);
-    }
-
-    /// p9-fb-18: empty / whitespace-only question falls back to
-    /// `"untitled"` (never returns empty).
-    #[test]
-    fn first_question_title_falls_back_to_untitled() {
-        assert_eq!(first_question_title(""), "untitled");
-        assert_eq!(first_question_title("   "), "untitled");
-        assert_eq!(first_question_title("\t\n"), "untitled");
-    }
-
-    /// p9-fb-18: korean NFD → NFC.
-    #[test]
-    fn first_question_title_nfc_normalizes_korean() {
-        let nfd = "\u{1100}\u{1161}".to_string(); // 가 (NFD)
-        let title = first_question_title(&nfd);
-        assert_eq!(title, "\u{AC00}", "expected NFC composed form");
-    }
-
-    /// p9-fb-18: blake3_truncate is deterministic and differs across
-    /// distinct inputs.
-    #[test]
-    fn blake3_truncate_deterministic_and_distinct() {
-        let a = blake3_truncate("session-x:0");
-        let b = blake3_truncate("session-x:0");
-        let c = blake3_truncate("session-x:1");
-        let d = blake3_truncate("session-y:0");
-        assert_eq!(a, b, "same input → same hash");
-        assert_ne!(a, c, "different turn_index → different hash");
-        assert_ne!(a, d, "different session_id → different hash");
-    }
-}
-
-#[cfg(test)]
 mod tests_trace {
     use super::*;
     use kebab_core::{SearchMode, SearchOpts, SearchQuery};
@@ -1399,7 +1090,7 @@ mod tests_trace {
         let mut cfg = kebab_config::Config::defaults();
         cfg.storage.data_dir = dir.path().to_string_lossy().into_owned();
         // Bring up migrations.
-        let store = kebab_store_sqlite::SqliteStore::open(&cfg).unwrap();
+        let store = kebab_store_sqlite::SqliteStore::open(&cfg.storage).unwrap();
         store.run_migrations().unwrap();
         drop(store);
         let app = App::open_with_config(cfg).unwrap();
@@ -1451,7 +1142,7 @@ mod tests_trace {
 /// are `pub(crate)` — integration tests cannot reach them.
 ///
 /// Spec §5.1 + plan §2 Step 10 — 3 test class:
-/// 1. registry length = 11 (image + pdf + 9 AST).
+/// 1. registry length = 12 (markdown + image + pdf + 9 AST).
 /// 2. mutually-exclusive `supports()` grid over 16 sample MediaTypes.
 /// 3. `extract_for` returns `Err("no Extractor ...")` for registry-NOT-cover
 ///    MediaType (Audio).
@@ -1467,28 +1158,26 @@ mod tests_extractor_dispatch {
         let mut cfg = kebab_config::Config::defaults();
         cfg.storage.data_dir = dir.path().to_string_lossy().into_owned();
         // Bring up migrations.
-        let store = kebab_store_sqlite::SqliteStore::open(&cfg).unwrap();
+        let store = kebab_store_sqlite::SqliteStore::open(&cfg.storage).unwrap();
         store.run_migrations().unwrap();
         drop(store);
         let app = App::open_with_config(cfg).unwrap();
         (dir, app)
     }
 
-    /// Registry length invariant: 11 Extractor (image + pdf + 9 AST).
-    /// Markdown is NOT registered (free-function path — defer to a
-    /// separate PR per spec §3.4).
+    /// Registry length invariant: 12 Extractor (markdown + image + pdf +
+    /// 9 AST). Markdown 합류로 모든 media 가 `extract_for` 경유로 통일됨.
     #[test]
-    fn registry_has_eleven_extractors() {
+    fn registry_has_twelve_extractors() {
         let (_dir, app) = open_app_with_temp_dir();
         assert_eq!(
             app.extractors.len(),
-            11,
-            "registry must hold 11 Extractors (image + pdf + 9 AST). \
-             markdown 은 별 PR."
+            12,
+            "registry must hold 12 Extractors (markdown + image + pdf + 9 AST)."
         );
     }
 
-    /// 11 Extractor 의 `supports()` 가 16 sample MediaType 에 대해
+    /// 12 Extractor 의 `supports()` 가 16 sample MediaType 에 대해
     /// mutually exclusive — 어떤 두 Extractor 도 동일 MediaType 에
     /// 대해 true 반환 안 됨.
     #[test]
@@ -1559,6 +1248,8 @@ mod tests_extractor_dispatch {
             asset: &asset,
             workspace_root: &workspace_root,
             config: &cfg,
+            source_id: None,
+            source_trust: None,
         };
         let result = app.extract_for(&MediaType::Audio(AudioType::Wav), &ctx, &[]);
         assert!(result.is_err(), "Audio 는 registry 미포함 → Err 기대");

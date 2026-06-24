@@ -52,6 +52,8 @@ fn extract_and_ocr(
         asset: &asset,
         workspace_root,
         config: &config,
+        source_id: None,
+        source_trust: None,
     };
     let mut canonical = PdfTextExtractor::new().extract(&ctx, bytes).unwrap();
     let opts = PdfOcrOpts {

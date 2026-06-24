@@ -33,7 +33,7 @@ fn b3_full_hex(bytes: &[u8]) -> String {
 #[test]
 fn copy_mode_writes_file_with_0o644_and_correct_bytes() {
     let env = common::TestEnv::with_threshold(100);
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let bytes = b"hello, sqlite";
@@ -80,7 +80,7 @@ fn copy_mode_writes_file_with_0o644_and_correct_bytes() {
 fn reference_mode_does_not_write_file_but_records_path() {
     // copy_threshold_mb=0 → every byte lands on the reference branch.
     let env = common::TestEnv::with_threshold(0);
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let bytes = b"big-pretend-bytes";
@@ -126,7 +126,7 @@ fn put_asset_with_bytes_sweeps_workspace_path_orphan() {
     // is exercised end-to-end in `kebab-app::tests::pdf_pipeline::
     // re_ingest_edited_pdf_produces_new_doc_id`.
     let env = common::TestEnv::with_threshold(100);
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     // Pre-populate a row that owns `notes/foo.md` under a *different*
@@ -200,7 +200,7 @@ fn put_asset_with_bytes_rejects_invalid_asset_id() {
     // 32-hex `FromStr` invariant. The store boundary must reject any ID
     // whose shape would let path construction escape `data_dir/assets/`.
     let env = common::TestEnv::with_threshold(100);
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     // 32 chars but contains a `/` — would let `assets_path_for` stitch
@@ -242,7 +242,7 @@ fn put_asset_with_bytes_rejects_invalid_asset_id() {
 #[test]
 fn checksum_mismatch_returns_conflict() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let bytes = b"the real bytes";

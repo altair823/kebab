@@ -61,7 +61,7 @@ pub fn run_eval_with_config(cfg: &kebab_config::Config, opts: &EvalRunOpts) -> R
 
     // Open the store once so every per-query write reuses the same
     // connection-mutex lifetime.
-    let store = SqliteStore::open(cfg).context("open SqliteStore for run_eval")?;
+    let store = SqliteStore::open(&cfg.storage).context("open SqliteStore for run_eval")?;
     store
         .run_migrations()
         .context("run migrations for run_eval")?;
@@ -174,11 +174,6 @@ fn execute_query(app: &App, gq: &GoldenQuery, opts: &EvalRunOpts) -> QueryResult
             temperature: opts.temperature,
             seed: opts.seed,
             stream_sink: None,
-            // p9-fb-15: golden eval is single-shot per query; no
-            // conversational history.
-            history: Vec::new(),
-            conversation_id: None,
-            turn_index: None,
             // p9-fb-41: golden eval baseline runs are single-pass; the
             // multi-hop path is opted into per query via a future
             // fixture flag (PR-4+) once the runner learns to dispatch.

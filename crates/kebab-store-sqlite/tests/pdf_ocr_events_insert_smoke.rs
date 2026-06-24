@@ -8,7 +8,7 @@ use rusqlite::OptionalExtension;
 
 fn open_migrated() -> (common::TestEnv, SqliteStore) {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).expect("open");
+    let store = SqliteStore::open(&env.config().storage).expect("open");
     store.run_migrations().expect("run migrations");
     (env, store)
 }

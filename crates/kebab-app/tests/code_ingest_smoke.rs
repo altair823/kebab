@@ -29,7 +29,7 @@ fn rust_file_ingests_and_searches_as_code_citation() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
 
     assert_eq!(report.errors, 0, "no errors expected: {report:?}");
@@ -128,7 +128,7 @@ fn rust_code_search_hit_has_repo() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
     assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
 
@@ -176,7 +176,7 @@ fn python_file_ingests_and_searches_as_code_citation() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
 
     assert!(report.new >= 1, "python file ingested: {report:?}");
@@ -254,7 +254,7 @@ fn typescript_file_ingests_and_searches_as_code_citation() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
 
     assert!(report.new >= 1, "ts file ingested: {report:?}");
@@ -332,7 +332,7 @@ fn javascript_file_ingests_and_searches_as_code_citation() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
 
     assert!(report.new >= 1, "js file ingested: {report:?}");
@@ -410,7 +410,7 @@ fn go_file_ingests_and_searches_as_code_citation() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
     assert_eq!(report.errors, 0);
     assert!(report.new >= 1);
@@ -483,7 +483,7 @@ fn java_file_ingests_and_searches_as_code_citation() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
     assert_eq!(report.errors, 0);
     assert!(report.new >= 1);
@@ -560,7 +560,7 @@ fn kotlin_file_ingests_and_searches_as_code_citation() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
     assert_eq!(report.errors, 0);
     assert!(report.new >= 1);
@@ -635,7 +635,7 @@ fn tier2_k8s_yaml_ingest_searchable() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
     assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
     assert!(report.new >= 1, "yaml file ingested: {report:?}");
@@ -720,7 +720,7 @@ fn tier2_dockerfile_ingest_searchable() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
     assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
     assert!(report.new >= 1, "Dockerfile ingested: {report:?}");
@@ -805,7 +805,7 @@ fn tier2_cargo_toml_ingest_searchable() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
     assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
     assert!(report.new >= 1, "Cargo.toml ingested: {report:?}");
@@ -890,7 +890,7 @@ fn tier3_shell_ingest_searchable() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
     assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
     assert!(report.new >= 1, "shell file ingested: {report:?}");
@@ -979,7 +979,7 @@ fn tier3_yaml_fallback_picks_up_non_k8s_yaml() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
     assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
     assert!(
@@ -1063,7 +1063,7 @@ fn rust_file_re_ingest_is_unchanged() {
 
     std::fs::write(env.workspace_root.join("stable.rs"), "pub fn noop() {}\n").unwrap();
 
-    let r1 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let r1 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     let item1 = r1
         .items
         .as_ref()
@@ -1074,7 +1074,7 @@ fn rust_file_re_ingest_is_unchanged() {
         .unwrap();
     assert_eq!(item1.kind, IngestItemKind::New);
 
-    let r2 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let r2 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     let item2 = r2
         .items
         .unwrap()
@@ -1105,7 +1105,7 @@ fn tier3_yaml_fallback_reingest_is_unchanged() {
     )
     .unwrap();
 
-    let report1 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report1 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("first ingest");
     let item1 = report1
         .items
@@ -1125,7 +1125,7 @@ fn tier3_yaml_fallback_reingest_is_unchanged() {
         "first ingest must use Tier 3 fallback chunker"
     );
 
-    let report2 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report2 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("second ingest");
     let item2 = report2
         .items
@@ -1155,7 +1155,7 @@ fn tier1_c_ingest_searchable() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
     assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
     assert!(report.new >= 1, "c file ingested: {report:?}");
@@ -1241,7 +1241,7 @@ fn tier1_cpp_ingest_searchable() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
     assert_eq!(report.errors, 0, "no ingest errors: {report:?}");
     assert!(report.new >= 1, "cpp file ingested: {report:?}");
@@ -1333,7 +1333,7 @@ fn tier2_k8s_multi_resource_yaml_ingests_without_collision() {
     )
     .unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("ingest must succeed");
 
     // The bug: this would land in report with an error + UNIQUE constraint message.
@@ -1389,7 +1389,7 @@ fn tier3_shell_reingest_is_unchanged() {
     )
     .unwrap();
 
-    let report1 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report1 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("first ingest");
     let item1 = report1
         .items
@@ -1404,7 +1404,7 @@ fn tier3_shell_reingest_is_unchanged() {
         item1.kind
     );
 
-    let report2 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false)
+    let report2 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("second ingest");
     let item2 = report2
         .items

@@ -271,16 +271,6 @@ enum Cmd {
         #[arg(long)]
         hide_citations: bool,
 
-        /// p9-fb-18: persistent multi-turn chat session id. First call
-        /// auto-creates the session in SQLite (`chat_sessions`), each
-        /// subsequent call with the same id loads prior turns as
-        /// history and appends the new Q/A. Without this flag, ask
-        /// is single-shot (no persistence). The session id is
-        /// caller-supplied — pick anything stable per conversation
-        /// (e.g. `kebab-rust-async-2026-05`).
-        #[arg(long, value_name = "ID")]
-        session: Option<String>,
-
         /// p9-fb-33: emit ndjson `answer_event.v1` events on stderr
         /// while streaming. Final stdout line is the existing
         /// `answer.v1`. Off by default to preserve final-only behavior.
@@ -342,10 +332,6 @@ enum Cmd {
 
     /// Print introspection report (wire schemas, capabilities, model versions, stats).
     Schema,
-
-    /// Launch the Ratatui shell (P9-1 — Library pane only; search /
-    /// ask / inspect panes land with p9-2 / p9-3 / p9-4).
-    Tui,
 
     /// Eval suite (placeholder; lands in P9).
     Eval {
@@ -664,14 +650,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             let mode = progress::ProgressMode::from_flags(cli.json, cli.quiet, plain_env);
 
             // Surface the active embedding backend/device on the terminal so the
-            // user sees it without grepping kb.log (the per-device tracing line
-            // only lands in the log file at --verbose). Suppressed under
-            // --json/--quiet. The Metal note reflects the build (`embed_metal`);
-            // the confirmed runtime device is in kb.log (`candle device = ...`).
+            // user sees it without grepping kb.log. Suppressed under --json/--quiet.
             if !cli.json && !cli.quiet {
                 let backend = match cfg.models.embedding.provider.as_str() {
-                    "candle" if cfg!(feature = "embed_metal") => "candle (Metal/GPU 빌드)",
-                    "candle" => "candle (CPU, 순수 Rust)",
                     "fastembed" | "onnx" | "" => "fastembed (onnxruntime)",
                     "none" => "비활성 (lexical-only)",
                     other => other,
@@ -691,14 +672,14 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
 
             // p9-fb-23: use IngestOpts so force_reingest threads through
             // without churning the positional-arg list.
-            let ingest_result = kebab_app::ingest_with_config_opts(
+            let ingest_result = kebab_app::ingest_with_config(
                 cfg,
                 scope,
-                *summary_only,
                 kebab_app::IngestOpts {
                     progress: Some(tx),
                     cancel: Some(cancel_token),
                     force_reingest: *force_reingest,
+                    summary_only: *summary_only,
                 },
             );
 
@@ -845,7 +826,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             k,
             mode,
             explain: _,
-            no_cache,
+            no_cache: _,
             max_tokens,
             snippet_chars,
             cursor,
@@ -1015,12 +996,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 cursor: cursor.clone(),
                 trace: *trace,
             };
-            // p9-fb-34: budget-aware path. --no-cache still bypasses the
-            // App-level LRU; wire wrapper applies regardless.
+            // p9-fb-34: budget-aware path.
             let app = kebab_app::App::open_with_config(cfg)?;
-            if *no_cache {
-                app.clear_search_cache();
-            }
             let resp = app.search_with_opts(q, opts)?;
 
             if cli.json {
@@ -1123,7 +1100,6 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             seed,
             show_citations,
             hide_citations,
-            session,
             stream,
             multi_hop,
         } => {
@@ -1160,19 +1136,12 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     temperature: *temperature,
                     seed: *seed,
                     stream_sink: Some(tx),
-                    history: Vec::new(),
-                    conversation_id: None,
-                    turn_index: None,
                     multi_hop: *multi_hop,
                 };
                 let cfg2 = cfg.clone();
                 let q = query.clone();
-                let session2 = session.clone();
                 let handle = std::thread::spawn(move || -> anyhow::Result<kebab_core::Answer> {
-                    match session2.as_deref() {
-                        Some(sid) => kebab_app::ask_with_session_with_config(cfg2, sid, &q, opts),
-                        None => kebab_app::ask_with_config(cfg2, &q, opts),
-                    }
+                    kebab_app::ask_with_config(cfg2, &q, opts)
                 });
 
                 // Drain receiver, write ndjson to stderr until
@@ -1227,20 +1196,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     // takes the branch above; the TUI ask pane (P9-3)
                     // wires up its own `mpsc::Sender`.
                     stream_sink: None,
-                    // p9-fb-18: when `--session` is set, the facade
-                    // (`ask_with_session_with_config`) loads prior turns
-                    // from SQLite and stuffs them into AskOpts.history
-                    // before calling `ask_with_history`. Single-shot path
-                    // (no `--session`) keeps the empty defaults.
-                    history: Vec::new(),
-                    conversation_id: None,
-                    turn_index: None,
                     multi_hop: *multi_hop,
                 };
-                let ans = match session.as_deref() {
-                    Some(sid) => kebab_app::ask_with_session_with_config(cfg, sid, query, opts)?,
-                    None => kebab_app::ask_with_config(cfg, query, opts)?,
-                };
+                let ans = kebab_app::ask_with_config(cfg, query, opts)?;
                 if cli.json {
                     println!("{}", serde_json::to_string(&wire::wire_answer(&ans))?);
                 } else {
@@ -1436,17 +1394,6 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 return Err(DoctorUnhealthy.into());
             }
             Ok(())
-        }
-
-        Cmd::Tui => {
-            // P9-1: Ratatui shell with Library pane. Search / Ask /
-            // Inspect panes land in p9-2 / p9-3 / p9-4.
-            let config = match cli.config.as_deref() {
-                Some(path) => kebab_config::Config::load(Some(path))?,
-                None => kebab_config::Config::load(None)?,
-            };
-            let mut app = kebab_tui::App::new(config)?;
-            app.run()
         }
 
         Cmd::Eval { what } => {
@@ -1860,8 +1807,6 @@ mod tests {
                 latency_ms: 0,
             },
             created_at: OffsetDateTime::now_utc(),
-            conversation_id: None,
-            turn_index: None,
             hops: None,
             verification: None,
         }

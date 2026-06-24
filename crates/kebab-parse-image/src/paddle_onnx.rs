@@ -122,7 +122,7 @@ impl ModelPaths {
     /// [`from_default_dir`]: ModelPaths::from_default_dir
     pub fn from_config(config: &kebab_config::Config) -> Self {
         let defaults = Self::from_default_dir();
-        let ocr = &config.ingest.image.ocr;
+        let ocr = config.image_ocr();
         Self {
             det: ocr.det_model.as_ref().map(PathBuf::from).unwrap_or(defaults.det),
             rec: ocr.rec_model.as_ref().map(PathBuf::from).unwrap_or(defaults.rec),
@@ -138,7 +138,7 @@ impl OnnxPaddleOcr {
     /// here are fail-fast (matches the Ollama adapter's construction contract).
     pub fn new(config: &kebab_config::Config) -> Result<Self> {
         let paths = ModelPaths::from_config(config);
-        let ocr = &config.ingest.image.ocr;
+        let ocr = config.image_ocr();
         Self::from_paths(
             &paths,
             ocr.score_thresh,

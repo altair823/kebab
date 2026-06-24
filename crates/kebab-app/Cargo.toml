@@ -18,7 +18,6 @@ kebab-store-vector = { path = "../kebab-store-vector" }
 kebab-search = { path = "../kebab-search" }
 kebab-embed = { path = "../kebab-embed" }
 kebab-embed-local = { path = "../kebab-embed-local" }
-kebab-embed-candle = { path = "../kebab-embed-candle" }
 kebab-embed-ollama = { path = "../kebab-embed-ollama" }
 kebab-llm = { path = "../kebab-llm" }
 kebab-llm-local = { path = "../kebab-llm-local" }
@@ -57,12 +56,6 @@ tracing-subscriber   = { version = "0.3", features = ["env-filter", "fmt", "json
 tracing-appender     = "0.2"
 toml                 = "0.8"
 dirs                 = "5"
-# p9-fb-19: in-process LRU cache for `App::search`. Capacity from
-# `config.search.cache_capacity` (default 256, ~1.3 MB cap).
-lru                  = { workspace = true }
-# p9-fb-19: NFKC-normalize cache-key queries so `"Foo"` / `"FOO"` /
-# `" foo "` collapse to one entry. Same crate kebab-normalize +
-# kebab-core already use, no version drift.
 unicode-normalization = "0.1"
 # p9-fb-31: GitignoreBuilder for .kebabignore matching in ingest_file_with_config.
 # Same version as kebab-source-fs (0.4) to avoid duplicate dep versions.
@@ -101,8 +94,6 @@ reqwest      = { version = "0.12", default-features = false, features = ["blocki
 # disable path 없음; 이 feature 는 spec §6.3 명시를 honor 하는 role 만.
 default = ["fts_korean_morphological"]
 fts_korean_morphological = []
-# opt-in (macOS): candle embedder runs on the Apple Silicon GPU. See kebab-embed-candle.
-embed_metal = ["kebab-embed-candle/metal"]
 
 [lints]
 workspace = true

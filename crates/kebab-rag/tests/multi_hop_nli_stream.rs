@@ -56,9 +56,6 @@ fn multi_hop_opts_with_sink(tx: mpsc::Sender<StreamEvent>) -> AskOpts {
         temperature: Some(0.0),
         seed: Some(0),
         stream_sink: Some(tx),
-        history: Vec::new(),
-        conversation_id: None,
-        turn_index: None,
         multi_hop: true,
     }
 }
@@ -87,7 +84,7 @@ fn nli_verification_fail_emits_final_stream_event_with_refusal() {
     let verifier_dyn: Arc<dyn NliVerifier> = verifier;
 
     let (tx, rx) = mpsc::channel::<StreamEvent>();
-    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+    let pipeline = RagPipeline::new(cfg.rag.clone(), cfg.models.clone(), cfg.search.clone(), retriever_dyn, lm_dyn, env.sqlite.clone())
         .with_verifier(verifier_dyn);
 
     let answer = pipeline
@@ -137,7 +134,7 @@ fn nli_model_unavailable_emits_final_stream_event_with_refusal() {
     let verifier_dyn: Arc<dyn NliVerifier> = verifier;
 
     let (tx, rx) = mpsc::channel::<StreamEvent>();
-    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+    let pipeline = RagPipeline::new(cfg.rag.clone(), cfg.models.clone(), cfg.search.clone(), retriever_dyn, lm_dyn, env.sqlite.clone())
         .with_verifier(verifier_dyn);
 
     let answer = pipeline

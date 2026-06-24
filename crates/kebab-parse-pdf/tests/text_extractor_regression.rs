@@ -47,6 +47,8 @@ fn vector_pdf_extract_byte_identical_to_baseline() {
         asset: &asset,
         workspace_root,
         config: &config,
+        source_id: None,
+        source_trust: None,
     };
 
     let mut canonical = PdfTextExtractor::new()
@@ -96,6 +98,8 @@ fn pdf_text_extractor_on_mojibake_yields_one_block() {
         asset: &asset,
         workspace_root,
         config: &config,
+        source_id: None,
+        source_trust: None,
     };
     let canonical = PdfTextExtractor::new()
         .extract(&ctx, bytes)

@@ -14,6 +14,121 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-24 — spine-rewrite Phase 3: ingest 스파인 stage 추출
+
+kebab-app ingest 모놀리스(lib.rs)를 stage 헬퍼 시퀀스로. 각 단위 **재인덱싱 패리티
+게이트**(gate-ingest.sh: fresh dir 재인덱싱 후 CHUNKS/SEARCH/ASK byte-IDENTICAL)로 검증
+— ingest 코드 변경을 진짜 테스트(재인덱싱 결정성은 사전 검증, indexed_at/stale만 변동).
+
+- **API 6→2 (d501ce2)**: `ingest`/`ingest_with_config{IngestOpts}` 둘 + file/stdin. progress/
+  cancellable/opts 변종 제거, summary_only를 IngestOpts에 흡수.
+- **store stage (0f9a769)**: 4× 반복 put_*/upsert → `store_document_records` 헬퍼.
+- **fingerprint (9f40c88)**: effective version + skip-unchanged 4× 복제 → `fingerprint_and_skip`
+  (`FingerprintOutcome`). tier-3 none-v1 sentinel·purge 부수효과 보존.
+- **extract (2bbe2f8)**: markdown이 extractor registry 우회하던 비대칭 해소 — `MarkdownExtractor`
+  신설(registry 11→12), `extract_for` 경유 통일. ExtractContext에 source_id/trust 추가. NB:
+  markdown+audio-ref 문서의 `IngestItem.warnings`가 이제 pdf/code처럼 lift-stage 경고 포함
+  (일관성 개선, core 무관, 희소 edge-case) — 의도적 수용.
+- **chunk (2a0a30a)**: 청커 선택 + code tier-3 fallback → `chunk_asset`(`ChunkOutcome`). tier-3
+  sentinel을 in-place 변이 대신 명시적 반환값으로 운반 — 가장 엉킨 부분 해소. 331 tests pass.
+- **module split**: ingest 코드(핸들러+stage 헬퍼+오케스트레이터)를 `src/ingest.rs` 모듈로
+  이동 — 순수 코드 이동, API 무변(lib.rs re-export). **lib.rs 4331→493줄** (ingest.rs 3867).
+  게이트 IDENTICAL.
+- **검증**: 각 단위 clippy --workspace --all-targets 0 + 재인덱싱 게이트 IDENTICAL. tier-3·pdf/
+  image 등 게이트 미커버 경로는 tier3_* 통합 테스트로 보완.
+- **미수행(의도적)**: embed stage(use_cache 래퍼 = 한계 가치) + 4→1 핸들러 병합(고위험: PDF OCR
+  side-channel Arc 8개·media별 OCR/caption 분기 — byte-identical 곤란, 가치 낮음). 핸들러는
+  fingerprint→extract→chunk→embed→store 시퀀스로 충분히 얇아짐.
+- **팀 메모**: 모든 단위 main worktree 단일 opus teammate(worktree 격리 X). 명시적 "gate+commit,
+  idle 금지" 지시로 stall 없이 완료.
+
+## 2026-06-24 — spine-rewrite Phase 2 Unit 1: OCR 중복 제거 — 공유 `[ingest.ocr]` + config v4→v5
+
+척추 단순화 Phase 2 Unit 1 = OCR config 중복 제거. v4 까지 `OcrCfg`(image) 13필드가
+`PdfOcrCfg`(pdf) 와 전부 중복(image 고유 필드 0, pdf 고유 4: `always_on`/`valid_ratio_threshold`/
+`min_char_count`/`lang_hint`)이었고, `apply_env` 에 `KEBAB_IMAGE_OCR_*`/`KEBAB_PDF_OCR_*` 27 arm 이
+복제돼 있었다.
+
+- **신규 `SharedOcrEngineCfg`** = 13 공유 필드(전부 `Option`, default 전부 `None`) → `[ingest.ocr]`.
+  엔진 설정의 단일 출처. image/pdf 블록은 on/off 토글 + override 만.
+- **load-time resolution** (`Config::resolve_ocr`, `from_file` 에서 호출): 각 공유 필드가
+  `Some` 이고 해당 미디어 블록이 그 키를 **명시 안 했으면** concrete `OcrCfg`/`PdfOcrCfg` 로
+  overlay. presence 는 parse 한 `toml::Value` 로 판정(미디어 명시 > 공유 > 내장 default).
+  `OcrCfg`/`PdfOcrCfg` 의 struct 필드는 그대로(75 mutation site 무영향) — 엔진 필드에
+  `#[serde(default)]` 만 추가해 slim 블록도 파싱. image(gemma4:e4b/1600) vs pdf(qwen2.5vl:3b/2048)
+  **미디어별 기본값 보존**.
+- **resolver method** `Config::image_ocr()`/`pdf_ocr()` → resolved 블록 반환. consumer
+  (`kebab-parse-image` ocr/paddle, `kebab-app` build_*_ocr_engine·ingest gate·pdf_ocr_apply·
+  **ingest_config_signature**)가 전부 이걸 경유 → god-struct 직접 read 제거.
+- **`apply_env` 통합**: 27 arm → 공유 `KEBAB_OCR_*` 12 arm(image+pdf 동시 set) + pdf 고유 4 arm
+  + 미디어별 `KEBAB_IMAGE_OCR_ENABLED`/`KEBAB_PDF_OCR_ENABLED` 토글.
+- **마이그레이션 `step_4_to_5`**: `[ingest.image.ocr]` 의 12 엔진 키를 `[ingest.ocr]` 로
+  `move_table`(`enabled` 은 미디어별이라 제외 — 끌어올리면 pdf 까지 켜짐). pdf 블록은
+  무손상(reconcile 이 pdf 모든 키를 default 로 채워 명시 상태 → 공유 overlay 오염 X).
+  `annotated_default_document` 도 같은 통합을 적용해 v5 canonical 형상으로(안 그러면 reconcile 이
+  끌어올린 키를 image 에 재추가 → image engine 을 default 로 덮어쓰는 회귀). `CURRENT_SCHEMA_VERSION=5`.
+- **불변식 검증**: v4→v5 round-trip 테스트(image engine=paddle-onnx 비-default 보존 + pdf
+  qwen/2048 오염 X + 멱등) green. `from_file` 이 effective image/pdf OCR 를 v4 와 바이트 동일하게
+  resolve → `ingest_config_signature` 도 입력 불변 → **강제 재색인 없음**. `clippy --workspace
+  --all-targets` 0, `kebab-config`/`kebab-parse-image`/`kebab-parse-pdf`/`kebab-app` 테스트 pass.
+- 브랜치 `refactor/spine-cuts`. surface 동기화: README `[ingest.ocr]` 절 + SMOKE config 블록 +
+  DOGFOOD env 표.
+
+## 2026-06-24 — spine-rewrite Phase 2: config 슬라이스 + 표면 정리
+
+config god-struct·중복·과노출을 정리. 3 유닛, 각 패리티 게이트(출력 동등성) 통과.
+
+- **Unit 1 — OCR 중복 제거 (da323af)**: image/pdf OCR의 13 공유 필드를 `[ingest.ocr]`
+  엔진 블록으로 추출(image-고유 0, pdf-고유 4). `resolve_ocr()`가 shared→medium 오버레이.
+  apply_env OCR arm 27→16. **config schema v4→v5** 무손실 자동 마이그레이션(`step_4_to_5`,
+  enabled 는 안 옮김=pdf OCR 오작동 방지, annotated_default 동일 consolidation=reconcile
+  재주입 regression 방지). `ingest_config_signature` 보존(재색인 없음) — round-trip 테스트로 잠금.
+- **Unit 2 — 표면 정리 (bf7769c)**: `apply_env` arm 75→**22**(런타임 override용만 유지 —
+  endpoint/model/path/toggle; long-tail 튜닝 노브는 config-only). 노출 키 README/SMOKE 축소.
+  struct 필드는 고급 TOML용 유지(`deny_unknown_fields` 미사용 → 무손실). truly-dead 0.
+- **Unit 3 — slice refactor (2dfbbe4)**: consumer 6종이 `&Config` 통째 대신 타입 슬라이스 수령
+  — Fastembed/Ollama 임베더 `&EmbeddingModelCfg`, SqliteStore/LanceVectorStore `&StorageCfg`,
+  HybridRetriever `&SearchCfg`, RagPipeline `RagCfg+ModelsCfg+SearchCfg`. VectorRetriever 의
+  숨은 `Config::defaults()` 결합 제거. 46 콜사이트. god-struct 결합 해소.
+- **검증**: 각 유닛 패리티 SEARCH/ASK/CHUNKS byte-IDENTICAL, clippy --workspace --all-targets 0,
+  tests green. baseline = Phase 0 동결(GPU ollama).
+- **팀 메모**: Unit 1/2 는 compile-coupled 단일 teammate(u1-ocr opus, u2-surface). Unit 3 는
+  worktree 격리 병렬 3-팀을 시도했으나 `isolation:"worktree"` 가 현재 HEAD 가 아닌 cea390d(세션
+  시작점)에서 분기하는 버그로 통합 불가 → main 에서 단일 opus(u3-redo) 재적용. **교훈: 진화 중인
+  브랜치 위 *수정* 작업엔 worktree 격리 teammate 부적합(삭제는 base-무관이라 Phase 1 은 OK).**
+
+## 2026-06-24 — spine-rewrite Phase 1: 5건 삭제 (cache/templates/candle/sessions/tui) — 코어 출력 불변
+
+척추 단순화 Phase 1 = 순수 삭제 5건. **OMC-style worktree 격리 병렬 teammate** 5명이 각자
+한 삭제씩(편집+cargo check+커밋) → lead 가 SHA 순차 cherry-pick + 패리티 게이트.
+
+- **삭제**: search LRU 캐시(p9-fb-19) · legacy RAG 템플릿 rag-v1/v2 · candle 임베더 crate
+  (`kebab-embed-candle`) · multi-turn 세션(`ask --session`, chat_sessions/turns, V015 drop
+  migration) · TUI crate(`kebab-tui` + `tui` 서브커맨드). **crate 24→22**.
+- **candle 결정**: 처음 삭제 합의 → "macOS 실사용" 으로 보류 검토 → 실 config 확인 결과
+  macOS 도 임베딩/LLM 전부 ollama(candle/Metal 미사용, mDeBERTa 만 onnx) → **삭제 확정**.
+- **패리티 (output-equality vs Phase 0 baseline)**: 누적 최종 빌드(4m12s) 후
+  **SEARCH·ASK·CHUNKS 전부 byte-IDENTICAL** — 5건 삭제가 코어 검색/RAG 출력을 완전 보존.
+  (templates·cache 는 개별 게이트도 통과.)
+- **검증**: `clippy --workspace --all-targets` 0 warning, touched-crate 테스트 88 ok/0 fail.
+- **회귀 메모**: worker 들이 `cargo check`(test 타깃 미컴파일)만 해서 삭제 심볼 참조한 test
+  파일(mcp session_id, cli rag-v1 config, config cache_capacity fixture)을 놓침 → lead 가
+  `clippy --all-targets` 로 잡아 정리. 교훈: 삭제 작업의 self-check 는 `--all-targets` 필요.
+- 브랜치 `refactor/spine-cuts`. ingest API 5→1 통합은 Phase 3(ingest 스파인)로 이월.
+
+## 2026-06-24 — spine-rewrite Phase 0: 출력-동등성 parity baseline 동결
+
+척추 재작성/단순화(설계 `2026-06-24-spine-rewrite-simplification-design`)의 per-수정-단위
+**코어 품질 패리티 게이트** 기준선. eval golden set 이 ground-truth 라벨 부재 → metric 기반
+대신 **출력 동등성**(`search`/`ask --json` byte-diff + chunk dump diff) 채택(삭제 단계엔 더 정확).
+
+- parity KB `/home/user/large_data/out/kebab-parity` — corpus = kebab 자체 docs(**183 doc / 7676 chunk**),
+  임베더 `snowflake-arctic-embed2` + LLM `gemma3:4b`, 둘 다 R9700 **GPU ollama(.244)**. baseline 바이너리 = main `cea390d`.
+- 산출물 `baseline/{queries.txt(7), search.jsonl(14=7×lex/hyb), ask.jsonl(7), chunks.tsv(7676)}`.
+- **결정성 검증**: `search`·`ask` 모두 temp0/seed12345 에서 2× byte-identical(ollama gemma3 정상 chat-templating). 게이트 1회 ≈ 65s.
+- 인프라: `sqlite3` CLI 미설치 → python3 stdlib. lemonade 는 Phase 1 동안 stop(opencode/hermes down), 종료 후 복원.
+- 게이트 정의: `docs/superpowers/plans/2026-06-24-spine-phase0-baseline-and-cuts.md` "Parity Gate".
+
 ## 2026-06-24 — RAG provenance 라벨: `rag-v4` (출처/trust 라벨 + 신뢰도 우선 지시)
 
 **무엇을 추가했나.** RAG 프롬프트의 각 [근거] 청크 머리에 출처/trust 라벨을

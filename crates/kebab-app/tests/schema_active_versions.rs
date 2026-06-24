@@ -32,7 +32,7 @@ fn schema_models_active_arrays_empty_on_empty_corpus() {
     std::fs::create_dir_all(&workspace).unwrap();
     let cfg = minimal_config(dir.path(), &workspace);
 
-    let store = kebab_store_sqlite::SqliteStore::open(&cfg).unwrap();
+    let store = kebab_store_sqlite::SqliteStore::open(&cfg.storage).unwrap();
     store.run_migrations().unwrap();
     drop(store);
 
@@ -58,7 +58,7 @@ fn schema_emits_active_parsers_and_chunkers_array_after_ingest() {
     let cfg = minimal_config(dir.path(), &workspace);
     let scope = minimal_scope(&workspace);
 
-    kebab_app::ingest_with_config(cfg.clone(), scope, false).unwrap();
+    kebab_app::ingest_with_config(cfg.clone(), scope, kebab_app::IngestOpts::default()).unwrap();
 
     let s = schema_with_config(&cfg).unwrap();
     assert!(

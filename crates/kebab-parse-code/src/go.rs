@@ -392,6 +392,8 @@ mod tests {
             asset: &asset,
             workspace_root: &root,
             config: &cfg,
+            source_id: None,
+            source_trust: None,
         };
         GoAstExtractor::new().extract(&ctx, &bytes).unwrap()
     }

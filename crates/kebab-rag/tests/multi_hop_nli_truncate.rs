@@ -42,9 +42,6 @@ fn multi_hop_opts() -> AskOpts {
         temperature: Some(0.0),
         seed: Some(0),
         stream_sink: None,
-        history: Vec::new(),
-        conversation_id: None,
-        turn_index: None,
         multi_hop: true,
     }
 }
@@ -86,7 +83,7 @@ fn long_en_synth_answer_truncated_before_nli_call() {
     let verifier_handle = verifier.clone();
     let verifier_dyn: Arc<dyn NliVerifier> = verifier;
 
-    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+    let pipeline = RagPipeline::new(cfg.rag.clone(), cfg.models.clone(), cfg.search.clone(), retriever_dyn, lm_dyn, env.sqlite.clone())
         .with_verifier(verifier_dyn);
 
     let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
@@ -166,7 +163,7 @@ fn long_kr_synth_answer_retries_with_smaller_budget() {
     let verifier_handle = verifier.clone();
     let verifier_dyn: Arc<dyn NliVerifier> = verifier;
 
-    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+    let pipeline = RagPipeline::new(cfg.rag.clone(), cfg.models.clone(), cfg.search.clone(), retriever_dyn, lm_dyn, env.sqlite.clone())
         .with_verifier(verifier_dyn);
 
     let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
@@ -220,7 +217,7 @@ fn unrelenting_token_overflow_falls_through_to_unavailable() {
     );
     let verifier_dyn: Arc<dyn NliVerifier> = verifier;
 
-    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+    let pipeline = RagPipeline::new(cfg.rag.clone(), cfg.models.clone(), cfg.search.clone(), retriever_dyn, lm_dyn, env.sqlite.clone())
         .with_verifier(verifier_dyn);
 
     let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();

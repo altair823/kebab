@@ -23,17 +23,18 @@
 //! See `docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`
 //! §7.2 (Embedder), §6.4 ([models.embedding]), §9 (versioning).
 
+use std::path::Path;
 use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-use kebab_config::expand_path;
+use kebab_config::EmbeddingModelCfg;
 use kebab_embed::{Embedder, EmbeddingInput, EmbeddingKind, EmbeddingModelId, EmbeddingVersion};
 
 /// Subdirectory under `config.storage.model_dir` where the fastembed
 /// adapter writes / reads ONNX + tokenizer files. Hard-coded per task
 /// spec ("Model files cached under `config.storage.model_dir/fastembed/`").
-const FASTEMBED_CACHE_SUBDIR: &str = "fastembed";
+pub const FASTEMBED_CACHE_SUBDIR: &str = "fastembed";
 
 /// Local fastembed-rs adapter.
 ///
@@ -55,37 +56,35 @@ pub struct FastembedEmbedder {
 }
 
 impl FastembedEmbedder {
-    /// Build an embedder from `Config`. Validates that
-    /// `config.models.embedding.dimensions` matches the model's actual
-    /// dim BEFORE returning, so a mismatch fails at construction (not on
-    /// first `embed`).
-    pub fn new(config: &kebab_config::Config) -> Result<Self> {
-        // 1. Resolve `{data_dir}/models/fastembed/` from the config
-        //    templates. Goes through the shared `kebab_config::expand_path`
-        //    so every crate resolves storage paths identically.
-        let data_dir = expand_path(&config.storage.data_dir, "");
-        let model_dir = expand_path(&config.storage.model_dir, &data_dir.to_string_lossy());
-        let cache_dir = model_dir.join(FASTEMBED_CACHE_SUBDIR);
-        std::fs::create_dir_all(&cache_dir)
+    /// Build an embedder from the `[models.embedding]` slice + a resolved
+    /// `cache_dir` (the fastembed subdir under `config.storage.model_dir`;
+    /// the caller resolves it from the storage paths and the
+    /// [`FASTEMBED_CACHE_SUBDIR`] constant). Validates that `cfg.dimensions`
+    /// matches the model's actual dim BEFORE returning, so a mismatch fails
+    /// at construction (not on first `embed`).
+    pub fn new(cfg: &EmbeddingModelCfg, cache_dir: &Path) -> Result<Self> {
+        // 1. The caller resolved `{data_dir}/models/fastembed/`; we own
+        //    directory creation so a missing cache dir still works.
+        std::fs::create_dir_all(cache_dir)
             .with_context(|| format!("create fastembed cache dir {}", cache_dir.display()))?;
 
-        // 2. Resolve the fastembed enum variant from
-        //    `config.models.embedding.model`. Currently `multilingual-e5-large`
-        //    (default) and `multilingual-e5-small` are wired; other model names
-        //    error out with a clear message rather than silently misconfiguring.
-        let model_name = resolve_model(&config.models.embedding.model)?;
+        // 2. Resolve the fastembed enum variant from `cfg.model`. Currently
+        //    `multilingual-e5-large` (default) and `multilingual-e5-small`
+        //    are wired; other model names error out with a clear message
+        //    rather than silently misconfiguring.
+        let model_name = resolve_model(&cfg.model)?;
 
         // 3. Verify dim match BEFORE loading the model — if the config
         //    is wrong we want to fail without paying the ONNX
         //    initialization cost.
         let model_info =
             TextEmbedding::get_model_info(&model_name).context("fastembed: get_model_info")?;
-        check_dim(model_info.dim, config.models.embedding.dimensions)?;
+        check_dim(model_info.dim, cfg.dimensions)?;
 
         tracing::info!(
             target: "kebab-embed-local",
             cache_dir = %cache_dir.display(),
-            model = %config.models.embedding.model,
+            model = %cfg.model,
             dims = model_info.dim,
             "initializing FastembedEmbedder"
         );
@@ -95,11 +94,11 @@ impl FastembedEmbedder {
         //    download progress is surfaced via the `tracing::info!`
         //    pair around `TextEmbedding::try_new` instead.
         let opts = InitOptions::new(model_name.clone())
-            .with_cache_dir(cache_dir.clone())
+            .with_cache_dir(cache_dir.to_path_buf())
             .with_show_download_progress(false);
         tracing::info!(
             target: "kebab-embed-local",
-            model = %config.models.embedding.model,
+            model = %cfg.model,
             cache_dir = %cache_dir.display(),
             "loading embedding model (first run downloads model weights — ~470MB for e5-small, ~1.3GB for e5-large)"
         );
@@ -107,17 +106,17 @@ impl FastembedEmbedder {
         let dimensions = model_info.dim;
         tracing::info!(
             target: "kebab-embed-local",
-            model = %config.models.embedding.model,
+            model = %cfg.model,
             dimensions,
             "embedding model loaded"
         );
 
         Ok(Self {
             inner: Mutex::new(inner),
-            model_id: EmbeddingModelId(config.models.embedding.model.clone()),
-            version: EmbeddingVersion(config.models.embedding.version.clone()),
+            model_id: EmbeddingModelId(cfg.model.clone()),
+            version: EmbeddingVersion(cfg.version.clone()),
             dimensions,
-            batch_size: config.models.embedding.batch_size,
+            batch_size: cfg.batch_size,
         })
     }
 }

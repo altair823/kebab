@@ -4,7 +4,7 @@
 
 ## 한 줄
 
-Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-cli`, `kebab-tui`, 미래 `kebab-desktop`) 가 facade crate (`kebab-app`) 만 참조. 도메인 / 파이프라인 / 저장소 / 외부 어댑터가 명확한 boundary 로 분리.
+Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-cli`, 미래 `kebab-desktop`) 가 facade crate (`kebab-app`) 만 참조. 도메인 / 파이프라인 / 저장소 / 외부 어댑터가 명확한 boundary 로 분리.
 
 ## 핵심 기술 결정 (lock 됨)
 
@@ -16,7 +16,7 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 | metadata | SQLite + FTS5 (lexical search + v0.20.1 한국어 형태소 tokenizer via lindera-ko-dic) |
 | vector | LanceDB (embedded, model 별 분리 table) |
 | Markdown parser | `pulldown-cmark`. frontmatter 에 title 없으면 첫 H1 → H2 → 첫 paragraph 80 자 → 파일명 순으로 자동 채움 (`parser_version = md-frontmatter-v2`, 기존 doc 도 다음 ingest 에서 갱신) |
-| embedding | `fastembed-rs` (`multilingual-e5-large`, 1024d, v0.18.0부터 default 업그레이드). opt-in 대안: candle (e5 또는 `snowflake-arctic-embed-l-v2.0`) / Ollama `/api/embed`. arctic = 설명형 query recall 보강 (v0.26.0, 아래 결정표) |
+| embedding | `fastembed-rs` (`multilingual-e5-large`, 1024d, v0.18.0부터 default 업그레이드). opt-in 대안: Ollama `/api/embed` (`snowflake-arctic-embed-l-v2.0` 등). arctic = 설명형 query recall 보강 (v0.26.0, 아래 결정표) |
 | 한국어 형태소분석 | `lindera-ko-dic` (FTS5 외부 tokenizer, v0.20.1) — 2자 이상 한국어 query 지원 |
 | LLM | Ollama HTTP (default `gemma4:e4b` ─ OCR / caption 와 family 통일. 사용자가 더 큰 variant `gemma4:26b` 등으로 override 가능) |
 | 음성 ASR | `whisper.cpp` (via `whisper-rs`) — P8 보류, 시스템 dep brainstorm 후 |
@@ -27,7 +27,6 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 | PDF parser | `lopdf` per-page 텍스트 + scanned-page image extract (`page_image::extract_dctdecode_page_image`, v0.20.0). `chunker_version = "pdf-page-v1"` 하드코딩 (HOTFIXES P7-3). `parser_version = "pdf-text-v1"` 보존 (v0.20 OCR 후에도) — provenance event 로 OCR 사용 차별화. force-reingest 가 v0.19 indexed scanned PDF 의 재처리에 필요. |
 | code parser | `tree-sitter` + `tree-sitter-rust` / `tree-sitter-python` / `tree-sitter-typescript` / `tree-sitter-javascript` / `tree-sitter-go` / `tree-sitter-java` / `tree-sitter-kotlin-ng` — **parser-side** (`kebab-parse-code`), chunker-side 아님 (design §6.3). chunker versions: Rust = `code-rust-ast-v1`, Python = `code-python-ast-v1`, TypeScript = `code-ts-ast-v1`, JavaScript = `code-js-ast-v1`, Go = `code-go-ast-v1`, Java = `code-java-ast-v1`, Kotlin = `code-kotlin-ast-v1`. `ast_chunk_max_lines = 200` 상수 고정 (HOTFIXES 2026-05-19 — Chunker trait 이 per-medium config 미노출). Kotlin grammar 은 `tree-sitter-kotlin-ng` 사용 — bare `tree-sitter-kotlin` 은 tree-sitter 0.21–0.23 에 고착되어 있어 사용 불가. **Tier 2 (p10-2)**: YAML/k8s → `serde_yaml` + `k8s-manifest-resource-v1` (apiVersion+kind per resource), Dockerfile → `dockerfile-file-v1` (whole-file), Cargo.toml/go.mod/.json/.xml/.groovy → `manifest-file-v1` (whole-file). Tier 2 chunkers live in `kebab-chunk`; no tree-sitter grammar needed (structure from file type, not AST). **Tier 3 (p10-3)**: shell scripts (`.sh`/`.bash`/`.zsh`) direct → `code-text-paragraph-v1` (blank-line paragraph segmentation + 80-line / 20-overlap line-window for oversize). Same chunker also serves as fallback when Tier 1/2 emit 0 chunks or Err — non-k8s YAML / invalid YAML / AST extractor failures all picked up. symbol = None; lang preserved from input doc. **Tier 1 family complete (p10-1D)**: C (`tree-sitter-c`, `code-c-ast-v1`, `.c`/`.h`) + C++ (`tree-sitter-cpp`, `code-cpp-ast-v1`, `.cpp`/`.cc`/`.cxx`/`.hpp`/`.hh`/`.hxx`). C symbol = function name only; C++ symbol = `namespace::Class::method` (recursive nesting). `.h` 가 C++ syntax 만나면 tree-sitter-c parse 실패 → Tier 3 fallback. |
 | symbol path 형식 | workspace path → module path: Python = dotted prefix (`kebab_eval.metrics.compute_mrr`), TypeScript/JavaScript = slash-style prefix (`src/Foo.Foo.search`), Go = `package.Func` / `package.(*Receiver).Method`, Java/Kotlin = `com.foo.Foo.bar` (패키지+클래스+메서드/필드), C = 함수명, C++ = `namespace::Class::method`. Rust 1A-2 는 file-scope nesting 만 (workspace prefix 없음, 비일관 수용 — HOTFIXES 2026-05-20). code chunk 은 `citation.kind = "code"` + `citation.lang` + `symbol` + line range, SearchHit 에 `code_lang` + `repo`(`.git` walk-up 디렉토리명) backfill. |
-| TUI | Ratatui + crossterm — Library / Search / Ask / Inspect 패널 (P9-1~4 완료), vim-style NORMAL/INSERT 모드 + `F1` cheatsheet (런타임 키 매핑 권위 소스) |
 | Desktop | Tauri 2 + `pdfjs-dist` (native PDF render backend 금지) — P9-5 |
 | citation 형식 | URI fragment (`path#L12-L34` / `path#p=12` / `path#xywh=0,0,100,50`, W3C Media Fragments) |
 | ID 생성 | `blake3(canonical_json(tuple))[..32]` hex |
@@ -47,7 +46,6 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 flowchart TB
     subgraph UI ["UI binary"]
         cli["kebab-cli"]
-        tui["kebab-tui"]
         mcp["kebab-mcp<br/>(P9-FB-30)"]
         desktop["kebab-desktop<br/>(P9-5)"]
     end
@@ -68,7 +66,6 @@ flowchart TB
     subgraph Adapters ["traits + adapters"]
         embed["kebab-embed<br/>(trait)"]
         embedlocal["kebab-embed-local<br/>(fastembed, default)"]
-        embedcandle["kebab-embed-candle<br/>(candle, e5+arctic, NUMA-safe opt-in)"]
         embedollama["kebab-embed-ollama<br/>(Ollama /api/embed, opt-in)"]
         llm["kebab-llm<br/>(trait)"]
         llmlocal["kebab-llm-local<br/>(Ollama)"]
@@ -81,7 +78,6 @@ flowchart TB
     core["kebab-core<br/>(domain types)"]
 
     cli --> app
-    tui --> app
     mcp --> app
     desktop --> app
 
@@ -95,7 +91,6 @@ flowchart TB
     app --> sqlite
     app --> vector
     app --> embedlocal
-    app --> embedcandle
     app --> embedollama
     app --> llmlocal
     app --> search
@@ -109,8 +104,6 @@ flowchart TB
     paud --> core
     pcode --> core
     embedlocal --> embed
-    embedcandle --> core
-    embedcandle --> config
     embedollama --> core
     embedollama --> config
     llmlocal --> llm
@@ -145,16 +138,13 @@ UI → store/llm/parse 직접 의존 금지. 모든 user-facing 진입은 `kebab
 
 | provider | 모델 | pooling / prefix | 위치 | 언제 |
 |---|---|---|---|---|
-| `fastembed` (기본) | `multilingual-e5-large` | mean / `query:`·`passage:` | in-process (onnxruntime) | 기본. 단일 소켓 호스트 |
-| `candle` | e5 또는 `snowflake-arctic-embed-l-v2.0` | 모델별 (e5=mean, arctic=CLS) / arctic=`query:`·무접두어 | in-process (pure Rust) | NUMA 서버 (onnxruntime 48-스레드 double-free 회피), Apple Silicon Metal GPU |
-| `ollama` | `snowflake-arctic-embed2` 등 | 모델 태그로 추론 / arctic=`query:`·무접두어 | 원격 HTTP (`/api/embed`) | candle 폴백, 측정에 쓴 경로 그대로 재현 |
+| `fastembed` (기본) | `multilingual-e5-large` | mean / `query:`·`passage:` | in-process (onnxruntime) | 기본. 모든 호스트 |
+| `ollama` | `snowflake-arctic-embed2` 등 | 모델 태그로 추론 / arctic=`query:`·무접두어 | 원격 HTTP (`/api/embed`) | GPU 서버 위임, 측정에 쓴 경로 그대로 재현 |
 
 **arctic-embed-l-v2.0 채택 근거**: 별칭(doc-side expansion) 제거(v0.25.0) 후 설명형
 query 의 recall 보강책. 측정(`/build/dogfood/logs/2026-06-03-method-measurements.md`)에서
 arctic = recall@10 130/132 (e5 대비 +7, 색인 1회·per-query 0·LLM 0, 용어 무손실).
-candle 이 주 백엔드(in-process, NUMA 안전), Ollama 가 폴백(측정 경로 재현). 두 경로의
-pooling/prefix 정확성은 `kebab-embed-candle/tests/arctic_ollama_parity.rs`
-(candle arctic vs Ollama arctic 코사인>0.99, `#[ignore]`) 로 고정. e5 → arctic 전환은
+Ollama 백엔드(`provider = "ollama"`)로 arctic 모델 사용. e5 → arctic 전환은
 `embedding_version` cascade (모델별 벡터 상이) → 재색인 필요. 기본값 e5 유지라 기존
 사용자 무영향. 자세한 내용: [tasks/HOTFIXES.md](../tasks/HOTFIXES.md) 2026-06-03 arctic entry.
 
@@ -206,8 +196,7 @@ kebab/
 │   ├── kebab-store-sqlite/                            # SQLite + FTS5 (V001/V002/V003) (P1-6, P2-1, P3-3). src/derivation_cache.rs = derivation_cache 테이블 저장소 (V012, v0.21.0)
 │   ├── kebab-search/                                  # Lexical + Vector + Hybrid retriever (P2-2, P3-4)
 │   ├── kebab-embed/  kebab-embed-local/                  # Embedder trait + fastembed adapter (P3-1, P3-2)
-│   ├── kebab-embed-candle/                             # candle (pure-Rust) Embedder, 모델 레지스트리(e5 mean + arctic CLS), NUMA-safe opt-in provider=candle (Track 1, v0.22.0; arctic v0.26.0)
-│   ├── kebab-embed-ollama/                             # Ollama /api/embed Embedder, opt-in provider=ollama (arctic 폴백 경로, v0.26.0)
+│   ├── kebab-embed-ollama/                             # Ollama /api/embed Embedder, opt-in provider=ollama (arctic 경로, v0.26.0)
 │   ├── kebab-store-vector/                            # LanceDB VectorStore (P3-3, P7-3 follow-up)
 │   ├── kebab-llm/  kebab-llm-local/                      # LanguageModel trait + Ollama adapter (P4-1, P4-2)
 │   ├── kebab-rag/                                     # RAG pipeline (P4-3)
@@ -217,7 +206,6 @@ kebab/
 │   ├── kebab-parse-pdf/                               # lopdf per-page text extractor (P7-1)
 │   ├── kebab-parse-code/                              # tree-sitter AST extractors: Rust (P10-1A-2), Python + TypeScript + JavaScript (P10-1B), Go (P10-1C-Go), Java + Kotlin (P10-1C-JK — java.rs + kotlin.rs), C + C++ (P10-1D — c.rs + cpp.rs); chunker lives in kebab-chunk
 │   ├── kebab-app/                                     # facade (P0 시그니처 + P3-5/P6-4/P7-3 본체). src/derivation_payload.rs = 캐시 payload 인코딩 (v0.21.0)
-│   ├── kebab-tui/                                     # Ratatui shell + Library 패널 (P9-1)
 │   ├── kebab-mcp/                                     # stdio MCP server — tools: schema, doctor, search, ask (P9-FB-30)
 │   └── kebab-cli/                                     # binary (P0 → 핫픽스로 --config flag wiring 강화)
 ├── migrations/                                     # SQLite refinery V001..V014 (V012 = derivation_cache v0.21.0, V013 = drop chunk_aliases v0.25.0, V014 = documents.source_id v0.29.0)

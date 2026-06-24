@@ -1,4 +1,4 @@
-//! Streaming progress events for `ingest_with_config_progress`.
+//! Streaming progress events for `ingest_with_config` (via `IngestOpts::progress`).
 //!
 //! The facade emits one [`IngestEvent`] per step boundary into an
 //! optional `mpsc::Sender<IngestEvent>` injected by the caller. CLI

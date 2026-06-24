@@ -90,7 +90,7 @@ async fn ask_tool_routes_multi_hop_true_to_decompose_first() {
         include: vec![],
         exclude: vec![],
     };
-    let _ = kebab_app::ingest_with_config(cfg.clone(), scope, false).unwrap();
+    let _ = kebab_app::ingest_with_config(cfg.clone(), scope, kebab_app::IngestOpts::default()).unwrap();
 
     let state = KebabAppState::new(cfg, None);
     let handler = KebabHandler::new(state);
@@ -103,7 +103,6 @@ async fn ask_tool_routes_multi_hop_true_to_decompose_first() {
             &state_mh,
             kebab_mcp::tools::ask::AskInput {
                 query: "compound about X and Y".to_string(),
-                session_id: None,
                 mode: Some("lexical".to_string()),
                 multi_hop: Some(true),
             },
@@ -138,7 +137,6 @@ async fn ask_tool_routes_multi_hop_true_to_decompose_first() {
             &state_sp,
             kebab_mcp::tools::ask::AskInput {
                 query: "anything".to_string(),
-                session_id: None,
                 mode: Some("lexical".to_string()),
                 multi_hop: Some(false),
             },
@@ -179,7 +177,7 @@ async fn ask_tool_multi_hop_short_circuits_when_probe_empty() {
         include: vec![],
         exclude: vec![],
     };
-    let _ = kebab_app::ingest_with_config(cfg.clone(), scope, false).unwrap();
+    let _ = kebab_app::ingest_with_config(cfg.clone(), scope, kebab_app::IngestOpts::default()).unwrap();
 
     let state = KebabAppState::new(cfg.clone(), None);
     let handler = KebabHandler::new(state);
@@ -189,7 +187,6 @@ async fn ask_tool_multi_hop_short_circuits_when_probe_empty() {
             &state_mh,
             kebab_mcp::tools::ask::AskInput {
                 query: "compound about X and Y".to_string(),
-                session_id: None,
                 mode: Some("lexical".to_string()),
                 multi_hop: Some(true),
             },

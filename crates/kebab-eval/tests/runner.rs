@@ -48,7 +48,7 @@ impl RunEnv {
         // Pin search defaults so test asserts are stable.
         config.search.default_k = 5;
 
-        let store = SqliteStore::open(&config).unwrap();
+        let store = SqliteStore::open(&config.storage).unwrap();
         store.run_migrations().unwrap();
         seed_corpus(&store);
         Self { temp, config }
@@ -273,7 +273,7 @@ fn runner_persists_eval_run_and_query_result_rows() {
     // the rows back. We use the inherent `read_conn` helper rather
     // than rusqlite directly because the latter would require kb-eval
     // to add a runtime rusqlite dep (forbidden by the spec).
-    let store = SqliteStore::open(&env.config).unwrap();
+    let store = SqliteStore::open(&env.config.storage).unwrap();
     let conn = store.read_conn();
 
     let n_runs: i64 = conn

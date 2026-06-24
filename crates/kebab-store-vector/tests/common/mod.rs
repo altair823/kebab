@@ -79,10 +79,10 @@ impl TestEnv {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut config = Config::defaults();
         config.storage.data_dir = temp.path().to_string_lossy().into_owned();
-        let sqlite = SqliteStore::open(&config).unwrap();
+        let sqlite = SqliteStore::open(&config.storage).unwrap();
         sqlite.run_migrations().unwrap();
         let sqlite = Arc::new(sqlite);
-        let vector = LanceVectorStore::new(&config, sqlite.clone()).unwrap();
+        let vector = LanceVectorStore::new(&config.storage, sqlite.clone()).unwrap();
         Self {
             temp,
             config,

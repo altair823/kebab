@@ -39,6 +39,19 @@ pub struct ExtractContext<'a> {
     pub asset: &'a RawAsset,
     pub workspace_root: &'a Path,
     pub config: &'a ExtractConfig,
+    /// `[[workspace.sources]]`: id of the source this asset is being
+    /// ingested from. The markdown extractor threads it into `BodyHints`
+    /// so `parse_frontmatter` stamps `Metadata.source_id` (frontmatter
+    /// does not override it). Other extractors (pdf / image / code) leave
+    /// it `None` and the kebab-app handler stamps `source_id` post-extract.
+    pub source_id: Option<&'a str>,
+    /// `[[workspace.sources]]`: per-source default `trust_level`. The
+    /// markdown extractor threads it into `BodyHints` so `parse_frontmatter`
+    /// can apply the precedence chain (frontmatter > this default >
+    /// hardcoded `Primary`) *inside* extraction — which is why it must be
+    /// carried here rather than stamped after. `None` for non-markdown
+    /// extractors (their frontmatter never carries a `trust_level`).
+    pub source_trust: Option<crate::metadata::TrustLevel>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -232,67 +245,3 @@ pub trait JobRepo {
     fn list(&self, filter: &JobFilter) -> anyhow::Result<Vec<JobRow>>;
 }
 
-// ── p9-fb-17: chat session persistence ────────────────────────────────
-
-/// Persistent multi-turn chat session — header row in `chat_sessions`.
-/// Per-turn rows live in `chat_turns` (see [`ChatTurnRow`]).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ChatSessionRow {
-    pub session_id: String,
-    /// Unix epoch seconds at session creation time.
-    pub created_at: i64,
-    /// Unix epoch seconds, bumped on every `append_turn`.
-    pub updated_at: i64,
-    /// Optional human-readable label — defaults to the first
-    /// question's first ~40 chars on creation.
-    pub title: Option<String>,
-    /// Snapshot of `prompt_template_version`, `llm.model`,
-    /// `max_context_tokens`, etc. — same shape as
-    /// `eval_runs.config_snapshot_json`. JSON string so the schema
-    /// can grow without an SQLite ALTER.
-    pub config_snapshot_json: String,
-}
-
-/// One Q/A pair inside a `ChatSessionRow`. `turn_index` is monotonic
-/// per session (0-based).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ChatTurnRow {
-    /// `blake3(session_id || turn_index)` (32 hex). Stable per (session,
-    /// turn) so a re-append at the same index is rejected via PK.
-    pub turn_id: String,
-    pub session_id: String,
-    pub turn_index: u32,
-    pub question: String,
-    pub answer: String,
-    /// `Vec<Citation>` JSON-encoded so a session resume can replay
-    /// the same citation markers the user saw originally.
-    pub citations_json: String,
-    pub created_at: i64,
-}
-
-/// Persistence trait for multi-turn chat sessions. Implemented by
-/// `kebab-store-sqlite::SqliteStore`; consumed by `kebab-app` and the
-/// future CLI / TUI session UIs (p9-fb-18).
-pub trait ChatSessionRepo {
-    /// Create a new session. `session_id` is caller-supplied — auto
-    /// derivation lives in `kebab-app`. Errors on PK collision.
-    fn create_session(&self, row: &ChatSessionRow) -> anyhow::Result<()>;
-
-    /// Look up a session by id; `Ok(None)` when missing.
-    fn get_session(&self, session_id: &str) -> anyhow::Result<Option<ChatSessionRow>>;
-
-    /// Most-recent-updated-first list of sessions, capped at `limit`.
-    fn list_sessions(&self, limit: usize) -> anyhow::Result<Vec<ChatSessionRow>>;
-
-    /// Delete a session and (CASCADE) every turn under it.
-    fn delete_session(&self, session_id: &str) -> anyhow::Result<()>;
-
-    /// Append a turn at `turn.turn_index`. Bumps the parent's
-    /// `updated_at`. PK collision (same session_id + turn_index) is
-    /// an error — the caller assigns the next monotonic index.
-    fn append_turn(&self, turn: &ChatTurnRow) -> anyhow::Result<()>;
-
-    /// All turns for `session_id`, ordered by `turn_index ASC`.
-    /// Empty vec when the session has no turns yet.
-    fn list_turns(&self, session_id: &str) -> anyhow::Result<Vec<ChatTurnRow>>;
-}

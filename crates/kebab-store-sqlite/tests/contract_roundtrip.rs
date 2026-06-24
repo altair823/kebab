@@ -30,7 +30,7 @@ fn fixtures_dir() -> PathBuf {
 #[test]
 fn document_and_chunks_round_trip_through_sqlite() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     // ── Build inputs from the fixture ───────────────────────────────

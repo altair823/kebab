@@ -31,7 +31,7 @@ impl Env {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut config = Config::defaults();
         config.storage.data_dir = temp.path().to_string_lossy().into_owned();
-        let store = SqliteStore::open(&config).expect("open store");
+        let store = SqliteStore::open(&config.storage).expect("open store");
         store.run_migrations().expect("run migrations");
         let db_path = temp.path().join("kebab.sqlite");
         Self {

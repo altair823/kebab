@@ -21,7 +21,7 @@ fn lexical_query_owner() -> kebab_core::SearchQuery {
 #[test]
 fn fresh_doc_is_not_stale_with_default_threshold() {
     let env = TestEnv::lexical_only();
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
 
     let app = kebab_app::App::open_with_config(env.config.clone()).unwrap();
     let hits = app.search(lexical_query_owner()).unwrap();
@@ -43,7 +43,7 @@ fn threshold_zero_disables_staleness() {
     let mut env = TestEnv::lexical_only();
     env.config.search.stale_threshold_days = 0;
 
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
     common::backdate_document_updated_at(&env, "intro.md", 365);
 
     let app = kebab_app::App::open_with_config(env.config.clone()).unwrap();
@@ -66,7 +66,7 @@ fn old_doc_marked_stale() {
     let mut env = TestEnv::lexical_only();
     env.config.search.stale_threshold_days = 30;
 
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
     common::backdate_document_updated_at(&env, "intro.md", 60);
 
     let app = kebab_app::App::open_with_config(env.config.clone()).unwrap();

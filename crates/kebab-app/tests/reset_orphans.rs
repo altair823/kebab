@@ -16,14 +16,14 @@
 mod common;
 
 use common::TestEnv;
-use kebab_app::IngestOpts;
+use kebab_app::{IngestOpts, ingest_with_config};
 use kebab_app::reset::{ResetScope, execute};
 use kebab_core::{DocFilter, DocumentStore, SourceScope};
 
 /// Open the SqliteStore and list all `workspace_path` values.
 fn list_doc_paths(env: &TestEnv) -> Vec<String> {
     use kebab_store_sqlite::SqliteStore;
-    let store = SqliteStore::open(&env.config).unwrap();
+    let store = SqliteStore::open(&env.config.storage).unwrap();
     store.run_migrations().unwrap();
     store
         .list_documents(&DocFilter::default())
@@ -51,13 +51,8 @@ fn reset_orphans_only_purges_out_of_scope_docs() {
         include: vec!["**/*.rs".to_string()],
         exclude: env.config.workspace.exclude.clone(),
     };
-    let first = kebab_app::ingest_with_config_opts(
-        env.config.clone(),
-        wide_scope,
-        false,
-        IngestOpts::default(),
-    )
-    .expect("first ingest must succeed");
+    let first = ingest_with_config(env.config.clone(), wide_scope, IngestOpts::default())
+        .expect("first ingest must succeed");
     // The fixture workspace may contain other .rs files — just assert we
     // got at least 3 new docs (our a.rs, b.rs, c.rs).
     assert!(first.new >= 3, "expected at least 3 new docs: {first:?}");

@@ -36,7 +36,7 @@ fn setup() -> (tempfile::TempDir, KebabHandler) {
         include: vec![],
         exclude: vec![],
     };
-    let _ = kebab_app::ingest_with_config(config.clone(), scope, false).unwrap();
+    let _ = kebab_app::ingest_with_config(config.clone(), scope, kebab_app::IngestOpts::default()).unwrap();
     let state = KebabAppState::new(config, None);
     let handler = KebabHandler::new(state);
     (dir, handler)

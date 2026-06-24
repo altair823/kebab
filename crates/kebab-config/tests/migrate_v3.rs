@@ -11,9 +11,13 @@ const USER_V2: &str = include_str!("fixtures/user_v2_config.toml");
 fn user_v2_migrates_losslessly() {
     let out = migrate_document(USER_V2);
     assert_eq!(out.from_schema_version, 2);
-    // v2 → CURRENT(=4): v3 의 [ingest.*] relocation 에 더해 v4 의
-    // [[workspace.sources]] default source 미러링까지 적용된다.
-    assert_eq!(out.to_schema_version, 4);
+    // v2 → CURRENT(=5): v3 의 [ingest.*] relocation, v4 의
+    // [[workspace.sources]] default source 미러링, v5 의 공유 [ingest.ocr]
+    // 통합까지 적용된다.
+    assert_eq!(
+        out.to_schema_version,
+        kebab_config::migrate::CURRENT_SCHEMA_VERSION
+    );
     let t = &out.new_text;
 
     // 사용자 값 보존.
@@ -36,15 +40,23 @@ fn user_v2_migrates_losslessly() {
     assert!(!t.contains("\n[image.ocr]"));
     assert!(!t.contains("\n[indexing]"));
 
-    // v3 Config 로 parse + 값 동일.
-    let cfg: kebab_config::Config = toml::from_str(t).expect("v3 parse");
-    assert!(cfg.ingest.image.ocr.enabled);
-    assert_eq!(cfg.ingest.image.ocr.engine, "paddle-onnx");
+    // v5: 공유 [ingest.ocr] 통합 후 image 엔진 키는 공유 블록에 산다.
+    assert!(t.contains("[ingest.ocr]"), "공유 OCR 블록 누락:\n{t}");
+
+    // effective 값은 from_file(공유 OCR resolution 포함)로 검증한다 —
+    // image 의 engine=paddle-onnx 가 공유 블록으로 끌어올려진 뒤에도 보존.
+    let dir = std::env::temp_dir().join(format!("kebab_mv3_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("config.toml");
+    std::fs::write(&p, t).unwrap();
+    let cfg = kebab_config::Config::from_file(&p).expect("v5 from_file");
+    assert!(cfg.image_ocr().enabled);
+    assert_eq!(cfg.image_ocr().engine, "paddle-onnx");
     assert_eq!(cfg.models.embedding.model, "snowflake-arctic-embed2");
     assert_eq!(cfg.models.llm.endpoint, "http://192.168.0.2:11943");
     // pdf paddle 값 보존(v2 비대칭 → pdf 대칭 키로 복사). user 의 pdf.ocr 는
     // engine=paddle-onnx 이고 자체 det_model 없으므로 번들(None) 유지.
-    assert_eq!(cfg.ingest.pdf.ocr.engine, "paddle-onnx");
+    assert_eq!(cfg.pdf_ocr().engine, "paddle-onnx");
 
     // 멱등.
     let again = migrate_document(t);

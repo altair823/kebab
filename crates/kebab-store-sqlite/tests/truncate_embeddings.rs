@@ -19,7 +19,7 @@ fn config_for(tmp: &TempDir) -> Config {
 
 fn open_store(tmp: &TempDir) -> SqliteStore {
     let cfg = config_for(tmp);
-    let store = SqliteStore::open(&cfg).unwrap();
+    let store = SqliteStore::open(&cfg.storage).unwrap();
     store.run_migrations().unwrap();
     store
 }

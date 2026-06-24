@@ -16,7 +16,7 @@
 //! Each subprocess of the binary creates one `ProgressDisplay` and
 //! drives it from a background thread that drains an
 //! `mpsc::Receiver<IngestEvent>`. The thread terminates when the
-//! `Sender` end is dropped (i.e. when `ingest_with_config_progress`
+//! `Sender` end is dropped (i.e. when `ingest_with_config`
 //! returns).
 
 use std::collections::HashMap;

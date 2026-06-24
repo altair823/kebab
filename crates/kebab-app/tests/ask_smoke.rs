@@ -21,7 +21,7 @@ use common::TestEnv;
 #[ignore = "requires real Ollama on 127.0.0.1:11434"]
 fn ask_lexical_smoke() {
     let env = TestEnv::lexical_only();
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
 
     let opts = kebab_app::AskOpts {
         k: 5,
@@ -30,9 +30,6 @@ fn ask_lexical_smoke() {
         temperature: Some(0.0),
         seed: Some(0),
         stream_sink: None,
-        history: Vec::new(),
-        conversation_id: None,
-        turn_index: None,
         multi_hop: false,
     };
     // The fixture workspace contains "ownership" content; the model's

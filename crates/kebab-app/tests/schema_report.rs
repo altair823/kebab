@@ -40,7 +40,7 @@ fn schema_report_reflects_freshly_ingested_kb() {
 
     let config = minimal_config(&data_dir, &workspace_root);
     let _report =
-        kebab_app::ingest_with_config(config.clone(), minimal_scope(&workspace_root), false)
+        kebab_app::ingest_with_config(config.clone(), minimal_scope(&workspace_root), kebab_app::IngestOpts::default())
             .unwrap();
 
     let schema = kebab_app::schema_with_config(&config).unwrap();
@@ -100,7 +100,7 @@ fn schema_report_on_empty_kb_has_zero_counts() {
     // Run ingest over the empty workspace — creates kebab.sqlite, runs
     // migrations, records 0 docs. schema_with_config can then open_existing.
     let report =
-        kebab_app::ingest_with_config(config.clone(), minimal_scope(&workspace_root), false)
+        kebab_app::ingest_with_config(config.clone(), minimal_scope(&workspace_root), kebab_app::IngestOpts::default())
             .unwrap();
     assert_eq!(report.new, 0, "empty workspace should yield 0 new docs");
 

@@ -27,7 +27,16 @@ async fn embed_blocking(
     inputs: Vec<(String, EmbeddingKind)>,
 ) -> anyhow::Result<Vec<Vec<f32>>> {
     tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<Vec<f32>>> {
-        let emb = OllamaEmbedder::new(&cfg)?;
+        // Resolve the endpoint exactly as kebab-app's `embedder()` does:
+        // `models.embedding.endpoint` → fallback `models.llm.endpoint`.
+        let endpoint = cfg
+            .models
+            .embedding
+            .endpoint
+            .clone()
+            .filter(|e| !e.is_empty())
+            .unwrap_or_else(|| cfg.models.llm.endpoint.clone());
+        let emb = OllamaEmbedder::new(&cfg.models.embedding, endpoint)?;
         let refs: Vec<EmbeddingInput<'_>> = inputs
             .iter()
             .map(|(t, k)| EmbeddingInput { text: t, kind: *k })

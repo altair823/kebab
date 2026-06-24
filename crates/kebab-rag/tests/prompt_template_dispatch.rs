@@ -1,4 +1,4 @@
-//! p9-fb-40: integration tests for rag-v1 / rag-v2 / unknown-version dispatch.
+//! Integration tests for rag-v3 / rag-v4 / unknown-version dispatch.
 //!
 //! Wraps `MockLanguageModel` in a `CapturingLm` that snapshots
 //! `GenerateRequest::system` on every `generate_stream` call so the
@@ -87,9 +87,6 @@ fn lexical_opts() -> AskOpts {
         temperature: Some(0.0),
         seed: Some(0),
         stream_sink: None,
-        history: Vec::new(),
-        conversation_id: None,
-        turn_index: None,
         multi_hop: false,
     }
 }
@@ -115,54 +112,8 @@ fn build_pipeline_with_template(
     env.seed_chunk(&chunk_id, &doc_id, "a.md", "hello world", &["H"]);
     let hit = mk_hit(1, &chunk_id, &doc_id, "a.md", 0.9, &["H"]);
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(vec![hit]));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
     (pipeline, captured, env)
-}
-
-#[test]
-fn ask_with_rag_v1_uses_v1_system_prompt() {
-    let (pipeline, captured, _env) = build_pipeline_with_template("rag-v1");
-    let _ = pipeline.ask("hello", lexical_opts());
-    let s = captured
-        .lock()
-        .unwrap()
-        .clone()
-        .expect("system prompt captured");
-    assert!(
-        s.contains("로컬 KB 위에서 동작"),
-        "shared V1/V2 prefix expected, got: {s}"
-    );
-    assert!(
-        !s.contains("학습 지식"),
-        "V1 must NOT contain V2-only 학습 지식 rule, got: {s}"
-    );
-    assert!(
-        !s.contains("확실하지 않다"),
-        "V1 must NOT contain V2-only 확실하지 않다 rule, got: {s}"
-    );
-}
-
-#[test]
-fn ask_with_rag_v2_uses_v2_system_prompt() {
-    let (pipeline, captured, _env) = build_pipeline_with_template("rag-v2");
-    let _ = pipeline.ask("hello", lexical_opts());
-    let s = captured
-        .lock()
-        .unwrap()
-        .clone()
-        .expect("system prompt captured");
-    assert!(
-        s.contains("학습 지식"),
-        "V2 must contain 학습 지식 rule, got: {s}"
-    );
-    assert!(
-        s.contains("확실하지 않다"),
-        "V2 must contain 확실하지 않다 rule, got: {s}"
-    );
-    assert!(
-        s.contains("큰따옴표"),
-        "V2 must contain 큰따옴표 rule, got: {s}"
-    );
 }
 
 #[test]
@@ -195,7 +146,7 @@ fn ask_with_unknown_template_returns_early_error() {
     assert!(result.is_err(), "expected error on unknown version");
     let msg = format!("{:#}", result.unwrap_err());
     assert!(
-        msg.contains("rag-v99") && msg.contains("expected"),
+        msg.contains("rag-v99") && msg.contains("expected") && msg.contains("rag-v3") && msg.contains("rag-v4"),
         "expected error to mention version + expected list, got: {msg}"
     );
 }
@@ -248,7 +199,7 @@ fn pack_user_prompt_for_hit(
     hit.source_id = source_id.map(str::to_string);
     hit.trust_level = trust_level;
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(vec![hit]));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
     let _ = pipeline.ask("hello", lexical_opts());
     let out = captured_user
         .lock()

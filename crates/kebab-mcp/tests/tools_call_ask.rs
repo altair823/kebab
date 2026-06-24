@@ -33,7 +33,7 @@ async fn ask_tool_returns_answer_v1_with_refusal_on_empty_kb() {
         include: vec![],
         exclude: vec![],
     };
-    let _ = kebab_app::ingest_with_config(cfg.clone(), scope, false).unwrap();
+    let _ = kebab_app::ingest_with_config(cfg.clone(), scope, kebab_app::IngestOpts::default()).unwrap();
 
     let state = KebabAppState::new(cfg, None);
     let handler = KebabHandler::new(state);
@@ -48,7 +48,6 @@ async fn ask_tool_returns_answer_v1_with_refusal_on_empty_kb() {
             &state_clone,
             kebab_mcp::tools::ask::AskInput {
                 query: "what is the meaning of life".to_string(),
-                session_id: None,
                 // Test env uses provider="none" — Hybrid would hard-error on embedding.
                 // Pass Lexical explicitly so the test stays functional.
                 mode: Some("lexical".to_string()),

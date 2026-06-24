@@ -1,6 +1,6 @@
 //! `kebab ingest` SIGINT (Ctrl-C) handler — flips a shared
-//! `Arc<AtomicBool>` so `kebab_app::ingest_with_config_cancellable`
-//! can break at the next step boundary.
+//! `Arc<AtomicBool>` so `kebab_app::ingest_with_config`
+//! can break at the next step boundary (via `IngestOpts::cancel`).
 //!
 //! Per spec §10: the second Ctrl-C is a hard exit (130 = SIGINT
 //! conventional). We count signal arrivals via a private atomic and
@@ -25,8 +25,8 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 /// Install a SIGINT handler that:
 /// - on first signal: sets `cancel.store(true)` so the cooperative
-///   cancel loop in `kebab_app::ingest_with_config_cancellable`
-///   breaks at its next step boundary.
+///   cancel loop in `kebab_app::ingest_with_config` (via
+///   `IngestOpts::cancel`) breaks at its next step boundary.
 /// - on second signal: hard-exits with code 130 (SIGINT
 ///   convention).
 ///

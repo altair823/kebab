@@ -354,15 +354,16 @@ fn from_parts_clamps_max_pixels_into_legal_range() {
 /// Run with:
 ///
 /// ```sh
-/// KEBAB_IMAGE_OCR_ENDPOINT=http://192.168.0.47:11434 \
+/// KEBAB_OCR_ENDPOINT=http://192.168.0.47:11434 \
 /// cargo test -p kebab-parse-image --test ocr ocr_integration -- --ignored
 /// ```
 #[tokio::test]
 #[ignore = "hits a real Ollama daemon; opt in via `cargo test -- --ignored`"]
 async fn ocr_integration_real_ollama_transcribes_text() {
-    let endpoint = std::env::var("KEBAB_IMAGE_OCR_ENDPOINT")
+    // v5: shared KEBAB_OCR_* env (manual harness reads it directly).
+    let endpoint = std::env::var("KEBAB_OCR_ENDPOINT")
         .unwrap_or_else(|_| "http://192.168.0.47:11434".to_string());
-    let model = std::env::var("KEBAB_IMAGE_OCR_MODEL").unwrap_or_else(|_| "gemma4:e4b".to_string());
+    let model = std::env::var("KEBAB_OCR_MODEL").unwrap_or_else(|_| "gemma4:e4b".to_string());
 
     // Generate a fixture with known text. If the DejaVu font is
     // missing from this dev box, skip rather than crash.

@@ -1,6 +1,6 @@
 //! Typed signal re-exports + new signals introduced by fb-27.
 //!
-//! kebab-cli (and future kebab-tui / kebab-desktop) downcast on these to
+//! kebab-cli (and future kebab-desktop) downcast on these to
 //! build `error.v1` wire records. The existing signals
 //! (`RefusalSignal`, `NoHitSignal`, `DoctorUnhealthy`) live in
 //! `doctor_signal.rs` — leave those unchanged and re-export via this
