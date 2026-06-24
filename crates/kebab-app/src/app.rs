@@ -49,6 +49,7 @@ use kebab_parse_code::{
     KotlinAstExtractor, PythonAstExtractor, RustAstExtractor, TypescriptAstExtractor,
 };
 use kebab_parse_image::ImageExtractor;
+use kebab_parse_md::MarkdownExtractor;
 use kebab_parse_pdf::PdfTextExtractor;
 use kebab_rag::{AskOpts, RagPipeline};
 use kebab_search::{HybridRetriever, LexicalRetriever, VectorRetriever};
@@ -99,9 +100,9 @@ pub struct App {
     pub(crate) sqlite: Arc<SqliteStore>,
     /// post-v0.18.0 extractor-dispatch-unification: polymorphic Extractor
     /// registry. App init 시 1회 등록되어 `extract_for(...)` 가 lookup
-    /// 한다. 현재 11 entry (ImageExtractor + PdfTextExtractor + 9 AST).
-    /// MarkdownExtractor 는 별 PR 에서 추가 — markdown ingest path 는
-    /// 본 PR 에서 free-function 그대로 유지.
+    /// 한다. 현재 12 entry (MarkdownExtractor + ImageExtractor +
+    /// PdfTextExtractor + 9 AST). MarkdownExtractor 가 마지막으로 합류해
+    /// 모든 media 가 `extract_for` 경유로 통일됨 (extract-stage 대칭화).
     pub(crate) extractors: Vec<Box<dyn Extractor + Send + Sync>>,
     /// Memoized embedder — built lazily on first `embedder()` call when
     /// embeddings are enabled. `OnceLock` keeps the struct `Sync` and
@@ -170,13 +171,16 @@ impl App {
                 "korean tokenizer backfill complete: {backfill_count} chunks updated"
             );
         }
-        // post-v0.18.0 extractor-dispatch-unification: build the 11-entry
+        // post-v0.18.0 extractor-dispatch-unification: build the 12-entry
         // Extractor registry. All entries are state-less unit structs with
         // zero-cost `new()`, so init cost is effectively 0 and side effects
         // are 0 — `pipeline_verifier` fallible `?` below may bail but the
-        // already-constructed `extractors` Vec drops without cost. Markdown
-        // is NOT registered (see field doc).
+        // already-constructed `extractors` Vec drops without cost.
+        // MarkdownExtractor is registered first so markdown ingest flows
+        // through `extract_for` like every other media (extract-stage
+        // symmetry — previously the only free-function arm).
         let extractors: Vec<Box<dyn Extractor + Send + Sync>> = vec![
+            Box::new(MarkdownExtractor::new()),
             Box::new(ImageExtractor::new()),
             Box::new(PdfTextExtractor::new()),
             Box::new(RustAstExtractor::new()),
@@ -1138,7 +1142,7 @@ mod tests_trace {
 /// are `pub(crate)` — integration tests cannot reach them.
 ///
 /// Spec §5.1 + plan §2 Step 10 — 3 test class:
-/// 1. registry length = 11 (image + pdf + 9 AST).
+/// 1. registry length = 12 (markdown + image + pdf + 9 AST).
 /// 2. mutually-exclusive `supports()` grid over 16 sample MediaTypes.
 /// 3. `extract_for` returns `Err("no Extractor ...")` for registry-NOT-cover
 ///    MediaType (Audio).
@@ -1161,21 +1165,19 @@ mod tests_extractor_dispatch {
         (dir, app)
     }
 
-    /// Registry length invariant: 11 Extractor (image + pdf + 9 AST).
-    /// Markdown is NOT registered (free-function path — defer to a
-    /// separate PR per spec §3.4).
+    /// Registry length invariant: 12 Extractor (markdown + image + pdf +
+    /// 9 AST). Markdown 합류로 모든 media 가 `extract_for` 경유로 통일됨.
     #[test]
-    fn registry_has_eleven_extractors() {
+    fn registry_has_twelve_extractors() {
         let (_dir, app) = open_app_with_temp_dir();
         assert_eq!(
             app.extractors.len(),
-            11,
-            "registry must hold 11 Extractors (image + pdf + 9 AST). \
-             markdown 은 별 PR."
+            12,
+            "registry must hold 12 Extractors (markdown + image + pdf + 9 AST)."
         );
     }
 
-    /// 11 Extractor 의 `supports()` 가 16 sample MediaType 에 대해
+    /// 12 Extractor 의 `supports()` 가 16 sample MediaType 에 대해
     /// mutually exclusive — 어떤 두 Extractor 도 동일 MediaType 에
     /// 대해 true 반환 안 됨.
     #[test]
@@ -1246,6 +1248,8 @@ mod tests_extractor_dispatch {
             asset: &asset,
             workspace_root: &workspace_root,
             config: &cfg,
+            source_id: None,
+            source_trust: None,
         };
         let result = app.extract_for(&MediaType::Audio(AudioType::Wav), &ctx, &[]);
         assert!(result.is_err(), "Audio 는 registry 미포함 → Err 기대");

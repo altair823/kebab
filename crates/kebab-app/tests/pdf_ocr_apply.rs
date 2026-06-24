@@ -49,6 +49,8 @@ fn extract_canonical_from_bytes(bytes: &[u8]) -> CanonicalDocument {
         asset: &asset,
         workspace_root,
         config: &config,
+        source_id: None,
+        source_trust: None,
     };
     PdfTextExtractor::new().extract(&ctx, bytes).unwrap()
 }

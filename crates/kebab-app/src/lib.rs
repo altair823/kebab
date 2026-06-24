@@ -57,7 +57,6 @@ use kebab_parse_image::{
     OLLAMA_VISION_ENGINE, OcrEngine, OllamaVisionOcr, OnnxPaddleOcr, PADDLE_ONNX_ENGINE,
     apply_caption, apply_ocr, engine_version_for_paths,
 };
-use kebab_parse_md::{BodyHints, build_canonical_document, parse_blocks, parse_frontmatter};
 use kebab_source_fs::FsSourceConnector;
 
 mod app;
@@ -1394,40 +1393,46 @@ fn ingest_one_asset(
     let bytes = std::fs::read(&path)
         .with_context(|| format!("read asset bytes from {}", path.display()))?;
 
-    let body_hints = build_body_hints(asset, Some(source_id), source_trust);
-
-    // Frontmatter — `parse_frontmatter` returns Ok even on malformed
-    // frontmatter (warnings are surfaced through the `Vec<Warning>`).
-    let (metadata, fm_span, fm_warns) =
-        parse_frontmatter(&bytes, &body_hints).context("kb-parse-md::parse_frontmatter")?;
-
-    let body_offset_lines = match fm_span {
-        Some(span) => count_lines_in(&bytes[..span.end]),
-        None => 0,
+    // post-spine-cut: markdown extraction (bytes → CanonicalDocument) now
+    // flows through the `App.extractors` registry like pdf / image / code,
+    // instead of calling the `kebab_parse_md` free functions inline. The
+    // `MarkdownExtractor` runs the identical sequence (frontmatter parse →
+    // body-offset count → block parse → canonical lift, same args/order),
+    // so `doc_id` / `chunk_id` and the whole document stay byte-identical.
+    // `ExtractContext` carries `source_id` / `source_trust` because markdown
+    // frontmatter can override the per-source trust default and that
+    // precedence is resolved *inside* `parse_frontmatter`.
+    let extract_config = kebab_core::ExtractConfig::default();
+    // `~` / `${XDG_…}` expansion (HOTFIXES 2026-05-02 P9-4 follow-up).
+    // p9-fb-05: relative `workspace.root` resolves against the config
+    // file's directory (Config.source_dir), not the user's cwd.
+    let workspace_root = app.config.resolve_workspace_root();
+    let ctx = ExtractContext {
+        asset,
+        workspace_root: &workspace_root,
+        config: &extract_config,
+        source_id: Some(source_id),
+        source_trust,
     };
-
-    let (parsed_blocks, blk_warns) =
-        parse_blocks(&bytes[fm_span_end(fm_span)..], body_offset_lines)
-            .context("kb-parse-md::parse_blocks")?;
-
-    let mut all_warnings = Vec::with_capacity(fm_warns.len() + blk_warns.len());
-    all_warnings.extend(fm_warns);
-    all_warnings.extend(blk_warns);
-
-    // Snapshot warning notes for the IngestItem before the vec is
-    // consumed by `build_canonical_document`.
-    let warning_notes: Vec<String> = all_warnings
-        .iter()
-        .map(|w| format!("{:?}: {}", w.kind, w.note))
-        .collect();
-
-    let mut canonical =
-        build_canonical_document(asset, metadata, parsed_blocks, parser_version, all_warnings)
-            .context("kb-parse-md::build_canonical_document")?;
+    let mut canonical = app
+        .extract_for(&asset.media_type, &ctx, &bytes)
+        .context("kb-app::extract_for (markdown)")?;
     // v0.26.2: persist the composite parser_version (base|signature) so the
     // next run's skip compare matches what was computed above. doc_id was
     // already derived from the base version inside build_canonical_document.
     canonical.parser_version = eff_parser_version.clone();
+
+    // Surface frontmatter / block warnings up to the IngestItem from the
+    // document's provenance (same shape pdf / code use). The extractor
+    // already encoded each upstream warning as a `Warning`-kind
+    // ProvenanceEvent with note `"{:?}: {}"` of `(kind, note)`.
+    let warning_notes: Vec<String> = canonical
+        .provenance
+        .events
+        .iter()
+        .filter(|e| e.kind == kebab_core::ProvenanceKind::Warning)
+        .filter_map(|e| e.note.clone())
+        .collect();
 
     let parse_ms = u64::try_from(t_parse.elapsed().as_millis()).unwrap_or(u64::MAX);
 
@@ -1684,6 +1689,8 @@ fn ingest_one_image_asset(
         asset,
         workspace_root: &workspace_root,
         config: &extract_config,
+        source_id: None,
+        source_trust: None,
     };
     let t_parse = std::time::Instant::now();
     let mut canonical = app
@@ -2296,6 +2303,8 @@ fn ingest_one_pdf_asset(
         asset,
         workspace_root: &workspace_root,
         config: &extract_config,
+        source_id: None,
+        source_trust: None,
     };
     let t_parse = std::time::Instant::now();
     let mut canonical = app
@@ -2706,6 +2715,8 @@ fn ingest_one_code_asset(
         asset,
         workspace_root: &workspace_root,
         config: &extract_config,
+        source_id: None,
+        source_trust: None,
     };
 
     // post-v0.18.0 extractor-dispatch-unification:
@@ -3102,40 +3113,10 @@ fn lang_hint_from_doc(doc: &CanonicalDocument) -> Option<Lang> {
     }
 }
 
-/// Convenience: end byte of the frontmatter region (or 0 when absent).
-fn fm_span_end(span: Option<kebab_parse_md::FrontmatterSpan>) -> usize {
-    span.map_or(0, |s| s.end)
-}
-
-/// Count `\n` in a byte prefix to convert frontmatter byte span to
-/// the line-offset `parse_blocks` expects.
-fn count_lines_in(bytes: &[u8]) -> u32 {
-    let n = bytes.iter().filter(|&&b| b == b'\n').count();
-    u32::try_from(n).unwrap_or(u32::MAX)
-}
-
-/// Build `BodyHints` from the asset alone. We use the asset's
-/// `discovered_at` for both `fs_ctime` and `fs_mtime` because going
-/// through the FS metadata API for every file would be a noticeable
-/// overhead for large workspaces and the source-of-truth timestamps
-/// are written into the document's frontmatter when the user wants
-/// authoritative values.
-fn build_body_hints(
-    asset: &RawAsset,
-    source_id: Option<&str>,
-    source_trust: Option<TrustLevel>,
-) -> BodyHints {
-    BodyHints {
-        first_h1: None,
-        fs_ctime: asset.discovered_at,
-        fs_mtime: asset.discovered_at,
-        fallback_lang: None,
-        // `[[workspace.sources]]`: stamp the owning source id + inject the
-        // per-source default trust level (frontmatter still overrides it).
-        source_id: source_id.map(str::to_string),
-        fallback_trust_level: source_trust,
-    }
-}
+// `fm_span_end` / `count_lines_in` / `build_body_hints` moved into
+// `kebab_parse_md::extractor` (the `MarkdownExtractor`) when the markdown
+// ingest arm was unified onto the `App.extractors` registry — they were
+// only ever the inline frontmatter→blocks→canonical plumbing.
 
 /// Build a `ChunkPolicy` from the active config.
 fn chunk_policy_from_config(config: &kebab_config::Config) -> ChunkPolicy {

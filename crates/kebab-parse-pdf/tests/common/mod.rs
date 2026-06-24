@@ -169,6 +169,8 @@ impl PdfFixture {
             asset: &self.asset,
             workspace_root: &self.workspace_root,
             config: &self.config,
+            source_id: None,
+            source_trust: None,
         }
     }
 }

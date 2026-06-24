@@ -39,6 +39,19 @@ pub struct ExtractContext<'a> {
     pub asset: &'a RawAsset,
     pub workspace_root: &'a Path,
     pub config: &'a ExtractConfig,
+    /// `[[workspace.sources]]`: id of the source this asset is being
+    /// ingested from. The markdown extractor threads it into `BodyHints`
+    /// so `parse_frontmatter` stamps `Metadata.source_id` (frontmatter
+    /// does not override it). Other extractors (pdf / image / code) leave
+    /// it `None` and the kebab-app handler stamps `source_id` post-extract.
+    pub source_id: Option<&'a str>,
+    /// `[[workspace.sources]]`: per-source default `trust_level`. The
+    /// markdown extractor threads it into `BodyHints` so `parse_frontmatter`
+    /// can apply the precedence chain (frontmatter > this default >
+    /// hardcoded `Primary`) *inside* extraction — which is why it must be
+    /// carried here rather than stamped after. `None` for non-markdown
+    /// extractors (their frontmatter never carries a `trust_level`).
+    pub source_trust: Option<crate::metadata::TrustLevel>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

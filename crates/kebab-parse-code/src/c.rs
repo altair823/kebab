@@ -438,6 +438,8 @@ pub(crate) mod tests_support {
             asset: &asset,
             workspace_root: &root,
             config: &cfg,
+            source_id: None,
+            source_trust: None,
         };
         CAstExtractor::new().extract(&ctx, src.as_bytes()).unwrap()
     }
