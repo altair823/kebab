@@ -29,116 +29,140 @@ Run before requesting merge of any Phase 1 task. Uses the artifacts frozen in Ta
 
 ````bash
 T=/home/user/large_data/out/kebab/target
-GATE=/home/user/large_data/out/kebab-dogfood          # dogfood KB + golden set
-BASE=$GATE/baseline                                    # Task 0 outputs live here
+GATE=/home/user/large_data/out/kebab-parity           # reproducible parity KB (Task 0)
+BASE=$GATE/baseline                                    # frozen baseline outputs
 
 # 1. Build this branch's binary
 CARGO_TARGET_DIR=$T cargo build --release --bin kebab
 
-# 2. Re-run the identical eval suite against the SAME KB (no re-ingest in Phase 1 —
-#    deletions don't change ingest; chunks are untouched)
-RUN=$("$T/release/kebab" --config "$GATE/config.toml" eval run \
-        --suite parity --mode hybrid --k 10 --with-rag \
-        --temperature 0.0 --seed 12345 --json | jq -r '.run_id')
+# 2. Re-run the FIXED query set; SEARCH output must be byte-identical
+#    (deletion-only — retrieval logic untouched; no LLM needed for this check)
+mkdir -p /tmp/parity
+: > /tmp/parity/search.jsonl
+while IFS= read -r q; do
+  "$T/release/kebab" --config "$GATE/config.toml" search --json --quiet --mode lexical "$q" >> /tmp/parity/search.jsonl
+  "$T/release/kebab" --config "$GATE/config.toml" search --json --quiet --mode hybrid  "$q" >> /tmp/parity/search.jsonl
+done < "$BASE/queries.txt"
+diff "$BASE/search.jsonl" /tmp/parity/search.jsonl && echo "SEARCH IDENTICAL"
 
-# 3. Compare against frozen baseline run; require near-zero deltas
-"$T/release/kebab" --config "$GATE/config.toml" eval compare \
-    "$(cat $BASE/run_id.txt)" "$RUN" --strict-chunker-version --json \
-    | jq '.deltas' | tee /tmp/parity-deltas.json
+# 3. RAG answers byte-identical (temp 0 / seed fixed). Strip volatile fields
+#    (run-id, elapsed_ms, timestamps) — keep answer/citations/grounded/refusal/template.
+: > /tmp/parity/ask.jsonl
+while IFS= read -r q; do
+  "$T/release/kebab" --config "$GATE/config.toml" ask --json --quiet --temperature 0.0 --seed 12345 "$q" \
+    | jq -cS '{answer, citations, grounded, refusal_reason, prompt_template_version}' >> /tmp/parity/ask.jsonl
+done < "$BASE/queries.txt"
+diff "$BASE/ask.jsonl" /tmp/parity/ask.jsonl && echo "ASK IDENTICAL"
 
-# 4. Chunk byte-identity (proves ingest output unchanged)
-sqlite3 "$GATE/data/kebab.sqlite" \
+# 4. Chunk byte-identity (proves ingest output unchanged — no re-ingest in Phase 1)
+sqlite3 "$GATE/data/kebab/kebab.sqlite" \
   "SELECT chunk_id, text, chunker_version, embedding_version FROM chunks ORDER BY chunk_id" \
-  > /tmp/parity-chunks.tsv
-diff "$BASE/chunks.tsv" /tmp/parity-chunks.tsv && echo "CHUNKS IDENTICAL"
+  > /tmp/parity/chunks.tsv
+diff "$BASE/chunks.tsv" /tmp/parity/chunks.tsv && echo "CHUNKS IDENTICAL"
 ````
 
-**PASS criteria (all required):**
-- `mrr`, every `hit_at_k.*`, `recall_at_k_doc.*`, `precision_at_k_chunk.*` delta `== 0.0` (Phase 1 is deletion-only — retrieval is byte-identical; any non-zero is a real regression to fix before merge).
-- `citation_coverage`, `groundedness`, `refusal_correctness` deltas within `±0.02` (LLM nondeterminism floor at temp 0 / seed fixed; investigate anything larger).
-- `chunker_version_match == "exact"` (no `fallback_doc`).
-- Chunk diff: `CHUNKS IDENTICAL` (zero lines).
-- If any criterion fails → root-cause, fix on the same branch, re-gate. Do **not** merge.
+**PASS criteria (all are byte-diffs — output-equality, label-free):**
+- `SEARCH IDENTICAL` — every query's lexical + hybrid hits byte-identical. No LLM needed; deletions don't touch retrieval. ANY diff is a real regression.
+- `ASK IDENTICAL` — every query's answer + citations + grounded + refusal + template version identical (volatile timing/run-id stripped via jq). RAG-touching cuts (templates v1/v2, sessions) must leave the default rag-v4 / non-session path identical. (LLM = the KB config's endpoint, self-consistent before/after.)
+- `CHUNKS IDENTICAL` — chunk dump byte-identical.
+- Any non-empty diff → root-cause, fix on the same branch, re-gate. Do **not** merge.
 
-Record the deltas table + `CHUNKS IDENTICAL` line in the PR body and in a dated `tasks/HOTFIXES.md` entry.
+Record the three `* IDENTICAL` confirmations (or the offending diff) in the PR body + a dated `tasks/HOTFIXES.md` entry.
 
 ---
 
-## Task 0: Freeze the core-quality baseline
+## Task 0: Build the reproducible parity KB + freeze baseline outputs
 
-**Files:**
-- Create: `/home/user/large_data/out/kebab-dogfood/baseline/run_id.txt`
-- Create: `/home/user/large_data/out/kebab-dogfood/baseline/aggregate.json`
-- Create: `/home/user/large_data/out/kebab-dogfood/baseline/chunks.tsv`
-- Create: `/home/user/large_data/out/kebab-dogfood/baseline/variants.json`
+Output-equality baseline (label-free). A small, fully-reproducible KB: kebab's own
+docs as corpus, **fastembed local** embedder (no network at query time), **lemonade**
+(`.243:13305`, self-consistent) LLM for RAG. Controller-run (ops task, not an implementer).
+
+**Files (all under `/home/user/large_data/out/kebab-parity/`):**
+- Create: `config.toml` (fastembed embed + lemonade llm, data under this dir)
+- Create: `data/kebab/kebab.sqlite` (ingested corpus)
+- Create: `baseline/queries.txt` (fixed query set)
+- Create: `baseline/search.jsonl` (lexical+hybrid `search --json` per query)
+- Create: `baseline/ask.jsonl` (normalized `ask --json` per query)
+- Create: `baseline/chunks.tsv` (deterministic chunk dump)
 
 **Interfaces:**
-- Produces: the frozen baseline artifacts the Parity Gate diffs against. `run_id.txt` (one line `run_<hex>`), `chunks.tsv` (tab-sep, ordered by chunk_id), `aggregate.json` (`AggregateMetrics`).
+- Produces the `$BASE/{queries.txt,search.jsonl,ask.jsonl,chunks.tsv}` the Parity Gate diffs against.
 
-- [ ] **Step 1: Confirm dogfood KB + golden set exist**
-
-```bash
-GATE=/home/user/large_data/out/kebab-dogfood
-ls "$GATE/config.toml" "$GATE/data/kebab.sqlite"
-# golden set: in-repo fixtures/golden_queries.yaml OR $GATE/golden_queries.yaml
-ls fixtures/golden_queries.yaml
-sqlite3 "$GATE/data/kebab.sqlite" "SELECT count(*) FROM chunks;"   # expect > 0
-```
-Expected: all paths exist, chunk count > 0. If the KB is missing, ingest the standard dogfood corpus first (`kebab ingest`) — do NOT proceed without a populated KB.
-
-- [ ] **Step 2: Build the baseline binary from current `main`**
+- [ ] **Step 1: Build the baseline binary from current `main`**
 
 ```bash
 git checkout main && git pull --ff-only
 T=/home/user/large_data/out/kebab/target
 CARGO_TARGET_DIR=$T cargo build --release --bin kebab
 ```
-Expected: `Finished release` , binary at `$T/release/kebab`.
+Expected: `Finished release`, binary at `$T/release/kebab`.
 
-- [ ] **Step 3: Run the deterministic eval suite (hybrid + RAG)**
+- [ ] **Step 2: Scaffold the parity KB config**
 
 ```bash
-GATE=/home/user/large_data/out/kebab-dogfood
-mkdir -p "$GATE/baseline"
-KEBAB_EVAL_GOLDEN="${KEBAB_EVAL_GOLDEN:-fixtures/golden_queries.yaml}" \
-"$T/release/kebab" --config "$GATE/config.toml" eval run \
-  --suite baseline --mode hybrid --k 10 --with-rag \
-  --temperature 0.0 --seed 12345 --json | jq -r '.run_id' \
-  > "$GATE/baseline/run_id.txt"
-cat "$GATE/baseline/run_id.txt"
+GATE=/home/user/large_data/out/kebab-parity
+mkdir -p "$GATE/data" "$GATE/baseline" "$GATE/corpus"
+"$T/release/kebab" --config "$GATE/config.toml" init --force   # writes default config + dirs
 ```
-Expected: a `run_<hex>` id written. (hybrid mode exercises both lexical + vector channels; `--with-rag` exercises citation/groundedness.)
+Then edit `$GATE/config.toml`: `[storage] data_dir` under `$GATE/data`; `[models.embedding] provider="fastembed"` (default e5, local); `[models.llm] endpoint="http://192.168.0.243:13305"` model = lemonade's instruct model (`Gemma-4-31B-it-GGUF`); `[workspace] root="$GATE/corpus"`. Confirm `kebab --config "$GATE/config.toml" doctor` is green.
 
-- [ ] **Step 4: Snapshot aggregate metrics + variant consistency**
+- [ ] **Step 3: Assemble a fixed corpus (kebab's own docs — aligns with golden queries)**
 
 ```bash
-RUN=$(cat "$GATE/baseline/run_id.txt")
-"$T/release/kebab" --config "$GATE/config.toml" eval aggregate "$RUN" --json \
-  > "$GATE/baseline/aggregate.json"
-"$T/release/kebab" --config "$GATE/config.toml" eval variants "$RUN" --json \
-  > "$GATE/baseline/variants.json"   # tolerate error if golden set has no groups
-jq '{mrr, hit_at_k, recall_at_k_doc, citation_coverage, groundedness}' \
-  "$GATE/baseline/aggregate.json"
+cp -r docs README.md HANDOFF.md CLAUDE.md "$GATE/corpus/"   # stable, in-repo, covers g001-g005 topics
+"$T/release/kebab" --config "$GATE/config.toml" ingest 2>&1 | tail -5
+sqlite3 "$GATE/data/kebab/kebab.sqlite" "SELECT count(*) FROM chunks;"   # expect > 0
 ```
-Expected: aggregate JSON with non-null `mrr`, `hit_at_k`, etc.
+Expected: ingest completes errors=0, chunk count > 0. (fastembed downloads e5 once if not cached.)
 
-- [ ] **Step 5: Freeze the deterministic chunk dump**
+- [ ] **Step 4: Define the fixed query set**
 
 ```bash
-sqlite3 "$GATE/data/kebab.sqlite" \
+cat > "$GATE/baseline/queries.txt" <<'EOF'
+Cargo workspace 멤버 추가하는 법
+What is the facade rule?
+Markdown chunking 규칙은?
+How does FTS5 tokenization work for Korean text?
+RAG citation 검증은 어떻게 동작?
+embedding version cascade
+search hybrid fusion
+EOF
+```
+
+- [ ] **Step 5: Freeze baseline search + ask outputs**
+
+```bash
+: > "$GATE/baseline/search.jsonl"
+while IFS= read -r q; do
+  "$T/release/kebab" --config "$GATE/config.toml" search --json --quiet --mode lexical "$q" >> "$GATE/baseline/search.jsonl"
+  "$T/release/kebab" --config "$GATE/config.toml" search --json --quiet --mode hybrid  "$q" >> "$GATE/baseline/search.jsonl"
+done < "$GATE/baseline/queries.txt"
+
+: > "$GATE/baseline/ask.jsonl"
+while IFS= read -r q; do
+  "$T/release/kebab" --config "$GATE/config.toml" ask --json --quiet --temperature 0.0 --seed 12345 "$q" \
+    | jq -cS '{answer, citations, grounded, refusal_reason, prompt_template_version}' >> "$GATE/baseline/ask.jsonl"
+done < "$GATE/baseline/queries.txt"
+wc -l "$GATE/baseline/search.jsonl" "$GATE/baseline/ask.jsonl"
+```
+Expected: search.jsonl has 14 lines (7 queries × 2 modes), ask.jsonl 7 lines. Re-run Step 5 a second time and confirm it reproduces byte-identically (determinism check — if `ask` is non-deterministic at temp 0, note it; search must be identical).
+
+- [ ] **Step 6: Freeze the deterministic chunk dump**
+
+```bash
+sqlite3 "$GATE/data/kebab/kebab.sqlite" \
   "SELECT chunk_id, text, chunker_version, embedding_version FROM chunks ORDER BY chunk_id" \
   > "$GATE/baseline/chunks.tsv"
 wc -l "$GATE/baseline/chunks.tsv"
 ```
-Expected: line count == chunk count from Step 1.
 
-- [ ] **Step 6: Record baseline in HOTFIXES (no code commit — artifacts live under large_data)**
+- [ ] **Step 7: Record baseline in HOTFIXES**
 
-Add a dated `tasks/HOTFIXES.md` entry: baseline `run_id`, key metrics (mrr/hit@k/citation_coverage/groundedness), chunk count, the commit SHA of `main` it was taken at. This is the immutable reference for the whole spine rewrite.
+Add a dated `tasks/HOTFIXES.md` entry: parity KB path, corpus (kebab docs), embedder (fastembed e5) + LLM (lemonade), chunk count, `main` SHA, and the determinism note from Step 5. Immutable reference for the whole spine rewrite.
 
 ```bash
 git add tasks/HOTFIXES.md
-git commit -m "docs(hotfix): spine-rewrite 코어 품질 baseline 동결 (run_id + 메트릭 + chunk dump)"
+git commit -m "docs(hotfix): spine-rewrite 출력-동등성 parity baseline 동결 (재현 KB + search/ask/chunk 캡처)"
 ```
 
 ---
