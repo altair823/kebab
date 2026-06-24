@@ -314,21 +314,11 @@ pub struct SearchCfg {
     pub hybrid_fusion: String,
     pub rrf_k: u32,
     pub snippet_chars: usize,
-    /// p9-fb-19: in-memory LRU cache capacity for `App::search`.
-    /// One entry ≈ 5 KB → default 256 caps memory at ~1.3 MB. Set
-    /// to `0` to disable the cache entirely. Stale entries
-    /// (corpus_revision mismatch) are evicted on next access.
-    #[serde(default = "default_cache_capacity")]
-    pub cache_capacity: usize,
     /// p9-fb-32: hits and citations whose source doc was last
     /// re-processed more than this many days ago are marked
     /// `stale: true` in wire / TUI / CLI surfaces. `0` disables.
     #[serde(default = "default_stale_threshold_days")]
     pub stale_threshold_days: u32,
-}
-
-fn default_cache_capacity() -> usize {
-    256
 }
 
 /// v0.17.0 post-dogfood: matches the legacy hard-coded ceiling so
@@ -936,7 +926,6 @@ impl Config {
                 hybrid_fusion: "rrf".to_string(),
                 rrf_k: 60,
                 snippet_chars: 220,
-                cache_capacity: default_cache_capacity(),
                 stale_threshold_days: 30,
             },
             rag: RagCfg {

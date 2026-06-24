@@ -152,7 +152,7 @@ fn capabilities_snapshot() -> Capabilities {
         ingest_progress: true,
         ingest_cancellation: true,
         rag_multi_turn: true,
-        search_cache: true,
+        search_cache: false,
         incremental_ingest: true,
         streaming_ask: true,
         http_daemon: false,

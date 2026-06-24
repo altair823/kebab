@@ -338,7 +338,7 @@ mod tests {
                 ingest_progress: true,
                 ingest_cancellation: true,
                 rag_multi_turn: true,
-                search_cache: true,
+                search_cache: false,
                 incremental_ingest: true,
                 streaming_ask: false,
                 http_daemon: false,

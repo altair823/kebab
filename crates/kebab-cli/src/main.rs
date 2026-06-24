@@ -845,7 +845,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             k,
             mode,
             explain: _,
-            no_cache,
+            no_cache: _,
             max_tokens,
             snippet_chars,
             cursor,
@@ -1015,12 +1015,8 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 cursor: cursor.clone(),
                 trace: *trace,
             };
-            // p9-fb-34: budget-aware path. --no-cache still bypasses the
-            // App-level LRU; wire wrapper applies regardless.
+            // p9-fb-34: budget-aware path.
             let app = kebab_app::App::open_with_config(cfg)?;
-            if *no_cache {
-                app.clear_search_cache();
-            }
             let resp = app.search_with_opts(q, opts)?;
 
             if cli.json {

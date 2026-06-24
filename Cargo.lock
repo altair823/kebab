@@ -4780,7 +4780,6 @@ dependencies = [
  "kebab-store-sqlite",
  "kebab-store-vector",
  "lopdf",
- "lru",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",
