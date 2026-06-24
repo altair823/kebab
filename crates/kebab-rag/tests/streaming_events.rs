@@ -67,9 +67,6 @@ fn opts_with_sink(tx: mpsc::Sender<StreamEvent>) -> AskOpts {
         temperature: Some(0.0),
         seed: Some(0),
         stream_sink: Some(tx),
-        history: Vec::new(),
-        conversation_id: None,
-        turn_index: None,
         multi_hop: false,
     }
 }

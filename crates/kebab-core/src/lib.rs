@@ -31,7 +31,7 @@ pub mod versions;
 
 pub use answer::{
     Answer, AnswerCitation, AnswerRetrievalSummary, HopKind, HopRecord, ModelRef, RefusalReason,
-    TokenUsage, TraceId, Turn, VerificationSummary,
+    TokenUsage, TraceId, VerificationSummary,
 };
 pub use asset::{AssetStorage, RawAsset, SourceUri, WorkspacePath};
 pub use chunk::Chunk;
@@ -60,7 +60,7 @@ pub use search::{
     SearchQuery, SearchTrace, TraceCandidate, TraceFusionInput, TraceTiming,
 };
 pub use traits::{
-    ChatSessionRepo, ChatSessionRow, ChatTurnRow, ChunkPolicy, Chunker, DocumentStore, Embedder,
+    ChunkPolicy, Chunker, DocumentStore, Embedder,
     EmbeddingInput, EmbeddingKind, ExtractConfig, ExtractContext, Extractor, FinishReason,
     GenerateRequest, JobRepo, LanguageModel, Retriever, SourceConnector, SourceScope, TokenChunk,
     VectorStore,

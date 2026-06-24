@@ -42,7 +42,7 @@ use kebab_core::versions::PromptTemplateVersion;
 use kebab_core::{
     Answer, AnswerCitation, AnswerRetrievalSummary, Citation, FinishReason, GenerateRequest,
     HopKind, HopRecord, LanguageModel, ModelRef, RefusalReason, Retriever, SearchFilters,
-    SearchHit, SearchMode, SearchQuery, TokenChunk, TokenUsage, TraceId, TrustLevel, Turn,
+    SearchHit, SearchMode, SearchQuery, TokenChunk, TokenUsage, TraceId, TrustLevel,
     VerificationSummary,
 };
 use kebab_store_sqlite::SqliteStore;
@@ -102,7 +102,6 @@ pub enum StreamEvent {
     },
     Token {
         delta: String,
-        turn_index: Option<u32>,
     },
     Final {
         answer: Answer,
@@ -138,22 +137,6 @@ pub struct AskOpts {
     /// `Final`) is forwarded synchronously. A dropped receiver
     /// triggers cancel — see `RagPipeline::ask` for the break path.
     pub stream_sink: Option<std::sync::mpsc::Sender<StreamEvent>>,
-    /// p9-fb-15: prior turns of the same conversation. Empty for
-    /// single-shot ask. The pipeline prepends a serialized `[이전
-    /// 대화]` block to the user prompt and uses the most-recent
-    /// answer's first 200 chars to expand the retrieval query
-    /// (cheap concat — LLM-based standalone-question rewriting is
-    /// out of scope per spec §3.8). Newest-first prepended; older
-    /// turns drop when the prompt would otherwise exceed
-    /// `cfg.rag.max_context_tokens`.
-    pub history: Vec<Turn>,
-    /// p9-fb-15: same conversation 의 turn 들이 공유. Filled into
-    /// `Answer.conversation_id`. None for single-shot ask.
-    pub conversation_id: Option<String>,
-    /// p9-fb-15: 0-based index within `conversation_id`. Caller
-    /// (TUI / CLI session) computes from `history.len()`. None for
-    /// single-shot ask.
-    pub turn_index: Option<u32>,
     /// p9-fb-41: multi-hop mode toggle. When `true`,
     /// [`RagPipeline::ask`] dispatches to [`RagPipeline::ask_multi_hop`]
     /// — the query is decomposed into sub-questions, each retrieved
@@ -170,8 +153,8 @@ pub struct AskOpts {
 /// `AskOpts { ... }` literals can switch to `AskOpts { ..Default::default() }`
 /// without behaviour change. Mirrors the single-shot defaults that
 /// every previous caller spelled out: lexical k=0 (pipeline applies
-/// its own floor), no explain, no history, no streaming, no
-/// temperature / seed overrides, no multi-hop.
+/// its own floor), no explain, no streaming, no temperature / seed
+/// overrides, no multi-hop.
 impl Default for AskOpts {
     fn default() -> Self {
         Self {
@@ -181,9 +164,6 @@ impl Default for AskOpts {
             temperature: None,
             seed: None,
             stream_sink: None,
-            history: Vec::new(),
-            conversation_id: None,
-            turn_index: None,
             multi_hop: false,
         }
     }
@@ -240,29 +220,6 @@ impl RagPipeline {
         self
     }
 
-    /// p9-fb-15: convenience for multi-turn ask. Stuffs `history`,
-    /// `conversation_id`, `turn_index` into a fresh `AskOpts` (built
-    /// from `opts.mode` + carried-through knobs) and forwards to
-    /// [`Self::ask`]. The returned `Answer` carries the same
-    /// `conversation_id` / `turn_index`. CLI / TUI sessions call this
-    /// once per follow-up question.
-    pub fn ask_with_history(
-        &self,
-        query: &str,
-        history: Vec<Turn>,
-        conversation_id: String,
-        turn_index: u32,
-        opts: AskOpts,
-    ) -> Result<Answer> {
-        let combined = AskOpts {
-            history,
-            conversation_id: Some(conversation_id),
-            turn_index: Some(turn_index),
-            ..opts
-        };
-        self.ask(query, combined)
-    }
-
     /// Run one query through the full pipeline. Always persists an
     /// `answers` row (including refusals); the row write is best-effort
     /// — a persistence error is surfaced via `tracing::warn!` so the
@@ -281,14 +238,8 @@ impl RagPipeline {
         // ── 1. Retrieve ────────────────────────────────────────────────────
         // floor at config default — see `AskOpts::k` doc for rationale.
         let k_effective = opts.k.max(self.config.search.default_k);
-        // p9-fb-15: query expansion when history is present.
-        // Concat the most-recent answer's first 200 chars so the
-        // retriever sees the full conversational context. Cheap —
-        // LLM-based standalone-question rewriting is out of scope
-        // (spec §3.8 marks it P+).
-        let expanded_query = expand_query_with_history(query, &opts.history);
         let search_query = SearchQuery {
-            text: expanded_query,
+            text: query.to_string(),
             mode: opts.mode,
             k: k_effective,
             filters: SearchFilters::default(),
@@ -355,23 +306,7 @@ impl RagPipeline {
 
         // ── 4. Render prompt ───────────────────────────────────────────────
         let system = system_prompt_for(&self.config.rag.prompt_template_version)?.to_string();
-        // p9-fb-15: prepend `[이전 대화]` block when history is
-        // present. `serialize_history` enforces the spec §3.8
-        // priority — system+question stay untouched, retrieved
-        // chunks already fit (`pack_context` honoured the budget),
-        // so the budget remaining for history is what's left over.
-        let history_budget_chars = remaining_history_budget_chars(
-            self.config.rag.max_context_tokens,
-            &system,
-            query,
-            &packed_text,
-        );
-        let history_block = serialize_history(&opts.history, history_budget_chars);
-        let user = if history_block.is_empty() {
-            format!("[질문]\n{query}\n\n[근거]\n{packed_text}")
-        } else {
-            format!("{history_block}\n\n[질문]\n{query}\n\n[근거]\n{packed_text}")
-        };
+        let user = format!("[질문]\n{query}\n\n[근거]\n{packed_text}");
 
         // ── 5. Generate ────────────────────────────────────────────────────
         // Completion budget is bounded only by what the LM context window
@@ -426,7 +361,6 @@ impl RagPipeline {
                         if sink
                             .send(StreamEvent::Token {
                                 delta: t,
-                                turn_index: opts.turn_index,
                             })
                             .is_err()
                         {
@@ -545,8 +479,7 @@ impl RagPipeline {
             },
             usage: usage_final,
             created_at: OffsetDateTime::now_utc(),
-            conversation_id: opts.conversation_id.clone(),
-            turn_index: opts.turn_index,
+
             // p9-fb-41 Step 2 of PR-3: every Answer literal carries
             // `hops`. Single-pass + refusal paths leave it `None`;
             // only the multi-hop happy path will set `Some(...)` in
@@ -872,21 +805,9 @@ impl RagPipeline {
             .map(|(i, q)| format!("{}. {q}", i + 1))
             .collect::<Vec<_>>()
             .join("\n");
-        let history_budget_chars = remaining_history_budget_chars(
-            self.config.rag.max_context_tokens,
-            &system,
-            query,
-            &packed_text,
-        );
-        let history_block = serialize_history(&opts.history, history_budget_chars);
-        let body = format!(
+        let user = format!(
             "[원본 질문]\n{query}\n\n[분해된 sub-question]\n{sub_queries_summary}\n\n[근거]\n{packed_text}"
         );
-        let user = if history_block.is_empty() {
-            body
-        } else {
-            format!("{history_block}\n\n{body}")
-        };
 
         // ── 6. Generate ────────────────────────────────────────────────────
         let llm_ctx = self.llm.context_tokens();
@@ -934,7 +855,6 @@ impl RagPipeline {
                         && sink
                             .send(StreamEvent::Token {
                                 delta: t,
-                                turn_index: opts.turn_index,
                             })
                             .is_err()
                     {
@@ -1112,8 +1032,7 @@ impl RagPipeline {
             },
             usage: usage_final,
             created_at: OffsetDateTime::now_utc(),
-            conversation_id: opts.conversation_id.clone(),
-            turn_index: opts.turn_index,
+
             // p9-fb-41 PR-3b: multi-hop happy path stamps the hop
             // trace. Refusal paths inside `ask_multi_hop` go through
             // `refuse_*` helpers shared with single-pass `ask` and
@@ -1326,8 +1245,7 @@ impl RagPipeline {
                 latency_ms: elapsed_ms,
             },
             created_at: OffsetDateTime::now_utc(),
-            conversation_id: opts.conversation_id.clone(),
-            turn_index: opts.turn_index,
+
             // p9-fb-41 Step 2 of PR-3: every Answer literal carries
             // `hops`. Single-pass + refusal paths leave it `None`;
             // only the multi-hop happy path will set `Some(...)` in
@@ -1468,8 +1386,7 @@ impl RagPipeline {
                 latency_ms: elapsed_ms,
             },
             created_at: OffsetDateTime::now_utc(),
-            conversation_id: opts.conversation_id.clone(),
-            turn_index: opts.turn_index,
+
             // p9-fb-41 PR-3b-ii: single-pass callers pass `None`;
             // `ask_multi_hop` forwards the partial hop trace it
             // built up to the refusal point. Either way `Answer.hops`
@@ -1563,8 +1480,7 @@ impl RagPipeline {
                 latency_ms: elapsed_ms,
             },
             created_at: OffsetDateTime::now_utc(),
-            conversation_id: opts.conversation_id.clone(),
-            turn_index: opts.turn_index,
+
             // p9-fb-41 PR-3b-ii: see refuse_no_chunks' identical comment.
             hops,
             // p9-fb-41 PR-9c-1: ScoreGate refusal never reaches the
@@ -1619,8 +1535,7 @@ impl RagPipeline {
                 latency_ms: elapsed_ms,
             },
             created_at: OffsetDateTime::now_utc(),
-            conversation_id: opts.conversation_id.clone(),
-            turn_index: opts.turn_index,
+
             // PR-9c-2: NLI refusal still carries the hop trace built
             // up to step 8.5 — synthesize ran, so the trace is the
             // full decompose+decide chain (terminal Synthesize hop is
@@ -1687,8 +1602,7 @@ impl RagPipeline {
                 latency_ms: elapsed_ms,
             },
             created_at: OffsetDateTime::now_utc(),
-            conversation_id: opts.conversation_id.clone(),
-            turn_index: opts.turn_index,
+
             hops: Some(hops),
             // No VerificationSummary — verification didn't happen.
             verification: None,
@@ -1943,80 +1857,6 @@ fn est_tokens(s: &str) -> usize {
     s.chars().count().div_ceil(4)
 }
 
-/// p9-fb-15: expand the retrieval query with the most-recent answer's
-/// first 200 chars when history is non-empty. Cheap concat per spec
-/// §3.8 — LLM-based standalone-question rewriting is P+. The retriever
-/// sees `<question> <last answer prefix>` so embedding / FTS hit on
-/// names from the prior turn ("Y" in "Y vs X 의 차이?") still surfaces
-/// the right chunks.
-fn expand_query_with_history(query: &str, history: &[Turn]) -> String {
-    let Some(last) = history.last() else {
-        return query.to_string();
-    };
-    let prefix: String = last.answer.chars().take(200).collect();
-    if prefix.is_empty() {
-        query.to_string()
-    } else {
-        format!("{query} {prefix}")
-    }
-}
-
-/// p9-fb-15: how many *chars* of history block we may afford. The
-/// budget is `cfg.rag.max_context_tokens * BYTES_PER_TOKEN` minus the
-/// chars already committed to system + question + retrieved chunks.
-/// Returns 0 (history fully dropped) when budget already exhausted.
-fn remaining_history_budget_chars(
-    max_context_tokens: usize,
-    system: &str,
-    question: &str,
-    packed_text: &str,
-) -> usize {
-    let total_chars = max_context_tokens.saturating_mul(4);
-    let used = system.chars().count()
-        + question.chars().count()
-        + packed_text.chars().count()
-        // Account for the format-string overhead: `[질문]\n` + `\n\n[근거]\n`
-        // + `\n\n` between history and question. Round up to ~32 chars
-        // to keep the maths simple.
-        + 32;
-    total_chars.saturating_sub(used)
-}
-
-/// p9-fb-15: serialize history into the `[이전 대화]` block. Newest
-/// turn first per spec §3.8 — the loop walks `history` in reverse and
-/// stops as soon as appending the next turn would exceed `budget_chars`.
-/// Empty when history is empty or no turn fits.
-fn serialize_history(history: &[Turn], budget_chars: usize) -> String {
-    if history.is_empty() || budget_chars == 0 {
-        return String::new();
-    }
-    // Build newest-first, then reverse so the LM reads chronological
-    // order ("Q1/A1\nQ2/A2 → newest at the bottom, just above the
-    // current question").
-    let mut included_rev: Vec<String> = Vec::new();
-    let mut used = 0usize;
-    let header = "[이전 대화]\n";
-    let header_len = header.chars().count();
-    for turn in history.iter().rev() {
-        let block = format!("Q: {}\nA: {}\n", turn.question, turn.answer);
-        let blen = block.chars().count();
-        if used + blen + header_len > budget_chars {
-            break;
-        }
-        used += blen;
-        included_rev.push(block);
-    }
-    if included_rev.is_empty() {
-        return String::new();
-    }
-    let mut out = String::with_capacity(used + header_len);
-    out.push_str(header);
-    for block in included_rev.iter().rev() {
-        out.push_str(block);
-    }
-    out
-}
-
 /// Strict marker regex per design §1 / spec line 107: `[#1]` … `[#999]`.
 /// Matches without `#`, with whitespace, or with non-digit content are
 /// intentionally ignored (see test plan rows 5–6).
@@ -2244,103 +2084,6 @@ mod tests {
         assert_eq!(est_tokens("abcdefgh"), 2);
     }
 
-    // ── p9-fb-15: multi-turn helpers ───────────────────────────────────────
-
-    fn fake_turn(question: &str, answer: &str) -> Turn {
-        Turn {
-            question: question.into(),
-            answer: answer.into(),
-            citations: Vec::new(),
-            created_at: OffsetDateTime::now_utc(),
-        }
-    }
-
-    #[test]
-    fn expand_query_with_history_empty_returns_query_unchanged() {
-        assert_eq!(expand_query_with_history("hi", &[]), "hi");
-    }
-
-    #[test]
-    fn expand_query_with_history_concats_last_answer_prefix() {
-        let h = vec![fake_turn("Q1", "first answer body")];
-        let expanded = expand_query_with_history("follow-up", &h);
-        assert!(expanded.starts_with("follow-up "), "got: {expanded}");
-        assert!(expanded.contains("first answer body"), "got: {expanded}");
-    }
-
-    #[test]
-    fn expand_query_caps_last_answer_at_200_chars() {
-        let long = "x".repeat(500);
-        let h = vec![fake_turn("Q", &long)];
-        let expanded = expand_query_with_history("q", &h);
-        // query (1 char) + space (1) + 200 of x = 202.
-        assert_eq!(expanded.chars().count(), 1 + 1 + 200);
-    }
-
-    #[test]
-    fn expand_query_uses_last_turn_only() {
-        let h = vec![
-            fake_turn("Q1", "FIRST ANSWER"),
-            fake_turn("Q2", "LATEST ANSWER"),
-        ];
-        let expanded = expand_query_with_history("q3", &h);
-        assert!(expanded.contains("LATEST ANSWER"), "got: {expanded}");
-        assert!(!expanded.contains("FIRST ANSWER"), "got: {expanded}");
-    }
-
-    #[test]
-    fn serialize_history_empty_returns_empty_string() {
-        assert_eq!(serialize_history(&[], 1000), "");
-        let h = vec![fake_turn("q", "a")];
-        assert_eq!(serialize_history(&h, 0), "");
-    }
-
-    #[test]
-    fn serialize_history_chronological_order_with_header() {
-        let h = vec![
-            fake_turn("Q1", "A1"),
-            fake_turn("Q2", "A2"),
-            fake_turn("Q3", "A3"),
-        ];
-        let s = serialize_history(&h, 1000);
-        assert!(s.starts_with("[이전 대화]\n"), "got: {s:?}");
-        let q1_pos = s.find("Q1").unwrap();
-        let q3_pos = s.find("Q3").unwrap();
-        assert!(q1_pos < q3_pos, "chronological: oldest first; got: {s:?}");
-    }
-
-    #[test]
-    fn serialize_history_drops_oldest_when_budget_tight() {
-        // Budget tight enough that only 1 of 3 turns fits.
-        let h = vec![
-            fake_turn("Q1", "A1"),
-            fake_turn("Q2", "A2"),
-            fake_turn("Q3", "A3"),
-        ];
-        // Header is "[이전 대화]\n" (8 chars) + 1 turn ("Q: Q3\nA: A3\n" = 12 chars) ≈ 20.
-        let s = serialize_history(&h, 25);
-        assert!(s.contains("Q3"), "newest must be kept: {s:?}");
-        assert!(!s.contains("Q1"), "oldest dropped: {s:?}");
-    }
-
-    #[test]
-    fn remaining_history_budget_subtracts_known_pieces() {
-        // total = 100 tokens * 4 chars = 400 chars budget.
-        // system 100 chars + question 50 chars + packed 150 chars + 32 overhead = 332. left = 68.
-        let s = "x".repeat(100);
-        let q = "y".repeat(50);
-        let p = "z".repeat(150);
-        let left = remaining_history_budget_chars(100, &s, &q, &p);
-        assert_eq!(left, 400 - 100 - 50 - 150 - 32);
-    }
-
-    #[test]
-    fn remaining_history_budget_clamps_to_zero_when_overrun() {
-        let s = "x".repeat(1000);
-        let left = remaining_history_budget_chars(10, &s, "q", "p");
-        assert_eq!(left, 0);
-    }
-
     #[test]
     fn system_prompt_for_unknown_version_returns_err_with_hint() {
         let err = super::system_prompt_for("rag-v99").unwrap_err();
@@ -2542,12 +2285,10 @@ mod stream_event_serde_tests {
     fn stream_event_token_serializes_with_kind_discriminator() {
         let ev = StreamEvent::Token {
             delta: "안녕".into(),
-            turn_index: Some(0),
         };
         let v = serde_json::to_value(&ev).unwrap();
         assert_eq!(v["kind"], "token");
         assert_eq!(v["delta"], "안녕");
-        assert_eq!(v["turn_index"], 0);
     }
 
     #[test]
@@ -2589,8 +2330,6 @@ mod stream_event_serde_tests {
                 latency_ms: 0,
             },
             created_at: datetime!(2026-05-09 12:00:00 UTC),
-            conversation_id: None,
-            turn_index: None,
             hops: None,
             verification: None,
         };

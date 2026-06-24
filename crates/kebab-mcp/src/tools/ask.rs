@@ -1,6 +1,5 @@
-//! `ask` tool — wraps `kebab_app::ask_with_config` (single-shot) or
-//! `kebab_app::ask_with_session_with_config` when `session_id` is provided.
-//! Input: { query, session_id?, mode? }. Output: answer.v1 JSON.
+//! `ask` tool — wraps `kebab_app::ask_with_config` (single-shot).
+//! Input: { query, mode? }. Output: answer.v1 JSON.
 //!
 //! `Answer` (kebab-core) does NOT carry a `schema_version` field; we tag
 //! it inline here, matching the pattern from `search.rs`.
@@ -16,8 +15,6 @@ use crate::state::KebabAppState;
 pub struct AskInput {
     /// The user question.
     pub query: String,
-    /// Optional session id for multi-turn RAG context.
-    pub session_id: Option<String>,
     /// Optional retrieval mode override ("lexical" / "vector" / "hybrid"). Default "hybrid".
     pub mode: Option<String>,
     /// p9-fb-41: opt the ask into the multi-hop pipeline. Default `false`.
@@ -44,16 +41,10 @@ pub fn handle(state: &KebabAppState, input: AskInput) -> CallToolResult {
         temperature: None,
         seed: None,
         stream_sink: None,
-        history: Vec::new(),
-        conversation_id: None,
-        turn_index: None,
         multi_hop: input.multi_hop.unwrap_or(false),
     };
     let cfg_clone = (*state.config).clone();
-    let result = match input.session_id {
-        Some(sid) => kebab_app::ask_with_session_with_config(cfg_clone, &sid, &input.query, opts),
-        None => kebab_app::ask_with_config(cfg_clone, &input.query, opts),
-    };
+    let result = kebab_app::ask_with_config(cfg_clone, &input.query, opts);
     match result {
         Ok(answer) => {
             // `Answer` does not carry `schema_version`; tag inline (idempotent

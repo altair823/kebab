@@ -569,8 +569,6 @@ mod tests {
                 latency_ms: 1,
             },
             created_at: OffsetDateTime::UNIX_EPOCH,
-            conversation_id: None,
-            turn_index: None,
             hops: None,
             verification: None,
         }

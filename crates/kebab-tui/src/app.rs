@@ -193,13 +193,8 @@ impl Default for SearchState {
 /// `RetrievalDone` and `Final` are ignored (citations render from
 /// `last_answer` after the worker join).
 ///
-/// p9-fb-16: completed `Turn`s accumulate in `turns`; the worker
-/// passes a snapshot of `turns` as `history` to
-/// `RagPipeline::ask_with_history`, so each follow-up question sees
-/// the full prior conversation. `conversation_id` is auto-generated
-/// on the first submission (timestamp-based — unique per session,
-/// not cryptographic). `Ctrl-L` clears `turns + conversation_id` to
-/// start a fresh conversation.
+/// p9-fb-16: completed turns accumulate in `turns` for in-pane
+/// display. `Ctrl-L` clears `turns` to start a fresh conversation.
 pub struct AskState {
     /// p9-fb-10: `InputBuffer` tracks display-column cursor position
     /// alongside content so wide chars (Hangul, CJK) place the
@@ -236,15 +231,11 @@ pub struct AskState {
     /// turn (the one being generated right now) lives in
     /// `current_question` + `partial` and only graduates into
     /// `turns` on `poll_worker` completion.
-    pub turns: Vec<kebab_core::Turn>,
+    pub turns: Vec<crate::ask::TuiTurn>,
     /// p9-fb-16: question text for the in-flight turn. Cleared at
     /// submission (input → current_question, input → empty),
     /// finalized into the new Turn at completion.
     pub current_question: Option<String>,
-    /// p9-fb-16: shared id stamped onto every `Answer` of this
-    /// conversation. Auto-generated on first submission, cleared by
-    /// `Ctrl-L` (next submission generates a fresh id).
-    pub conversation_id: Option<String>,
     /// p9-fb-16: most-recent `Answer` for citation / status display
     /// in the right panel. Same data also lives inside the last
     /// `Turn`; this slot is just the easiest place for the panel
@@ -275,7 +266,6 @@ impl Default for AskState {
             last_error: None,
             turns: Vec::new(),
             current_question: None,
-            conversation_id: None,
             last_answer: None,
             multi_hop: false,
         }

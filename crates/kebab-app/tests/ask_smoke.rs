@@ -30,9 +30,6 @@ fn ask_lexical_smoke() {
         temperature: Some(0.0),
         seed: Some(0),
         stream_sink: None,
-        history: Vec::new(),
-        conversation_id: None,
-        turn_index: None,
         multi_hop: false,
     };
     // The fixture workspace contains "ownership" content; the model's

@@ -20,15 +20,6 @@ pub struct Answer {
     pub usage: TokenUsage,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
-    /// p9-fb-15: same conversation 의 turn 들이 공유. CLI single-shot
-    /// (history 없음) / TUI 첫 turn 은 None. blake3 해시 또는 사용자
-    /// 명시 (`kebab ask --session <id>`, p9-fb-18).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conversation_id: Option<String>,
-    /// p9-fb-15: 같은 conversation 안 0-based 순서. 첫 turn = 0. None
-    /// 이면 single-shot.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub turn_index: Option<u32>,
     /// p9-fb-41: multi-hop hop trace. `None` for single-pass asks.
     /// Each entry records one hop (`decompose` / `decide` / `synthesize`)
     /// — the LLM call category, the sub-queries emitted, retrieval
@@ -71,19 +62,6 @@ pub struct AnswerCitation {
     pub indexed_at: OffsetDateTime,
     /// p9-fb-32: server-computed staleness flag per config threshold.
     pub stale: bool,
-}
-
-/// p9-fb-15: history 가 prompt 에 들어갈 때의 한 turn. RAG facade 가
-/// `Vec<Turn>` 받아 system + history + retrieval + new question 으로
-/// prompt 빌드. token budget 안에 fit 안 되면 oldest turn 부터 drop
-/// (newest 우선 보존).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Turn {
-    pub question: String,
-    pub answer: String,
-    pub citations: Vec<AnswerCitation>,
-    #[serde(with = "time::serde::rfc3339")]
-    pub created_at: OffsetDateTime,
 }
 
 /// p9-fb-41: one entry in [`Answer::hops`] — the per-iteration trace
@@ -275,8 +253,6 @@ mod tests {
                 latency_ms: 0,
             },
             created_at: datetime!(2026-05-09 12:00:00 UTC),
-            conversation_id: None,
-            turn_index: None,
             hops: None,
             verification: None,
         };

@@ -388,10 +388,8 @@ fn dynamic_status(app: &App) -> String {
     "idle".to_string()
 }
 
-/// Short form of the Ask `conversation_id` for the status bar
-/// (`conv_<first 8 hex chars>…`). Returns `None` when not in Ask, or
-/// when the Ask pane has no context (no in-flight question and no
-/// completed turns).
+/// Short status for the Ask pane: turn count when there is context.
+/// Returns `None` when not in Ask or when no turns / in-flight question.
 fn ask_conv_id_short(app: &App) -> Option<String> {
     if app.focus != Pane::Ask {
         return None;
@@ -401,10 +399,8 @@ fn ask_conv_id_short(app: &App) -> Option<String> {
     if !has_context {
         return None;
     }
-    let id = s.conversation_id.as_deref()?;
-    let hex = id.strip_prefix("conv_").unwrap_or(id);
-    let head: String = hex.chars().take(8).collect();
-    Some(format!("conv_{head}…"))
+    let count = s.turns.len() + usize::from(s.current_question.is_some());
+    Some(format!("{count} turn(s)"))
 }
 
 fn render_key_hints(f: &mut Frame, area: Rect, app: &App) {

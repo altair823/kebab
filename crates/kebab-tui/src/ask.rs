@@ -25,6 +25,18 @@ use std::thread;
 
 use crate::app::{App, AskState, KeyOutcome, Pane};
 
+/// In-memory turn for the TUI conversation display. Not persisted —
+/// session storage was removed in spine-phase0. Kept as a local type
+/// so the Ask pane can render prior Q/A pairs without depending on
+/// a now-deleted `kebab_core::Turn`.
+#[derive(Clone, Debug)]
+pub struct TuiTurn {
+    pub question: String,
+    pub answer: String,
+    pub citations: Vec<kebab_core::AnswerCitation>,
+    pub created_at: time::OffsetDateTime,
+}
+
 /// Render the Ask pane. Layout:
 /// - top input bar
 /// - middle answer area (scrollable when content overflows)
@@ -373,15 +385,14 @@ pub fn handle_key_ask(state: &mut App, key: KeyEvent) -> KeyOutcome {
     }
 
     match (key.code, key.modifiers) {
-        // p9-fb-16: Ctrl-L clears the in-pane conversation (turns +
-        // conversation_id). Doesn't kill the in-flight worker — that
-        // turn still finishes and its result is silently discarded
-        // (joined into a new conversation that didn't exist when the
-        // worker was spawned). Behaviour mirrors `:new` slash command.
+        // p9-fb-16: Ctrl-L clears the in-pane conversation (turns).
+        // Doesn't kill the in-flight worker — that turn still finishes
+        // and its result is silently discarded (joined into a new
+        // conversation that didn't exist when the worker was spawned).
+        // Behaviour mirrors `:new` slash command.
         (KeyCode::Char('l'), m) if m.contains(KeyModifiers::CONTROL) => {
             let s = state.ask.as_mut().unwrap();
             s.turns.clear();
-            s.conversation_id = None;
             s.last_answer = None;
             s.partial.clear();
             s.current_question = None;
@@ -564,16 +575,8 @@ fn spawn_ask_worker(state: &mut App) {
     // streaming answer auto-scrolls into view as tokens arrive.
     s.follow_tail = true;
     s.rx = Some(rx);
-    // p9-fb-16: graduate the typed input into the in-flight turn,
-    // clear the input box, ensure conversation_id exists, snapshot
-    // history for the worker.
+    // Graduate the typed input into the in-flight turn.
     s.current_question = Some(query.clone());
-    if s.conversation_id.is_none() {
-        s.conversation_id = Some(make_conversation_id());
-    }
-    let conversation_id = s.conversation_id.clone().unwrap();
-    let turn_index = u32::try_from(s.turns.len()).unwrap_or(u32::MAX);
-    let history = s.turns.clone();
 
     let opts = kebab_app::AskOpts {
         k: 0, // facade clamps to config.search.default_k floor
@@ -582,24 +585,10 @@ fn spawn_ask_worker(state: &mut App) {
         temperature: None,
         seed: None,
         stream_sink: Some(tx),
-        history,
-        conversation_id: Some(conversation_id),
-        turn_index: Some(turn_index),
         multi_hop,
     };
     let handle = thread::spawn(move || kebab_app::ask_with_config(cfg, &query, opts));
     s.thread = Some(handle);
-}
-
-/// Generate a fresh conversation_id. Timestamp-based — unique per
-/// session, not cryptographic. spec p9-fb-16 calls for blake3 of
-/// (first_question + ts) but the only guarantee we need is
-/// per-session uniqueness; nanosecond ts hex is enough.
-fn make_conversation_id() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    format!("conv_{nanos:032x}")
 }
 
 /// Run-loop hook: drain the streaming channel into `partial`. Called
@@ -640,13 +629,11 @@ pub(crate) fn poll_worker(state: &mut App) {
     s.rx = None;
     match result {
         Ok(Ok(answer)) => {
-            // p9-fb-16: graduate the in-flight (current_question +
-            // partial / answer) into a completed Turn appended to
-            // `turns`. Next submission's spawn_ask_worker reads
-            // `turns` as history and stamps turn_index.
+            // Graduate the in-flight (current_question + partial /
+            // answer) into a completed TuiTurn for display.
             let question = s.current_question.take().unwrap_or_default();
             s.partial.clear();
-            let turn = kebab_core::Turn {
+            let turn = crate::ask::TuiTurn {
                 question,
                 answer: answer.answer.clone(),
                 citations: answer.citations.clone(),
