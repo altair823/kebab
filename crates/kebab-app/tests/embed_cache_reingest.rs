@@ -47,7 +47,17 @@ fn code_reingest_is_embedding_cache_hit_and_byte_identical() {
 
     // First ingest: cold cache → embeddings computed + cached.
     let opts1 = kebab_app::IngestOpts::default();
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), opts1).expect("first ingest");
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), opts1)
+        .expect("first ingest");
+    // Isolation guard: `sample.rs` must be the SOLE ingested asset, else the
+    // `kind='embedding'` row count below could include foreign (e.g. markdown)
+    // rows and silently erode the code-handler isolation. Fail loudly if a
+    // future fixture/`with_embeddings` change adds another asset.
+    assert_eq!(
+        report.new, 1,
+        "test isolation: exactly one new doc (sample.rs) expected, got new={}",
+        report.new
+    );
     let rows_after_first = embedding_cache_rows(&data_dir);
     assert!(
         rows_after_first > 0,
