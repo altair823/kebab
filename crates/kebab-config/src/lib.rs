@@ -175,6 +175,25 @@ pub struct ChunkingCfg {
     pub overlap_tokens: usize,
     pub respect_markdown_headings: bool,
     pub chunker_version: String,
+    /// Max byte/3 token estimate per emitted chunk (md-heading-v2).
+    /// After the v1-equivalent chunking pass, any chunk whose estimate
+    /// exceeds this value is split at line (then UTF-8 char) boundaries
+    /// into sub-pieces each ≤ budget. Covers all block kinds: list, code,
+    /// paragraph, table. The default (4000) is large enough to keep normal
+    /// content atomic while splitting pathological log / stacktrace / Jira
+    /// list dumps that would otherwise overflow an embedder context window.
+    /// `#[serde(default)]` so pre-v2 config files that predate the key
+    /// still load (migration injects it additively).
+    #[serde(default = "default_max_chunk_tokens")]
+    pub max_chunk_tokens: usize,
+}
+
+/// Default md-heading-v2 chunk split budget. 4000 byte/3 tokens
+/// (~12 KB) keeps ordinary source files and prose atomic while
+/// splitting the pathological 20k–76k token Jira log blocks that fail
+/// to embed on strict servers.
+fn default_max_chunk_tokens() -> usize {
+    4000
 }
 
 impl ChunkingCfg {
@@ -183,7 +202,12 @@ impl ChunkingCfg {
             target_tokens: 500,
             overlap_tokens: 80,
             respect_markdown_headings: true,
-            chunker_version: "md-heading-v1".to_string(),
+            // md-heading-v2 is the hardcoded markdown default (it splits
+            // oversize chunks of any block kind; v1 never did). Stamping it
+            // here means the lib.rs skip-check re-chunks md docs on next
+            // ingest via the version cascade (design §9).
+            chunker_version: "md-heading-v2".to_string(),
+            max_chunk_tokens: default_max_chunk_tokens(),
         }
     }
 }
@@ -1251,6 +1275,11 @@ impl Config {
                     self.ingest.chunking.respect_markdown_headings = parse_bool(v);
                 }
                 "KEBAB_CHUNKING_CHUNKER_VERSION" => self.ingest.chunking.chunker_version = v.clone(),
+                "KEBAB_CHUNKING_MAX_CHUNK_TOKENS" => {
+                    if let Ok(n) = v.parse::<usize>() {
+                        self.ingest.chunking.max_chunk_tokens = n;
+                    }
+                }
 
                 // models.embedding
                 "KEBAB_MODELS_EMBEDDING_PROVIDER" => self.models.embedding.provider = v.clone(),

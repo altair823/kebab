@@ -196,6 +196,7 @@ nli_threshold = 0.0                  # >0 (예: 0.5) 면 mDeBERTa XNLI groundedn
 ```
 
 - **`[ingest]`** (v0.28.0) — 모든 형식 ingest 설정의 우산. 병렬도(`max_parallel_extractors`/`max_parallel_embeddings`/`watch_filesystem`, ← 옛 `[indexing]`)와 형식별 하위 절(`[ingest.chunking]` ← 옛 `[chunking]`, `[ingest.code]`, `[ingest.image.ocr]` ← 옛 `[image.ocr]`, `[ingest.pdf.ocr]` ← 옛 `[pdf.ocr]`)이 전부 이 아래로 모인다. 기존 v2 `config.toml` 은 그대로 둬도 로드 시 메모리에서 자동 변환되며, 파일을 새 레이아웃으로 갱신하려면 `kebab config migrate` (값·주석 보존).
+- **`[ingest.chunking]`** — 청크 크기·오버랩·heading 존중. `chunker_version` 기본 `"md-heading-v2"` (v0.30.0). **`max_chunk_tokens`** (default 4000, byte/3 토큰) — 이 값을 넘는 청크는 줄(→UTF-8 char) 경계로 분할해 각 조각이 예산 이하가 되게 한다. 거대 list/code/log 덤프가 한 청크로 임베더 컨텍스트를 초과하던 문제를 막는다(미분할 청크는 v0.29.0 `md-heading-v1` 과 출력 동일). 이 값을 바꾸면 markdown 자산이 자동 재청크된다.
 - **파생물 캐시** — embedding 결과를 내용 해시로 자동 캐싱한다 (위 「핵심 기능」 참고). 설정 항목 없음.
 - **`[ingest.code]`** — code ingest 의 skip 정책 (`skip_generated_header`, `max_file_bytes`, `extra_skip_globs`). `.gitignore` 자동 honor, `.kebabignore` 는 추가 layer.
 - **`[ingest.image.ocr]`** — 이미지 OCR (default off / opt-in). `engine` 으로 백엔드 선택: `"ollama-vision"` (default, 원격 vision LM) 또는 `"paddle-onnx"` (PP-OCRv5 ONNX 를 in-process 로 실행, Python 런타임 불필요, 큰 페이지 CPU <4초, 오프라인). `paddle-onnx` 는 워크스페이스에 번들된 모델을 쓰며 `det_model`/`rec_model`/`dict` 로 경로 override, `score_thresh`(0.3)/`unclip_ratio`(1.5)/`max_boxes`(1000) 로 검출 튜닝 가능 (`KEBAB_IMAGE_OCR_*` env 동일 지원 — env 이름은 v3 에서도 불변). engine 또는 모델을 바꾸면 영향 이미지가 자동 재색인된다.

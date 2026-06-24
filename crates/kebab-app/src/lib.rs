@@ -43,7 +43,7 @@ use kebab_chunk::{
     CodeCAstV1Chunker, CodeCppAstV1Chunker, CodeGoAstV1Chunker, CodeJavaAstV1Chunker,
     CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker,
     CodeTextParagraphV1Chunker, CodeTsAstV1Chunker, DockerfileFileV1Chunker,
-    K8sManifestResourceV1Chunker, ManifestFileV1Chunker, MdHeadingV1Chunker, PdfPageV1Chunker,
+    K8sManifestResourceV1Chunker, ManifestFileV1Chunker, MdHeadingV2Chunker, PdfPageV1Chunker,
 };
 use kebab_core::{
     Answer, Block, CanonicalDocument, Chunk, ChunkId, ChunkPolicy, Chunker, ChunkerVersion,
@@ -1388,7 +1388,7 @@ fn ingest_one_asset(
         app,
         asset,
         &eff_parser_version,
-        &MdHeadingV1Chunker.chunker_version(),
+        &md_chunker_from_config(&app.config).chunker_version(),
         embedder.map(|e| e.model_version()).as_ref(),
         force_reingest,
         None,
@@ -1441,9 +1441,9 @@ fn ingest_one_asset(
     let parse_ms = u64::try_from(t_parse.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     let t_chunk = std::time::Instant::now();
-    let chunks = MdHeadingV1Chunker
+    let chunks = md_chunker_from_config(&app.config)
         .chunk(&canonical, chunk_policy)
-        .context("kb-chunk::MdHeadingV1Chunker::chunk")?;
+        .context("kb-chunk::MdHeadingV2Chunker::chunk")?;
     let chunk_ms = u64::try_from(t_chunk.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // v0.24.0: surface the chunk count immediately, before the (potentially
@@ -1465,7 +1465,7 @@ fn ingest_one_asset(
 
     // Stamp chunker + embedding versions so Task 7's skip detection has
     // data on the second run.
-    canonical.last_chunker_version = Some(MdHeadingV1Chunker.chunker_version());
+    canonical.last_chunker_version = Some(md_chunker_from_config(&app.config).chunker_version());
     if let Some(emb) = embedder {
         canonical.last_embedding_version = Some(emb.model_version());
     }
@@ -1607,7 +1607,7 @@ fn ingest_one_asset(
         block_count: u32::try_from(canonical.blocks.len()).ok(),
         chunk_count: u32::try_from(chunks.len()).ok(),
         parser_version: Some(parser_version.clone()),
-        chunker_version: Some(MdHeadingV1Chunker.chunker_version()),
+        chunker_version: Some(md_chunker_from_config(&app.config).chunker_version()),
         warnings: warning_notes,
         pdf_ocr_pages: None,
         pdf_ocr_ms_total: None,
@@ -1666,7 +1666,7 @@ fn ingest_one_image_asset(
     };
     // p9-fb-23 task 7: incremental-ingest early-skip for the image flow.
     // Image docs use the `image-meta-v1` parser_version + the same
-    // MdHeadingV1Chunker as the markdown flow (single-block doc). The
+    // MdHeadingV2Chunker as the markdown flow (single-block doc). The
     // embedding-version check matches the markdown path: when the
     // active embedder's model_version equals what was stamped on the
     // existing doc, the asset is Unchanged.
@@ -1679,7 +1679,7 @@ fn ingest_one_image_asset(
         app,
         asset,
         &eff_parser_version,
-        &MdHeadingV1Chunker.chunker_version(),
+        &md_chunker_from_config(&app.config).chunker_version(),
         embedder.map(|e| e.model_version()).as_ref(),
         force_reingest,
         None,
@@ -1828,14 +1828,17 @@ fn ingest_one_image_asset(
         }
     }
 
-    // 4. Chunk via the same `MdHeadingV1Chunker` markdown uses — its
+    // 4. Chunk via the same `MdHeadingV2Chunker` markdown uses — its
     //    `Block::ImageRef` arm already produces a single chunk per
-    //    image (P1-5). The chunk text now follows the (β) plain-concat
-    //    contract per the kebab-chunk render_block_text update.
+    //    image (P1-5). The chunk text follows the (β) plain-concat
+    //    contract per the kebab-chunk render_block_text update. Using v2
+    //    here keeps the markdown family consistent: a pathologically
+    //    large OCR text dump splits at line boundaries just like a giant
+    //    fenced code block would, instead of overflowing the embedder.
     let t_chunk = std::time::Instant::now();
-    let chunks = MdHeadingV1Chunker
+    let chunks = md_chunker_from_config(&app.config)
         .chunk(&canonical, chunk_policy)
-        .context("kb-chunk::MdHeadingV1Chunker::chunk (image)")?;
+        .context("kb-chunk::MdHeadingV2Chunker::chunk (image)")?;
     let chunk_ms = u64::try_from(t_chunk.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // v0.24.0: surface chunk count for the image path too.
@@ -1849,9 +1852,9 @@ fn ingest_one_image_asset(
     );
 
     // 5. Persist + embed — identical sequence to markdown.
-    // Stamp chunker + embedding versions (image uses MdHeadingV1Chunker
+    // Stamp chunker + embedding versions (image uses MdHeadingV2Chunker
     // for its single-block doc, so we record that version).
-    canonical.last_chunker_version = Some(MdHeadingV1Chunker.chunker_version());
+    canonical.last_chunker_version = Some(md_chunker_from_config(&app.config).chunker_version());
     if let Some(emb) = embedder {
         canonical.last_embedding_version = Some(emb.model_version());
     }
@@ -1956,7 +1959,7 @@ fn ingest_one_image_asset(
         block_count: u32::try_from(canonical.blocks.len()).ok(),
         chunk_count: u32::try_from(chunks.len()).ok(),
         parser_version: Some(canonical.parser_version.clone()),
-        chunker_version: Some(MdHeadingV1Chunker.chunker_version()),
+        chunker_version: Some(md_chunker_from_config(&app.config).chunker_version()),
         warnings: warning_notes,
         pdf_ocr_pages: None,
         pdf_ocr_ms_total: None,
@@ -3154,6 +3157,19 @@ fn chunk_policy_from_config(config: &kebab_config::Config) -> ChunkPolicy {
     }
 }
 
+/// Construct the markdown chunker (the hardcoded `md-heading-v2`) with the
+/// split budget threaded from config. Used by the markdown ingest path
+/// AND the image-OCR / caption path (which flows its synthetic
+/// `Block::ImageRef` text through the same chunker), so a giant OCR dump
+/// is split like any other oversize chunk. The PDF path stays pinned to
+/// `pdf-page-v1` and code paths keep their own AST chunkers — only the
+/// markdown-family default moved v1 → v2.
+fn md_chunker_from_config(config: &kebab_config::Config) -> MdHeadingV2Chunker {
+    MdHeadingV2Chunker {
+        max_chunk_tokens: config.ingest.chunking.max_chunk_tokens,
+    }
+}
+
 /// v0.26.2: deterministic signature of the **ingest-output-affecting**
 /// config for an asset's media type, folded into the effective
 /// `parser_version` (both the `try_skip_unchanged` compare field AND the
@@ -3240,9 +3256,20 @@ fn ingest_config_signature(config: &kebab_config::Config, media: &MediaType) -> 
     // boundaries. `target_tokens` / `overlap_tokens` change re-chunking for
     // markdown / image / pdf / code alike, so a change re-indexes all types.
     let c = &config.ingest.chunking;
+    // `max_chunk_tokens` is appended as a 5th field: md-heading-v2
+    // splits any oversize chunk (list, code, paragraph, table) at this
+    // budget, so changing it moves markdown chunk boundaries and must
+    // re-index. It also folds into the v2 policy_hash, but the signature
+    // is what the no-`--force` skip-check compares, so it must be here
+    // too. Appended (not inserted) so the existing 4-field prefix
+    // `chunk:T:O:H:V` stays a stable substring for any existing golden.
     let mut sig = format!(
-        "chunk:{}:{}:{}:{}",
-        c.target_tokens, c.overlap_tokens, c.respect_markdown_headings, c.chunker_version
+        "chunk:{}:{}:{}:{}:{}",
+        c.target_tokens,
+        c.overlap_tokens,
+        c.respect_markdown_headings,
+        c.chunker_version,
+        c.max_chunk_tokens
     );
     match media {
         MediaType::Image(_) => {

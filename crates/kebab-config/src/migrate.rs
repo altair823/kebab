@@ -108,6 +108,9 @@ fn key_comment(path: &str) -> Option<&'static str> {
         "ingest.max_parallel_embeddings" => "동시 임베딩 수.",
         "ingest.chunking.target_tokens" => "청크 목표 토큰(전 형식 공통).",
         "ingest.chunking.respect_markdown_headings" => "markdown heading 경계 존중.",
+        "ingest.chunking.max_chunk_tokens" => {
+            "md-heading-v2 청크 최대 토큰(byte/3). 초과 시 줄/문자 경계로 분할(list·code·단락 공통)."
+        }
         "ingest.image.ocr.enabled" => "이미지 OCR(기본 off, asset 당 비용).",
         "ingest.image.ocr.engine" => "ollama-vision | paddle-onnx.",
         "ingest.image.ocr.model" => "ollama-vision 전용. paddle-onnx 는 번들 모델 사용(이 값 무시).",

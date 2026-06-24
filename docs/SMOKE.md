@@ -106,7 +106,8 @@ watch_filesystem = false
 target_tokens = 500
 overlap_tokens = 80
 respect_markdown_headings = true
-chunker_version = "md-heading-v1"
+chunker_version = "md-heading-v2"
+max_chunk_tokens = 4000              # v0.30.0 — 이 byte/3 토큰 초과 청크는 줄(→UTF-8 char) 경계로 분할(거대 list/code/log 덤프 대비)
 
 [models.embedding]
 provider = "fastembed"               # "fastembed"(기본, onnxruntime) / "candle"(순수 Rust, NUMA-안전)
