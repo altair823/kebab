@@ -42,6 +42,13 @@
 //! granular citation). This is intentional: we do not have sub-line source
 //! map data for arbitrary block kinds, and a citation to the enclosing
 //! block/region is always correct — never wrong, just not sub-line-precise.
+//!
+//! ## Shared split primitive
+//!
+//! The text-decomposition itself (line split → char-split fallback) lives
+//! in [`crate::oversize`], shared with `pdf-page-v1.2`'s tier-2 fallback.
+//! Only the md-specific `#seg{i}` chunk-id recipe + `source_spans` clone
+//! stay here.
 
 use kebab_core::{
     Block, BlockId, CanonicalDocument, Chunk, ChunkPolicy, Chunker, ChunkerVersion, DocumentId,
@@ -53,10 +60,12 @@ use kebab_core::{
 /// markdown doc on the first ingest after v2 becomes the default.
 const VERSION_LABEL: &str = "md-heading-v2";
 
-/// Bytes-per-token proxy — identical to v1. 3 bytes/token over-estimates
-/// token count for both Korean (E5 ≈ 3) and English (BPE ≈ 4) so chunks
-/// sized against this proxy always fit a real tokenizer's budget.
-const BYTES_PER_TOKEN: usize = 3;
+/// Bytes-per-token proxy — re-exported from the shared [`crate::oversize`]
+/// module so md-heading-v2 and pdf-page-v1.2 cannot drift. 3 bytes/token
+/// over-estimates token count for both Korean (E5 ≈ 3) and English
+/// (BPE ≈ 4) so chunks sized against this proxy always fit a real
+/// tokenizer's budget.
+use crate::oversize::BYTES_PER_TOKEN;
 
 /// Maximum hex characters of the policy hash. 16 hex = 64 bits, matching v1.
 const POLICY_HASH_HEX_LEN: usize = 16;
@@ -253,7 +262,7 @@ fn split_oversize_chunk(
     base_policy_hash: &str,
 ) -> Vec<Chunk> {
     // Collect all sub-piece texts first.
-    let pieces: Vec<String> = text_pieces(&chunk.text, budget);
+    let pieces: Vec<String> = crate::oversize::text_pieces(&chunk.text, budget);
 
     // Safety invariant: split must produce ≥1 piece.
     debug_assert!(!pieces.is_empty(), "text_pieces must return ≥1 piece");
@@ -285,92 +294,6 @@ fn split_oversize_chunk(
             }
         })
         .collect()
-}
-
-/// Decompose `text` into sub-pieces each with `len().div_ceil(BYTES_PER_TOKEN)
-/// <= budget`. Returns ≥1 piece. The pieces join back to the original with
-/// `\n` (line splits) or direct concatenation (char splits within a single
-/// line), preserving the full text.
-///
-/// The returned vec is ordered; concatenating the pieces in order with `\n`
-/// reconstructs `text` exactly when `text` contains newlines. For a
-/// single-line (newline-free) text, the pieces concatenate directly.
-fn text_pieces(text: &str, budget: usize) -> Vec<String> {
-    // A budget of 0 is degenerate — treat as 1 to avoid infinite loops.
-    let budget = budget.max(1);
-
-    // Split on '\n' first.  A trailing '\n' yields a final empty element
-    // which we preserve so joining with '\n' reconstructs the original.
-    let lines: Vec<&str> = text.split('\n').collect();
-
-    let mut result: Vec<String> = Vec::new();
-    let mut current_piece: Vec<&str> = Vec::new();
-    let mut current_bytes: usize = 0;
-
-    for line in &lines {
-        let line_bytes = line.len();
-        // +1 for the '\n' that re-joins this line to the previous one.
-        let sep_bytes = usize::from(!current_piece.is_empty());
-
-        if line_bytes.div_ceil(BYTES_PER_TOKEN) > budget {
-            // This single line alone exceeds the budget → flush any
-            // accumulated piece, then char-split the line.
-            if !current_piece.is_empty() {
-                result.push(current_piece.join("\n"));
-                current_piece.clear();
-                current_bytes = 0;
-            }
-            result.extend(char_pieces(line, budget));
-        } else if !current_piece.is_empty()
-            && (current_bytes + sep_bytes + line_bytes).div_ceil(BYTES_PER_TOKEN) > budget
-        {
-            // Adding this line would push the current piece over budget
-            // → flush, then start a new piece with this line.
-            result.push(current_piece.join("\n"));
-            current_piece = vec![line];
-            current_bytes = line_bytes;
-        } else {
-            // Fits: accumulate.
-            current_bytes += sep_bytes + line_bytes;
-            current_piece.push(line);
-        }
-    }
-    if !current_piece.is_empty() {
-        result.push(current_piece.join("\n"));
-    }
-    if result.is_empty() {
-        // Degenerate (empty text) — return one empty piece so the caller
-        // always gets ≥1 chunk.
-        result.push(String::new());
-    }
-    result
-}
-
-/// Char-split a single newline-free string `s` into sub-pieces each with
-/// `len() <= budget * BYTES_PER_TOKEN`, cutting at UTF-8 char boundaries.
-/// Returns ≥1 piece; direct concatenation of all pieces reconstructs `s`.
-fn char_pieces(s: &str, budget: usize) -> Vec<String> {
-    let byte_budget = budget * BYTES_PER_TOKEN;
-    let mut result: Vec<String> = Vec::new();
-    let mut piece_start = 0usize;
-    let mut piece_bytes = 0usize;
-
-    for (byte_idx, ch) in s.char_indices() {
-        let ch_bytes = ch.len_utf8();
-        if piece_bytes > 0 && piece_bytes + ch_bytes > byte_budget {
-            // Flush current piece.
-            result.push(s[piece_start..byte_idx].to_string());
-            piece_start = byte_idx;
-            piece_bytes = 0;
-        }
-        piece_bytes += ch_bytes;
-    }
-    // Remaining tail.
-    result.push(s[piece_start..].to_string());
-    if result.is_empty() {
-        result.push(String::new());
-    }
-    result
 }
 
 // ── v1-equivalent helpers (verbatim from md_heading_v1) ─────────────────────
@@ -1033,46 +956,9 @@ mod tests {
         );
     }
 
-    // ── Unit tests for the split helpers ─────────────────────────────────
-
-    /// `text_pieces` on a multi-line string reconstructs with join("\n").
-    #[test]
-    fn text_pieces_multiline_roundtrip() {
-        let lines: Vec<String> = (0..20)
-            .map(|i| format!("line {i:02}: some content here"))
-            .collect();
-        let text = lines.join("\n");
-        let budget = 10usize; // small to force splits
-        let pieces = text_pieces(&text, budget);
-        assert!(pieces.len() >= 2, "must split multi-line text");
-        for p in &pieces {
-            assert!(
-                p.len().div_ceil(BYTES_PER_TOKEN) <= budget,
-                "piece exceeds budget: {} bytes / 3 = {} > {budget}",
-                p.len(),
-                p.len().div_ceil(BYTES_PER_TOKEN)
-            );
-        }
-        assert_eq!(pieces.join("\n"), text, "pieces must reconstruct original");
-    }
-
-    /// `char_pieces` on a newline-free string reconstructs by concatenation.
-    #[test]
-    fn char_pieces_utf8_roundtrip() {
-        // Mix of ASCII and 3-byte Korean.
-        let s = "hello가나다world마바사".repeat(10);
-        let budget = 5usize;
-        let pieces = char_pieces(&s, budget);
-        assert!(pieces.len() >= 2);
-        for p in &pieces {
-            assert!(
-                p.len() <= budget * BYTES_PER_TOKEN,
-                "char piece too long: {} > {}",
-                p.len(),
-                budget * BYTES_PER_TOKEN
-            );
-            assert!(std::str::from_utf8(p.as_bytes()).is_ok(), "not valid UTF-8");
-        }
-        assert_eq!(pieces.concat(), s, "char pieces must reconstruct original");
-    }
+    // NOTE: the `text_pieces` / `char_pieces` unit roundtrip tests moved to
+    // `crate::oversize` along with the functions themselves (shared with
+    // pdf-page-v1.2). md-heading-v2's split behavior is still covered
+    // end-to-end by the `oversize_*` tests above, which exercise the same
+    // primitive through `split_oversize_chunk`.
 }

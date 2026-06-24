@@ -7,7 +7,7 @@
 | Crate | 역할 |
 |-------|------|
 | `kebab-normalize` | `ParsedBlock` (markdown only) → `CanonicalDocument` lift. NFC + heading-path ordinal + provenance 합성 + title fallback chain (p9-fb-07). |
-| `kebab-chunk` | `CanonicalDocument` → `Vec<Chunk>`. markdown 기본 `md-heading-v2` (v1 + 예산 초과 청크 일반 분할; v0.30.0), `pdf-page-v1` (PDF). `md-heading-v1` 은 historical 변종으로 잔존. |
+| `kebab-chunk` | `CanonicalDocument` → `Vec<Chunk>`. markdown 기본 `md-heading-v2`, PDF `pdf-page-v1.2` — 둘 다 공유 `crate::oversize` (line→char 분할)로 예산 초과 청크를 잘라 모든 청크 ≤ `max_chunk_tokens`. `md-heading-v1`/`pdf-page-v1.1` 은 historical 변종으로 잔존. |
 
 ## 구조
 
@@ -36,7 +36,8 @@ classDiagram
         split_oversize_chunk(line→char)
     }
     class PdfPageV1Chunker {
-        VERSION = "pdf-page-v1"
+        VERSION = "pdf-page-v1.2"
+        max_chunk_tokens
         BYTES_PER_TOKEN = 3
         POLICY_HASH_HEX_LEN = 16
     }

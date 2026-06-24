@@ -37,6 +37,7 @@ pub mod k8s_manifest_resource_v1;
 pub mod manifest_file_v1;
 mod md_heading_v1;
 mod md_heading_v2;
+mod oversize;
 mod pdf_page_v1;
 mod tier2_shared;
 

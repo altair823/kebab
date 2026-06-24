@@ -2270,7 +2270,7 @@ fn ingest_one_pdf_asset(
         app,
         asset,
         &eff_parser_version,
-        &PdfPageV1Chunker.chunker_version(),
+        &pdf_chunker_from_config(&app.config).chunker_version(),
         embedder.map(|e| e.model_version()).as_ref(),
         force_reingest,
         None,
@@ -2434,8 +2434,10 @@ fn ingest_one_pdf_asset(
     // Per-medium chunker selection: PDF docs always use pdf-page-v1
     // regardless of `config.ingest.chunking.chunker_version`. The chunker
     // validates every block carries `SourceSpan::Page`; failure here
-    // means the parser drifted from its contract.
-    let chunker = PdfPageV1Chunker;
+    // means the parser drifted from its contract. v1.2: the tier-2 oversize
+    // split budget is threaded from `config.ingest.chunking.max_chunk_tokens`
+    // (no new config key — same one md uses).
+    let chunker = pdf_chunker_from_config(&app.config);
     let t_chunk = std::time::Instant::now();
     let chunks = chunker
         .chunk(&canonical, chunk_policy)
@@ -3166,6 +3168,20 @@ fn chunk_policy_from_config(config: &kebab_config::Config) -> ChunkPolicy {
 /// markdown-family default moved v1 → v2.
 fn md_chunker_from_config(config: &kebab_config::Config) -> MdHeadingV2Chunker {
     MdHeadingV2Chunker {
+        max_chunk_tokens: config.ingest.chunking.max_chunk_tokens,
+    }
+}
+
+/// Construct the PDF chunker (`pdf-page-v1.2`) with the tier-2 oversize
+/// split budget threaded from config — mirrors [`md_chunker_from_config`].
+/// The PDF path stays pinned to `pdf-page-v1` regardless of
+/// `config.ingest.chunking.chunker_version`; only the tier-2 budget is
+/// config-driven (no new config key — it reuses `max_chunk_tokens`, already
+/// folded into `ingest_config_signature` so a budget change re-indexes PDFs
+/// without `--force-reingest`). The budget also folds into the v1.2
+/// `policy_hash`, aligning the PDF chunk_id cascade with markdown.
+fn pdf_chunker_from_config(config: &kebab_config::Config) -> PdfPageV1Chunker {
+    PdfPageV1Chunker {
         max_chunk_tokens: config.ingest.chunking.max_chunk_tokens,
     }
 }

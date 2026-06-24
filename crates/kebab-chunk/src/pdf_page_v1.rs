@@ -12,7 +12,9 @@
 //! Per design §3.5 (Chunk), §4.2 (chunk_id recipe — see deviation note
 //! below), §0 Q3 (citation), §9 (versioning).
 //!
-//! ## Splitting policy
+//! ## Splitting policy (two tiers, `pdf-page-v1.2`)
+//!
+//! **Tier 1 — sentence / paragraph greedy split (unchanged from v1.1):**
 //!
 //! - If a page's bytes fit under `policy.target_tokens * BYTES_PER_TOKEN`
 //!   the entire page is a single chunk.
@@ -23,11 +25,6 @@
 //!   prefix is seeded with the trailing `policy.overlap_tokens *
 //!   BYTES_PER_TOKEN` bytes of the prior chunk so retrieval handles
 //!   queries that fall on the boundary.
-//! - A page with no qualifying segment boundary AND text exceeding the
-//!   budget (e.g. a 5,000-byte single sentence) emits one oversized
-//!   chunk rather than hard-splitting mid-word — a real tokenizer slot
-//!   in P+ replaces this proxy and can do better mid-sentence splitting
-//!   when needed.
 //! - Common English abbreviations (`Mr.`, `i.e.`, `e.g.`, `Fig. 3`)
 //!   trip the sentence-end heuristic and produce spurious boundaries —
 //!   accepted as a v1 limit. A real sentence segmenter lands with the
@@ -37,12 +34,27 @@
 //!   make a chunk fully re-emit the previous chunk's text. Same guard
 //!   pattern as `md-heading-v1::collect_overlap_seed`.
 //!
+//! **Tier 2 — generic oversize fallback (NEW in `pdf-page-v1.2`):**
+//!
+//! v1.1 had an ACCEPTED HOLE: a page with no qualifying segment boundary
+//! AND text exceeding the budget (e.g. a dense scanned page OCR'd into one
+//! 5,000-byte run with no sentence/paragraph break) emitted ONE oversized
+//! chunk regardless of budget. That single over-budget chunk overflows a
+//! strict embedder (e.g. AMD Lemonade). v1.2 closes the hole: every tier-1
+//! segment whose byte/3 estimate still exceeds `self.max_chunk_tokens` is
+//! handed to [`crate::oversize::text_pieces`] (line split → UTF-8 char
+//! fallback), so each emitted chunk is GUARANTEED ≤ budget. The char
+//! fallback bounds even a no-whitespace page that the tier-1 greedy
+//! splitter cannot cut. This is the same generic post-pass `md-heading-v2`
+//! applies — shared via [`crate::oversize`].
+//!
 //! ## `BYTES_PER_TOKEN`
 //!
 //! 3 — same calibration as `md-heading-v1` (covers Korean ≈ 3 b/tok and
 //! over-estimates English ≈ 4 b/tok). The original p7-2 spec literal said
 //! `× 4`, but cross-chunker comparability outweighs the spec literal here.
-//! Logged in `tasks/HOTFIXES.md`.
+//! Logged in `tasks/HOTFIXES.md`. Sourced from [`crate::oversize`] so the
+//! proxy can't drift between this chunker and `md-heading-v2`.
 //!
 //! ## `chunk_id` collision deviation
 //!
@@ -61,33 +73,76 @@
 //! `Chunk.policy_hash` so the field still answers "what policy was
 //! active". v1.1 second-iteration patch — logged in
 //! `tasks/HOTFIXES.md` (2026-05-27).
+//!
+//! v1.2 extends the suffix for tier-2 sub-pieces: `#c{segment_start}s{i}`
+//! for sub-piece `i` (0-based) of a tier-1 segment that had to be
+//! oversize-split. A single-piece (non-oversize) segment keeps the bare
+//! `#c{segment_start}` so common-case chunk_ids are byte-identical to the
+//! pre-pass. `segment_start` is per-segment-unique and `i` disambiguates
+//! within a segment, so the full suffix is strictly unique across the page.
+//!
+//! ## Budget in `policy_hash` (NEW in `pdf-page-v1.2`)
+//!
+//! Because the tier-2 split is keyed on `self.max_chunk_tokens`, changing
+//! the budget changes the produced chunks — so the budget MUST participate
+//! in the chunk-id cascade (design §9), exactly as `md-heading-v2` does.
+//! `policy_hash()` folds the 8 LE bytes of `self.max_chunk_tokens` after
+//! the canonical `ChunkPolicy` bytes. This moves PDF chunk_ids on a budget
+//! change, consistent with markdown. (The `ingest_config_signature`
+//! already folds `max_chunk_tokens` into the skip-check, so the no-`--force`
+//! re-index already worked; this aligns the chunk_id cascade with it.)
 
 use kebab_core::{
     Block, BlockId, CanonicalDocument, Chunk, ChunkPolicy, Chunker, ChunkerVersion, DocumentId,
     SourceSpan, id_for_chunk,
 };
 
-const VERSION_LABEL: &str = "pdf-page-v1.1";
-const BYTES_PER_TOKEN: usize = 3;
+use crate::oversize::{BYTES_PER_TOKEN, text_pieces};
+
+const VERSION_LABEL: &str = "pdf-page-v1.2";
 const POLICY_HASH_HEX_LEN: usize = 16;
 
-/// Page-aware PDF chunker. See module docs for the splitting policy and
-/// the `chunk_id` collision-avoidance deviation.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct PdfPageV1Chunker;
+/// Page-aware PDF chunker. See module docs for the two-tier splitting
+/// policy and the `chunk_id` collision-avoidance deviation.
+///
+/// Not a unit struct as of v1.2 — it carries the tier-2 split budget
+/// threaded from `config.ingest.chunking.max_chunk_tokens` (mirrors
+/// `MdHeadingV2Chunker`). The budget folds into `policy_hash` so a change
+/// re-chunks every PDF via the cascade (design §9).
+#[derive(Clone, Copy, Debug)]
+pub struct PdfPageV1Chunker {
+    /// Max byte/3 token estimate per emitted chunk. Any tier-1 segment whose
+    /// `token_estimate` exceeds this is oversize-split at line (then UTF-8
+    /// char) boundaries by the shared [`crate::oversize`] primitive. Folded
+    /// into `policy_hash` so changing this budget triggers a re-chunk via
+    /// the cascade (design §9).
+    pub max_chunk_tokens: usize,
+}
 
 impl Chunker for PdfPageV1Chunker {
     fn chunker_version(&self) -> ChunkerVersion {
         ChunkerVersion(VERSION_LABEL.to_string())
     }
 
-    /// blake3(canonical_json(policy)) truncated to 16 hex chars. Matches
-    /// the `md-heading-v1` recipe so a workspace-wide policy hash lookup
-    /// (e.g. for invalidation reports) yields the same digest across
-    /// chunkers.
+    /// Policy hash with the v1.2 tier-2 budget folded in.
+    ///
+    /// We append the 8 LE bytes of `self.max_chunk_tokens` to the canonical
+    /// `ChunkPolicy` JSON before hashing. The canonical JSON is
+    /// self-delimiting (a balanced JSON object), so there is no structural
+    /// ambiguity between the policy bytes and the trailing 8 budget bytes.
+    /// Same recipe as [`crate::md_heading_v2::MdHeadingV2Chunker::policy_hash`]
+    /// — so two PDF instances with different `max_chunk_tokens` produce
+    /// different `policy_hash` (and chunk_ids), re-indexing all PDFs on a
+    /// budget change rather than leaving stale oversized chunks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if canonical JSON serialization of `ChunkPolicy` fails —
+    /// unreachable in practice.
     fn policy_hash(&self, policy: &ChunkPolicy) -> String {
-        let bytes = serde_json_canonicalizer::to_vec(policy)
+        let mut bytes = serde_json_canonicalizer::to_vec(policy)
             .expect("canonical JSON serialization of ChunkPolicy must not fail");
+        bytes.extend_from_slice(&self.max_chunk_tokens.to_le_bytes());
         let hex = blake3::hash(&bytes).to_hex().to_string();
         hex[..POLICY_HASH_HEX_LEN].to_string()
     }
@@ -140,44 +195,85 @@ impl Chunker for PdfPageV1Chunker {
                 continue;
             }
 
-            for (segment_start, char_start, char_end, slice) in
+            for (segment_start, char_start, seg_char_end, slice) in
                 chunk_page(&p.text, target_bytes, overlap_bytes)
             {
-                // PDF chars-per-page comfortably fits in u32 (a single
-                // page maxes out around ~10k chars even for dense
-                // typography); silent `as u32` truncation would only
-                // surface on corrupted input, where an explicit panic
-                // is preferable to an off-by-2^32 span.
-                let char_start_u32 = u32::try_from(char_start).expect("page chars fit in u32");
-                let char_end_u32 = u32::try_from(char_end).expect("page chars fit in u32");
+                // ── Tier 2: oversize fallback (pdf-page-v1.2) ────────────
+                // The tier-1 greedy splitter (`chunk_page`) can still hand
+                // back an over-budget slice when a page has no qualifying
+                // sentence/paragraph boundary (e.g. a dense scanned page
+                // OCR'd into one long run). Split such a slice into
+                // sub-pieces each ≤ budget via the shared primitive; the
+                // common case (slice ≤ budget) returns a single piece and
+                // its chunk_id / span are byte-identical to the v1.1
+                // pre-pass.
+                let pieces: Vec<String> = if slice.len().div_ceil(BYTES_PER_TOKEN)
+                    > self.max_chunk_tokens
+                {
+                    text_pieces(&slice, self.max_chunk_tokens)
+                } else {
+                    vec![slice]
+                };
+                let single_piece = pieces.len() == 1;
+
+                // Page span for the sub-pieces. Exact per-sub-piece char
+                // narrowing is NOT recoverable from `text_pieces`' `Vec<String>`
+                // alone: line splits drop the inter-piece '\n' separators (each
+                // is consumed at the split boundary, present in neither adjacent
+                // piece), so summing piece char counts drifts earlier by the
+                // number of those boundaries. So every sub-piece carries the
+                // PARENT SEGMENT's char range (`char_start..seg_char_end`) — the
+                // md-heading-v2 block-granular approach. A citation points at the
+                // correct page region, never a drifted offset; it is coarser than
+                // per-sub-piece, never wrong. The common single-piece case is the
+                // whole segment span → byte-identical to the v1.1 pre-pass.
+                //
+                // PDF chars-per-page comfortably fits in u32 (~10k chars even for
+                // dense typography); an explicit panic beats a silent off-by-2^32.
+                let seg_char_start_u32 =
+                    u32::try_from(char_start).expect("page chars fit in u32");
+                let seg_char_end_u32 =
+                    u32::try_from(seg_char_end).expect("page chars fit in u32");
                 let span = SourceSpan::Page {
                     page: page_num,
-                    char_start: Some(char_start_u32),
-                    char_end: Some(char_end_u32),
+                    char_start: Some(seg_char_start_u32),
+                    char_end: Some(seg_char_end_u32),
                 };
-                let block_ids: Vec<BlockId> = vec![p.common.block_id.clone()];
-                // v0.20.0 sub-item 1 bugfix (#3): per-chunk policy_hash
-                // variant uses `segment_start` (pre-overlap boundary,
-                // strictly increasing) instead of `char_start` (post-
-                // overlap, may collapse to prev_min). See module docs +
-                // spec §4.1 root cause + HOTFIXES.md 2026-05-27.
-                let per_chunk_hash = format!("{base_policy_hash}#c{segment_start}");
-                let chunk_id =
-                    id_for_chunk(&doc.doc_id, &chunker_version, &block_ids, &per_chunk_hash);
-                let token_estimate = slice.len().div_ceil(BYTES_PER_TOKEN);
 
-                out.push(Chunk {
-                    chunk_id,
-                    doc_id: DocumentId(doc.doc_id.0.clone()),
-                    block_ids,
-                    tokenized_korean_text: crate::tokenize_korean_morphological(&slice),
-                    text: slice,
-                    heading_path: Vec::new(),
-                    source_spans: vec![span],
-                    token_estimate,
-                    chunker_version: chunker_version.clone(),
-                    policy_hash: base_policy_hash.clone(),
-                });
+                for (i, piece) in pieces.into_iter().enumerate() {
+                    let block_ids: Vec<BlockId> = vec![p.common.block_id.clone()];
+                    // v0.20.0 sub-item 1 bugfix (#3): per-chunk policy_hash
+                    // variant uses `segment_start` (pre-overlap boundary,
+                    // strictly increasing) instead of `char_start` (post-
+                    // overlap, may collapse to prev_min). See module docs +
+                    // spec §4.1 root cause + HOTFIXES.md 2026-05-27.
+                    //
+                    // v1.2: append `s{i}` for tier-2 sub-pieces so each
+                    // oversize-split piece gets a unique id, while a single
+                    // (non-oversize) piece keeps the bare `#c{segment_start}`
+                    // — common-case chunk_ids stay byte-identical to v1.1.
+                    let per_chunk_hash = if single_piece {
+                        format!("{base_policy_hash}#c{segment_start}")
+                    } else {
+                        format!("{base_policy_hash}#c{segment_start}s{i}")
+                    };
+                    let chunk_id =
+                        id_for_chunk(&doc.doc_id, &chunker_version, &block_ids, &per_chunk_hash);
+                    let token_estimate = piece.len().div_ceil(BYTES_PER_TOKEN);
+
+                    out.push(Chunk {
+                        chunk_id,
+                        doc_id: DocumentId(doc.doc_id.0.clone()),
+                        block_ids,
+                        tokenized_korean_text: crate::tokenize_korean_morphological(&piece),
+                        text: piece,
+                        heading_path: Vec::new(),
+                        source_spans: vec![span.clone()],
+                        token_estimate,
+                        chunker_version: chunker_version.clone(),
+                        policy_hash: base_policy_hash.clone(),
+                    });
+                }
             }
         }
 
@@ -375,10 +471,21 @@ mod tests {
         }
     }
 
+    /// Default test budget large enough that the tier-2 oversize fallback
+    /// never fires — so tests targeting the tier-1 sentence/paragraph
+    /// splitter keep their pre-v1.2 behavior. Tier-2 tests pass an explicit
+    /// small budget.
+    const BIG_BUDGET: usize = 100_000;
+
+    /// Construct the chunker with an explicit tier-2 budget.
+    fn chunker(max_chunk_tokens: usize) -> PdfPageV1Chunker {
+        PdfPageV1Chunker { max_chunk_tokens }
+    }
+
     #[test]
     fn chunker_version_is_pdf_page_v1() {
         assert_eq!(
-            PdfPageV1Chunker.chunker_version(),
+            chunker(BIG_BUDGET).chunker_version(),
             ChunkerVersion(VERSION_LABEL.to_string())
         );
     }
@@ -386,7 +493,7 @@ mod tests {
     #[test]
     fn three_page_small_emits_one_chunk_per_page() {
         let doc = make_pdf_doc(&["page one", "page two", "page three"]);
-        let chunks = PdfPageV1Chunker
+        let chunks = chunker(BIG_BUDGET)
             .chunk(&doc, &default_policy(500, 80))
             .unwrap();
         assert_eq!(chunks.len(), 3);
@@ -423,7 +530,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n\n");
         let doc = make_pdf_doc(&[&page_text]);
-        let chunks = PdfPageV1Chunker
+        let chunks = chunker(BIG_BUDGET)
             .chunk(&doc, &default_policy(50, 20))
             .unwrap();
         assert!(
@@ -473,7 +580,7 @@ mod tests {
     #[test]
     fn empty_page_produces_no_chunks_for_that_page() {
         let doc = make_pdf_doc(&["page one", "", "page three"]);
-        let chunks = PdfPageV1Chunker
+        let chunks = chunker(BIG_BUDGET)
             .chunk(&doc, &default_policy(500, 80))
             .unwrap();
         assert_eq!(chunks.len(), 2);
@@ -490,7 +597,7 @@ mod tests {
     #[test]
     fn whitespace_only_page_skipped_too() {
         let doc = make_pdf_doc(&["page one", "   \n  ", "page three"]);
-        let chunks = PdfPageV1Chunker
+        let chunks = chunker(BIG_BUDGET)
             .chunk(&doc, &default_policy(500, 80))
             .unwrap();
         assert_eq!(chunks.len(), 2);
@@ -543,7 +650,7 @@ mod tests {
             last_chunker_version: None,
             last_embedding_version: None,
         };
-        let err = PdfPageV1Chunker
+        let err = chunker(BIG_BUDGET)
             .chunk(&doc, &default_policy(500, 80))
             .expect_err("non-PDF doc must error");
         assert!(
@@ -565,7 +672,7 @@ mod tests {
             big_y.as_str(),
         ];
         let doc = make_pdf_doc(&pages);
-        let chunks = PdfPageV1Chunker
+        let chunks = chunker(BIG_BUDGET)
             .chunk(&doc, &default_policy(50, 10))
             .unwrap();
         for c in &chunks {
@@ -595,14 +702,14 @@ mod tests {
             &("xyz ".repeat(500)),
         ]);
         let policy = default_policy(80, 20);
-        let baseline: Vec<String> = PdfPageV1Chunker
+        let baseline: Vec<String> = chunker(BIG_BUDGET)
             .chunk(&doc, &policy)
             .unwrap()
             .into_iter()
             .map(|c| c.chunk_id.0)
             .collect();
         for _ in 0..1000 {
-            let again: Vec<String> = PdfPageV1Chunker
+            let again: Vec<String> = chunker(BIG_BUDGET)
                 .chunk(&doc, &policy)
                 .unwrap()
                 .into_iter()
@@ -619,7 +726,7 @@ mod tests {
             "Hello page 2 with some more body text.",
             "Hello page 3.",
         ]);
-        let chunks = PdfPageV1Chunker
+        let chunks = chunker(BIG_BUDGET)
             .chunk(&doc, &default_policy(500, 80))
             .unwrap();
         assert_eq!(chunks.len(), 3);
@@ -661,7 +768,7 @@ mod tests {
             respect_markdown_headings: false,
             chunker_version: ChunkerVersion(VERSION_LABEL.into()),
         };
-        let chunks = PdfPageV1Chunker.chunk(&doc, &policy).unwrap();
+        let chunks = chunker(BIG_BUDGET).chunk(&doc, &policy).unwrap();
         // For each consecutive pair, the new chunk's actual_start must
         // be strictly greater than the previous chunk's actual_start
         // (no full re-emission). Without the clamp, equality (full
@@ -712,7 +819,7 @@ mod tests {
 
         let doc = make_pdf_doc(&[&page_text]);
         let policy = default_policy(500, 80); // target=1500 byte, overlap=240 byte
-        let chunks = PdfPageV1Chunker.chunk(&doc, &policy).unwrap();
+        let chunks = chunker(BIG_BUDGET).chunk(&doc, &policy).unwrap();
 
         assert!(
             chunks.len() >= 2,
@@ -732,14 +839,221 @@ mod tests {
         );
     }
 
+    /// Retargeted from `policy_hash_matches_md_heading_v1_for_identical_policy`.
+    ///
+    /// v1.1's PDF `policy_hash` matched `md-heading-v1` (neither folded a
+    /// budget). v1.2 folds `max_chunk_tokens` into the PDF hash exactly as
+    /// `md-heading-v2` does — so the meaningful cross-chunker fingerprint
+    /// identity is now PDF-v1.2 ≡ md-heading-v2 for the SAME budget. We
+    /// assert that identity (both append the same 8 budget bytes to the same
+    /// canonical `ChunkPolicy` JSON), preserving the "one policy_hash query
+    /// covers both chunkers" property across the budget-aware chunkers.
     #[test]
-    fn policy_hash_matches_md_heading_v1_for_identical_policy() {
-        // Cross-chunker policy fingerprint identity — important so a
-        // workspace-wide "show me chunks with policy_hash = X" query
-        // covers both chunkers without per-chunker logic.
+    fn policy_hash_matches_md_heading_v2_for_identical_policy_and_budget() {
         let p = default_policy(500, 80);
-        let pdf = PdfPageV1Chunker.policy_hash(&p);
-        let md = crate::MdHeadingV1Chunker.policy_hash(&p);
-        assert_eq!(pdf, md);
+        let budget = 4000;
+        let pdf = chunker(budget).policy_hash(&p);
+        let md = crate::MdHeadingV2Chunker {
+            max_chunk_tokens: budget,
+        }
+        .policy_hash(&p);
+        assert_eq!(
+            pdf, md,
+            "pdf-page-v1.2 and md-heading-v2 must share policy_hash for an identical policy + budget"
+        );
+    }
+
+    /// Budget-sensitivity: two PDF instances with different `max_chunk_tokens`
+    /// must produce different `policy_hash` (and therefore different
+    /// chunk_ids), so a budget change re-indexes all PDFs via the cascade
+    /// (design §9). Mirrors `md_heading_v2::budget_in_policy_hash`.
+    #[test]
+    fn budget_in_policy_hash() {
+        let p = default_policy(500, 80);
+        let a = chunker(100).policy_hash(&p);
+        let b = chunker(200).policy_hash(&p);
+        assert_ne!(a, b, "different budgets must yield different policy_hash");
+    }
+
+    /// NEW (pdf-page-v1.2): a single page that exceeds a small budget with
+    /// NO sentence/paragraph boundary (one long run) — the exact v1.1 hole
+    /// — must now tier-2 split into ≥2 chunks, each ≤ budget. Also asserts
+    /// text reconstruction, chunk_id uniqueness, and that every sub-piece
+    /// carries the PARENT SEGMENT's Page char span (segment-granular).
+    #[test]
+    fn oversize_pdf_page_splits() {
+        // 600 chars of "x" with NO whitespace / sentence end / paragraph
+        // break. target_tokens=500 → 1500 byte tier-1 budget, so tier-1
+        // (`chunk_page`) returns the 600-byte page as a SINGLE segment
+        // (v1.1 would emit one 600-byte chunk — the hole). budget = 20
+        // tokens = 60 bytes, so tier-2 must char-split it into ≥10 pieces.
+        let page_text = "x".repeat(600);
+        let doc = make_pdf_doc(&[&page_text]);
+        let budget = 20;
+        let policy = default_policy(500, 80);
+        let chunks = chunker(budget).chunk(&doc, &policy).unwrap();
+
+        // ≥2 chunks (the hole is closed).
+        assert!(
+            chunks.len() >= 2,
+            "oversize no-boundary page must tier-2 split, got {}",
+            chunks.len()
+        );
+
+        // Every chunk ≤ budget.
+        for c in &chunks {
+            assert!(
+                c.text.len().div_ceil(BYTES_PER_TOKEN) <= budget,
+                "piece exceeds budget: {} > {budget}",
+                c.text.len().div_ceil(BYTES_PER_TOKEN)
+            );
+        }
+
+        // Concatenation reconstructs the page text (single tier-1 segment,
+        // char-split → direct concat).
+        let rejoined: String = chunks.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(rejoined, page_text, "sub-pieces must reconstruct the page text");
+
+        // chunk_ids unique.
+        let mut ids: Vec<&str> = chunks.iter().map(|c| c.chunk_id.0.as_str()).collect();
+        let total = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), total, "all sub-piece chunk_ids must be unique");
+
+        // Every sub-piece carries the PARENT SEGMENT's Page char span
+        // (segment-granular, md-style). This page is a single tier-1 segment,
+        // so every tier-2 sub-piece spans the whole page `[0, page_chars]` —
+        // a citation points at the right page region, never a drifted offset.
+        let page_chars = page_text.chars().count() as u32;
+        for c in &chunks {
+            match c.source_spans[0] {
+                SourceSpan::Page {
+                    page,
+                    char_start: Some(s),
+                    char_end: Some(e),
+                } => {
+                    assert_eq!(page, 1, "all pieces on page 1");
+                    assert_eq!(s, 0, "sub-piece span = parent segment start (0)");
+                    assert_eq!(e, page_chars, "sub-piece span = parent segment end");
+                }
+                ref other => panic!("expected fully-populated Page span, got {other:?}"),
+            }
+        }
+    }
+
+    /// Regression for the v1.2 span-drift bug: a tier-2 split whose oversize
+    /// slice CONTAINS `\n` line boundaries (the realistic dense-OCR shape).
+    /// The earlier per-piece char-narrowing summed piece char counts, but
+    /// `text_pieces` consumes the inter-piece `\n` separators, so the running
+    /// offset drifted earlier on every line boundary. The segment-granular
+    /// span (every piece = parent segment range) sidesteps that entirely.
+    #[test]
+    fn oversize_pdf_page_with_newlines_splits_without_span_drift() {
+        // A page of newline-separated short lines, no sentence-end / blank
+        // line, so tier-1 keeps it as one segment; total > the small budget
+        // so tier-2 line-splits it into multiple pieces.
+        let page_text = std::iter::repeat_n("wordword", 80)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let doc = make_pdf_doc(&[&page_text]);
+        let budget = 20; // 60 bytes/piece → forces a multi-piece line split
+        let policy = default_policy(500, 80);
+        let chunks = chunker(budget).chunk(&doc, &policy).unwrap();
+
+        assert!(chunks.len() >= 2, "newline page must tier-2 split");
+
+        // Every piece ≤ budget.
+        for c in &chunks {
+            assert!(
+                c.text.len().div_ceil(BYTES_PER_TOKEN) <= budget,
+                "piece exceeds budget"
+            );
+        }
+        // '\n'-join reconstructs the page (line splits drop the separator,
+        // re-added by the join — proves no content is lost or duplicated).
+        let rejoined = chunks
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(rejoined, page_text, "line-split pieces must reconstruct the page");
+
+        // Every piece carries the parent-segment span [0, page_chars] — no
+        // drift (the old running-offset would have under-counted by the lost
+        // '\n' separators and produced char_end < page_chars).
+        let page_chars = page_text.chars().count() as u32;
+        for c in &chunks {
+            match c.source_spans[0] {
+                SourceSpan::Page {
+                    char_start: Some(s),
+                    char_end: Some(e),
+                    ..
+                } => {
+                    assert_eq!(s, 0, "segment start");
+                    assert_eq!(e, page_chars, "segment end (no drift)");
+                }
+                ref other => panic!("expected Page span, got {other:?}"),
+            }
+        }
+        // chunk_ids unique.
+        let mut ids: Vec<&str> = chunks.iter().map(|c| c.chunk_id.0.as_str()).collect();
+        let total = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), total, "sub-piece chunk_ids unique");
+    }
+
+    /// NEW (pdf-page-v1.2): a page comfortably under budget must produce
+    /// output byte-identical to the v1.1 pre-pass — one chunk, full text,
+    /// full-page char span, and the BARE `#c{segment_start}` id form (no
+    /// `s{i}` suffix). This locks the common case to "unchanged from v1.1".
+    #[test]
+    fn non_oversize_pdf_unchanged() {
+        let page_text = "A short page that fits well under the budget.";
+        let doc = make_pdf_doc(&[page_text]);
+        let policy = default_policy(500, 80);
+
+        // Generous budget — tier-2 never fires.
+        let v12 = chunker(BIG_BUDGET).chunk(&doc, &policy).unwrap();
+        assert_eq!(v12.len(), 1, "under-budget page is a single chunk");
+        let c = &v12[0];
+        assert_eq!(c.text, page_text, "text is the full page");
+        assert_eq!(c.token_estimate, page_text.len().div_ceil(BYTES_PER_TOKEN));
+        assert_eq!(c.heading_path, Vec::<String>::new());
+
+        // Full-page char span (char_start = 0, char_end = page char count).
+        match c.source_spans[0] {
+            SourceSpan::Page {
+                page,
+                char_start,
+                char_end,
+            } => {
+                assert_eq!(page, 1);
+                assert_eq!(char_start, Some(0));
+                assert_eq!(char_end, Some(page_text.chars().count() as u32));
+            }
+            ref other => panic!("expected Page span, got {other:?}"),
+        }
+
+        // chunk_id uses the bare `#c0` id form (segment_start = 0, no `s{i}`
+        // suffix). We reconstruct the expected id with the v1.1 recipe and
+        // compare — proving the common-case id is byte-identical to a
+        // single-piece (non-oversize) emission.
+        let base = chunker(BIG_BUDGET).policy_hash(&policy);
+        let block_id = match &doc.blocks[0] {
+            Block::Paragraph(p) => p.common.block_id.clone(),
+            _ => unreachable!(),
+        };
+        let expected_id = id_for_chunk(
+            &doc.doc_id,
+            &chunker(BIG_BUDGET).chunker_version(),
+            &[block_id],
+            &format!("{base}#c0"),
+        );
+        assert_eq!(
+            c.chunk_id, expected_id,
+            "single-piece chunk_id must use the bare #c{{segment_start}} form (no s-suffix)"
+        );
     }
 }
