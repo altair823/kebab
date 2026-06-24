@@ -428,13 +428,16 @@ pub fn step_3_to_4(doc: &mut DocumentMut, changes: &mut Vec<MigrationChange>) {
 /// 로 끌어올린다(`enabled` 은 미디어별 토글이라 제외 — 끌어올리면 공유 블록이
 /// pdf 의 `enabled` 까지 켜버려 동작이 바뀐다). image 는 unique 필드가 없으므로
 /// 공유 블록의 canonical source 로 삼는다. `[ingest.pdf.ocr]` 은 손대지 않는다
-/// — reconcile 이 pdf 의 모든 키를 default 로 채워 명시 상태가 되므로(아래
+/// — reconcile 이 pdf 의 **concrete-default 키**를 명시 상태로 채우므로(아래
 /// `resolve_ocr` 의 "미디어가 명시한 키는 공유 overlay 가 덮지 않음" 규칙에 의해)
-/// pdf 의 effective 값은 마이그레이션 전후 불변. 멱등: 키가 이미 옮겨졌으면 no-op.
+/// 그 키들의 pdf effective 값은 불변. **단 Option 키(endpoint/det_model/rec_model/
+/// dict, default `None`)는 reconcile 가 pdf 에 채우지 않으므로**(None 은
+/// annotated-default 에서 누락) image-only 인 채 끌어올리면 overlay 가 pdf 로
+/// 누출된다 — `OPTION_OCR_KEYS` 가드로 막는다. 멱등: 키가 이미 옮겨졌으면 no-op.
 ///
 /// 결과적으로 image 의 effective OCR 엔진 설정은 `[ingest.ocr]` 에서, pdf 는
-/// 자신의 (reconcile 로 완전 채워진) 블록에서 그대로 resolve 되어 양쪽 모두
-/// 마이그레이션 전 값을 유지한다 — `ingest_config_signature` 바이트도 불변.
+/// 자신의 (reconcile 로 채워진 concrete 키 + image-local 로 남은 Option 키) 기준으로
+/// resolve 되어 양쪽 모두 마이그레이션 전 값을 유지 — `ingest_config_signature` 불변.
 const SHARED_OCR_ENGINE_KEYS: [&str; 12] = [
     "engine",
     "model",
@@ -449,6 +452,12 @@ const SHARED_OCR_ENGINE_KEYS: [&str; 12] = [
     "unclip_ratio",
     "max_boxes",
 ];
+
+/// `SHARED_OCR_ENGINE_KEYS` 중 default 가 `None` 인 Option-typed 키. reconcile 가
+/// pdf 블록에 채우지 않으므로(None 은 annotated-default 에서 누락) image-only 인 채
+/// 공유 블록으로 끌어올리면 `resolve_ocr` overlay 가 pdf 로 누출시킨다 — pdf 가
+/// 명시한 경우에만 hoist(그때는 pdf 의 명시값이 overlay 를 막는다).
+const OPTION_OCR_KEYS: [&str; 4] = ["endpoint", "det_model", "rec_model", "dict"];
 
 pub fn step_4_to_5(doc: &mut DocumentMut, changes: &mut Vec<MigrationChange>) {
     // image OCR 블록이 없으면 끌어올릴 게 없음(reconcile 이 빈 `[ingest.ocr]`
@@ -474,6 +483,22 @@ pub fn step_4_to_5(doc: &mut DocumentMut, changes: &mut Vec<MigrationChange>) {
             .is_some_and(|t| t.contains_key(key));
         if !has_in_image {
             continue;
+        }
+        // Option 키는 pdf 가 명시한 경우에만 끌어올린다 — image-only Option 키를
+        // 공유 블록에 올리면 resolve_ocr overlay 가 (medium_has(pdf,key)=false 라)
+        // pdf 로 누출돼 pdf 의 effective OCR(endpoint/asset 경로)가 v4 와 달라지고,
+        // det/rec/dict 는 ingest_config_signature 에 들어가 강제 재색인까지 유발한다.
+        // 자세한 이유는 OPTION_OCR_KEYS 주석 참조.
+        if OPTION_OCR_KEYS.contains(&key) {
+            let pdf_has_key = doc
+                .get("ingest")
+                .and_then(|i| i.get("pdf"))
+                .and_then(|i| i.get("ocr"))
+                .and_then(Item::as_table)
+                .is_some_and(|t| t.contains_key(key));
+            if !pdf_has_key {
+                continue;
+            }
         }
         let already_in_shared = doc
             .get("ingest")
@@ -963,11 +988,83 @@ lang_hint = \"kor\"
         assert_eq!(after.pdf_ocr().engine, "ollama-vision");
         assert_eq!(after.pdf_ocr().model, "qwen2.5vl:7b");
         assert_eq!(after.pdf_ocr().max_pixels, 2048);
+        // image-only Option 키(det_model)는 pdf 로 누출되지 않아야 한다. v4 바이너리
+        // 시맨틱(pdf 가 det_model 미선언 → None)을 **명시적으로** 검증 — `after ==
+        // before` 만으론 둘 다 같은 (잠재 오염) 파이프라인을 거쳐 tautology 가 된다.
+        assert_eq!(
+            after.pdf_ocr().det_model,
+            None,
+            "image-only det_model leaked into pdf (v4 binary resolves None)"
+        );
         assert_eq!(after.pdf_ocr(), before.pdf_ocr());
 
         // 멱등.
         let again = migrate_document(&outcome.new_text);
         assert!(!again.changed(), "v5 재실행 변경: {:?}", again.changes);
         assert_eq!(again.new_text, outcome.new_text);
+    }
+
+    /// 회귀(PR #214 리뷰): image 가 Option-typed OCR 키(endpoint/det_model)를
+    /// 설정하고 pdf 는 미설정인 비대칭 v4 config. 마이그레이션 후 그 키가 공유
+    /// 블록을 거쳐 pdf 로 누출되면 pdf OCR 가 image endpoint/asset 으로 잘못
+    /// 라우팅되고 det/rec/dict 는 강제 재색인을 유발한다. v4 바이너리 시맨틱은
+    /// pdf=None 이어야 하고, image 는 자기 값을 유지해야 한다.
+    #[test]
+    fn migrate_v4_to_v5_image_only_option_keys_stay_image_local() {
+        let v4 = "\
+schema_version = 4
+
+[workspace]
+root = \"/n\"
+exclude = []
+
+[[workspace.sources]]
+id = \"default\"
+root = \"/n\"
+
+[ingest.image.ocr]
+enabled = true
+engine = \"ollama-vision\"
+endpoint = \"http://image-ocr-host:9999\"
+det_model = \"/custom/det.onnx\"
+
+[ingest.pdf.ocr]
+enabled = true
+engine = \"ollama-vision\"
+model = \"qwen2.5vl:7b\"
+";
+        let outcome = migrate_document(v4);
+        assert_eq!(outcome.to_schema_version, 5);
+
+        let dir = std::env::temp_dir().join(format!("kebab_v5_opt_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p5 = dir.join("v5.toml");
+        std::fs::write(&p5, &outcome.new_text).unwrap();
+        let after = crate::Config::from_file(&p5).expect("load v5");
+
+        // image 는 자기 Option 값을 유지.
+        assert_eq!(
+            after.image_ocr().endpoint.as_deref(),
+            Some("http://image-ocr-host:9999")
+        );
+        assert_eq!(
+            after.image_ocr().det_model.as_deref(),
+            Some("/custom/det.onnx")
+        );
+        // pdf 는 누출 없이 None (v4 바이너리 시맨틱).
+        assert_eq!(
+            after.pdf_ocr().endpoint,
+            None,
+            "image-only endpoint leaked into pdf"
+        );
+        assert_eq!(
+            after.pdf_ocr().det_model,
+            None,
+            "image-only det_model leaked into pdf"
+        );
+
+        // 멱등.
+        let again = migrate_document(&outcome.new_text);
+        assert!(!again.changed(), "v5 재실행 변경: {:?}", again.changes);
     }
 }
