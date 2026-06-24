@@ -14,6 +14,31 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-24 — spine-rewrite Phase 3: ingest 스파인 stage 추출
+
+kebab-app ingest 모놀리스(lib.rs)를 stage 헬퍼 시퀀스로. 각 단위 **재인덱싱 패리티
+게이트**(gate-ingest.sh: fresh dir 재인덱싱 후 CHUNKS/SEARCH/ASK byte-IDENTICAL)로 검증
+— ingest 코드 변경을 진짜 테스트(재인덱싱 결정성은 사전 검증, indexed_at/stale만 변동).
+
+- **API 6→2 (d501ce2)**: `ingest`/`ingest_with_config{IngestOpts}` 둘 + file/stdin. progress/
+  cancellable/opts 변종 제거, summary_only를 IngestOpts에 흡수.
+- **store stage (0f9a769)**: 4× 반복 put_*/upsert → `store_document_records` 헬퍼.
+- **fingerprint (9f40c88)**: effective version + skip-unchanged 4× 복제 → `fingerprint_and_skip`
+  (`FingerprintOutcome`). tier-3 none-v1 sentinel·purge 부수효과 보존.
+- **extract (2bbe2f8)**: markdown이 extractor registry 우회하던 비대칭 해소 — `MarkdownExtractor`
+  신설(registry 11→12), `extract_for` 경유 통일. ExtractContext에 source_id/trust 추가. NB:
+  markdown+audio-ref 문서의 `IngestItem.warnings`가 이제 pdf/code처럼 lift-stage 경고 포함
+  (일관성 개선, core 무관, 희소 edge-case) — 의도적 수용.
+- **chunk (2a0a30a)**: 청커 선택 + code tier-3 fallback → `chunk_asset`(`ChunkOutcome`). tier-3
+  sentinel을 in-place 변이 대신 명시적 반환값으로 운반 — 가장 엉킨 부분 해소. 331 tests pass.
+- **검증**: 각 단위 clippy --workspace --all-targets 0 + 재인덱싱 게이트 IDENTICAL. tier-3·pdf/
+  image 등 게이트 미커버 경로는 tier3_* 통합 테스트로 보완.
+- **미수행(의도적)**: embed stage(use_cache 래퍼 = 한계 가치) + 4→1 핸들러 병합(고위험: PDF OCR
+  side-channel Arc 8개·media별 OCR/caption 분기 — byte-identical 보장 곤란, 가치 낮음). 스파인은
+  stage 헬퍼로 이미 실현됨(핸들러가 fingerprint→extract→chunk→embed→store 시퀀스).
+- **팀 메모**: 모든 단위 main worktree 단일 opus teammate(worktree 격리 X). 명시적 "gate+commit,
+  idle 금지" 지시로 stall 없이 완료.
+
 ## 2026-06-24 — spine-rewrite Phase 2 Unit 1: OCR 중복 제거 — 공유 `[ingest.ocr]` + config v4→v5
 
 척추 단순화 Phase 2 Unit 1 = OCR config 중복 제거. v4 까지 `OcrCfg`(image) 13필드가
