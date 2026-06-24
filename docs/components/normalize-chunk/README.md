@@ -7,7 +7,7 @@
 | Crate | 역할 |
 |-------|------|
 | `kebab-normalize` | `ParsedBlock` (markdown only) → `CanonicalDocument` lift. NFC + heading-path ordinal + provenance 합성 + title fallback chain (p9-fb-07). |
-| `kebab-chunk` | `CanonicalDocument` → `Vec<Chunk>`. v1 두 변종: `md-heading-v1` (markdown + image), `pdf-page-v1` (PDF). |
+| `kebab-chunk` | `CanonicalDocument` → `Vec<Chunk>`. markdown 기본 `md-heading-v2` (v1 + 예산 초과 청크 일반 분할; v0.30.0), `pdf-page-v1` (PDF). `md-heading-v1` 은 historical 변종으로 잔존. |
 
 ## 구조
 
@@ -30,6 +30,11 @@ classDiagram
         BYTES_PER_TOKEN = 3
         POLICY_HASH_HEX_LEN = 16
     }
+    class MdHeadingV2Chunker {
+        VERSION = "md-heading-v2"
+        max_chunk_tokens = 4000
+        split_oversize_chunk(line→char)
+    }
     class PdfPageV1Chunker {
         VERSION = "pdf-page-v1"
         BYTES_PER_TOKEN = 3
@@ -42,10 +47,19 @@ classDiagram
         chunker_version
     }
     Chunker <|.. MdHeadingV1Chunker
+    Chunker <|.. MdHeadingV2Chunker
     Chunker <|.. PdfPageV1Chunker
-    MdHeadingV1Chunker ..> ChunkPolicy
+    MdHeadingV2Chunker ..> ChunkPolicy
     PdfPageV1Chunker ..> ChunkPolicy
 ```
+
+`md-heading-v2` (기본, v0.30.0) 는 v1 과 모든 출력이 동일하되, 마지막에
+`token_estimate > max_chunk_tokens` 인 청크만 줄(`\n`) 경계로 — 단일 거대 줄은
+UTF-8 char 경계로 — 잘라 각 조각이 예산 이하가 되도록 한다. 분할 조각은 동일
+`block_ids` 를 공유하므로 chunk_id 충돌을 막기 위해 id-input 해시에 `#seg{i}`
+접미사를 붙이고(저장 `policy_hash` 는 bare), `max_chunk_tokens` 는 v2 의
+`policy_hash` 에 fold 된다(공유 `ChunkPolicy` 미변경). 분할 조각의
+`source_spans` 는 원 블록 범위를 그대로 보존(블록 단위 citation).
 
 ## Data flow
 

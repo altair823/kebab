@@ -32,7 +32,7 @@ edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/altair823/kebab"
-version       = "0.29.0"   # v0.29.0 — provenance 출처 필터: `[[workspace.sources]]` 멀티소스 + 검색 `--source <id>` / `--source-type <type>`(lexical+vector 두 site, OR). `documents.source_id` 컬럼(V014, additive·DEFAULT 'default'·재색인 0) + config v3→v4 migration(`step_3_to_4`, 단일 root→implicit `default` source 미러, 멱등). per-source `trust_level`/`source_type` 기본값(우선순위 frontmatter > source 기본값 > Primary). 단일 root 사용자 무영향. 설계 근거: 전역 trust 곱셈가중(weighted-RRF)은 A/B 반증(incident MRR 절벽), 출처 필터가 see-saw 없는 레버. 신규 CLI flag + config 키 + migration → minor. — CLAUDE.md §Release
+version       = "0.30.0"   # v0.30.0 — md-heading-v2 청커: 예산 초과 청크 일반 분할. v1 의 "블록 미분할" 한계(거대 list/code/table/paragraph 가 한 청크→임베더 ctx 초과)를 일반화 — `token_estimate > max_chunk_tokens`(신규 config, byte/3, default 4000)인 청크만 줄(→UTF-8 char) 경계로 분할, 각 조각 ≤ 예산. 분할 조각 chunk_id 는 `#seg{i}` 접미사로 충돌 회피, `max_chunk_tokens` 는 v2 policy_hash 에 fold(공유 ChunkPolicy 미변경). 미분할 청크는 v1 과 byte-identical. `chunker_version` v1→v2 → 다음 ingest 에서 markdown 1회 자동 재청크(코드/PDF 무영향). 동기: strict 임베더(AMD Lemonade)는 oversize 입력을 truncate 아닌 거부 → 청커가 애초에 안 만드는 게 옳음. 신규 config 키 + 청커 동작(검색 hit 분할) 변경 → minor + 도그푸딩 트리거. — CLAUDE.md §Release
 
 # pre-v0.18 workspace-wide cleanup: enable clippy::pedantic group with
 # intentional allow-list. The allowed lints are either cosmetic (doc style),

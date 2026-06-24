@@ -160,8 +160,10 @@ fn ingest_signature_image_paddle_byte_stable() {
         &kebab_core::MediaType::Image(kebab_core::ImageType::Png),
     );
     // 골든: chunk:... |ocr:1:paddle-onnx:<engine_version> |cap:0
+    // md-heading-v2 가 markdown 기본값 + max_chunk_tokens(4000) 가
+    // signature 5번째 필드로 추가됐다 — budget 변경 시 자동 재색인용.
     assert!(
-        sig.starts_with("chunk:500:80:true:md-heading-v1"),
+        sig.starts_with("chunk:500:80:true:md-heading-v2:4000"),
         "chunk prefix drift: {sig}"
     );
     assert!(sig.contains("|ocr:1:paddle-onnx:"), "ocr token drift: {sig}");

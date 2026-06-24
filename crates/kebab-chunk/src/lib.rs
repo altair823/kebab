@@ -7,8 +7,15 @@
 //!
 //! * [`MdHeadingV1Chunker`] — heading-aware chunker for Markdown
 //!   `CanonicalDocument`s, emitting `chunker_version = "md-heading-v1"`.
+//! * [`MdHeadingV2Chunker`] — byte-identical to v1 in its chunking pass,
+//!   then applies a generic post-pass: any chunk whose byte/3 estimate
+//!   exceeds `max_chunk_tokens` is split at line (then UTF-8 char)
+//!   boundaries. Covers all block kinds (list, code, paragraph, table).
+//!   Emits `chunker_version = "md-heading-v2"`; the hardcoded markdown
+//!   default (design §9 label bump).
 //!
-//! Behavior contract is enumerated on [`MdHeadingV1Chunker`].
+//! Behavior contract is enumerated on [`MdHeadingV1Chunker`] (v2 inherits
+//! it; the divergence is the generic post-pass documented on [`MdHeadingV2Chunker`]).
 //!
 //! This crate must NOT depend on any parser implementation
 //! (`kb-parse-md`, `kb-parse-pdf`, …), the document/vector store, the
@@ -29,6 +36,7 @@ pub mod dockerfile_file_v1;
 pub mod k8s_manifest_resource_v1;
 pub mod manifest_file_v1;
 mod md_heading_v1;
+mod md_heading_v2;
 mod pdf_page_v1;
 mod tier2_shared;
 
@@ -46,6 +54,7 @@ pub use dockerfile_file_v1::DockerfileFileV1Chunker;
 pub use k8s_manifest_resource_v1::K8sManifestResourceV1Chunker;
 pub use manifest_file_v1::ManifestFileV1Chunker;
 pub use md_heading_v1::MdHeadingV1Chunker;
+pub use md_heading_v2::MdHeadingV2Chunker;
 pub use pdf_page_v1::PdfPageV1Chunker;
 
 // ── Korean morphological tokenizer ───────────────────────────────────────────

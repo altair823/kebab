@@ -14,6 +14,79 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-24 — md-heading-v2: 예산 초과 청크 일반 분할 (oversize-chunk split) (v0.30.0)
+
+**무엇을 바꿨나.** markdown 청커에 새 변종 `md-heading-v2` 를 추가하고
+기본값으로 승격했다. v1 의 규칙 2("코드/테이블 블록은 `target_tokens` 를
+넘어도 절대 분할하지 않는다")는 **모든** 블록 종류로 일반화된 한계였다 — 하나의
+거대 블록(코드뿐 아니라 list·table·paragraph 도)이 통째로 한 청크가 되어
+임베더 컨텍스트를 초과할 수 있었다. v2 는 v1 과 **모든 출력이 동일**하되,
+마지막에 청크의 **실제 임베드 text 크기**(`text.len()/3`)가 `max_chunk_tokens`
+를 넘는 청크만 줄(`\n`) 경계로, 단일 거대 줄은 UTF-8 char 경계로 잘라 **각 조각이
+예산 이하**가 되도록 분할한다. (판정 기준이 저장 `token_estimate` 가 **아니라**
+실제 text 길이인 이유: ImageRef/AudioRef 청크는 image-only 규약으로
+`token_estimate=0` 인데 그 text(alt+OCR+caption)는 거대할 수 있다 — 빽빽한
+스크린샷 OCR 이 대표 사례. 도그푸딩 일치 재테스트에서 발견·수정.)
+신규 config `[ingest.chunking] max_chunk_tokens` (byte/3 토큰, default **4000**).
+분할 조각의 chunk_id 는 동일 `block_ids` 를 공유하므로 id-input 해시에
+`#seg{i}` 접미사를 붙여 충돌을 막는다(저장 `policy_hash` 는 bare — pdf-page-v1
+의 `#L` 레시피와 동형). `max_chunk_tokens` 는 v2 의 `policy_hash` 에
+folding 되어(공유 `ChunkPolicy` 는 미변경 → 코드/PDF 청커 cascade 무영향)
+값을 바꾸면 markdown 만 재청크된다.
+
+**왜 — strict 임베더는 oversize 입력을 truncate 가 아니라 거부한다.** 도그푸딩
+도중 jira 이슈 일부가 임베드에 실패했다. 원인은 긴 MongoDB 로그/스택트레이스가
+md 변환 시 **하나의 거대 `list` 블록**(예: SERVER-22906 = 76189 토큰 / 소스
+60–1303 줄)으로 렌더된 것. 기존 ollama(`/api/embed`)는 이런 입력을 조용히
+서버측 8192 로 **truncate** 해서 0 errors 였지만(=사실상 잘려 색인됨), AMD
+Lemonade 같은 strict 백엔드는 `500 "input (N tokens) is too large ... increase
+the physical batch size"` 로 **거부**한다. 임베더-무관하게 견고하려면 청커가
+애초에 예산 초과 청크를 만들지 않는 게 옳다. (전역 truncate 를 임베더 측에
+넣는 대안은 silently-잘림이라 reject.)
+
+**cascade / 업그레이드.** `chunker_version` 라벨이 `md-heading-v1` → `md-heading-v2`
+로 바뀌므로, **다음 plain `kebab ingest` 에서 markdown 자산이 1회 자동
+재청크**된다(`--force-reingest` 불필요 — skip 비교가 mismatch). 코드/PDF 자산은
+각자 chunker_version 이 unchanged 라 영향 없음. wire / CLI / `--json` 포맷
+불변(검색 hit 의 텍스트·citation 모양 동일, 단 거대 블록이 여러 hit 로 나뉠 수
+있음). **알아둘 wrinkle**: markdown 청커 dispatch 는 하드코딩이고 config
+`chunker_version` 문자열은 impl 선택에 쓰이지 않는다 → 기존 config 가
+`chunker_version = "md-heading-v1"` 로 핀돼 있어도 실제로는 v2 가 돈다(문자열은
+정보성). 새 default config 와 `kebab config migrate` 는 `max_chunk_tokens` 를
+additive 로 주입한다.
+
+**citation 정밀도(known limitation).** 분할 조각은 원 블록의 `source_spans`
+(블록 전체 범위)를 그대로 갖는다 — 즉 거대 블록을 쪼갠 조각의 인용은
+**블록 단위**(sub-line 정밀 아님)다. fenced 코드의 `SourceSpan::Line` 이 fence
+줄을 포함하는 비대칭 때문에 조각별 줄 범위를 정확히 좁히는 건 (span,code) 만으로
+일반적으로 불가능 → "절대 틀리지 않되 블록 단위" 를 택했다. 일반 청크(미분할)는
+v1 과 byte-identical 이라 영향 없음.
+
+**도그푸딩 evidence** (실험 KB `/home/user/large_data/out/kebab-ab/xdg_sources`,
+arctic-embed-l-v2 @ Lemonade `.243`). v2 전: 620 중 2 doc(SERVER-22906/23097)
+임베드 실패. v2 후: **620/620, errors=0**, 7114 청크 전부 ≤ 4000(초과 0).
+SERVER-22906 → 14 청크(max 3897), SERVER-23097 → 5 청크(max 3850). 검색 payoff:
+"WiredTiger excessive memory cache size" 질의에 SERVER-22906 가 **1위(0.977)** —
+"임베드 불가" 에서 "최상위 검색 결과" 로. `--trust-min primary` 등 출처 필터
+정상 유지.
+
+**일치 재테스트 (사용자 실 config 재현 — 이미지 OCR + PDF OCR ON, paddle-onnx)**.
+초기 검증은 markdown-only 였으나 사용자 실 config 가 image/pdf OCR ON 임을 반영해
+미디어(이미지 2 + scanned PDF 2)를 같은 paddle-onnx + arctic@Lemonade 로 재인덱싱.
+**여기서 image-OCR 구멍 발견·수정**: 분할 판정을 `token_estimate` 로 하면
+ImageRef 청크는 `token_estimate=0`(image-only) 이라 OCR text 가 거대해도 분할이
+안 됨 → 빽빽한 스크린샷 OCR 이 임베더 ctx 초과 시 strict 백엔드에서 실패 가능.
+판정을 실제 text 길이로 교정 + 회귀 테스트(`oversize_image_ocr_chunk_splits`).
+검증: scanned_page1/2.pdf OCR→청크(pdf-page-v1.1)→arctic 임베드 정상(max tok
+443/672), 624 자산 errors=0. **known limitation**: PDF 는 별도 청커 `pdf-page-v1.1`
+이라 이 oversize-split 미적용 — 초고밀도 scanned page 가 한 청크로 budget 초과 시
+잔존(현 fixture 는 무관). md 청커(이미지 OCR text 포함)만 v2 가 커버. 후속 후보:
+pdf-page 청커에도 동일 oversize-split.
+
+p1-5(md-heading-v1) 를 확장하며 frozen 설계 doc / frozen p1-5 spec 은
+미변경(설계 §9 가 `md-heading-v2` 라벨 bump 를 이미 변경 메커니즘으로 명시 —
+pdf-page-v1→v1.1 선례 동형). 설계: `docs/superpowers/plans/2026-06-24-md-heading-v2-oversize-split.md`.
+
 ## 2026-06-21 — provenance 출처 필터: `[[workspace.sources]]` 멀티소스 + `--source` / `--source-type` (v0.29.0)
 
 **무엇을 추가했나.** 혼합 출처 KB(예: 위키 문서 + jira 이슈)에서 "출처별로
