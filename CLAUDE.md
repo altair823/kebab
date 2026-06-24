@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Single-user local-first knowledge base + RAG. Rust 2024 workspace, ~21 crates, single binary (`kebab`). All inference is local (Ollama + fastembed + whisper.cpp).
+Single-user local-first knowledge base + RAG. Rust 2024 workspace, 24 crates, single binary (`kebab`). All inference is local (Ollama + fastembed + whisper.cpp).
 
 The repo's documentation is split by audience — don't duplicate across them:
 
@@ -18,16 +18,16 @@ The repo's documentation is split by audience — don't duplicate across them:
 ## Build / test / lint
 
 ```bash
-cargo test -p <crate>                          # preferred — workspace has 18 crates
+cargo test -p <crate>                          # preferred — per-crate, parallel-safe
 cargo test -p <crate> <test_name>              # single test (substring match)
 cargo test --workspace --no-fail-fast -j 1     # full suite — see -j 1 below
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate
 cargo build --release                          # produces target/release/kebab
 ```
 
-`-j 1` for the full workspace test isn't optional: 18 integration-test binaries each link `lance` + `datafusion` + `arrow` + `tantivy` and the parallel link step exhausts memory (linker gets SIGKILL'd, build silently fails partway). Per-crate runs are fine in parallel.
+`-j 1` for the full workspace test isn't optional: the integration-test binaries each link `lance` + `datafusion` + `arrow` + `tantivy`, and the parallel link step is memory-heavy enough that the linker can get SIGKILL'd mid-build (silent partial failure). Per-crate runs are fine in parallel. (Machine RAM / `-j` constraints: global `~/.claude/CLAUDE.md` §디스크.)
 
-`target/` is 6–10 GB after a fresh build but **balloons to 90+ GB after a few task cycles** (each fb-* batch adds incremental compile artifacts on top of the existing 18 × test-binary debug info). The dev/test profile is already trimmed (`debug = "line-tables-only"`, `split-debuginfo = "unpacked"` — see workspace `Cargo.toml`). Run `cargo clean` **routinely after each merged PR**, not just "if pressure shows up" — disk space is tight and recovery via `cargo clean` is cheap (one re-link per crate on next build). Verified pattern: 92 GB → 0 GB in seconds, backtraces still resolve to function + line.
+The dev/test profile is already trimmed (`debug = "line-tables-only"`, `split-debuginfo = "unpacked"` — see workspace `Cargo.toml`), but `target/` still balloons across task cycles (incremental artifacts pile on top of every test-binary's debug info). Run `cargo clean` **routinely after each merged PR** — recovery is cheap (one re-link per crate; backtraces still resolve). Disk-layout + cleanup policy lives in the global `~/.claude/CLAUDE.md`; keep the build/target dir under `large_data` per that file.
 
 ## The facade rule
 
@@ -125,15 +125,15 @@ Release 절차:
 
 ### 도그푸딩 데이터 보관소
 
-모든 도그푸딩 source 문서 + KB state + 로그는 `/build/dogfood/` 한 디렉토리에 누적 보관한다. **분류는 문서 의미 / 종류 / 형식 기준만** — kebab version, 생성 시점, scenario name 같은 prefix 금지 (`v0.20.1-dogfood/`, `dogfood-v018/` 같은 디렉토리 신설 X). 자세한 layout 은 `/build/dogfood/README.md` 참조.
+모든 도그푸딩 source 문서 + KB state + 로그는 **머신-로컬 도그푸딩 store 한 디렉토리에 누적 보관**한다. 머신별 실제 경로(이 머신은 `large_data/out/` 아래)는 global `~/.claude/CLAUDE.md` §디스크 + 프로젝트 메모리에 기록 — repo 안이나 XDG 기본 경로(`~/.config/kebab`, `~/.local/share/kebab`)·`/tmp` 산발 위치는 도그푸딩 store 로 쓰지 않는다. **분류는 문서 의미 / 종류 / 형식 기준만** — version·생성 시점·scenario 이름 prefix 금지 (`v0.20.1-dogfood/` 같은 디렉토리 신설 X). store 하위 레이아웃:
 
-- `/build/dogfood/corpus/` — source 문서 (read-only). format 별 분류 (`markdown/`, `code/`, `html/`, `images/`, `pdf/`, `manifest/`, `resources/`) + 각 format 내 category 별 (예: `markdown/{korean,english,bilingual,tech-docs,coding-md-corpus,topics,notes,edge-cases}`, `code/{rust,python,...}`). 새 fixture 는 적절한 category subdir 에 추가.
-- `/build/dogfood/kb/` — 도그푸딩 run 의 KB 출력 (SQLite + LanceDB + assets + models). 매 run 마다 reset 가능. 별 KB 디렉토리 신설 X.
-- `/build/dogfood/logs/` — 누적 실행 로그 (ndjson + stderr + summary).
-- `/build/dogfood/config.toml` — canonical 도그푸딩 config (없으면 `kebab init` 후 path override).
-- `/build/dogfood/_archive/` — regeneratable stale state (이전 run 의 sqlite/lancedb, XDG snapshot). 디스크 압박 시 wipe 가능.
+- `corpus/` — source 문서 (read-only). format 별 분류 (`markdown/`, `code/`, `html/`, `images/`, `pdf/`, …) + 각 format 내 category 별 (예: `markdown/{korean,english,bilingual,tech-docs,notes,edge-cases}`, `code/{rust,python,…}`). 새 fixture 는 적절한 category subdir 에 추가.
+- `kb/` (또는 `xdg/`) — 도그푸딩 run 의 KB 출력 (SQLite + LanceDB + assets + models). 매 run 마다 reset 가능. 별 KB 디렉토리 신설 X.
+- `logs/` — 누적 실행 로그 (ndjson + stderr + summary).
+- `config.toml` — canonical 도그푸딩 config (없으면 `kebab init` 후 path override).
+- `_archive/` — regeneratable stale state (이전 run 의 sqlite/lancedb, XDG snapshot). 디스크 압박 시 wipe 가능.
 
-`/tmp/kebab-smoke/`, `/tmp/kebab-*`, `/build/cache/dogfood*`, `/home/altair823/KnowledgeBase`, `~/.config/kebab/`, `~/.local/share/kebab/`, `~/.local/state/kebab/` 같은 위치 신규 사용 금지 — 모두 `/build/dogfood/` 로 일관. ad-hoc fixture 가 필요하면 `corpus/<format>/<category>/` 에 추가.
+ad-hoc fixture 가 필요하면 store 의 `corpus/<format>/<category>/` 에 추가 — 새 산발 디렉토리 신설 금지.
 
 ### 도그푸딩 결과 기록
 
