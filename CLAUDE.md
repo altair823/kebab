@@ -20,12 +20,10 @@ The repo's documentation is split by audience — don't duplicate across them:
 ```bash
 cargo test -p <crate>                          # preferred — per-crate, parallel-safe
 cargo test -p <crate> <test_name>              # single test (substring match)
-cargo test --workspace --no-fail-fast -j 1     # full suite — see -j 1 below
+cargo test --workspace --no-fail-fast          # full suite
 cargo clippy --workspace --all-targets -- -D warnings   # CI gate
 cargo build --release                          # produces target/release/kebab
 ```
-
-`-j 1` for the full workspace test isn't optional: the integration-test binaries each link `lance` + `datafusion` + `arrow` + `tantivy`, and the parallel link step is memory-heavy enough that the linker can get SIGKILL'd mid-build (silent partial failure). Per-crate runs are fine in parallel. (Machine RAM / `-j` constraints: global `~/.claude/CLAUDE.md` §디스크.)
 
 The dev/test profile is already trimmed (`debug = "line-tables-only"`, `split-debuginfo = "unpacked"` — see workspace `Cargo.toml`), but `target/` still balloons across task cycles (incremental artifacts pile on top of every test-binary's debug info). Run `cargo clean` **routinely after each merged PR** — recovery is cheap (one re-link per crate; backtraces still resolve). Disk-layout + cleanup policy lives in the global `~/.claude/CLAUDE.md`; keep the build/target dir under `large_data` per that file.
 
