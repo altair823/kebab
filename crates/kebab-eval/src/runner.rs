@@ -61,7 +61,7 @@ pub fn run_eval_with_config(cfg: &kebab_config::Config, opts: &EvalRunOpts) -> R
 
     // Open the store once so every per-query write reuses the same
     // connection-mutex lifetime.
-    let store = SqliteStore::open(cfg).context("open SqliteStore for run_eval")?;
+    let store = SqliteStore::open(&cfg.storage).context("open SqliteStore for run_eval")?;
     store
         .run_migrations()
         .context("run migrations for run_eval")?;

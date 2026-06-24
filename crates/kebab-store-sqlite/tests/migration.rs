@@ -8,7 +8,7 @@ mod common;
 #[test]
 fn fresh_db_has_all_p1_tables_and_indexes() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).expect("open");
+    let store = SqliteStore::open(&env.config().storage).expect("open");
     store.run_migrations().expect("run migrations");
 
     // Pull the list of user tables from sqlite_master.

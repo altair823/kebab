@@ -263,7 +263,7 @@ mod tests_stats_ext {
         let mut cfg = kebab_config::Config::defaults();
         cfg.storage.data_dir = dir.path().to_string_lossy().into_owned();
         // Bring up migrations so the sqlite file is created.
-        let store = kebab_store_sqlite::SqliteStore::open(&cfg).unwrap();
+        let store = kebab_store_sqlite::SqliteStore::open(&cfg.storage).unwrap();
         store.run_migrations().unwrap();
         drop(store);
 

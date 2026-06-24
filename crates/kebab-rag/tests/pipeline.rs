@@ -82,7 +82,7 @@ fn empty_hits_refuses_no_chunks_without_llm_call() {
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(Vec::new()));
     let lm = Arc::new(CountingLm::new("(unused)"));
     let lm_dyn: Arc<dyn LanguageModel> = lm.clone();
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm_dyn, env.sqlite.clone());
 
     let answer = pipeline.ask("anything", default_opts()).unwrap();
     assert_eq!(answer.refusal_reason, Some(RefusalReason::NoChunks));
@@ -105,7 +105,7 @@ fn top_below_gate_refuses_score_gate_without_llm_call() {
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm = Arc::new(CountingLm::new("(unused)"));
     let lm_dyn: Arc<dyn LanguageModel> = lm.clone();
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm_dyn, env.sqlite.clone());
 
     let answer = pipeline.ask("q", default_opts()).unwrap();
     assert_eq!(answer.refusal_reason, Some(RefusalReason::ScoreGate));
@@ -142,7 +142,7 @@ fn grounded_happy_path_marker_one() {
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let canned = "Rust is a systems language. [#1]";
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new(canned));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
 
     let answer = pipeline.ask("what is rust", default_opts()).unwrap();
     assert!(answer.grounded);
@@ -165,7 +165,7 @@ fn unknown_marker_refuses_llm_self_judge() {
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     // Marker 7 is NOT in the packed set (only #1 is).
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("answer text [#7]"));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
 
     let answer = pipeline.ask("q", default_opts()).unwrap();
     assert_eq!(answer.refusal_reason, Some(RefusalReason::LlmSelfJudge));
@@ -187,7 +187,7 @@ fn marker_without_hash_is_no_marker() {
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     // `[1]` is NOT a valid marker — strict regex requires `[#1]`.
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("the answer [1]"));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
 
     let answer = pipeline.ask("q", default_opts()).unwrap();
     assert_eq!(answer.refusal_reason, Some(RefusalReason::LlmSelfJudge));
@@ -206,7 +206,7 @@ fn vec_bracket_one_is_no_false_positive() {
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     // `vec![1]` MUST NOT be misread as a citation marker.
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("see vec![1] in code"));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
 
     let answer = pipeline.ask("q", default_opts()).unwrap();
     assert_eq!(answer.refusal_reason, Some(RefusalReason::LlmSelfJudge));
@@ -224,7 +224,7 @@ fn explicit_korean_refusal_is_self_judge() {
     let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("근거가 부족합니다."));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
 
     let answer = pipeline.ask("q", default_opts()).unwrap();
     assert_eq!(answer.refusal_reason, Some(RefusalReason::LlmSelfJudge));
@@ -263,7 +263,7 @@ fn packing_stops_before_budget_overflow() {
     }
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("ok [#1]"));
-    let pipeline = RagPipeline::new(cfg, retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(cfg.rag.clone(), cfg.models.clone(), cfg.search.clone(), retriever, lm, env.sqlite.clone());
 
     let answer = pipeline.ask("q", default_opts()).unwrap();
     // At least one chunk was packed; the budget cap should keep it to <= 1.
@@ -287,7 +287,7 @@ fn streaming_forwards_tokens_to_sink() {
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let canned = "ok [#1]";
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new(canned));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
 
     let (tx, rx) = std::sync::mpsc::channel::<StreamEvent>();
     let mut opts = default_opts();
@@ -322,7 +322,7 @@ fn dropped_receiver_aborts_with_llm_stream_aborted() {
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let canned = "ok [#1]";
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new(canned));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
 
     let (tx, rx) = std::sync::mpsc::channel::<StreamEvent>();
     drop(rx); // receiver gone — first Token send fails, loop breaks
@@ -352,7 +352,7 @@ fn usage_populated_from_done_chunk() {
     let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("ok [#1]"));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
 
     let answer = pipeline.ask("q", default_opts()).unwrap();
     assert_eq!(answer.usage.prompt_tokens, 10, "from canned_usage");
@@ -368,7 +368,7 @@ fn answers_row_inserted_for_each_refusal_kind() {
         let env = RagEnv::new();
         let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(Vec::new()));
         let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new(""));
-        let p = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+        let p = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
         p.ask("q", default_opts()).unwrap();
         assert_eq!(env.count_answers(), 1);
     }
@@ -381,7 +381,7 @@ fn answers_row_inserted_for_each_refusal_kind() {
         let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.05, &["Intro"])];
         let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
         let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new(""));
-        let p = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+        let p = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
         p.ask("q", default_opts()).unwrap();
         assert_eq!(env.count_answers(), 1);
     }
@@ -394,7 +394,7 @@ fn answers_row_inserted_for_each_refusal_kind() {
         let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
         let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
         let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("answer with no marker"));
-        let p = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+        let p = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
         p.ask("q", default_opts()).unwrap();
         assert_eq!(env.count_answers(), 1);
     }
@@ -413,7 +413,7 @@ fn determinism_temperature_zero_seed_zero() {
     let mk_pipeline = || {
         let r: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits.clone()));
         let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("Rust is. [#1]"));
-        RagPipeline::new(env.config.clone(), r, lm, env.sqlite.clone())
+        RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), r, lm, env.sqlite.clone())
     };
     let a1 = mk_pipeline().ask("q", default_opts()).unwrap();
     let a2 = mk_pipeline().ask("q", default_opts()).unwrap();
@@ -443,7 +443,7 @@ fn unfetchable_chunks_fall_back_to_no_chunks() {
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm = Arc::new(CountingLm::new("(should never run)"));
     let lm_dyn: Arc<dyn LanguageModel> = lm.clone();
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm_dyn, env.sqlite.clone());
 
     let answer = pipeline.ask("q", default_opts()).unwrap();
     assert_eq!(answer.refusal_reason, Some(RefusalReason::NoChunks));
@@ -484,7 +484,7 @@ fn grounded_citations_inherit_indexed_at_and_stale_from_hit() {
     )];
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("apples are fruit. [#1]"));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
 
     let answer = pipeline.ask("apples", default_opts()).unwrap();
     assert!(answer.grounded);
@@ -523,7 +523,7 @@ fn grounded_citations_not_stale_for_fresh_hit() {
     )];
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("apples are fruit. [#1]"));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
 
     let answer = pipeline.ask("apples", default_opts()).unwrap();
     assert!(answer.grounded);
@@ -553,7 +553,7 @@ fn answer_json_serializes_with_expected_keys() {
     let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("Rust is. [#1]"));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
     let answer = pipeline.ask("what", default_opts()).unwrap();
     let v: serde_json::Value = serde_json::to_value(&answer).unwrap();
     // Stable top-level key set per `answer.v1` (§2.3).
@@ -611,7 +611,7 @@ fn ask_multi_hop_dispatches_and_decompose_garbage_refuses() {
     let lm = Arc::new(CountingLm::new("definitely not a JSON array"));
     let lm_handle = lm.clone();
     let pipeline = RagPipeline::new(
-        env.config.clone(),
+        env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(),
         retriever,
         lm.clone() as Arc<dyn LanguageModel>,
         env.sqlite.clone(),
@@ -665,7 +665,7 @@ fn ask_with_multi_hop_false_keeps_single_pass_path() {
     let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new("Rust is. [#1]"));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
 
     let answer = pipeline.ask("what", default_opts()).unwrap();
 

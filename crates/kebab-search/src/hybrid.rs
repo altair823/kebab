@@ -74,19 +74,19 @@ pub struct HybridRetriever {
 }
 
 impl HybridRetriever {
-    /// Construct from a `kb-config` Config + the two underlying
-    /// retrievers. Reads `config.search.hybrid_fusion` (only `"rrf"`
-    /// is recognised today) and `config.search.rrf_k`.
+    /// Construct from the `[search]` config slice + the two underlying
+    /// retrievers. Reads `search.hybrid_fusion` (only `"rrf"`
+    /// is recognised today) and `search.rrf_k`.
     pub fn new(
-        config: &kebab_config::Config,
+        search: &kebab_config::SearchCfg,
         lexical: Arc<dyn Retriever>,
         vector: Arc<dyn Retriever>,
     ) -> Self {
-        let fusion = parse_fusion(&config.search.hybrid_fusion, config.search.rrf_k);
-        let default_k = if config.search.default_k == 0 {
+        let fusion = parse_fusion(&search.hybrid_fusion, search.rrf_k);
+        let default_k = if search.default_k == 0 {
             DEFAULT_K
         } else {
-            config.search.default_k
+            search.default_k
         };
         // Surface mismatched index_version up front so users see it
         // (e.g. lexical at v2, vector at v1 means a stale index that

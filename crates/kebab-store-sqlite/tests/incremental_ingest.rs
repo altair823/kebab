@@ -77,7 +77,7 @@ fn make_doc() -> CanonicalDocument {
 #[test]
 fn put_then_get_document_roundtrips_version_stamps() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let asset = make_asset();
@@ -100,7 +100,7 @@ fn put_then_get_document_roundtrips_version_stamps() {
 #[test]
 fn put_then_get_document_roundtrips_none_stamps() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let asset = make_asset();
@@ -126,7 +126,7 @@ fn put_then_get_document_roundtrips_none_stamps() {
 #[test]
 fn get_asset_by_workspace_path_roundtrips() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let asset = make_asset();
@@ -145,7 +145,7 @@ fn get_asset_by_workspace_path_roundtrips() {
 #[test]
 fn get_asset_by_workspace_path_returns_none_for_unknown() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let path = WorkspacePath::new("notes/missing.md".into()).unwrap();

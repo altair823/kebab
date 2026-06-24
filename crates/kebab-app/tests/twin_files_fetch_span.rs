@@ -72,7 +72,7 @@ fn twin_files_fetch_span_uses_correct_asset() {
     // Resolve doc_ids for both workspace paths.
     // The ingest layer normalises workspace_path to the path relative to
     // workspace_root (e.g. "src_a/note.md"), so we look up by that form.
-    let store = kebab_store_sqlite::SqliteStore::open(&env.config).unwrap();
+    let store = kebab_store_sqlite::SqliteStore::open(&env.config.storage).unwrap();
     store.run_migrations().unwrap();
 
     // Find the twin items by matching on suffix so the test is robust to

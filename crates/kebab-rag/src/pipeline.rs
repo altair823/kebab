@@ -173,7 +173,14 @@ impl Default for AskOpts {
 
 /// Single-threaded RAG orchestrator. See module docs for the stage list.
 pub struct RagPipeline {
-    config: kebab_config::Config,
+    /// `[rag]` policy slice (score gate, prompt template, multi-hop knobs,
+    /// NLI threshold). Replaces the old whole-`Config` field.
+    rag: kebab_config::RagCfg,
+    /// `[models]` slice — only `llm.temperature` / `llm.seed` and the
+    /// `embedding` block (via [`embedding_ref_for`]) are read.
+    models: kebab_config::ModelsCfg,
+    /// `[search]` slice — only `default_k` + `stale_threshold_days` read.
+    search: kebab_config::SearchCfg,
     retriever: Arc<dyn Retriever>,
     llm: Arc<dyn LanguageModel>,
     docs: Arc<SqliteStore>,
@@ -192,16 +199,20 @@ impl RagPipeline {
     /// inject mocks).
     ///
     /// The NLI verifier is NOT a constructor arg — it threads in via
-    /// the [`Self::with_verifier`] builder so the historical 4-arg
-    /// signature stays stable across the PR-9c-1 surface bump.
+    /// the [`Self::with_verifier`] builder so the verifier stays
+    /// orthogonal to the core slice args.
     pub fn new(
-        config: kebab_config::Config,
+        rag: kebab_config::RagCfg,
+        models: kebab_config::ModelsCfg,
+        search: kebab_config::SearchCfg,
         retriever: Arc<dyn Retriever>,
         llm: Arc<dyn LanguageModel>,
         docs: Arc<SqliteStore>,
     ) -> Self {
         Self {
-            config,
+            rag,
+            models,
+            search,
             retriever,
             llm,
             docs,
@@ -237,7 +248,7 @@ impl RagPipeline {
 
         // ── 1. Retrieve ────────────────────────────────────────────────────
         // floor at config default — see `AskOpts::k` doc for rationale.
-        let k_effective = opts.k.max(self.config.search.default_k);
+        let k_effective = opts.k.max(self.search.default_k);
         let search_query = SearchQuery {
             text: query.to_string(),
             mode: opts.mode,
@@ -254,7 +265,7 @@ impl RagPipeline {
         // `hit.stale` downstream, so stamping once here keeps both
         // call sites aligned with the App-level `search` post-process.
         let now = OffsetDateTime::now_utc();
-        let stale_threshold_days = self.config.search.stale_threshold_days;
+        let stale_threshold_days = self.search.stale_threshold_days;
         for h in &mut hits {
             h.stale = compute_stale(h.indexed_at, now, stale_threshold_days);
         }
@@ -282,7 +293,7 @@ impl RagPipeline {
         if hits.is_empty() {
             return self.refuse_no_chunks(query, &opts, k_effective, started, None);
         }
-        if top_score < self.config.rag.score_gate {
+        if top_score < self.rag.score_gate {
             return self.refuse_score_gate(query, &opts, &hits, k_effective, started, None);
         }
 
@@ -305,7 +316,7 @@ impl RagPipeline {
         }
 
         // ── 4. Render prompt ───────────────────────────────────────────────
-        let system = system_prompt_for(&self.config.rag.prompt_template_version)?.to_string();
+        let system = system_prompt_for(&self.rag.prompt_template_version)?.to_string();
         let user = format!("[질문]\n{query}\n\n[근거]\n{packed_text}");
 
         // ── 5. Generate ────────────────────────────────────────────────────
@@ -321,8 +332,8 @@ impl RagPipeline {
         let max_completion = llm_ctx.saturating_sub(used_for_input).max(64);
         let temperature = opts
             .temperature
-            .unwrap_or(self.config.models.llm.temperature);
-        let seed = opts.seed.or(Some(self.config.models.llm.seed));
+            .unwrap_or(self.models.llm.temperature);
+        let seed = opts.seed.or(Some(self.models.llm.seed));
         let req = GenerateRequest {
             system: system.clone(),
             user: user.clone(),
@@ -440,7 +451,7 @@ impl RagPipeline {
             })
             .collect();
 
-        let embedding_ref = embedding_ref_for(opts.mode, &self.config);
+        let embedding_ref = embedding_ref_for(opts.mode, &self.models);
 
         let trace_id = mint_trace_id(query, top_score, &self.llm.model_ref().id);
 
@@ -466,13 +477,13 @@ impl RagPipeline {
             model: self.llm.model_ref(),
             embedding: embedding_ref,
             prompt_template_version: PromptTemplateVersion(
-                self.config.rag.prompt_template_version.clone(),
+                self.rag.prompt_template_version.clone(),
             ),
             retrieval: AnswerRetrievalSummary {
                 trace_id,
                 mode: opts.mode,
                 k: k_effective,
-                score_gate: self.config.rag.score_gate,
+                score_gate: self.rag.score_gate,
                 top_score,
                 chunks_returned,
                 chunks_used,
@@ -570,7 +581,7 @@ impl RagPipeline {
     /// eval `compare` can isolate multi-hop runs from single-pass.
     pub fn ask_multi_hop(&self, query: &str, opts: AskOpts) -> Result<Answer> {
         let started = std::time::Instant::now();
-        let k_effective = opts.k.max(self.config.search.default_k);
+        let k_effective = opts.k.max(self.search.default_k);
 
         // ── 0. Pre-decompose score-gate probe (v0.18 dogfood fix) ──────────
         //
@@ -606,14 +617,14 @@ impl RagPipeline {
             .search(&probe_query)
             .context("kb-rag: multi-hop probe retriever.search")?;
         let probe_now = OffsetDateTime::now_utc();
-        let probe_threshold = self.config.search.stale_threshold_days;
+        let probe_threshold = self.search.stale_threshold_days;
         for h in &mut probe_hits {
             h.stale = compute_stale(h.indexed_at, probe_now, probe_threshold);
         }
         if probe_hits.is_empty() {
             return self.refuse_no_chunks(query, &opts, k_effective, started, None);
         }
-        if probe_hits[0].retrieval.fusion_score < self.config.rag.score_gate {
+        if probe_hits[0].retrieval.fusion_score < self.rag.score_gate {
             return self.refuse_score_gate(query, &opts, &probe_hits, k_effective, started, None);
         }
 
@@ -658,8 +669,8 @@ impl RagPipeline {
         // (stop); the loop also breaks when `max_depth` or
         // `max_pool_chunks` cap fires (`forced_stop = true`).
         // `k_effective` already computed at the probe step above.
-        let max_depth = self.config.rag.multi_hop_max_depth;
-        let max_pool = self.config.rag.multi_hop_max_pool_chunks as usize;
+        let max_depth = self.rag.multi_hop_max_depth;
+        let max_pool = self.rag.multi_hop_max_pool_chunks as usize;
         let mut pool: Vec<SearchHit> = Vec::new();
         let mut seen_chunk_ids: std::collections::HashSet<String> =
             std::collections::HashSet::new();
@@ -754,7 +765,7 @@ impl RagPipeline {
         // single-pass `hits` from here on — score gate / no-chunks /
         // pack_context all read it the same way.
         let now = OffsetDateTime::now_utc();
-        let stale_threshold_days = self.config.search.stale_threshold_days;
+        let stale_threshold_days = self.search.stale_threshold_days;
         for h in &mut pool {
             h.stale = compute_stale(h.indexed_at, now, stale_threshold_days);
         }
@@ -775,7 +786,7 @@ impl RagPipeline {
         if pool.is_empty() {
             return self.refuse_no_chunks(query, &opts, k_effective, started, Some(hops));
         }
-        if top_score < self.config.rag.score_gate {
+        if top_score < self.rag.score_gate {
             return self.refuse_score_gate(query, &opts, &pool, k_effective, started, Some(hops));
         }
 
@@ -816,8 +827,8 @@ impl RagPipeline {
         let max_completion = llm_ctx.saturating_sub(used_for_input).max(64);
         let temperature = opts
             .temperature
-            .unwrap_or(self.config.models.llm.temperature);
-        let seed = opts.seed.or(Some(self.config.models.llm.seed));
+            .unwrap_or(self.models.llm.temperature);
+        let seed = opts.seed.or(Some(self.models.llm.seed));
         let req = GenerateRequest {
             system: system.clone(),
             user: user.clone(),
@@ -909,7 +920,7 @@ impl RagPipeline {
         // (LlmStreamAborted) above; skipping the NLI gate here avoids
         // tokenizing an empty hypothesis (degenerate CLS-SEP-SEP that
         // would yield a near-uniform softmax and a misleading nli_passed).
-        let verification = if self.config.rag.nli_threshold > 0.0 && !acc.trim().is_empty() {
+        let verification = if self.rag.nli_threshold > 0.0 && !acc.trim().is_empty() {
             let v = self.verifier.as_ref().expect(
                 "verifier must be Some when nli_threshold > 0.0 \
                  (kebab-app's open_with_config enforces this invariant)",
@@ -946,10 +957,10 @@ impl RagPipeline {
             }
             match v.score(&truncated_premise, &truncated_hypothesis) {
                 Ok(scores) => {
-                    let passed = scores.entailment >= self.config.rag.nli_threshold;
+                    let passed = scores.entailment >= self.rag.nli_threshold;
                     Some(VerificationSummary {
                         nli_score: scores.entailment,
-                        nli_threshold: self.config.rag.nli_threshold,
+                        nli_threshold: self.rag.nli_threshold,
                         nli_passed: passed,
                     })
                 }
@@ -984,7 +995,7 @@ impl RagPipeline {
             })
             .collect();
 
-        let embedding_ref = embedding_ref_for(opts.mode, &self.config);
+        let embedding_ref = embedding_ref_for(opts.mode, &self.models);
         let trace_id = mint_trace_id(query, top_score, &self.llm.model_ref().id);
         let chunks_used = u32::try_from(packed_entries.len()).unwrap_or(u32::MAX);
         let elapsed_ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
@@ -1025,7 +1036,7 @@ impl RagPipeline {
                 trace_id,
                 mode: opts.mode,
                 k: k_effective,
-                score_gate: self.config.rag.score_gate,
+                score_gate: self.rag.score_gate,
                 top_score,
                 chunks_returned,
                 chunks_used,
@@ -1102,7 +1113,7 @@ impl RagPipeline {
         query: &str,
         opts: &AskOpts,
     ) -> Result<(Option<Vec<String>>, u32)> {
-        let max = self.config.rag.multi_hop_max_sub_queries_per_iter as usize;
+        let max = self.rag.multi_hop_max_sub_queries_per_iter as usize;
         // `format!` named args give compile-time substitution checking
         // (PR-2 회차 1 carry-over fix): a typo in the template aborts
         // compilation rather than silently emitting an unsubstituted
@@ -1112,8 +1123,8 @@ impl RagPipeline {
         );
         let temperature = opts
             .temperature
-            .unwrap_or(self.config.models.llm.temperature);
-        let seed = opts.seed.or(Some(self.config.models.llm.seed));
+            .unwrap_or(self.models.llm.temperature);
+        let seed = opts.seed.or(Some(self.models.llm.seed));
         let req = GenerateRequest {
             system: MULTI_HOP_DECOMPOSE_SYSTEM_PROMPT.to_string(),
             user,
@@ -1172,14 +1183,14 @@ impl RagPipeline {
         depth_remaining: u32,
         opts: &AskOpts,
     ) -> Result<(Option<Vec<String>>, u32)> {
-        let max = self.config.rag.multi_hop_max_sub_queries_per_iter as usize;
+        let max = self.rag.multi_hop_max_sub_queries_per_iter as usize;
         let user = format!(
             "[원본 질문]\n{query}\n\n[지금까지 모은 근거] ({pool_size} chunks)\n{packed_context}\n\n남은 깊이: {depth_remaining}\n\n추가 retrieval 이 필요하면 새 sub-question 들 (최대 {max} 개) 을 JSON array of strings 로, 충분하면 빈 array `[]` 를 반환:",
         );
         let temperature = opts
             .temperature
-            .unwrap_or(self.config.models.llm.temperature);
-        let seed = opts.seed.or(Some(self.config.models.llm.seed));
+            .unwrap_or(self.models.llm.temperature);
+        let seed = opts.seed.or(Some(self.models.llm.seed));
         let req = GenerateRequest {
             system: MULTI_HOP_DECIDE_SYSTEM_PROMPT.to_string(),
             user,
@@ -1226,15 +1237,15 @@ impl RagPipeline {
             grounded: false,
             refusal_reason: Some(RefusalReason::MultiHopDecomposeFailed),
             model: self.llm.model_ref(),
-            embedding: embedding_ref_for(opts.mode, &self.config),
+            embedding: embedding_ref_for(opts.mode, &self.models),
             prompt_template_version: PromptTemplateVersion(
                 PROMPT_TEMPLATE_VERSION_MULTI_HOP.to_string(),
             ),
             retrieval: AnswerRetrievalSummary {
                 trace_id,
                 mode: opts.mode,
-                k: opts.k.max(self.config.search.default_k),
-                score_gate: self.config.rag.score_gate,
+                k: opts.k.max(self.search.default_k),
+                score_gate: self.rag.score_gate,
                 top_score: 0.0,
                 chunks_returned: 0,
                 chunks_used: 0,
@@ -1276,8 +1287,8 @@ impl RagPipeline {
     /// (system + user) prompt to feed back into the completion budget.
     fn pack_context(&self, query: &str, hits: &[SearchHit]) -> Result<PackedContext> {
         // Hard ceiling for the packed-context section in tokens (≈ chars / 4).
-        let cap = self.config.rag.max_context_tokens;
-        let system_prompt_text = system_prompt_for(&self.config.rag.prompt_template_version)?;
+        let cap = self.rag.max_context_tokens;
+        let system_prompt_text = system_prompt_for(&self.rag.prompt_template_version)?;
         let prompt_overhead_tokens = est_tokens(system_prompt_text) + est_tokens(query) + 64;
         let budget_tokens = cap.saturating_sub(prompt_overhead_tokens);
 
@@ -1369,13 +1380,13 @@ impl RagPipeline {
             model: self.llm.model_ref(),
             embedding: None,
             prompt_template_version: PromptTemplateVersion(
-                self.config.rag.prompt_template_version.clone(),
+                self.rag.prompt_template_version.clone(),
             ),
             retrieval: AnswerRetrievalSummary {
                 trace_id,
                 mode: opts.mode,
                 k: k_effective,
-                score_gate: self.config.rag.score_gate,
+                score_gate: self.rag.score_gate,
                 top_score: 0.0,
                 chunks_returned: 0,
                 chunks_used: 0,
@@ -1421,7 +1432,7 @@ impl RagPipeline {
         hops: Option<Vec<HopRecord>>,
     ) -> Result<Answer> {
         let top_score = hits[0].retrieval.fusion_score;
-        let gate = self.config.rag.score_gate;
+        let gate = self.rag.score_gate;
         let mut text = String::new();
         text.push_str("근거 부족. KB에 해당 내용 없음.\n");
         text.push_str(&format!("가까운 후보 (모두 임계 {gate:.2} 미만):\n"));
@@ -1461,9 +1472,9 @@ impl RagPipeline {
             // semantically correct: "this answer used vector retrieval
             // shape, even though it refused". A future reader: do not
             // "fix" this to `None`.
-            embedding: embedding_ref_for(opts.mode, &self.config),
+            embedding: embedding_ref_for(opts.mode, &self.models),
             prompt_template_version: PromptTemplateVersion(
-                self.config.rag.prompt_template_version.clone(),
+                self.rag.prompt_template_version.clone(),
             ),
             retrieval: AnswerRetrievalSummary {
                 trace_id,
@@ -1508,7 +1519,7 @@ impl RagPipeline {
     ) -> Result<Answer> {
         let elapsed_ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
         let trace_id = mint_trace_id(query, 0.0, &self.llm.model_ref().id);
-        let k_effective = opts.k.max(self.config.search.default_k);
+        let k_effective = opts.k.max(self.search.default_k);
         let answer = Answer {
             answer: "근거 부족. 생성된 답변이 검색된 문서 내용에 충분히 entail 되지 않음."
                 .to_string(),
@@ -1516,7 +1527,7 @@ impl RagPipeline {
             grounded: false,
             refusal_reason: Some(RefusalReason::NliVerificationFailed),
             model: self.llm.model_ref(),
-            embedding: embedding_ref_for(opts.mode, &self.config),
+            embedding: embedding_ref_for(opts.mode, &self.models),
             prompt_template_version: PromptTemplateVersion(
                 PROMPT_TEMPLATE_VERSION_MULTI_HOP.to_string(),
             ),
@@ -1524,7 +1535,7 @@ impl RagPipeline {
                 trace_id,
                 mode: opts.mode,
                 k: k_effective,
-                score_gate: self.config.rag.score_gate,
+                score_gate: self.rag.score_gate,
                 top_score: 0.0,
                 chunks_returned: 0,
                 chunks_used: 0,
@@ -1575,7 +1586,7 @@ impl RagPipeline {
     ) -> Result<Answer> {
         let elapsed_ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
         let trace_id = mint_trace_id(query, 0.0, &self.llm.model_ref().id);
-        let k_effective = opts.k.max(self.config.search.default_k);
+        let k_effective = opts.k.max(self.search.default_k);
         let answer = Answer {
             answer: "근거 부족. NLI 검증 모델을 사용할 수 없음 — `[rag] nli_threshold = 0` 으로 비활성화 후 재시도 가능."
                 .to_string(),
@@ -1583,7 +1594,7 @@ impl RagPipeline {
             grounded: false,
             refusal_reason: Some(RefusalReason::NliModelUnavailable),
             model: self.llm.model_ref(),
-            embedding: embedding_ref_for(opts.mode, &self.config),
+            embedding: embedding_ref_for(opts.mode, &self.models),
             prompt_template_version: PromptTemplateVersion(
                 PROMPT_TEMPLATE_VERSION_MULTI_HOP.to_string(),
             ),
@@ -1591,7 +1602,7 @@ impl RagPipeline {
                 trace_id,
                 mode: opts.mode,
                 k: k_effective,
-                score_gate: self.config.rag.score_gate,
+                score_gate: self.rag.score_gate,
                 top_score: 0.0,
                 chunks_returned: 0,
                 chunks_used: 0,
@@ -1630,13 +1641,13 @@ impl RagPipeline {
 /// paths attach the configured embedding model so `kb explain` can
 /// later identify which embedder shaped the retrieval (even on
 /// refusals — see `refuse_score_gate`).
-fn embedding_ref_for(mode: SearchMode, cfg: &kebab_config::Config) -> Option<ModelRef> {
+fn embedding_ref_for(mode: SearchMode, models: &kebab_config::ModelsCfg) -> Option<ModelRef> {
     match mode {
         SearchMode::Lexical => None,
         SearchMode::Vector | SearchMode::Hybrid => Some(ModelRef {
-            id: cfg.models.embedding.model.clone(),
-            provider: cfg.models.embedding.provider.clone(),
-            dimensions: Some(cfg.models.embedding.dimensions),
+            id: models.embedding.model.clone(),
+            provider: models.embedding.provider.clone(),
+            dimensions: Some(models.embedding.dimensions),
         }),
     }
 }

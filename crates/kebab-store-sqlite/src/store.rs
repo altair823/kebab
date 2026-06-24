@@ -116,12 +116,12 @@ impl SqliteStore {
         })
     }
 
-    /// Open (or create) the SQLite file under `config.storage.data_dir`,
+    /// Open (or create) the SQLite file under `storage.data_dir`,
     /// apply pragmas (foreign_keys / WAL / synchronous=NORMAL /
     /// temp_store=MEMORY), and create parent directories as needed.
     /// **Does not run migrations** — call [`Self::run_migrations`] next.
-    pub fn open(config: &kebab_config::Config) -> Result<Self> {
-        let data_dir = kebab_config::expand_path(&config.storage.data_dir, "");
+    pub fn open(storage: &kebab_config::StorageCfg) -> Result<Self> {
+        let data_dir = kebab_config::expand_path(&storage.data_dir, "");
         std::fs::create_dir_all(&data_dir)
             .with_context(|| format!("create data_dir {}", data_dir.display()))?;
         let db_path = data_dir.join(SQLITE_FILE);
@@ -139,7 +139,7 @@ impl SqliteStore {
 
         Ok(Self {
             data_dir,
-            copy_threshold_bytes: config.storage.copy_threshold_mb * BYTES_PER_MIB,
+            copy_threshold_bytes: storage.copy_threshold_mb * BYTES_PER_MIB,
             conn: Mutex::new(conn),
         })
     }
@@ -1189,7 +1189,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = kebab_config::Config::defaults();
         cfg.storage.data_dir = dir.path().to_string_lossy().into_owned();
-        let store = SqliteStore::open(&cfg).unwrap();
+        let store = SqliteStore::open(&cfg.storage).unwrap();
         store.run_migrations().unwrap();
         (dir, store)
     }

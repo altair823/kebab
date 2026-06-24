@@ -24,7 +24,15 @@ use std::sync::OnceLock;
 use std::time::Instant;
 
 use kebab_embed::{Embedder, EmbeddingInput, EmbeddingKind};
-use kebab_embed_local::FastembedEmbedder;
+use kebab_embed_local::{FASTEMBED_CACHE_SUBDIR, FastembedEmbedder};
+
+/// Resolve the fastembed cache dir from a `Config`'s storage paths,
+/// mirroring what `kebab-app`'s `embedder()` does at the call site.
+fn fastembed_cache_dir(cfg: &kebab_config::Config) -> std::path::PathBuf {
+    let data_dir = kebab_config::expand_path(&cfg.storage.data_dir, "");
+    let model_dir = kebab_config::expand_path(&cfg.storage.model_dir, &data_dir.to_string_lossy());
+    model_dir.join(FASTEMBED_CACHE_SUBDIR)
+}
 
 /// Build a `Config` whose `data_dir` lives in a per-process temp dir so
 /// the test never writes into the developer's real `~/.local/share/kebab`.
@@ -52,7 +60,8 @@ fn shared_embedder() -> &'static FastembedEmbedder {
         // and wreck subsequent calls.) The OS will reclaim the leaked
         // path when the test process exits.
         let _ = std::mem::ManuallyDrop::new(_tmp);
-        FastembedEmbedder::new(&cfg).expect("init FastembedEmbedder")
+        let cache_dir = fastembed_cache_dir(&cfg);
+        FastembedEmbedder::new(&cfg.models.embedding, &cache_dir).expect("init FastembedEmbedder")
     })
 }
 
@@ -73,10 +82,11 @@ fn default_config_constructs_with_dims_1024() {
 fn mismatched_dims_in_config_errors_at_construction() {
     let (mut cfg, _tmp) = test_config();
     cfg.models.embedding.dimensions = 512; // model is 1024 (e5-large default)
+    let cache_dir = fastembed_cache_dir(&cfg);
     // `FastembedEmbedder` deliberately does not implement `Debug`
     // (its inner ONNX session has no useful debug shape), so we
     // can't use `expect_err`; match the Result manually.
-    let err = match FastembedEmbedder::new(&cfg) {
+    let err = match FastembedEmbedder::new(&cfg.models.embedding, &cache_dir) {
         Ok(_) => panic!("dim mismatch must error"),
         Err(e) => e,
     };

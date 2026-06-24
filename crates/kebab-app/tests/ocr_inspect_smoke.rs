@@ -72,7 +72,7 @@ fn seed_ocr_events(env: &TestEnv, store: &SqliteStore) {
 
 fn open_app_with_seeded_events(env: &TestEnv) -> App {
     let app = env.app();
-    let store = SqliteStore::open(&env.config).expect("open store for seed");
+    let store = SqliteStore::open(&env.config.storage).expect("open store for seed");
     store.run_migrations().expect("run migrations for seed");
     seed_ocr_events(env, &store);
     app

@@ -105,7 +105,7 @@ fn make_chunks(doc_id: &DocumentId) -> Vec<Chunk> {
 #[test]
 fn put_document_idempotent_bumps_doc_version() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let asset = make_asset();
@@ -149,7 +149,7 @@ fn put_document_idempotent_bumps_doc_version() {
 #[test]
 fn put_blocks_and_put_chunks_replace_not_duplicate() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let asset = make_asset();
@@ -209,7 +209,7 @@ fn put_blocks_and_put_chunks_replace_not_duplicate() {
 #[test]
 fn put_blocks_transactional_rollback_on_fk_violation() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let asset = make_asset();

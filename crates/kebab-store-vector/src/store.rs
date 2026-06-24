@@ -83,7 +83,7 @@ pub struct LanceVectorStore {
 
 impl LanceVectorStore {
     /// Open (or create) the Lance directory under
-    /// `config.storage.vector_dir`, build a current-thread tokio
+    /// `storage.vector_dir`, build a current-thread tokio
     /// runtime, and return a ready-to-use store. Migrations on the
     /// SQLite side must already have been applied (`run_migrations`)
     /// — this constructor does not touch the SQLite schema.
@@ -93,9 +93,9 @@ impl LanceVectorStore {
     /// runtime context will panic with `"Cannot start a runtime from
     /// within a runtime"`. See the struct-level `# Async context`
     /// section.
-    pub fn new(config: &kebab_config::Config, sqlite: Arc<SqliteStore>) -> Result<Self> {
-        let data_dir = expand_path(&config.storage.data_dir, "");
-        let vector_dir = expand_path(&config.storage.vector_dir, &data_dir.to_string_lossy());
+    pub fn new(storage: &kebab_config::StorageCfg, sqlite: Arc<SqliteStore>) -> Result<Self> {
+        let data_dir = expand_path(&storage.data_dir, "");
+        let vector_dir = expand_path(&storage.vector_dir, &data_dir.to_string_lossy());
         std::fs::create_dir_all(&vector_dir)
             .with_context(|| format!("create vector_dir {}", vector_dir.display()))?;
 

@@ -107,7 +107,7 @@ fn search_uncached_returns_same_hits_as_cached() {
 #[test]
 fn first_ingest_bumps_corpus_revision() {
     let env = TestEnv::lexical_only();
-    let store_before = kebab_store_sqlite::SqliteStore::open(&env.config).unwrap();
+    let store_before = kebab_store_sqlite::SqliteStore::open(&env.config.storage).unwrap();
     store_before.run_migrations().unwrap();
     // V004 seeds 0; V009 + V010 + V011 migrations each bump by 1 to
     // invalidate stale LRU caches (spec §5.2). Baseline before ingest = 3.
@@ -122,7 +122,7 @@ fn first_ingest_bumps_corpus_revision() {
         "first ingest must commit ≥1 doc"
     );
 
-    let store_after = kebab_store_sqlite::SqliteStore::open(&env.config).unwrap();
+    let store_after = kebab_store_sqlite::SqliteStore::open(&env.config.storage).unwrap();
     assert!(
         store_after.corpus_revision() > baseline,
         "ingest commit must bump corpus_revision past baseline {baseline} (got {})",

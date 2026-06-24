@@ -43,6 +43,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use kebab_config::EmbeddingModelCfg;
 use kebab_core::{Embedder, EmbeddingInput, EmbeddingKind, EmbeddingModelId, EmbeddingVersion};
 use serde::{Deserialize, Serialize};
 
@@ -101,19 +102,15 @@ pub struct OllamaEmbedder {
 }
 
 impl OllamaEmbedder {
-    /// Build from a workspace [`kebab_config::Config`]. Reads
-    /// `config.models.embedding.{model, dimensions}` and resolves the endpoint
-    /// as `models.embedding.endpoint` → fallback `models.llm.endpoint`.
+    /// Build from the `[models.embedding]` slice + a resolved `endpoint`.
+    /// Reads `cfg.{model, dimensions}`; the caller resolves the endpoint
+    /// (`models.embedding.endpoint` → fallback `models.llm.endpoint`) and
+    /// passes it in.
     ///
     /// Does NOT touch the network. The caller (app layer) is expected to have
     /// validated `provider == "ollama"`.
-    pub fn new(config: &kebab_config::Config) -> Result<Self> {
-        let emb = &config.models.embedding;
-        let endpoint = emb
-            .endpoint
-            .clone()
-            .filter(|e| !e.is_empty())
-            .unwrap_or_else(|| config.models.llm.endpoint.clone());
+    pub fn new(cfg: &EmbeddingModelCfg, endpoint: String) -> Result<Self> {
+        let emb = cfg;
         if endpoint.is_empty() {
             anyhow::bail!(
                 "ollama embedding provider needs an endpoint: set \

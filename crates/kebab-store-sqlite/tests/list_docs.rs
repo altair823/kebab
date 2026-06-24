@@ -81,7 +81,7 @@ fn make_doc(
 #[test]
 fn list_documents_filters_lang_and_tags() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     for (asset, doc) in [

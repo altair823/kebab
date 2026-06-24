@@ -139,7 +139,7 @@ pub fn enumerate_orphans(cfg: &Config) -> Result<Vec<WorkspacePath>> {
     use kebab_core::SourceScope;
     use kebab_source_fs::FsSourceConnector;
 
-    let store = kebab_store_sqlite::SqliteStore::open(cfg)
+    let store = kebab_store_sqlite::SqliteStore::open(&cfg.storage)
         .context("enumerate_orphans: open SqliteStore")?;
 
     let stored = store
@@ -237,7 +237,7 @@ fn execute_orphans_only(cfg: &Config) -> Result<ResetReport> {
     }
 
     let store = std::sync::Arc::new(
-        kebab_store_sqlite::SqliteStore::open(cfg)
+        kebab_store_sqlite::SqliteStore::open(&cfg.storage)
             .context("execute_orphans_only: open SqliteStore")?,
     );
 
@@ -296,7 +296,7 @@ fn open_vector_store_if_configured(
     if cfg.models.embedding.provider == "none" || cfg.models.embedding.dimensions == 0 {
         return Ok(None);
     }
-    match kebab_store_vector::LanceVectorStore::new(cfg, store) {
+    match kebab_store_vector::LanceVectorStore::new(&cfg.storage, store) {
         Ok(vs) => Ok(Some(vs)),
         Err(e) => {
             tracing::warn!(
@@ -320,7 +320,7 @@ fn truncate_embeddings(cfg: &Config) -> Result<u64> {
     if !sqlite_path.exists() {
         return Ok(0);
     }
-    let store = kebab_store_sqlite::SqliteStore::open(cfg)
+    let store = kebab_store_sqlite::SqliteStore::open(&cfg.storage)
         .context("open SqliteStore for truncate_embedding_records")?;
     store.truncate_embedding_records()
 }

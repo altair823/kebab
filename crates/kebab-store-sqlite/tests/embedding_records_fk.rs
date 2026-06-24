@@ -18,7 +18,7 @@ use time::OffsetDateTime;
 fn open_store(tmp: &TempDir) -> SqliteStore {
     let mut c = Config::defaults();
     c.storage.data_dir = tmp.path().to_string_lossy().into_owned();
-    let store = SqliteStore::open(&c).unwrap();
+    let store = SqliteStore::open(&c.storage).unwrap();
     store.run_migrations().unwrap();
     store
 }

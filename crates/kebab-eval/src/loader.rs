@@ -127,7 +127,7 @@ pub(crate) fn validate_against_db(
         return Ok(());
     }
 
-    let store = SqliteStore::open(cfg).context("open SqliteStore for golden validation")?;
+    let store = SqliteStore::open(&cfg.storage).context("open SqliteStore for golden validation")?;
     store
         .run_migrations()
         .context("run migrations for golden validation")?;
@@ -232,7 +232,7 @@ mod tests {
         let mut config = Config::defaults();
         config.storage.data_dir = tmp.path().to_string_lossy().into_owned();
 
-        let store = SqliteStore::open(&config).unwrap();
+        let store = SqliteStore::open(&config.storage).unwrap();
         store.run_migrations().unwrap();
         seed_one_chunk(&store, "doc_present", "chunk_present");
 
@@ -256,7 +256,7 @@ mod tests {
         let mut config = Config::defaults();
         config.storage.data_dir = tmp.path().to_string_lossy().into_owned();
 
-        let store = SqliteStore::open(&config).unwrap();
+        let store = SqliteStore::open(&config.storage).unwrap();
         store.run_migrations().unwrap();
         seed_one_chunk(&store, "doc_present", "chunk_present");
 

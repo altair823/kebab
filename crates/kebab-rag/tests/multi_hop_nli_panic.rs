@@ -65,7 +65,7 @@ fn setup_happy_pipeline_no_verifier(nli_threshold: f32) -> (RagPipeline, RagEnv)
     cfg.rag.nli_threshold = nli_threshold;
 
     // Intentionally NO `.with_verifier()` — this is the condition under test.
-    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(cfg.rag.clone(), cfg.models.clone(), cfg.search.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
     (pipeline, env)
 }
 

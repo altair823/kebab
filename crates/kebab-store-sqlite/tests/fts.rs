@@ -133,7 +133,7 @@ fn fts_v002_backfills_existing_chunks() {
 #[test]
 fn fts_v002_backfill_select_matches_chunks_count() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let conn = raw_conn_no_fk(&env);
@@ -158,7 +158,7 @@ fn fts_v002_backfill_select_matches_chunks_count() {
 #[test]
 fn fts_chunks_ai_trigger_propagates_insert() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let conn = raw_conn_no_fk(&env);
@@ -185,7 +185,7 @@ fn fts_chunks_ai_trigger_propagates_insert() {
 #[test]
 fn fts_chunks_ad_trigger_propagates_delete() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let conn = raw_conn_no_fk(&env);
@@ -205,7 +205,7 @@ fn fts_chunks_ad_trigger_propagates_delete() {
 #[test]
 fn fts_chunks_au_trigger_propagates_update() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let conn = raw_conn_no_fk(&env);
@@ -246,7 +246,7 @@ fn count_match(conn: &Connection, term: &str) -> i64 {
 #[test]
 fn fts_rebuild_chunks_fts_is_idempotent() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let conn = raw_conn_no_fk(&env);
@@ -274,7 +274,7 @@ fn fts_rebuild_chunks_fts_is_idempotent() {
 #[test]
 fn fts_rebuild_chunks_fts_recovers_from_drift() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let conn = raw_conn_no_fk(&env);
@@ -297,7 +297,7 @@ fn fts_rebuild_chunks_fts_recovers_from_drift() {
 #[test]
 fn fts_double_run_migrations_is_noop() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().expect("run 1");
     // Second invocation must be a no-op (refinery's bookkeeping table
     // tracks applied versions). The chunks_fts virtual table is still
@@ -444,7 +444,7 @@ fn fts_v009_matches_design_section_5_5_verbatim() {
 #[test]
 fn v009_bumps_corpus_revision() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
     let rev = store.corpus_revision();
     assert!(
@@ -459,7 +459,7 @@ fn v009_bumps_corpus_revision() {
 #[test]
 fn backfill_tokenized_korean_text_populates_nullable_rows() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     // chunks 에 한국어 row 두 개 INSERT (tokenized_korean_text 는 chunks_ai trigger
@@ -527,7 +527,7 @@ fn fts_store_drop_releases_wal_files() {
     let env = common::TestEnv::new();
     let db_path = env.db_path();
     {
-        let store = SqliteStore::open(&env.config()).unwrap();
+        let store = SqliteStore::open(&env.config().storage).unwrap();
         store.run_migrations().unwrap();
         // Force at least one trigger fire so WAL has content to flush.
         let conn = raw_conn_no_fk(&env);
@@ -575,7 +575,7 @@ fn fts_store_drop_releases_wal_files() {
 #[test]
 fn fts_v009_unicode61_space_separated_korean_token_hits() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let conn = raw_conn_no_fk(&env);
@@ -605,7 +605,7 @@ fn fts_v009_unicode61_space_separated_korean_token_hits() {
 #[test]
 fn fts_v009_korean_morphological_2char_query_hits() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let conn = raw_conn_no_fk(&env);
@@ -633,7 +633,7 @@ fn fts_v009_korean_morphological_2char_query_hits() {
 #[test]
 fn fts_v009_english_whole_token_only() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let conn = raw_conn_no_fk(&env);

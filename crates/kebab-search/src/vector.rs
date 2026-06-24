@@ -61,24 +61,18 @@ pub struct VectorRetriever {
 
 impl VectorRetriever {
     /// Construct with `index_version` derived from the configured
-    /// embedding model + dimensions, and snippet width pulled from
-    /// `kb-config`'s defaults.
+    /// embedding model + dimensions and an explicit `snippet_chars`
+    /// (the caller passes `config.search.snippet_chars`).
     ///
-    /// The explicit `index_version` form is [`Self::with_settings`].
+    /// Thin delegate to [`Self::with_settings`].
     pub fn new(
         store: Arc<dyn VectorStore + Send + Sync>,
         embed: Arc<dyn Embedder>,
         sqlite: Arc<SqliteStore>,
         index_version: IndexVersion,
+        snippet_chars: usize,
     ) -> Self {
-        let cfg = kebab_config::Config::defaults();
-        Self::with_settings(
-            store,
-            embed,
-            sqlite,
-            index_version,
-            cfg.search.snippet_chars,
-        )
+        Self::with_settings(store, embed, sqlite, index_version, snippet_chars)
     }
 
     /// Construct with explicit `snippet_chars`. Mirrors the lexical

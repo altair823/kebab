@@ -37,7 +37,7 @@ impl RagEnv {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut config = Config::defaults();
         config.storage.data_dir = temp.path().to_string_lossy().into_owned();
-        let sqlite = SqliteStore::open(&config).unwrap();
+        let sqlite = SqliteStore::open(&config.storage).unwrap();
         sqlite.run_migrations().unwrap();
         Self {
             temp,

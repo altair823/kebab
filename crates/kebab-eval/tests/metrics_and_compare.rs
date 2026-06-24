@@ -152,7 +152,7 @@ fn compute_and_store_aggregate_round_trips() {
     let _g = env_guard();
     let tmp = TempDir::new().unwrap();
     let cfg = cfg_with_data_dir(&tmp, golden_yaml_basic());
-    let store = SqliteStore::open(&cfg).unwrap();
+    let store = SqliteStore::open(&cfg.storage).unwrap();
     store.run_migrations().unwrap();
     let now = OffsetDateTime::UNIX_EPOCH;
     write_run(
@@ -183,7 +183,7 @@ fn compute_and_store_aggregate_round_trips() {
     assert_eq!(agg.mrr, 0.4167);
 
     store_aggregate_with_config(&cfg, "run_a", &agg).unwrap();
-    let store = SqliteStore::open(&cfg).unwrap();
+    let store = SqliteStore::open(&cfg.storage).unwrap();
     let row = store.load_eval_run("run_a").unwrap().unwrap();
     let parsed: AggregateMetrics = serde_json::from_str(&row.aggregate_json).unwrap();
     // f32 round-trip via JSON is exact for our 4-decimal-rounded
@@ -224,7 +224,7 @@ fn compare_runs_classifies_win_loss_draw_regression() {
     let _g = env_guard();
     let tmp = TempDir::new().unwrap();
     let cfg = cfg_with_data_dir(&tmp, golden_yaml_basic());
-    let store = SqliteStore::open(&cfg).unwrap();
+    let store = SqliteStore::open(&cfg.storage).unwrap();
     store.run_migrations().unwrap();
     let now = OffsetDateTime::UNIX_EPOCH;
     // Run A:
@@ -284,7 +284,7 @@ fn compare_strict_mode_refuses_chunker_version_mismatch() {
     let _g = env_guard();
     let tmp = TempDir::new().unwrap();
     let cfg = cfg_with_data_dir(&tmp, golden_yaml_basic());
-    let store = SqliteStore::open(&cfg).unwrap();
+    let store = SqliteStore::open(&cfg.storage).unwrap();
     store.run_migrations().unwrap();
     let now = OffsetDateTime::UNIX_EPOCH;
     write_run(
@@ -316,7 +316,7 @@ fn compare_graceful_falls_back_to_doc_id() {
     let _g = env_guard();
     let tmp = TempDir::new().unwrap();
     let cfg = cfg_with_data_dir(&tmp, golden_yaml_basic());
-    let store = SqliteStore::open(&cfg).unwrap();
+    let store = SqliteStore::open(&cfg.storage).unwrap();
     store.run_migrations().unwrap();
     let now = OffsetDateTime::UNIX_EPOCH;
     // Run A uses test@1 chunker; run B uses test@2 — chunk_ids no longer
@@ -357,7 +357,7 @@ fn compare_report_snapshot_matches_fixture() {
     let _g = env_guard();
     let tmp = TempDir::new().unwrap();
     let cfg = cfg_with_data_dir(&tmp, golden_yaml_basic());
-    let store = SqliteStore::open(&cfg).unwrap();
+    let store = SqliteStore::open(&cfg.storage).unwrap();
     store.run_migrations().unwrap();
     let now = OffsetDateTime::UNIX_EPOCH;
     write_run(
@@ -434,7 +434,7 @@ fn render_report_md_is_human_readable() {
     let _g = env_guard();
     let tmp = TempDir::new().unwrap();
     let cfg = cfg_with_data_dir(&tmp, golden_yaml_basic());
-    let store = SqliteStore::open(&cfg).unwrap();
+    let store = SqliteStore::open(&cfg.storage).unwrap();
     store.run_migrations().unwrap();
     let now = OffsetDateTime::UNIX_EPOCH;
     write_run(

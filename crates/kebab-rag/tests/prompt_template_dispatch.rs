@@ -112,7 +112,7 @@ fn build_pipeline_with_template(
     env.seed_chunk(&chunk_id, &doc_id, "a.md", "hello world", &["H"]);
     let hit = mk_hit(1, &chunk_id, &doc_id, "a.md", 0.9, &["H"]);
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(vec![hit]));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
     (pipeline, captured, env)
 }
 
@@ -199,7 +199,7 @@ fn pack_user_prompt_for_hit(
     hit.source_id = source_id.map(str::to_string);
     hit.trust_level = trust_level;
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(vec![hit]));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
     let _ = pipeline.ask("hello", lexical_opts());
     let out = captured_user
         .lock()

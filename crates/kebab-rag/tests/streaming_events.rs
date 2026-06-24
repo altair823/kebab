@@ -81,7 +81,7 @@ fn env_with_one_hit(canned: &str) -> (RagEnv, RagPipeline) {
     let hits = vec![mk_hit(1, &cid, &did, "notes/a.md", 0.85, &["Intro"])];
     let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(hits));
     let lm: Arc<dyn LanguageModel> = Arc::new(CountingLm::new(canned));
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
     (env, pipeline)
 }
 
@@ -186,7 +186,7 @@ fn ask_emits_no_final_when_cancelled_mid_stream() {
         },
         gate: Arc::clone(&gate),
     });
-    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let pipeline = RagPipeline::new(env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(), retriever, lm, env.sqlite.clone());
 
     let (tx, rx) = mpsc::channel::<StreamEvent>();
     let opts = opts_with_sink(tx);

@@ -239,7 +239,7 @@ pub fn compute_variant_consistency_with_config(
     cfg: &Config,
     run_id: &str,
 ) -> Result<VariantConsistencyReport> {
-    let store = SqliteStore::open(cfg).context("open SqliteStore for variant consistency")?;
+    let store = SqliteStore::open(&cfg.storage).context("open SqliteStore for variant consistency")?;
     store.run_migrations().context("run migrations")?;
     let run_record = store
         .load_eval_run(run_id)

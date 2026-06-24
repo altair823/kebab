@@ -91,7 +91,7 @@ pub fn compare_runs_with_config(
     run_id_b: &str,
     opts: &CompareOpts,
 ) -> Result<CompareReport> {
-    let store = SqliteStore::open(cfg).context("open SqliteStore for compare_runs")?;
+    let store = SqliteStore::open(&cfg.storage).context("open SqliteStore for compare_runs")?;
     store.run_migrations().context("run migrations")?;
 
     // Pull both run rows up-front so we can extract chunker_version and

@@ -71,7 +71,7 @@ fn multi_hop_decide_stop_triggers_synthesize() {
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
     let pipeline = RagPipeline::new(
-        env.config.clone(),
+        env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(),
         retriever_dyn,
         lm_dyn,
         env.sqlite.clone(),
@@ -138,7 +138,7 @@ fn multi_hop_decide_continue_adds_more_chunks() {
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
     let pipeline = RagPipeline::new(
-        env.config.clone(),
+        env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(),
         retriever_dyn,
         lm_dyn,
         env.sqlite.clone(),
@@ -211,7 +211,7 @@ fn multi_hop_max_depth_force_stops() {
     let lm = Arc::new(ScriptedLm::new(vec![r#"["q1"]"#, "answer [#1]"]));
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
-    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(cfg.rag.clone(), cfg.models.clone(), cfg.search.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
 
     let answer = pipeline.ask("q", multi_hop_opts()).unwrap();
 
@@ -271,7 +271,7 @@ fn multi_hop_pool_chunks_dedup_by_chunk_id() {
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
     let pipeline = RagPipeline::new(
-        env.config.clone(),
+        env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(),
         retriever_dyn,
         lm_dyn,
         env.sqlite.clone(),
@@ -327,7 +327,7 @@ fn multi_hop_decide_parse_failure_falls_through_to_synthesize() {
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
     let pipeline = RagPipeline::new(
-        env.config.clone(),
+        env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(),
         retriever_dyn,
         lm_dyn,
         env.sqlite.clone(),
@@ -402,7 +402,7 @@ fn multi_hop_refuse_no_chunks_preserves_hops_trace() {
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
     let pipeline = RagPipeline::new(
-        env.config.clone(),
+        env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(),
         retriever_dyn,
         lm_dyn,
         env.sqlite.clone(),
@@ -492,7 +492,7 @@ fn multi_hop_refuse_score_gate_preserves_hops_trace() {
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
     let pipeline = RagPipeline::new(
-        env.config.clone(),
+        env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(),
         retriever_dyn,
         lm_dyn,
         env.sqlite.clone(),
@@ -565,7 +565,7 @@ fn multi_hop_below_probe_gate_refuses_before_any_llm_call() {
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
     let pipeline = RagPipeline::new(
-        env.config.clone(),
+        env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(),
         retriever_dyn,
         lm_dyn,
         env.sqlite.clone(),
@@ -608,7 +608,7 @@ fn multi_hop_empty_probe_pool_refuses_before_any_llm_call() {
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
     let pipeline = RagPipeline::new(
-        env.config.clone(),
+        env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(),
         retriever_dyn,
         lm_dyn,
         env.sqlite.clone(),
@@ -653,7 +653,7 @@ fn multi_hop_above_probe_gate_proceeds_to_decompose() {
     let lm_handle = lm.clone();
     let lm_dyn: Arc<dyn LanguageModel> = lm;
     let pipeline = RagPipeline::new(
-        env.config.clone(),
+        env.config.rag.clone(), env.config.models.clone(), env.config.search.clone(),
         retriever_dyn,
         lm_dyn,
         env.sqlite.clone(),
@@ -723,7 +723,7 @@ fn multi_hop_nli_pass_keeps_grounded() {
     let verifier = MockNliVerifier::pass();
     let verifier_handle = verifier.clone();
     let verifier_dyn: Arc<dyn NliVerifier> = verifier;
-    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+    let pipeline = RagPipeline::new(cfg.rag.clone(), cfg.models.clone(), cfg.search.clone(), retriever_dyn, lm_dyn, env.sqlite.clone())
         .with_verifier(verifier_dyn);
 
     let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
@@ -754,7 +754,7 @@ fn multi_hop_nli_fail_refuses() {
     let verifier = MockNliVerifier::fail();
     let verifier_handle = verifier.clone();
     let verifier_dyn: Arc<dyn NliVerifier> = verifier;
-    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+    let pipeline = RagPipeline::new(cfg.rag.clone(), cfg.models.clone(), cfg.search.clone(), retriever_dyn, lm_dyn, env.sqlite.clone())
         .with_verifier(verifier_dyn);
 
     let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
@@ -787,7 +787,7 @@ fn multi_hop_nli_disabled_skip_verify() {
     let retriever_dyn: Arc<dyn Retriever> = retriever;
     let lm_dyn: Arc<dyn LanguageModel> = lm;
     // No `with_verifier` call — pipeline.verifier stays None.
-    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone());
+    let pipeline = RagPipeline::new(cfg.rag.clone(), cfg.models.clone(), cfg.search.clone(), retriever_dyn, lm_dyn, env.sqlite.clone());
 
     let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();
 
@@ -810,7 +810,7 @@ fn multi_hop_nli_model_unavailable_refuses() {
     let verifier = MockNliVerifier::err();
     let verifier_handle = verifier.clone();
     let verifier_dyn: Arc<dyn NliVerifier> = verifier;
-    let pipeline = RagPipeline::new(cfg, retriever_dyn, lm_dyn, env.sqlite.clone())
+    let pipeline = RagPipeline::new(cfg.rag.clone(), cfg.models.clone(), cfg.search.clone(), retriever_dyn, lm_dyn, env.sqlite.clone())
         .with_verifier(verifier_dyn);
 
     let answer = pipeline.ask("compound", multi_hop_opts()).unwrap();

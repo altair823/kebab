@@ -41,7 +41,7 @@ use kebab_core::{
     Answer, DocumentStore, Embedder, ExtractContext, Extractor, IndexVersion, LanguageModel,
     MediaType, Retriever, SearchHit, SearchMode, SearchOpts, SearchQuery, VectorStore,
 };
-use kebab_embed_local::FastembedEmbedder;
+use kebab_embed_local::{FASTEMBED_CACHE_SUBDIR, FastembedEmbedder};
 use kebab_embed_ollama::OllamaEmbedder;
 use kebab_llm_local::OllamaLanguageModel;
 use kebab_parse_code::{
@@ -138,7 +138,7 @@ impl App {
     /// internally drives a `tokio::Runtime::block_on`, which panics if
     /// invoked from inside another tokio runtime.
     pub fn open_with_config(config: kebab_config::Config) -> Result<Self> {
-        let sqlite = SqliteStore::open(&config).context("kb-app: open SqliteStore")?;
+        let sqlite = SqliteStore::open(&config.storage).context("kb-app: open SqliteStore")?;
         sqlite
             .run_migrations()
             .context("kb-app: run SqliteStore migrations")?;
@@ -293,7 +293,7 @@ impl App {
                     vec_iv,
                     self.config.search.snippet_chars,
                 )) as Arc<dyn Retriever>;
-                let hybrid = HybridRetriever::new(&self.config, lex, vec_retr);
+                let hybrid = HybridRetriever::new(&self.config.search, lex, vec_retr);
                 hybrid.search(&query)?
             }
         };
@@ -391,7 +391,7 @@ impl App {
                     self.config.search.snippet_chars,
                 )) as Arc<dyn Retriever>
             };
-            let hybrid = HybridRetriever::new(&self.config, lex, vec_retr);
+            let hybrid = HybridRetriever::new(&self.config.search, lex, vec_retr);
             let (mut traced_hits, trace) = hybrid.search_with_trace(&fetch_query)?;
 
             // Stamp staleness — same as search_uncached.
@@ -535,7 +535,14 @@ impl App {
         retriever: Arc<dyn Retriever>,
         llm: Arc<dyn LanguageModel>,
     ) -> RagPipeline {
-        let pipeline = RagPipeline::new(self.config.clone(), retriever, llm, self.sqlite.clone());
+        let pipeline = RagPipeline::new(
+            self.config.rag.clone(),
+            self.config.models.clone(),
+            self.config.search.clone(),
+            retriever,
+            llm,
+            self.sqlite.clone(),
+        );
         match &self.pipeline_verifier {
             Some(v) => pipeline.with_verifier(v.clone()),
             None => pipeline,
@@ -583,7 +590,7 @@ impl App {
                     vec_iv,
                     self.config.search.snippet_chars,
                 )) as Arc<dyn Retriever>;
-                Arc::new(HybridRetriever::new(&self.config, lex, vec_retr))
+                Arc::new(HybridRetriever::new(&self.config.search, lex, vec_retr))
             }
         })
     }
@@ -613,12 +620,37 @@ impl App {
         // offloads to a remote `/api/embed` daemon.
         let provider = self.config.models.embedding.provider.as_str();
         let emb: Arc<dyn Embedder + Send + Sync> = match provider {
-            "fastembed" | "onnx" | "" => Arc::new(
-                FastembedEmbedder::new(&self.config).context("kb-app: load FastembedEmbedder")?,
-            ),
-            "ollama" => Arc::new(
-                OllamaEmbedder::new(&self.config).context("kb-app: load OllamaEmbedder")?,
-            ),
+            "fastembed" | "onnx" | "" => {
+                // Resolve `{data_dir}/models/fastembed/` here so the
+                // embedder constructor only takes the `[models.embedding]`
+                // slice + the final cache dir.
+                let data_dir = kebab_config::expand_path(&self.config.storage.data_dir, "");
+                let model_dir = kebab_config::expand_path(
+                    &self.config.storage.model_dir,
+                    &data_dir.to_string_lossy(),
+                );
+                let cache_dir = model_dir.join(FASTEMBED_CACHE_SUBDIR);
+                Arc::new(
+                    FastembedEmbedder::new(&self.config.models.embedding, &cache_dir)
+                        .context("kb-app: load FastembedEmbedder")?,
+                )
+            }
+            "ollama" => {
+                // Resolve the endpoint here: `models.embedding.endpoint`
+                // → fallback `models.llm.endpoint`.
+                let endpoint = self
+                    .config
+                    .models
+                    .embedding
+                    .endpoint
+                    .clone()
+                    .filter(|e| !e.is_empty())
+                    .unwrap_or_else(|| self.config.models.llm.endpoint.clone());
+                Arc::new(
+                    OllamaEmbedder::new(&self.config.models.embedding, endpoint)
+                        .context("kb-app: load OllamaEmbedder")?,
+                )
+            }
             other => {
                 return Err(anyhow!(
                     "kb-app: unknown embedding provider {other:?}; expected one of \
@@ -643,7 +675,7 @@ impl App {
             return Ok(Some(v.clone()));
         }
         let store = Arc::new(
-            LanceVectorStore::new(&self.config, self.sqlite.clone())
+            LanceVectorStore::new(&self.config.storage, self.sqlite.clone())
                 .context("kb-app: open LanceVectorStore")?,
         );
         let _ = self.vector.set(store.clone());
@@ -1054,7 +1086,7 @@ mod tests_trace {
         let mut cfg = kebab_config::Config::defaults();
         cfg.storage.data_dir = dir.path().to_string_lossy().into_owned();
         // Bring up migrations.
-        let store = kebab_store_sqlite::SqliteStore::open(&cfg).unwrap();
+        let store = kebab_store_sqlite::SqliteStore::open(&cfg.storage).unwrap();
         store.run_migrations().unwrap();
         drop(store);
         let app = App::open_with_config(cfg).unwrap();
@@ -1122,7 +1154,7 @@ mod tests_extractor_dispatch {
         let mut cfg = kebab_config::Config::defaults();
         cfg.storage.data_dir = dir.path().to_string_lossy().into_owned();
         // Bring up migrations.
-        let store = kebab_store_sqlite::SqliteStore::open(&cfg).unwrap();
+        let store = kebab_store_sqlite::SqliteStore::open(&cfg.storage).unwrap();
         store.run_migrations().unwrap();
         drop(store);
         let app = App::open_with_config(cfg).unwrap();

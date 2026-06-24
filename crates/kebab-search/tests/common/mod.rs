@@ -68,10 +68,10 @@ impl HybridEnv {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut config = Config::defaults();
         config.storage.data_dir = temp.path().to_string_lossy().into_owned();
-        let sqlite = SqliteStore::open(&config).unwrap();
+        let sqlite = SqliteStore::open(&config.storage).unwrap();
         sqlite.run_migrations().unwrap();
         let sqlite = Arc::new(sqlite);
-        let vector_store = Arc::new(LanceVectorStore::new(&config, sqlite.clone()).unwrap());
+        let vector_store = Arc::new(LanceVectorStore::new(&config.storage, sqlite.clone()).unwrap());
         let embedder = Arc::new(MockEmbedder::new(
             EmbeddingModelId(TEST_MODEL_ID.to_string()),
             EmbeddingVersion("v1".to_string()),
@@ -105,6 +105,7 @@ impl HybridEnv {
             embed,
             Arc::clone(&self.sqlite),
             IndexVersion(TEST_VEC_INDEX_VERSION.to_string()),
+            self.config.search.snippet_chars,
         )
     }
 

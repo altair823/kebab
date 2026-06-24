@@ -23,7 +23,7 @@ use kebab_core::{DocFilter, DocumentStore, SearchMode, SearchQuery, SourceScope}
 /// Helper: open the store via `TestEnv` and run `list_documents`.
 fn list_doc_paths(env: &TestEnv) -> Vec<String> {
     use kebab_store_sqlite::SqliteStore;
-    let store = SqliteStore::open(&env.config).unwrap();
+    let store = SqliteStore::open(&env.config.storage).unwrap();
     store.run_migrations().unwrap();
     store
         .list_documents(&DocFilter::default())

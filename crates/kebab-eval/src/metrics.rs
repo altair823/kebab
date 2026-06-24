@@ -114,7 +114,7 @@ pub fn compute_aggregate(run_id: &str) -> Result<AggregateMetrics> {
 /// Compute aggregate metrics for `run_id` against an explicit
 /// [`Config`] (used by tests with a TempDir-backed `data_dir`).
 pub fn compute_aggregate_with_config(cfg: &Config, run_id: &str) -> Result<AggregateMetrics> {
-    let store = SqliteStore::open(cfg).context("open SqliteStore for compute_aggregate")?;
+    let store = SqliteStore::open(&cfg.storage).context("open SqliteStore for compute_aggregate")?;
     store
         .run_migrations()
         .context("run migrations for compute_aggregate")?;
@@ -146,7 +146,7 @@ pub fn store_aggregate_with_config(
     run_id: &str,
     agg: &AggregateMetrics,
 ) -> Result<()> {
-    let store = SqliteStore::open(cfg).context("open SqliteStore for store_aggregate")?;
+    let store = SqliteStore::open(&cfg.storage).context("open SqliteStore for store_aggregate")?;
     store.run_migrations().context("run migrations")?;
     let json = serde_json::to_string(agg).context("serialize AggregateMetrics")?;
     store

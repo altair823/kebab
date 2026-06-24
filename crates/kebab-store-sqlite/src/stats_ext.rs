@@ -117,7 +117,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = kebab_config::Config::defaults();
         cfg.storage.data_dir = dir.path().to_string_lossy().into_owned();
-        let store = crate::SqliteStore::open(&cfg).unwrap();
+        let store = crate::SqliteStore::open(&cfg.storage).unwrap();
         store.run_migrations().unwrap();
         (dir, store)
     }

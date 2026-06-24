@@ -9,7 +9,7 @@ mod common;
 #[test]
 fn create_then_progress_then_finish() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let id = store
@@ -39,7 +39,7 @@ fn create_then_progress_then_finish() {
 #[test]
 fn finish_with_error_message_is_round_trippable() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     let id = store.create(JobKind::Embed, json!({})).unwrap();
@@ -59,7 +59,7 @@ fn finish_with_error_message_is_round_trippable() {
 #[test]
 fn list_filters_status_and_kind() {
     let env = common::TestEnv::new();
-    let store = SqliteStore::open(&env.config()).unwrap();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
     store.run_migrations().unwrap();
 
     // Two ingest jobs (one finished succeeded, one pending) + one embed.
