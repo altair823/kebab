@@ -177,6 +177,8 @@ pub fn mk_hit_with_indexed_at(
         score_kind: kebab_core::ScoreKind::Rrf,
         repo: None,
         code_lang: None,
+        source_id: None,
+        trust_level: None,
     }
 }
 

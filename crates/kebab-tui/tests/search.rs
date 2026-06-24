@@ -58,6 +58,8 @@ fn make_hit(rank: u32, path: &str, snippet: &str, citation: Citation) -> SearchH
         score_kind: kebab_core::ScoreKind::Rrf,
         repo: None,
         code_lang: None,
+        source_id: None,
+        trust_level: None,
     }
 }
 

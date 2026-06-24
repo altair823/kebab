@@ -29,7 +29,9 @@
     "score_kind": "bm25",
     "section_label": "Snap",
     "snippet": "alpha alpha",
-    "stale": false
+    "source_id": "default",
+    "stale": false,
+    "trust_level": "primary"
   },
   {
     "chunk_id": "c1000000000000000000000000000000",
@@ -61,6 +63,8 @@
     "score_kind": "bm25",
     "section_label": "Snap",
     "snippet": "alpha bravo charlie",
-    "stale": false
+    "source_id": "default",
+    "stale": false,
+    "trust_level": "primary"
   }
 ]

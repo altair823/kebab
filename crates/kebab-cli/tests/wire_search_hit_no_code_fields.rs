@@ -34,6 +34,8 @@ fn markdown_hit_omits_repo_and_code_lang() {
         score_kind: ScoreKind::Rrf,
         repo: None,
         code_lang: None,
+        source_id: None,
+        trust_level: None,
     };
     let s = serde_json::to_string(&hit).unwrap();
     assert!(

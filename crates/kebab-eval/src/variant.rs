@@ -355,6 +355,8 @@ mod tests {
             score_kind: ScoreKind::Cosine,
             repo: None,
             code_lang: None,
+            source_id: None,
+            trust_level: None,
         }
     }
 

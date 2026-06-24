@@ -44,6 +44,8 @@
     "indexed_at":      { "type": "string", "format": "date-time" },
     "stale":           { "type": "boolean" },
     "repo":            { "type": ["string", "null"] },
-    "code_lang":       { "type": ["string", "null"] }
+    "code_lang":       { "type": ["string", "null"] },
+    "source_id":       { "type": ["string", "null"], "description": "rag-provenance-label: id of the `[[workspace.sources]]` entry the source doc was ingested from (`documents.source_id`; `default` when absent). Additive optional — omitted when unknown (older wire / synthetic hits)." },
+    "trust_level":     { "type": ["string", "null"], "enum": ["primary", "secondary", "generated", null], "description": "rag-provenance-label: source doc's `documents.trust_level`. Additive optional — omitted when unknown. Feeds the per-chunk provenance label in the rag-v4 prompt so the LLM can discount low-trust sources on conflict." }
   }
 }
