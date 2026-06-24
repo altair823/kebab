@@ -48,7 +48,6 @@ async fn ask_tool_returns_answer_v1_with_refusal_on_empty_kb() {
             &state_clone,
             kebab_mcp::tools::ask::AskInput {
                 query: "what is the meaning of life".to_string(),
-                session_id: None,
                 // Test env uses provider="none" — Hybrid would hard-error on embedding.
                 // Pass Lexical explicitly so the test stays functional.
                 mode: Some("lexical".to_string()),

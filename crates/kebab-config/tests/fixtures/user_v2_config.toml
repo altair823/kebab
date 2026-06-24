@@ -81,7 +81,6 @@ default_k = 10
 hybrid_fusion = "rrf"
 rrf_k = 60
 snippet_chars = 220
-cache_capacity = 256
 stale_threshold_days = 30
 
 [rag]
