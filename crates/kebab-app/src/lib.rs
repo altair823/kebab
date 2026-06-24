@@ -1419,18 +1419,7 @@ fn ingest_one_asset(
     // the kb-app job. A failure mid-way leaves the DB in a state the
     // next ingest run can re-converge (UPSERT + DELETE-then-INSERT).
     let t_store = std::time::Instant::now();
-    app.sqlite
-        .put_asset_with_bytes(asset, &bytes)
-        .context("DocumentStore::put_asset_with_bytes")?;
-    app.sqlite
-        .put_document(&canonical)
-        .context("DocumentStore::put_document")?;
-    app.sqlite
-        .put_blocks(&canonical.doc_id, &canonical.blocks)
-        .context("DocumentStore::put_blocks")?;
-    app.sqlite
-        .put_chunks(&canonical.doc_id, &chunks)
-        .context("DocumentStore::put_chunks")?;
+    store_document_records(app, asset, &bytes, &canonical, &chunks, "")?;
     let store_ms = u64::try_from(t_store.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // Embed + vector upsert (only when both sides are configured).
@@ -1804,18 +1793,7 @@ fn ingest_one_image_asset(
     }
     let t_store = std::time::Instant::now();
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
-    app.sqlite
-        .put_asset_with_bytes(asset, &bytes)
-        .context("DocumentStore::put_asset_with_bytes (image)")?;
-    app.sqlite
-        .put_document(&canonical)
-        .context("DocumentStore::put_document (image)")?;
-    app.sqlite
-        .put_blocks(&canonical.doc_id, &canonical.blocks)
-        .context("DocumentStore::put_blocks (image)")?;
-    app.sqlite
-        .put_chunks(&canonical.doc_id, &chunks)
-        .context("DocumentStore::put_chunks (image)")?;
+    store_document_records(app, asset, &bytes, &canonical, &chunks, " (image)")?;
     let store_ms = u64::try_from(t_store.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     crate::ingest_progress::emit(
@@ -2025,6 +2003,42 @@ fn purge_vector_orphans_for_workspace_path(
         count = stale.len(),
         "purged orphan vectors for edited asset"
     );
+    Ok(())
+}
+
+/// Persist one asset's SQLite records: asset bytes → document → blocks →
+/// chunks. The four `put_*` calls were duplicated verbatim across every
+/// per-medium ingest helper (markdown / image / pdf / code); this is the
+/// genuinely-shared subsequence. Each `put_*` wraps its own short
+/// transaction (per-document tx semantics per design §5.8); composing
+/// them is the kb-app job. A failure mid-way leaves the DB in a state the
+/// next ingest run can re-converge (UPSERT + DELETE-then-INSERT).
+///
+/// `label` suffixes the error context (e.g. `" (image)"`) so the per-medium
+/// annotations stay byte-identical to the inlined form. The embed + vector
+/// upsert step is intentionally NOT folded in here: it diverges per medium
+/// (markdown uses the derivation cache, others embed directly) and its
+/// timing boundary differs, so the callers keep it.
+fn store_document_records(
+    app: &App,
+    asset: &RawAsset,
+    bytes: &[u8],
+    canonical: &CanonicalDocument,
+    chunks: &[Chunk],
+    label: &str,
+) -> anyhow::Result<()> {
+    app.sqlite
+        .put_asset_with_bytes(asset, bytes)
+        .with_context(|| format!("DocumentStore::put_asset_with_bytes{label}"))?;
+    app.sqlite
+        .put_document(canonical)
+        .with_context(|| format!("DocumentStore::put_document{label}"))?;
+    app.sqlite
+        .put_blocks(&canonical.doc_id, &canonical.blocks)
+        .with_context(|| format!("DocumentStore::put_blocks{label}"))?;
+    app.sqlite
+        .put_chunks(&canonical.doc_id, chunks)
+        .with_context(|| format!("DocumentStore::put_chunks{label}"))?;
     Ok(())
 }
 
@@ -2409,18 +2423,7 @@ fn ingest_one_pdf_asset(
 
     let t_store = std::time::Instant::now();
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
-    app.sqlite
-        .put_asset_with_bytes(asset, &bytes)
-        .context("DocumentStore::put_asset_with_bytes (pdf)")?;
-    app.sqlite
-        .put_document(&canonical)
-        .context("DocumentStore::put_document (pdf)")?;
-    app.sqlite
-        .put_blocks(&canonical.doc_id, &canonical.blocks)
-        .context("DocumentStore::put_blocks (pdf)")?;
-    app.sqlite
-        .put_chunks(&canonical.doc_id, &chunks)
-        .context("DocumentStore::put_chunks (pdf)")?;
+    store_document_records(app, asset, &bytes, &canonical, &chunks, " (pdf)")?;
     let store_ms = u64::try_from(t_store.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     crate::ingest_progress::emit(
@@ -2828,18 +2831,7 @@ fn ingest_one_code_asset(
     }
 
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
-    app.sqlite
-        .put_asset_with_bytes(asset, &bytes)
-        .context("DocumentStore::put_asset_with_bytes (code)")?;
-    app.sqlite
-        .put_document(&canonical)
-        .context("DocumentStore::put_document (code)")?;
-    app.sqlite
-        .put_blocks(&canonical.doc_id, &canonical.blocks)
-        .context("DocumentStore::put_blocks (code)")?;
-    app.sqlite
-        .put_chunks(&canonical.doc_id, &chunks)
-        .context("DocumentStore::put_chunks (code)")?;
+    store_document_records(app, asset, &bytes, &canonical, &chunks, " (code)")?;
 
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
         && !chunks.is_empty()
