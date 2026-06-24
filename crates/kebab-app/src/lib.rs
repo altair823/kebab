@@ -906,6 +906,52 @@ struct ImagePipeline<'a> {
     caption_llm: Option<&'a dyn LanguageModel>,
 }
 
+/// Result of [`fingerprint_and_skip`]: the composite effective
+/// `parser_version` for this asset (used downstream when stamping the
+/// persisted document) plus the early-skip decision.
+struct FingerprintOutcome {
+    /// Composite version = base extractor `parser_version` folded with the
+    /// ingest-config signature (see [`effective_parser_version`]). Each
+    /// handler assigns this to `canonical.parser_version` after a non-skip.
+    effective_parser_version: ParserVersion,
+    /// `Some(..)` when the asset is `Unchanged` and the full re-process can
+    /// be skipped; `None` when the caller must re-parse / re-chunk / re-embed.
+    skip: Option<kebab_core::IngestItem>,
+}
+
+/// Central per-asset "effective version + skip-unchanged" decision shared
+/// by every media handler (markdown / image / PDF / code). Composes the
+/// composite `parser_version` ([`effective_parser_version`]) and the
+/// incremental-ingest early-skip predicate ([`try_skip_unchanged`]) into a
+/// single call so each handler runs the identical sequence instead of
+/// replicating the two calls. The per-media inputs (`base_parser_version`,
+/// `chunker_version`, `fallback_chunker_version`) are threaded through
+/// unchanged — this is a de-dup, not a behavior change.
+fn fingerprint_and_skip(
+    app: &App,
+    asset: &RawAsset,
+    base_parser_version: &ParserVersion,
+    chunker_version: &ChunkerVersion,
+    embedder: Option<&Arc<dyn Embedder + Send + Sync>>,
+    force_reingest: bool,
+    fallback_chunker_version: Option<&ChunkerVersion>,
+) -> anyhow::Result<FingerprintOutcome> {
+    let effective_parser_version = effective_parser_version(&app.config, asset, base_parser_version);
+    let skip = try_skip_unchanged(
+        app,
+        asset,
+        &effective_parser_version,
+        chunker_version,
+        embedder.map(|e| e.model_version()).as_ref(),
+        force_reingest,
+        fallback_chunker_version,
+    )?;
+    Ok(FingerprintOutcome {
+        effective_parser_version,
+        skip,
+    })
+}
+
 /// p9-fb-23 task 7: incremental-ingest early-skip predicate. Shared
 /// across the markdown / image / PDF per-asset flows. Returns
 /// `Some(IngestItem { kind: Unchanged, .. })` when ALL FOUR conditions
@@ -1320,23 +1366,24 @@ fn ingest_one_asset(
     // parser_version for the skip compare + the stored doc field, so a
     // change to any markdown-affecting setting (chunking params) re-indexes.
     // `doc_id` keeps deriving from the base version below (stability).
-    let eff_parser_version = effective_parser_version(&app.config, asset, parser_version);
-
+    //
     // p9-fb-23 task 7: incremental-ingest early-skip. When force_reingest
     // is false AND the on-disk asset's checksum + parser_version +
     // last_chunker_version + last_embedding_version all match the existing
     // DB record, this asset doesn't need to be re-parsed / re-chunked /
     // re-embedded. Return Unchanged so the caller bumps `aggregate.unchanged`
     // and the AssetFinished progress event reflects the skip.
-    if let Some(item) = try_skip_unchanged(
+    let fp = fingerprint_and_skip(
         app,
         asset,
-        &eff_parser_version,
+        parser_version,
         &md_chunker_from_config(&app.config).chunker_version(),
-        embedder.map(|e| e.model_version()).as_ref(),
+        embedder,
         force_reingest,
         None,
-    )? {
+    )?;
+    let eff_parser_version = fp.effective_parser_version;
+    if let Some(item) = fp.skip {
         return Ok(item);
     }
 
@@ -1607,16 +1654,17 @@ fn ingest_one_image_asset(
     // settings, so toggling `[image.ocr]` / `[image.caption]` (or changing
     // their model / prompt version) auto-re-indexes the affected images.
     let image_parser_version = ParserVersion(kebab_parse_image::PARSER_VERSION.to_string());
-    let eff_parser_version = effective_parser_version(&app.config, asset, &image_parser_version);
-    if let Some(item) = try_skip_unchanged(
+    let fp = fingerprint_and_skip(
         app,
         asset,
-        &eff_parser_version,
+        &image_parser_version,
         &md_chunker_from_config(&app.config).chunker_version(),
-        embedder.map(|e| e.model_version()).as_ref(),
+        embedder,
         force_reingest,
         None,
-    )? {
+    )?;
+    let eff_parser_version = fp.effective_parser_version;
+    if let Some(item) = fp.skip {
         return Ok(item);
     }
     let bytes = std::fs::read(&path)
@@ -2223,16 +2271,17 @@ fn ingest_one_pdf_asset(
     // v0.26.2: composite parser_version folds pdf.ocr (enabled/always_on/
     // model) + chunking, so enabling scanned-PDF OCR auto-re-indexes PDFs.
     let pdf_parser_version = ParserVersion(kebab_parse_pdf::PARSER_VERSION.to_string());
-    let eff_parser_version = effective_parser_version(&app.config, asset, &pdf_parser_version);
-    if let Some(item) = try_skip_unchanged(
+    let fp = fingerprint_and_skip(
         app,
         asset,
-        &eff_parser_version,
+        &pdf_parser_version,
         &pdf_chunker_from_config(&app.config).chunker_version(),
-        embedder.map(|e| e.model_version()).as_ref(),
+        embedder,
         force_reingest,
         None,
-    )? {
+    )?;
+    let eff_parser_version = fp.effective_parser_version;
+    if let Some(item) = fp.skip {
         return Ok(item);
     }
     let bytes = std::fs::read(&path)
@@ -2635,16 +2684,17 @@ fn ingest_one_code_asset(
     // `stored_is_tier3_fallback` bypass in try_skip_unchanged depends on the
     // exact "none-v1" sentinel), so the composite is only stamped on the
     // normal (non-fallback) outcome below.
-    let eff_parser_version = effective_parser_version(&app.config, asset, &parser_version);
-    if let Some(item) = try_skip_unchanged(
+    let fp = fingerprint_and_skip(
         app,
         asset,
-        &eff_parser_version,
+        &parser_version,
         &chunker_version,
-        embedder.map(|e| e.model_version()).as_ref(),
+        embedder,
         force_reingest,
         tier3_fallback_cv.as_ref(),
-    )? {
+    )?;
+    let eff_parser_version = fp.effective_parser_version;
+    if let Some(item) = fp.skip {
         return Ok(item);
     }
     let bytes = std::fs::read(&path)
