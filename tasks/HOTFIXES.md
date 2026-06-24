@@ -31,11 +31,14 @@ kebab-app ingest 모놀리스(lib.rs)를 stage 헬퍼 시퀀스로. 각 단위 *
   (일관성 개선, core 무관, 희소 edge-case) — 의도적 수용.
 - **chunk (2a0a30a)**: 청커 선택 + code tier-3 fallback → `chunk_asset`(`ChunkOutcome`). tier-3
   sentinel을 in-place 변이 대신 명시적 반환값으로 운반 — 가장 엉킨 부분 해소. 331 tests pass.
+- **module split**: ingest 코드(핸들러+stage 헬퍼+오케스트레이터)를 `src/ingest.rs` 모듈로
+  이동 — 순수 코드 이동, API 무변(lib.rs re-export). **lib.rs 4331→493줄** (ingest.rs 3867).
+  게이트 IDENTICAL.
 - **검증**: 각 단위 clippy --workspace --all-targets 0 + 재인덱싱 게이트 IDENTICAL. tier-3·pdf/
   image 등 게이트 미커버 경로는 tier3_* 통합 테스트로 보완.
 - **미수행(의도적)**: embed stage(use_cache 래퍼 = 한계 가치) + 4→1 핸들러 병합(고위험: PDF OCR
-  side-channel Arc 8개·media별 OCR/caption 분기 — byte-identical 보장 곤란, 가치 낮음). 스파인은
-  stage 헬퍼로 이미 실현됨(핸들러가 fingerprint→extract→chunk→embed→store 시퀀스).
+  side-channel Arc 8개·media별 OCR/caption 분기 — byte-identical 곤란, 가치 낮음). 핸들러는
+  fingerprint→extract→chunk→embed→store 시퀀스로 충분히 얇아짐.
 - **팀 메모**: 모든 단위 main worktree 단일 opus teammate(worktree 격리 X). 명시적 "gate+commit,
   idle 금지" 지시로 stall 없이 완료.
 
