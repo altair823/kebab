@@ -654,14 +654,9 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             let mode = progress::ProgressMode::from_flags(cli.json, cli.quiet, plain_env);
 
             // Surface the active embedding backend/device on the terminal so the
-            // user sees it without grepping kb.log (the per-device tracing line
-            // only lands in the log file at --verbose). Suppressed under
-            // --json/--quiet. The Metal note reflects the build (`embed_metal`);
-            // the confirmed runtime device is in kb.log (`candle device = ...`).
+            // user sees it without grepping kb.log. Suppressed under --json/--quiet.
             if !cli.json && !cli.quiet {
                 let backend = match cfg.models.embedding.provider.as_str() {
-                    "candle" if cfg!(feature = "embed_metal") => "candle (Metal/GPU 빌드)",
-                    "candle" => "candle (CPU, 순수 Rust)",
                     "fastembed" | "onnx" | "" => "fastembed (onnxruntime)",
                     "none" => "비활성 (lexical-only)",
                     other => other,

@@ -4,11 +4,10 @@
 //!
 //! ## Why this exists
 //!
-//! The candle backend ([`kebab-embed-candle`]) runs arctic-embed-l-v2.0
-//! in-process (pure Rust, NUMA-safe). This crate is the **fallback** path:
-//! it offloads embedding to a local/remote Ollama daemon (`snowflake-arctic-embed2`),
-//! which is exactly the route the recall measurements used — so it reproduces
-//! the measured numbers (recall@10 130/132) byte-for-route. Opt-in via
+//! This crate offloads embedding to a local/remote Ollama daemon
+//! (`snowflake-arctic-embed2`), which is exactly the route the recall
+//! measurements used — so it reproduces the measured numbers (recall@10
+//! 130/132) byte-for-route. Opt-in via
 //! `config.models.embedding.provider = "ollama"`.
 //!
 //! ## Wire shape
@@ -64,10 +63,9 @@ const REQUEST_TIMEOUT_SECS: u64 = 300;
 
 /// Resolve the (query_prefix, doc_prefix) for an Ollama embedding model tag.
 ///
-/// Mirrors `kebab-embed-candle`'s `MODEL_REGISTRY`, but keyed on the **Ollama
-/// model tag** (which differs from the HF id — e.g. `snowflake-arctic-embed2`
-/// vs `Snowflake/snowflake-arctic-embed-l-v2.0`). Kept here rather than shared
-/// so this crate does not depend on the candle backend.
+/// Resolve the (query_prefix, doc_prefix) for an Ollama embedding model tag,
+/// keyed on the **Ollama model tag** (which differs from the HF id — e.g.
+/// `snowflake-arctic-embed2` vs `Snowflake/snowflake-arctic-embed-l-v2.0`).
 ///
 /// An unrecognized model gets no prefix (`("", "")`): many embedding models
 /// are not instruction-tuned, so embedding the raw text is the correct default

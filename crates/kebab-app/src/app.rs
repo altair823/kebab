@@ -41,7 +41,6 @@ use kebab_core::{
     Answer, DocumentStore, Embedder, ExtractContext, Extractor, IndexVersion, LanguageModel,
     MediaType, Retriever, SearchHit, SearchMode, SearchOpts, SearchQuery, VectorStore,
 };
-use kebab_embed_candle::CandleEmbedder;
 use kebab_embed_local::FastembedEmbedder;
 use kebab_embed_ollama::OllamaEmbedder;
 use kebab_llm_local::OllamaLanguageModel;
@@ -607,20 +606,15 @@ impl App {
         if let Some(e) = self.embedder.get() {
             return Ok(Some(e.clone()));
         }
-        // Provider branch (Track 1 spec §3 + arctic-embedder spec). The
-        // `embeddings_disabled()` check above already handled `"none"`; here we
-        // route the live providers. `fastembed`/`onnx`/(empty) keep the default
-        // onnxruntime path (vectors unchanged — `embedding_version` is
-        // preserved); `candle` selects the pure-Rust NUMA-safe backend (e5 or
-        // arctic via its model registry); `ollama` offloads to a remote
-        // `/api/embed` daemon.
+        // Provider branch (arctic-embedder spec). The `embeddings_disabled()`
+        // check above already handled `"none"`; here we route the live
+        // providers. `fastembed`/`onnx`/(empty) keep the default onnxruntime
+        // path (vectors unchanged — `embedding_version` is preserved); `ollama`
+        // offloads to a remote `/api/embed` daemon.
         let provider = self.config.models.embedding.provider.as_str();
         let emb: Arc<dyn Embedder + Send + Sync> = match provider {
             "fastembed" | "onnx" | "" => Arc::new(
                 FastembedEmbedder::new(&self.config).context("kb-app: load FastembedEmbedder")?,
-            ),
-            "candle" => Arc::new(
-                CandleEmbedder::new(&self.config).context("kb-app: load CandleEmbedder")?,
             ),
             "ollama" => Arc::new(
                 OllamaEmbedder::new(&self.config).context("kb-app: load OllamaEmbedder")?,
@@ -628,7 +622,7 @@ impl App {
             other => {
                 return Err(anyhow!(
                     "kb-app: unknown embedding provider {other:?}; expected one of \
-                     `fastembed` (default), `candle`, `ollama`, or `none` (lexical-only)"
+                     `fastembed` (default), `ollama`, or `none` (lexical-only)"
                 ));
             }
         };

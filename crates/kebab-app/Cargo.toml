@@ -18,7 +18,6 @@ kebab-store-vector = { path = "../kebab-store-vector" }
 kebab-search = { path = "../kebab-search" }
 kebab-embed = { path = "../kebab-embed" }
 kebab-embed-local = { path = "../kebab-embed-local" }
-kebab-embed-candle = { path = "../kebab-embed-candle" }
 kebab-embed-ollama = { path = "../kebab-embed-ollama" }
 kebab-llm = { path = "../kebab-llm" }
 kebab-llm-local = { path = "../kebab-llm-local" }
@@ -95,8 +94,6 @@ reqwest      = { version = "0.12", default-features = false, features = ["blocki
 # disable path 없음; 이 feature 는 spec §6.3 명시를 honor 하는 role 만.
 default = ["fts_korean_morphological"]
 fts_korean_morphological = []
-# opt-in (macOS): candle embedder runs on the Apple Silicon GPU. See kebab-embed-candle.
-embed_metal = ["kebab-embed-candle/metal"]
 
 [lints]
 workspace = true

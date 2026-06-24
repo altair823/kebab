@@ -255,26 +255,24 @@ impl NliCfg {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EmbeddingModelCfg {
-    /// `fastembed` (default, onnxruntime), `candle` (pure-Rust, NUMA-safe),
-    /// or `ollama` (remote HTTP embedding endpoint). `none` disables
-    /// embeddings (lexical-only). Unknown values error at embedder
-    /// construction.
+    /// `fastembed` (default, onnxruntime) or `ollama` (remote HTTP embedding
+    /// endpoint). `none` disables embeddings (lexical-only). Unknown values
+    /// error at embedder construction.
     pub provider: String,
     pub model: String,
     pub version: String,
     pub dimensions: usize,
     pub batch_size: usize,
-    /// Cap on the CPU worker threads the `candle` provider spins up
-    /// (sizes the global rayon pool; env `KEBAB_EMBED_THREADS` overrides).
-    /// `0` = auto (rayon default = #cores). Lever to sidestep the
-    /// onnxruntime 48-thread NUMA double-free; ignored by the `fastembed`
-    /// provider. Defaulted on load so pre-0.22 config files still parse.
+    /// Legacy field — previously used by the removed `candle` provider to cap
+    /// CPU worker threads. Retained for backward-compatible TOML parsing
+    /// (`num_threads = 0` in old config files must not error). Ignored by all
+    /// current providers.
     #[serde(default)]
     pub num_threads: u32,
     /// HTTP endpoint for the `ollama` embedding provider (e.g.
     /// `"http://127.0.0.1:11434"`). `None` (or a missing key in TOML) means
     /// "fall back to `models.llm.endpoint`" — same convention as the OCR /
-    /// vision endpoints. Ignored by the `fastembed` / `candle` providers.
+    /// vision endpoints. Ignored by the `fastembed` provider.
     /// Defaulted on load so pre-0.26 config files still parse.
     #[serde(default)]
     pub endpoint: Option<String>,

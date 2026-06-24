@@ -51,10 +51,5 @@ tempfile     = { workspace = true }
 rusqlite     = { workspace = true }
 time         = { workspace = true }
 
-[features]
-# opt-in (macOS): build the `kebab` binary with candle on the Apple Silicon GPU.
-#   cargo build --release --features embed_metal
-embed_metal = ["kebab-app/embed_metal"]
-
 [lints]
 workspace = true

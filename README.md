@@ -47,7 +47,7 @@ embedding 벡터를 청크 **내용 해시** 로 캐싱한다 (`derivation_cache
 
 ### 외부 계산 + 로컬 검색 워크플로
 
-search/ask 는 원본 파일 없이 KB 산출물만으로 동작한다 (청크 본문이 SQLite 에 저장되고 문서 경로는 상대경로로 기록됨). 비싼 색인(임베딩·OCR)을 성능 좋은 머신에서 수행한 뒤(예: Apple Silicon 맥에서 candle Metal GPU), **두 산출물만** 다른 머신(예: NUMA 서버)으로 복사하면 그대로 검색·질문할 수 있다.
+search/ask 는 원본 파일 없이 KB 산출물만으로 동작한다 (청크 본문이 SQLite 에 저장되고 문서 경로는 상대경로로 기록됨). 비싼 색인(임베딩·OCR)을 성능 좋은 머신에서 수행한 뒤, **두 산출물만** 다른 머신으로 복사하면 그대로 검색·질문할 수 있다.
 
 **무엇을 복사하나 — `[storage]` 에서 정의된 두 경로:**
 
@@ -64,7 +64,7 @@ rsync -a <src-data_dir>/kebab.sqlite  user@server:<dst-data_dir>/
 rsync -a <src-data_dir>/lancedb/      user@server:<dst-data_dir>/lancedb/
 ```
 
-조건: **양쪽 동일 `kebab` 버전 + 동일 임베딩 모델/차원** (`[models.embedding].model`·`dimensions`). provider 는 달라도 됨 (예: 맥 `candle`/Metal ↔ 서버 `candle`/CPU 또는 `fastembed` — 같은 모델이면 벡터 호환). 복사는 반드시 ingest 가 돌지 않을 때.
+조건: **양쪽 동일 `kebab` 버전 + 동일 임베딩 모델/차원** (`[models.embedding].model`·`dimensions`). provider 는 달라도 됨 (예: `fastembed` ↔ `ollama` — 같은 모델이면 벡터 호환). 복사는 반드시 ingest 가 돌지 않을 때.
 
 ### 멀티미디어 색인
 
@@ -123,23 +123,16 @@ root = "~/KnowledgeBase"   # 색인할 폴더. 절대 / tilde / env / 상대 경
 # trust_level = "secondary"   # 낮은 신뢰 출처 — `--trust-min primary` 로 배제 가능.
 
 [models.embedding]
-provider = "fastembed"            # "fastembed"(기본, onnxruntime) / "candle"(순수 Rust)
-                                  # / "ollama"(원격 HTTP) / "none"(lexical-only).
-                                  # candle 는 같은 모델·같은 벡터를 순수 Rust 로 돌려
-                                  # NUMA 서버의 onnxruntime 48-스레드 double-free 를 피하는
-                                  # opt-in 백엔드 (e5 는 재색인 불필요).
+provider = "fastembed"            # "fastembed"(기본, onnxruntime) / "ollama"(원격 HTTP)
+                                  # / "none"(lexical-only).
 model = "multilingual-e5-large"   # 다국어 sentence embedding (1024-dim).
                                   # 첫 ingest 시 ONNX (~1.3GB) 자동 다운로드.
-                                  # candle provider 는 safetensors (~2GB) 다운로드.
-                                  # candle/ollama 는 "snowflake-arctic-embed-l-v2.0"
+                                  # ollama 는 "snowflake-arctic-embed-l-v2.0"
                                   # (설명형 query 의 recall 보강) 도 지원 — 아래 참고.
 dimensions = 1024                 # config 와 LanceDB stored dim 불일치 시 검색 0건.
-num_threads = 0                   # candle 전용 CPU 스레드 캡 (0=auto=#cores).
-                                  # env KEBAB_EMBED_THREADS 가 우선. NUMA 노드 바인딩은
-                                  # numactl 과 조합. fastembed provider 는 무시.
 # endpoint = "http://127.0.0.1:11434"  # provider="ollama" 전용 HTTP endpoint.
                                   # 생략 시 [models.llm].endpoint 로 폴백.
-                                  # fastembed/candle provider 는 무시.
+                                  # fastembed provider 는 무시.
 ```
 
 **arctic-embed-l-v2.0 (설명형 query recall 보강)**: 기본 e5-large 대신
@@ -147,13 +140,7 @@ Snowflake `arctic-embed-l-v2.0` 임베더를 쓸 수 있다 (1024-dim, opt-in). 
 설명형/약어/영문 용어 query 의 recall@10 이 e5 대비 향상됐다. 두 경로:
 
 ```toml
-# (A) candle 백엔드 — 순수 Rust, in-process (NUMA 안전, Metal GPU 가능):
-[models.embedding]
-provider = "candle"
-model    = "snowflake-arctic-embed-l-v2.0"   # CLS pooling, query 에 "query: " 접두어
-                                             # (문서는 무접두어). safetensors ~2GB 다운로드.
-
-# (B) ollama 백엔드 — 원격/로컬 Ollama 데몬에 위임 (POST /api/embed):
+# ollama 백엔드 — 원격/로컬 Ollama 데몬에 위임 (POST /api/embed):
 [models.embedding]
 provider = "ollama"
 model    = "snowflake-arctic-embed2"          # Ollama 모델 태그 (ollama pull 필요)
@@ -164,21 +151,6 @@ endpoint = "http://127.0.0.1:11434"           # 생략 시 [models.llm].endpoint
 > 벡터도 다름). 기존 e5 KB 와 혼용 불가 — 전환 시 **재색인** 필요 (`kebab reset`
 > 후 재 ingest). 기본값은 e5 라 기존 사용자는 영향 없음.
 
-**Apple Silicon GPU 가속 (candle / macOS)**: M-시리즈 맥에서 candle 임베딩을
-GPU(Metal)로 돌리면 CPU 대비 대용량 ingest 가 크게 빨라진다. 빌드 또는 설치 시
-`embed_metal` feature 를 켠다:
-
-```bash
-# 빌드만:
-cargo build --release --features embed_metal
-# 전역 설치 (~/.cargo/bin/kebab):
-cargo install --path crates/kebab-cli --features embed_metal --locked
-```
-
-벡터는 CPU candle 과 동일 모델이라 호환되므로, 맥에서 GPU 로 색인한
-`kebab.sqlite` + `lancedb/` 를 그대로 Linux 서버(CPU candle)로 복사해 질의할 수
-있다. 색인 로그에 `candle device = Metal (GPU)` 가 보이면 GPU 사용 중. metal
-feature 는 macOS 전용 (Linux/서버는 기본 CPU 빌드).
 
 ```toml
 
