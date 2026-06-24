@@ -161,6 +161,27 @@ eval, mcp, cli, core 는 그대로.
 - **wire 출력 계약 불변**: `search_hit.v1`·`answer.v1` shape 유지(MCP·Claude 스킬 무영향).
 - config v4→v5 는 무손실 자동 마이그레이션.
 
+## 코어 도그푸딩 품질 패리티 게이트 (per 수정 단위) — HARD GATE
+
+**사용자 필수 제약**: 각 수정 단위(PR/phase)마다 **코어 기능의 도그푸딩 품질이 직전
+baseline 과 반드시 비슷**해야 한다. 회귀 시 머지 금지. 이 게이트가 척추 재작성의
+PR 분할 경계와 완료 정의를 지배한다.
+
+- **코어 기능 정의**: markdown ingest · lexical/vector/hybrid 검색 · single-hop RAG +
+  citation (= 사용자가 매일 받는 결과물). 보조로 multi-hop·OCR·code ingest spot-check.
+- **baseline 동결**: 재작성 착수 *전*, 현재 main 바이너리로 표준 도그푸딩 코퍼스에
+  golden query 실행 → 메트릭 스냅샷 동결(search hit ordering · MRR/hit@k · RAG
+  citation 패턴 · grounded 율). `kebab eval run` 산출물 + 검색/ask `--json` 캡처.
+- **per-unit 게이트**(매 단위 머지 전, 예외 없음):
+  1. 동일 코퍼스·동일 query 재실행 → `kebab eval compare` 로 baseline 대비.
+     허용 오차: hit ordering·citation 패턴 **동등**(MRR/hit@k 변동 ≤ 작은 ε, 순위 역전
+     0 목표). 초과 시 원인 규명 → fix → 재게이트, 통과 전 머지 금지.
+  2. **ingest 출력 byte-diff = 0**: 동일 코퍼스 재색인 산출(chunk text·chunk_id·
+     embedding_version)이 baseline 과 byte-identical(refactor 동작 보존 증명).
+  3. 자동화 불가한 UX/snippet 품질은 수동 도그푸딩 spot-check + HOTFIXES evidence.
+- **도구**: eval 하네스(`kebab eval run|compare`)가 1차. 재작성으로 eval 자체가 바뀌는
+  단위는 baseline 바이너리를 비교 기준으로 병행 보관.
+
 ## Relationship to frozen contract
 
 `docs/superpowers/specs/2026-04-27-kebab-final-form-design.md` 의 일부 조항(§1 단일 root/
