@@ -29,7 +29,7 @@ fn ingest_then_hybrid_search_returns_hits() {
     require_avx_or_panic();
 
     let env = TestEnv::with_embeddings();
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
     assert_eq!(report.errors, 0, "no per-file errors: {report:?}");
     assert_eq!(report.new, 3);
 
@@ -55,7 +55,7 @@ fn ingest_then_vector_search_carries_embedding_model() {
     require_avx_or_panic();
 
     let env = TestEnv::with_embeddings();
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
     assert_eq!(report.errors, 0, "no per-file errors: {report:?}");
     assert_eq!(report.new, 3);
 

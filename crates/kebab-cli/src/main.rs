@@ -672,14 +672,14 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
 
             // p9-fb-23: use IngestOpts so force_reingest threads through
             // without churning the positional-arg list.
-            let ingest_result = kebab_app::ingest_with_config_opts(
+            let ingest_result = kebab_app::ingest_with_config(
                 cfg,
                 scope,
-                *summary_only,
                 kebab_app::IngestOpts {
                     progress: Some(tx),
                     cancel: Some(cancel_token),
                     force_reingest: *force_reingest,
+                    summary_only: *summary_only,
                 },
             );
 

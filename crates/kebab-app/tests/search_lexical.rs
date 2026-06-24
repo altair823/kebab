@@ -8,7 +8,7 @@ use common::TestEnv;
 #[test]
 fn lexical_search_returns_hits_after_ingest() {
     let env = TestEnv::lexical_only();
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
 
     // "Ownership" appears as a heading + paragraph in intro.md and
     // matches FTS5 default tokenizer easily.
@@ -34,7 +34,7 @@ fn lexical_search_returns_hits_after_ingest() {
 #[test]
 fn lexical_search_empty_query_returns_empty() {
     let env = TestEnv::lexical_only();
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
     let hits =
         kebab_app::search_with_config(env.config.clone(), common::lexical_query("   ")).unwrap();
     assert!(hits.is_empty(), "blank query must short-circuit empty");
@@ -46,7 +46,7 @@ fn lexical_search_empty_query_returns_empty() {
 #[test]
 fn cached_search_returns_same_hits_on_repeat() {
     let env = TestEnv::lexical_only();
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
     let app = kebab_app::App::open_with_config(env.config.clone()).unwrap();
     let first = app.search(common::lexical_query("ownership")).unwrap();
     assert!(!first.is_empty(), "first call must return ≥1 hit");
@@ -68,7 +68,7 @@ fn cached_search_returns_same_hits_on_repeat() {
 #[test]
 fn cache_key_normalization_treats_case_and_whitespace_as_equivalent() {
     let env = TestEnv::lexical_only();
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
     let app = kebab_app::App::open_with_config(env.config.clone()).unwrap();
     let plain = app.search(common::lexical_query("ownership")).unwrap();
     let upper = app.search(common::lexical_query("OWNERSHIP")).unwrap();
@@ -86,7 +86,7 @@ fn cache_key_normalization_treats_case_and_whitespace_as_equivalent() {
 #[test]
 fn search_uncached_returns_same_hits_as_cached() {
     let env = TestEnv::lexical_only();
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
     let cached =
         kebab_app::search_with_config(env.config.clone(), common::lexical_query("ownership"))
             .unwrap();
@@ -116,7 +116,7 @@ fn first_ingest_bumps_corpus_revision() {
     let baseline = store_before.corpus_revision();
     assert_eq!(baseline, 3, "fresh store post-V011 baseline = 3");
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
     assert!(
         report.new + report.updated > 0,
         "first ingest must commit ≥1 doc"
@@ -133,7 +133,7 @@ fn first_ingest_bumps_corpus_revision() {
 #[test]
 fn vector_mode_with_provider_none_errors_clearly() {
     let env = TestEnv::lexical_only();
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
 
     let q = kebab_core::SearchQuery {
         text: "ownership".to_string(),

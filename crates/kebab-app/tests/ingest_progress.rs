@@ -1,4 +1,4 @@
-//! Integration coverage for `ingest_with_config_progress` —
+//! Integration coverage for streaming ingest progress via `IngestOpts` —
 //! exercises the streaming progress channel against the same lexical
 //! fixture used by `ingest_lexical.rs`.
 
@@ -13,14 +13,19 @@ use kebab_core::IngestItemKind;
 fn run_with_progress() -> Vec<IngestEvent> {
     let env = TestEnv::lexical_only();
     let (tx, rx) = mpsc::channel::<IngestEvent>();
-    let report =
-        kebab_app::ingest_with_config_progress(env.config.clone(), env.scope(), false, Some(tx))
-            .unwrap();
+    let report = kebab_app::ingest_with_config(
+        env.config.clone(),
+        env.scope(),
+        kebab_app::IngestOpts {
+            progress: Some(tx),
+            ..Default::default()
+        },
+    )
+    .unwrap();
     assert_eq!(report.scanned, 3);
     assert_eq!(report.new, 3);
 
-    // Drain until the sender (held inside `ingest_with_config_progress`)
-    // is dropped on return.
+    // Drain until the sender (held inside ingest_with_config) is dropped on return.
     let mut events = Vec::new();
     while let Ok(ev) = rx.recv() {
         events.push(ev);
@@ -142,13 +147,18 @@ fn progress_event_sequence_matches_design_section_2_4a() {
 
 #[test]
 fn ingest_with_config_progress_none_matches_ingest_with_config() {
-    // Forwarding wrapper: `ingest_with_config(...)` and
-    // `ingest_with_config_progress(..., None)` must produce identical
-    // reports modulo wall-clock duration.
+    // `ingest_with_config(...)` with no progress must produce identical
+    // reports to a call with progress=None — modulo wall-clock duration.
     let env = TestEnv::lexical_only();
-    let r_none =
-        kebab_app::ingest_with_config_progress(env.config.clone(), env.scope(), true, None)
-            .unwrap();
+    let r_none = kebab_app::ingest_with_config(
+        env.config.clone(),
+        env.scope(),
+        kebab_app::IngestOpts {
+            summary_only: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     assert_eq!(r_none.scanned, 3);
     assert_eq!(r_none.new, 3);
 }
@@ -160,9 +170,16 @@ fn dropped_receiver_does_not_panic_or_fail_ingest() {
     let env = TestEnv::lexical_only();
     let (tx, rx) = mpsc::channel::<IngestEvent>();
     drop(rx);
-    let report =
-        kebab_app::ingest_with_config_progress(env.config.clone(), env.scope(), true, Some(tx))
-            .unwrap();
+    let report = kebab_app::ingest_with_config(
+        env.config.clone(),
+        env.scope(),
+        kebab_app::IngestOpts {
+            progress: Some(tx),
+            summary_only: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     assert_eq!(report.scanned, 3);
 }
 
@@ -208,8 +225,15 @@ fn pdf_ocr_progress_emits_started_finished_events() {
     };
 
     let (tx, rx) = mpsc::channel::<IngestEvent>();
-    let _report = kebab_app::ingest_with_config_progress(config, scope, false, Some(tx))
-        .expect("ingest_with_config_progress");
+    let _report = kebab_app::ingest_with_config(
+        config,
+        scope,
+        kebab_app::IngestOpts {
+            progress: Some(tx),
+            ..Default::default()
+        },
+    )
+    .expect("ingest_with_config");
 
     let events: Vec<_> = rx.iter().collect();
 

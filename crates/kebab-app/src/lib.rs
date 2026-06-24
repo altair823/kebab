@@ -183,70 +183,47 @@ fn load_config() -> anyhow::Result<kebab_config::Config> {
 
 // ── ingest ────────────────────────────────────────────────────────────────
 
-/// p9-fb-23: optional per-call ingest controls. Kept as a struct (vs.
-/// a growing positional arg list) so future flags (e.g. `dry_run`,
-/// per-asset `concurrency`) land additively without churning every
-/// caller. Mirrors the `AskOpts` pattern from p9-fb-15.
+/// Per-call ingest controls. Kept as a struct (vs. a growing positional
+/// arg list) so future flags (e.g. `dry_run`, per-asset `concurrency`)
+/// land additively without churning every caller. Mirrors the `AskOpts`
+/// pattern from p9-fb-15.
+///
+/// `summary_only` was formerly a positional arg on every ingest entry
+/// point; it lives here now (Phase 3 Unit 3.1 collapse).
 #[derive(Default)]
 pub struct IngestOpts {
     /// Streaming progress sink. `None` suppresses emission entirely.
     pub progress: Option<std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
     /// Cooperative cancel token. `None` = uncancellable.
     pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
-    /// p9-fb-23: when `true`, the per-asset early-skip block is bypassed
-    /// — every asset is re-parsed / re-chunked / re-embedded as if the
-    /// DB were empty. Default `false` preserves the auto-skip path.
+    /// When `true`, the per-asset early-skip block is bypassed — every
+    /// asset is re-parsed / re-chunked / re-embedded as if the DB were
+    /// empty. Default `false` preserves the auto-skip path.
     pub force_reingest: bool,
+    /// When `true`, only chunk/index metadata is written; embeddings are
+    /// skipped. Equivalent to the former positional `summary_only` arg.
+    pub summary_only: bool,
 }
 
-pub fn ingest(scope: SourceScope, summary_only: bool) -> anyhow::Result<IngestReport> {
+/// Facade entry point — loads [`kebab_config::Config`] from the XDG
+/// default path, then forwards to [`ingest_with_config`].
+///
+/// Per the facade rule: the bare `ingest` form always re-loads the XDG
+/// config. Callers with an explicit config (CLI `--config`, tests, TUI)
+/// should call [`ingest_with_config`] directly.
+pub fn ingest(scope: SourceScope, opts: IngestOpts) -> anyhow::Result<IngestReport> {
     let config = load_config()?;
-    ingest_with_config(config, scope, summary_only)
+    ingest_with_config(config, scope, opts)
 }
 
-/// Config-explicit variant — bypasses [`load_config`] when the
-/// caller (kb-cli with `--config`, integration tests, TUI session)
-/// already has a [`kebab_config::Config`] in hand. The public free
-/// function [`ingest`] wraps this with the XDG-default load.
+/// Config-explicit ingest entry point — bypasses [`load_config`] when
+/// the caller (kebab-cli with `--config`, integration tests, TUI
+/// session) already has a [`kebab_config::Config`] in hand.
 ///
-/// This is the no-progress entry point retained for callers that
-/// don't care about streaming progress (older tests, future code that
-/// runs ingest as a one-shot). It forwards into
-/// [`ingest_with_config_progress`] with `progress = None`.
-#[doc(hidden)]
-pub fn ingest_with_config(
-    config: kebab_config::Config,
-    scope: SourceScope,
-    summary_only: bool,
-) -> anyhow::Result<IngestReport> {
-    ingest_with_config_progress(config, scope, summary_only, None)
-}
-
-/// Config + progress variant — same as [`ingest_with_config`] but the
-/// caller may inject an `mpsc::Sender<IngestEvent>` to receive
-/// streaming progress. CLI (`p9-fb-02`) feeds this into the
-/// `ingest_progress.v1` line-delimited dump; TUI (`p9-fb-03`) feeds it
-/// into the status-bar reducer; either may pass `None` to suppress
-/// emission entirely. Send is best-effort — see [`ingest_progress`]
-/// for the contract.
-#[doc(hidden)]
-pub fn ingest_with_config_progress(
-    config: kebab_config::Config,
-    scope: SourceScope,
-    summary_only: bool,
-    progress: Option<std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
-) -> anyhow::Result<IngestReport> {
-    ingest_with_config_cancellable(config, scope, summary_only, progress, None)
-}
-
-/// Config + opts variant (p9-fb-23). Supersedes the positional
-/// `ingest_with_config_cancellable` fn; callers now pass an
-/// [`IngestOpts`] struct so future knobs (e.g. `force_reingest`,
-/// `dry_run`) land additively without churning every call site.
-///
-/// Existing callers that still pass positional `progress` + `cancel`
-/// should use [`ingest_with_config_cancellable`], which remains as a
-/// thin wrapper that builds `IngestOpts` and forwards here.
+/// This is the orchestrator: all former intermediate variants
+/// (`ingest_with_config_progress`, `ingest_with_config_cancellable`,
+/// `ingest_with_config_opts`) are collapsed here. Pass progress /
+/// cancel / force_reingest / summary_only through [`IngestOpts`].
 ///
 /// Per design §10 (cancellation contract — unchanged from p9-fb-04):
 ///
@@ -261,10 +238,9 @@ pub fn ingest_with_config_progress(
 /// CLI's `Ctrl-C` SIGINT handler and TUI's `Esc` / `Ctrl-C` both
 /// flip the same `AtomicBool` (via `opts.cancel`).
 #[doc(hidden)]
-pub fn ingest_with_config_opts(
+pub fn ingest_with_config(
     config: kebab_config::Config,
     scope: SourceScope,
-    summary_only: bool,
     opts: IngestOpts,
 ) -> anyhow::Result<IngestReport> {
     let progress = opts.progress.as_ref();
@@ -636,7 +612,7 @@ pub fn ingest_with_config_opts(
     // ingest-specific aggregate counts row.
     let payload = serde_json::json!({
         "scope": scope,
-        "summary_only": summary_only,
+        "summary_only": opts.summary_only,
     });
     let job_id_res = <SqliteStoreAlias as kebab_core::JobRepo>::create(
         &app.sqlite,
@@ -698,7 +674,7 @@ pub fn ingest_with_config_opts(
     // the count columns are populated either way.
     let scope_json = serde_json::to_string(&scope)
         .context("kb-app::ingest: serialize scope for ingest_runs.scope_json")?;
-    let items_json: Option<String> = if summary_only {
+    let items_json: Option<String> = if opts.summary_only {
         None
     } else {
         match serde_json::to_string(&items) {
@@ -830,37 +806,8 @@ pub fn ingest_with_config_opts(
         skipped_size_exceeded: fs_skips.skipped_size_exceeded,
         skip_examples: fs_skips.skip_examples,
         purged_deleted_files,
-        items: if summary_only { None } else { Some(items) },
+        items: if opts.summary_only { None } else { Some(items) },
     })
-}
-
-/// Config + progress + cancel variant (p9-fb-04). Retained as a thin
-/// wrapper around [`ingest_with_config_opts`] for external callers
-/// (test fixtures, CLI) that pass positional `progress` + `cancel`
-/// arguments. New callers should prefer [`ingest_with_config_opts`]
-/// with an explicit [`IngestOpts`].
-///
-/// CLI's `Ctrl-C` SIGINT handler and TUI's `Esc` / `Ctrl-C` both
-/// flip the `cancel` `AtomicBool`. Pass `None` to retain
-/// pre-p9-fb-04 behaviour (uncancellable).
-#[doc(hidden)]
-pub fn ingest_with_config_cancellable(
-    config: kebab_config::Config,
-    scope: SourceScope,
-    summary_only: bool,
-    progress: Option<std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
-    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
-) -> anyhow::Result<IngestReport> {
-    ingest_with_config_opts(
-        config,
-        scope,
-        summary_only,
-        IngestOpts {
-            progress,
-            cancel,
-            force_reingest: false,
-        },
-    )
 }
 
 /// Mint a stable 32-hex-char `run_id` for an `ingest_runs` row.
@@ -3772,8 +3719,7 @@ pub fn ingest_file_with_config(
         exclude: config.workspace.exclude.clone(),
     };
 
-    let opts = IngestOpts::default();
-    ingest_with_config_opts(config, scope, /* summary_only = */ false, opts)
+    ingest_with_config(config, scope, IngestOpts::default())
 }
 
 /// Stdin ingest (p9-fb-31, v1 markdown only). Prepends a YAML

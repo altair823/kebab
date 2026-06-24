@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use kebab_app::{IngestOpts, ingest_with_config_opts};
+use kebab_app::{IngestOpts, ingest_with_config};
 use kebab_config::{Config, LoggingCfg};
 use kebab_core::SourceScope;
 use serde_json::Value;
@@ -61,7 +61,7 @@ fn ingest_log_smoke() {
     };
 
     // 3. Run ingest.
-    ingest_with_config_opts(cfg, scope, false, IngestOpts::default())
+    ingest_with_config(cfg, scope, IngestOpts::default())
         .expect("ingest should succeed");
 
     // 4. Assert log file exists in log_dir.
@@ -148,7 +148,7 @@ fn ingest_log_disabled_emits_no_file() {
         ..Default::default()
     };
 
-    ingest_with_config_opts(cfg, scope, false, IngestOpts::default())
+    ingest_with_config(cfg, scope, IngestOpts::default())
         .expect("ingest should succeed");
 
     // log_dir should either not exist or contain 0 ingest-*.ndjson files.

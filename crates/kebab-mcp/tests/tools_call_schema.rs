@@ -34,7 +34,7 @@ async fn schema_tool_returns_schema_v1_json() {
         include: vec![],
         exclude: vec![],
     };
-    let _ = kebab_app::ingest_with_config(config.clone(), scope, false).unwrap();
+    let _ = kebab_app::ingest_with_config(config.clone(), scope, kebab_app::IngestOpts::default()).unwrap();
 
     let state = KebabAppState::new(config, None);
     let handler = KebabHandler::new(state);

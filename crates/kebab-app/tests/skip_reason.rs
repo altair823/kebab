@@ -13,7 +13,7 @@ fn unsupported_extension_skip_carries_warning_and_is_aggregated() {
     std::fs::write(workspace_root.join("legacy.docx"), b"unsupported").unwrap();
     std::fs::write(workspace_root.join("Makefile"), b"unsupported").unwrap();
 
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
 
     let items = report.items.as_ref().expect("items array populated");
     let docx_item = items

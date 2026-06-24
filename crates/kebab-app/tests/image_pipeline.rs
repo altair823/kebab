@@ -71,7 +71,7 @@ async fn ingest_image_with_ocr_produces_chunk_containing_ocr_text() {
     let env_scope = env.scope();
 
     let report = spawn_blocking(move || {
-        kebab_app::ingest_with_config(cfg_clone, env_scope, false)
+        kebab_app::ingest_with_config(cfg_clone, env_scope, kebab_app::IngestOpts::default())
             .expect("image ingest must succeed")
     })
     .await
@@ -167,7 +167,7 @@ async fn ingest_image_with_ocr_and_caption_populates_both_fields() {
     let cfg_clone = cfg.clone();
     let scope = env.scope();
     let report = spawn_blocking(move || {
-        kebab_app::ingest_with_config(cfg_clone, scope, false)
+        kebab_app::ingest_with_config(cfg_clone, scope, kebab_app::IngestOpts::default())
             .expect("ingest must succeed with both OCR+caption")
     })
     .await
@@ -212,7 +212,7 @@ async fn ocr_failure_indexes_asset_with_warning_no_error_counter() {
     let cfg_clone = cfg.clone();
     let scope = env.scope();
     let report = spawn_blocking(move || {
-        kebab_app::ingest_with_config(cfg_clone, scope, false)
+        kebab_app::ingest_with_config(cfg_clone, scope, kebab_app::IngestOpts::default())
             .expect("ingest does not abort on lenient OCR failure")
     })
     .await
@@ -276,7 +276,7 @@ async fn image_indexed_with_filename_when_ocr_and_caption_disabled() {
     let cfg_clone = cfg.clone();
     let scope = env.scope();
     let report = spawn_blocking(move || {
-        kebab_app::ingest_with_config(cfg_clone, scope, false).expect("ingest with no OCR/caption")
+        kebab_app::ingest_with_config(cfg_clone, scope, kebab_app::IngestOpts::default()).expect("ingest with no OCR/caption")
     })
     .await
     .expect("task");
@@ -340,7 +340,7 @@ async fn garbage_png_increments_errors_counter_exactly_once() {
     let cfg_clone = cfg.clone();
     let scope = env.scope();
     let report = spawn_blocking(move || {
-        kebab_app::ingest_with_config(cfg_clone, scope, false)
+        kebab_app::ingest_with_config(cfg_clone, scope, kebab_app::IngestOpts::default())
             .expect("ingest does not abort on per-asset failure")
     })
     .await
@@ -399,10 +399,10 @@ async fn re_ingest_image_produces_unchanged_with_same_doc_id() {
     let scope1 = scope.clone();
     let scope2 = scope.clone();
 
-    let r1 = spawn_blocking(move || kebab_app::ingest_with_config(cfg1, scope1, false).unwrap())
+    let r1 = spawn_blocking(move || kebab_app::ingest_with_config(cfg1, scope1, kebab_app::IngestOpts::default()).unwrap())
         .await
         .unwrap();
-    let r2 = spawn_blocking(move || kebab_app::ingest_with_config(cfg2, scope2, false).unwrap())
+    let r2 = spawn_blocking(move || kebab_app::ingest_with_config(cfg2, scope2, kebab_app::IngestOpts::default()).unwrap())
         .await
         .unwrap();
 

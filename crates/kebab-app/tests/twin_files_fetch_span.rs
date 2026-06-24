@@ -45,7 +45,7 @@ fn twin_files_fetch_span_uses_correct_asset() {
 
     // Ingest all files (fixture workspace + our two new twins).
     let report =
-        ingest_with_config(env.config.clone(), env.scope(), false).expect("ingest must succeed");
+        ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).expect("ingest must succeed");
     assert_eq!(report.errors, 0, "no ingest errors; report={report:?}");
 
     // Both twin paths must appear as New in the report.
@@ -146,7 +146,7 @@ fn twin_files_fetch_span_uses_correct_asset() {
     // re-check. Pre-fix this was the scenario that triggered the bug:
     // after the second ingest the asset row's workspace_path could point
     // at either twin, making one twin's span fetch behave incorrectly.
-    let report2 = ingest_with_config(env.config.clone(), env.scope(), false)
+    let report2 = ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("second ingest must succeed");
     assert_eq!(
         report2.errors, 0,

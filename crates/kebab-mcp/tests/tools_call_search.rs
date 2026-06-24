@@ -41,7 +41,7 @@ async fn search_tool_returns_search_response_v1() {
         include: vec![],
         exclude: vec![],
     };
-    let _ = kebab_app::ingest_with_config(config.clone(), scope, false).unwrap();
+    let _ = kebab_app::ingest_with_config(config.clone(), scope, kebab_app::IngestOpts::default()).unwrap();
 
     let state = KebabAppState::new(config, None);
     let handler = KebabHandler::new(state);
@@ -141,7 +141,7 @@ async fn search_with_doc_id_filter_returns_only_target() {
         include: vec![],
         exclude: vec![],
     };
-    let _ = kebab_app::ingest_with_config(config.clone(), scope, false).unwrap();
+    let _ = kebab_app::ingest_with_config(config.clone(), scope, kebab_app::IngestOpts::default()).unwrap();
 
     let state = KebabAppState::new(config, None);
     let handler = KebabHandler::new(state);

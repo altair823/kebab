@@ -44,7 +44,7 @@ fn ingest_with_mock_ocr_yields_pdf_ocr_summary() {
     let env = make_ocr_env_real();
 
     let report =
-        kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).expect("ingest");
+        kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).expect("ingest");
 
     assert!(report.new >= 1, "at least one PDF ingested: {report:?}");
 
@@ -72,7 +72,7 @@ fn ingest_with_mock_ocr_yields_pdf_ocr_summary() {
 fn ocr_text_indexed_and_searchable() {
     let env = make_ocr_env_real();
 
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).expect("ingest");
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).expect("ingest");
 
     // Search for a Korean morpheme expected to appear in qwen2.5vl:3b OCR
     // output of the PoC ground-truth page. "다음" is a high-frequency token
@@ -105,12 +105,13 @@ fn ingest_with_cancel_aborts_mid_pdf() {
 
     let cancel = Arc::new(AtomicBool::new(true)); // pre-set — abort immediately
 
-    let result = kebab_app::ingest_with_config_cancellable(
+    let result = kebab_app::ingest_with_config(
         env.config.clone(),
         env.scope(),
-        false,
-        None,
-        Some(cancel),
+        kebab_app::IngestOpts {
+            cancel: Some(cancel),
+            ..Default::default()
+        },
     );
     // Both Ok (pre-cancel exit) and Err (eager OCR engine fail) are acceptable —
     // key assertion is no panic/deadlock.

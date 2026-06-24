@@ -33,7 +33,7 @@ async fn ask_tool_returns_answer_v1_with_refusal_on_empty_kb() {
         include: vec![],
         exclude: vec![],
     };
-    let _ = kebab_app::ingest_with_config(cfg.clone(), scope, false).unwrap();
+    let _ = kebab_app::ingest_with_config(cfg.clone(), scope, kebab_app::IngestOpts::default()).unwrap();
 
     let state = KebabAppState::new(cfg, None);
     let handler = KebabHandler::new(state);

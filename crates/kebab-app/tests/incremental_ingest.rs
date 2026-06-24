@@ -12,7 +12,7 @@ mod common;
 
 use common::TestEnv;
 
-use kebab_app::{IngestOpts, ingest_with_config, ingest_with_config_opts};
+use kebab_app::{IngestOpts, ingest_with_config};
 
 #[test]
 fn second_ingest_of_unchanged_corpus_marks_all_unchanged() {
@@ -21,7 +21,7 @@ fn second_ingest_of_unchanged_corpus_marks_all_unchanged() {
     // First ingest — populates the DB. Use the legacy entry so the
     // assertions cover the "previously ingested" set without needing
     // IngestOpts::default() to behave identically.
-    let first = ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let first = ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     assert_eq!(first.errors, 0, "first ingest must not error: {first:?}");
     assert!(
         first.new >= 1,
@@ -36,13 +36,8 @@ fn second_ingest_of_unchanged_corpus_marks_all_unchanged() {
 
     // Second ingest — same files, same versions → all assets must be
     // labelled Unchanged (no parse / chunk / embed re-work).
-    let second = ingest_with_config_opts(
-        env.config.clone(),
-        env.scope(),
-        false,
-        IngestOpts::default(),
-    )
-    .unwrap();
+    let second = ingest_with_config(env.config.clone(), env.scope(), IngestOpts::default())
+        .unwrap();
     assert_eq!(
         second.scanned, scanned,
         "second scanned matches first: {second:?}"
@@ -63,7 +58,7 @@ fn second_ingest_of_unchanged_corpus_marks_all_unchanged() {
 fn force_reingest_bypasses_skip() {
     let env = TestEnv::lexical_only();
 
-    let first = ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let first = ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     assert_eq!(first.errors, 0, "first ingest must not error: {first:?}");
     assert!(
         first.new >= 1,
@@ -71,10 +66,9 @@ fn force_reingest_bypasses_skip() {
     );
     let scanned = first.scanned;
 
-    let second = ingest_with_config_opts(
+    let second = ingest_with_config(
         env.config.clone(),
         env.scope(),
-        false,
         IngestOpts {
             force_reingest: true,
             ..Default::default()

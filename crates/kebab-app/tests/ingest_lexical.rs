@@ -8,7 +8,7 @@ use common::TestEnv;
 #[test]
 fn ingest_then_list_inspects_round_trip() {
     let env = TestEnv::lexical_only();
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
 
     // The fixture has 3 markdown files; first ingest should label them
     // all as New.
@@ -42,10 +42,10 @@ fn ingest_then_list_inspects_round_trip() {
 fn ingest_idempotent_on_second_run() {
     let env = TestEnv::lexical_only();
 
-    let r1 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let r1 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     assert_eq!(r1.new, 3);
 
-    let r2 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let r2 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     // Same files re-ingested — p9-fb-23 task 7 introduced the early-skip
     // path: when checksum + parser/chunker/embedding versions all match,
     // the second run reports `Unchanged` rather than `Updated`. Pre-p9-fb-23
@@ -66,7 +66,7 @@ fn ingest_idempotent_on_second_run() {
 #[test]
 fn ingest_summary_only_drops_items() {
     let env = TestEnv::lexical_only();
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
     assert_eq!(report.scanned, 3);
     assert!(report.items.is_none(), "summary-only should null items");
 }
@@ -78,7 +78,7 @@ fn ingest_records_ingest_runs_row_with_aggregate_counts() {
     // of every run. `summary_only=true` writes `items_json=NULL`; the
     // counts MUST still be present.
     let env = TestEnv::lexical_only();
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
     assert_eq!(report.scanned, 3);
 
     let db_path = std::path::PathBuf::from(&env.config.storage.data_dir).join("kebab.sqlite");
@@ -130,7 +130,7 @@ fn ingest_provider_none_skips_lance() {
     // tree shape (no `<data_dir>/lancedb` directory, or no `*.lance`
     // tables under it).
     let env = TestEnv::lexical_only();
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     assert_eq!(report.errors, 0, "lexical-only run must not error");
     assert_eq!(report.new, 3);
 
@@ -157,7 +157,7 @@ fn ingest_provider_none_skips_lance() {
 #[test]
 fn list_docs_filters_by_tags_any() {
     let env = TestEnv::lexical_only();
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
 
     let filter = kebab_core::DocFilter {
         tags_any: vec!["python".to_string()],
@@ -205,16 +205,14 @@ fn inspect_chunk_not_found_returns_actionable_error() {
     assert!(msg.contains("not found"), "got: {msg}");
 }
 
-/// p9-fb-23 task 6: `ingest_with_config_opts` with `IngestOpts::default()`
-/// must behave identically to `ingest_with_config` — first ingest reports
-/// all assets as new, no errors, no unchanged.
+/// p9-fb-23 task 6: `ingest_with_config` with `IngestOpts::default()`
+/// must report all assets as new, no errors, no unchanged on first ingest.
 #[test]
 fn ingest_with_config_opts_default_matches_legacy_behaviour() {
     let env = TestEnv::lexical_only();
-    let report = kebab_app::ingest_with_config_opts(
+    let report = kebab_app::ingest_with_config(
         env.config.clone(),
         env.scope(),
-        false,
         kebab_app::IngestOpts::default(),
     )
     .unwrap();
@@ -232,7 +230,7 @@ fn ingest_with_config_opts_default_matches_legacy_behaviour() {
 #[test]
 fn ingest_stamps_chunker_version_on_document() {
     let env = TestEnv::lexical_only();
-    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     assert!(report.new >= 1, "expected at least one new doc: {report:?}");
     assert_eq!(report.errors, 0, "no errors expected: {report:?}");
 

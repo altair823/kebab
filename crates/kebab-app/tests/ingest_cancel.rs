@@ -1,4 +1,4 @@
-//! Integration coverage for `ingest_with_config_cancellable`
+//! Integration coverage for cancellable ingest via `IngestOpts`
 //! (p9-fb-04). Asserts the §10 invariants:
 //!
 //! - Cancel set BEFORE the loop starts → no asset is processed.
@@ -21,12 +21,15 @@ fn run_with(
     cancel: Arc<AtomicBool>,
     progress: Option<mpsc::Sender<IngestEvent>>,
 ) -> kebab_core::IngestReport {
-    kebab_app::ingest_with_config_cancellable(
+    kebab_app::ingest_with_config(
         env.config.clone(),
         env.scope(),
-        true,
-        progress,
-        Some(cancel),
+        kebab_app::IngestOpts {
+            progress,
+            cancel: Some(cancel),
+            summary_only: true,
+            ..Default::default()
+        },
     )
     .unwrap()
 }
@@ -89,7 +92,15 @@ fn cancel_mid_loop_after_first_asset_keeps_idempotent_resume() {
     assert!(report.new < 3, "loop should have broken: {report:?}");
 
     // Idempotent re-ingest finishes the job.
-    let r2 = kebab_app::ingest_with_config(env.config.clone(), env.scope(), true).unwrap();
+    let r2 = kebab_app::ingest_with_config(
+        env.config.clone(),
+        env.scope(),
+        kebab_app::IngestOpts {
+            summary_only: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     assert_eq!(r2.scanned, 3, "re-scan: {r2:?}");
     // Total committed across both runs covers all 3 docs (some New
     // first run, rest New on second; or first run was 0 → all New on
@@ -108,7 +119,15 @@ fn cancel_none_is_uncancellable_default() {
     let env = TestEnv::lexical_only();
     let (tx, rx) = mpsc::channel::<IngestEvent>();
     let report =
-        kebab_app::ingest_with_config_progress(env.config.clone(), env.scope(), true, Some(tx))
+        kebab_app::ingest_with_config(
+            env.config.clone(),
+            env.scope(),
+            kebab_app::IngestOpts {
+                progress: Some(tx),
+                summary_only: true,
+                ..Default::default()
+            },
+        )
             .unwrap();
     assert_eq!(report.scanned, 3);
     assert_eq!(report.new, 3);

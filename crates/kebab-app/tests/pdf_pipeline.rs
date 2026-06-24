@@ -141,7 +141,7 @@ fn ingest_3_page_pdf_produces_one_doc_and_per_page_chunks() {
     write_pdf(&env.workspace_root, "three.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false)
+    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), kebab_app::IngestOpts::default())
         .expect("PDF ingest must succeed");
 
     assert_eq!(report.errors, 0);
@@ -203,7 +203,7 @@ fn re_ingest_identical_pdf_produces_unchanged_with_same_doc_id() {
     write_pdf(&env.workspace_root, "stable.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report1 = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report1 = kebab_app::ingest_with_config(cfg.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     let item1 = report1
         .items
         .as_ref()
@@ -214,7 +214,7 @@ fn re_ingest_identical_pdf_produces_unchanged_with_same_doc_id() {
         .unwrap();
     assert_eq!(item1.kind, IngestItemKind::New);
 
-    let report2 = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report2 = kebab_app::ingest_with_config(cfg.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     let item2 = report2
         .items
         .unwrap()
@@ -238,7 +238,7 @@ fn re_ingest_edited_pdf_produces_new_doc_id() {
     std::fs::write(&path, &bytes_v1).unwrap();
     let cfg = cfg_with_pdf(&env);
 
-    let report_v1 = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report_v1 = kebab_app::ingest_with_config(cfg.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     let id_v1 = report_v1
         .items
         .as_ref()
@@ -253,7 +253,7 @@ fn re_ingest_edited_pdf_produces_new_doc_id() {
     let bytes_v2 = build_text_pdf(&[Some("VERSION TWO entirely different body content.")]);
     std::fs::write(&path, &bytes_v2).unwrap();
 
-    let report_v2 = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report_v2 = kebab_app::ingest_with_config(cfg.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     let item_v2 = report_v2
         .items
         .as_ref()
@@ -278,7 +278,7 @@ fn encrypted_pdf_fails_with_qpdf_hint() {
     write_pdf(&env.workspace_root, "secret.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report = kebab_app::ingest_with_config(cfg, env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(cfg, env.scope(), kebab_app::IngestOpts::default()).unwrap();
     assert_eq!(
         report.errors, 1,
         "encrypted PDF must increment errors exactly once"
@@ -308,7 +308,7 @@ fn corrupt_pdf_fails_without_storing() {
     write_pdf(&env.workspace_root, "corrupt.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     assert_eq!(
         report.errors, 1,
         "corrupt PDF must increment errors exactly once"
@@ -342,7 +342,7 @@ fn mixed_page_pdf_stores_asset_with_scanned_candidate_warning() {
     write_pdf(&env.workspace_root, "mixed.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     assert_eq!(
         report.errors, 0,
         "scanned candidate is a Warning, not Error"
@@ -413,7 +413,7 @@ fn ingest_report_arithmetic_invariant_holds_with_corrupt_pdf() {
     write_pdf(&env.workspace_root, "broken.pdf", &corrupt_pdf());
     let cfg = cfg_with_pdf(&env);
 
-    let report = kebab_app::ingest_with_config(cfg, env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(cfg, env.scope(), kebab_app::IngestOpts::default()).unwrap();
     let total = report.new + report.updated + report.skipped + report.errors;
     assert_eq!(
         report.scanned, total,
@@ -439,7 +439,7 @@ fn long_pdf_round_trips_through_lexical_pipeline() {
     write_pdf(&env.workspace_root, "long.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     assert_eq!(report.errors, 0);
     let pdf_item = report
         .items
@@ -470,7 +470,7 @@ fn inspect_doc_surfaces_page_spans() {
     write_pdf(&env.workspace_root, "inspect.pdf", &bytes);
     let cfg = cfg_with_pdf(&env);
 
-    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), false).unwrap();
+    let report = kebab_app::ingest_with_config(cfg.clone(), env.scope(), kebab_app::IngestOpts::default()).unwrap();
     let pdf_item = report
         .items
         .as_ref()

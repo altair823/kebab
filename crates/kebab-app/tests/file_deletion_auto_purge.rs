@@ -16,8 +16,7 @@
 mod common;
 
 use common::TestEnv;
-use kebab_app::IngestOpts;
-use kebab_app::ingest_with_config_opts;
+use kebab_app::{IngestOpts, ingest_with_config};
 use kebab_core::{DocFilter, DocumentStore, SearchMode, SearchQuery, SourceScope};
 
 /// Helper: open the store via `TestEnv` and run `list_documents`.
@@ -44,10 +43,9 @@ fn file_deletion_auto_purge() {
     std::fs::write(&b_path, "// file b\nfn bravo() {}\n").unwrap();
 
     // First ingest — both must be New.
-    let first = ingest_with_config_opts(
+    let first = ingest_with_config(
         env.config.clone(),
         env.scope(),
-        false,
         IngestOpts::default(),
     )
     .expect("first ingest must succeed");
@@ -64,10 +62,9 @@ fn file_deletion_auto_purge() {
     std::fs::remove_file(&b_path).expect("remove b.rs");
 
     // Second ingest — scanned count drops by 1; b.rs should be purged.
-    let second = ingest_with_config_opts(
+    let second = ingest_with_config(
         env.config.clone(),
         env.scope(),
-        false,
         IngestOpts::default(),
     )
     .expect("second ingest must succeed");
@@ -126,7 +123,7 @@ fn include_scope_narrowing_does_not_purge() {
         exclude: env.config.workspace.exclude.clone(),
     };
     let first =
-        ingest_with_config_opts(env.config.clone(), wide_scope, false, IngestOpts::default())
+        ingest_with_config(env.config.clone(), wide_scope, IngestOpts::default())
             .expect("first ingest (wide) must succeed");
     assert!(first.new >= 2, "expected at least 2 new docs: {first:?}");
     assert_eq!(
@@ -141,10 +138,9 @@ fn include_scope_narrowing_does_not_purge() {
         include: vec!["a_narrow.rs".to_string()],
         exclude: env.config.workspace.exclude.clone(),
     };
-    let second = ingest_with_config_opts(
+    let second = ingest_with_config(
         env.config.clone(),
         narrow_scope,
-        false,
         IngestOpts::default(),
     )
     .expect("second ingest (narrow) must succeed");
