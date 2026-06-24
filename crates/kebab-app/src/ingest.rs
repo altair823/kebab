@@ -1731,6 +1731,8 @@ fn ingest_one_image_asset(
         },
     );
     let t_embed = std::time::Instant::now();
+    let mut emb_cache_hit = 0_usize;
+    let mut emb_cache_miss = 0_usize;
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
         && !chunks.is_empty()
     {
@@ -1743,8 +1745,6 @@ fn ingest_one_image_asset(
         let emb_version_key =
             format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
         let body_texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
-        let mut emb_cache_hit = 0_usize;
-        let mut emb_cache_miss = 0_usize;
         let mut emb_touch_keys: Vec<String> = Vec::new();
         let vectors = embed_with_cache(
             &**emb,
@@ -1800,6 +1800,16 @@ fn ingest_one_image_asset(
             caption_ms,
         },
     );
+
+    // 검증용 hit/miss 카운트 노출(§3.4 / §6): warm 재색인이 embed 0회임을
+    // 로그로 확인. tracing target 은 stderr 로 흐른다.
+    if emb_cache_hit + emb_cache_miss > 0 {
+        tracing::info!(
+            target: "kebab-app",
+            doc = %canonical.doc_id.0,
+            "derivation cache: embedding hit={emb_cache_hit} miss={emb_cache_miss}"
+        );
+    }
 
     let kind = if existing_doc_ids.contains(&canonical.doc_id.0) {
         kebab_core::IngestItemKind::Updated
@@ -2380,6 +2390,8 @@ fn ingest_one_pdf_asset(
         },
     );
     let t_embed = std::time::Instant::now();
+    let mut emb_cache_hit = 0_usize;
+    let mut emb_cache_miss = 0_usize;
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
         && !chunks.is_empty()
     {
@@ -2389,8 +2401,6 @@ fn ingest_one_pdf_asset(
         let emb_version_key =
             format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
         let body_texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
-        let mut emb_cache_hit = 0_usize;
-        let mut emb_cache_miss = 0_usize;
         let mut emb_touch_keys: Vec<String> = Vec::new();
         let vectors = embed_with_cache(
             &**emb,
@@ -2446,6 +2456,16 @@ fn ingest_one_pdf_asset(
             caption_ms: 0,
         },
     );
+
+    // 검증용 hit/miss 카운트 노출(§3.4 / §6): warm 재색인이 embed 0회임을
+    // 로그로 확인. tracing target 은 stderr 로 흐른다.
+    if emb_cache_hit + emb_cache_miss > 0 {
+        tracing::info!(
+            target: "kebab-app",
+            doc = %canonical.doc_id.0,
+            "derivation cache: embedding hit={emb_cache_hit} miss={emb_cache_miss}"
+        );
+    }
 
     let kind = if existing_doc_ids.contains(&canonical.doc_id.0) {
         kebab_core::IngestItemKind::Updated
@@ -2719,6 +2739,8 @@ fn ingest_one_code_asset(
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     store_document_records(app, asset, &bytes, &canonical, &chunks, " (code)")?;
 
+    let mut emb_cache_hit = 0_usize;
+    let mut emb_cache_miss = 0_usize;
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
         && !chunks.is_empty()
     {
@@ -2728,8 +2750,6 @@ fn ingest_one_code_asset(
         let emb_version_key =
             format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
         let body_texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
-        let mut emb_cache_hit = 0_usize;
-        let mut emb_cache_miss = 0_usize;
         let mut emb_touch_keys: Vec<String> = Vec::new();
         let vectors = embed_with_cache(
             &**emb,
@@ -2765,6 +2785,16 @@ fn ingest_one_code_asset(
             .upsert(&records)
             .context("VectorStore::upsert (code)")?;
         app.sqlite.derivation_cache_touch(&emb_touch_keys)?;
+    }
+
+    // 검증용 hit/miss 카운트 노출(§3.4 / §6): warm 재색인이 embed 0회임을
+    // 로그로 확인. tracing target 은 stderr 로 흐른다.
+    if emb_cache_hit + emb_cache_miss > 0 {
+        tracing::info!(
+            target: "kebab-app",
+            doc = %canonical.doc_id.0,
+            "derivation cache: embedding hit={emb_cache_hit} miss={emb_cache_miss}"
+        );
     }
 
     let kind = if existing_doc_ids.contains(&canonical.doc_id.0) {
