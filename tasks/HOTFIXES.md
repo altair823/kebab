@@ -50,15 +50,33 @@ RAG 헤더에 렌더되므로 `validate_sources` 에 char-set 검증 추가(`[A-
 DB 확인) 전부 PASS, MEDIUM(rag-v3 opt-out doc 부정확 + multi-hop 버전 미bump) 수정,
 LOW(source_id 검증) 반영.
 
-**도그푸딩 — 라벨 메커니즘 검증됨, LLM-judge 보류.** 실험 KB(arctic@Lemonade)에서
-`search --json` 으로 competing 쿼리("WiredTiger checkpoint", auth=wiki)가 wiki(primary,
-score 0.5)와 jira(secondary, 0.46) **둘 다 retrieval** + 각 hit 에 정확한
-`source_id`/`trust_level` 노출 확인 — 라벨이 올바른 출처에서 채워져 프롬프트에 도달함을
-end-to-end 입증. **그러나 rag-v3 vs rag-v4 답변 비교(LLM-judge)는 보류**: instruction
-LLM 부재 — 홈랩 ollama(.2/.47) 다운, lemonade `/api/generate` 는 it-model chat
-template 미적용이라 Gemma-4-31B raw 프롬프트에 degenerate 출력(kebab 의 LLM 클라이언트는
-`/api/generate` streaming 사용). 코드 문제 아닌 인프라 — .2/.47 복구 시 `dogfood_rag_v4.py`
-(competing 66 subset, jira-override rate)로 측정 예정. 설계:
+**도그푸딩 — 라벨 메커니즘 검증됨 + LLM-judge 완료(무해 / 효과 미입증).** 실험 KB
+(snowflake-arctic-embed2 임베드 + gemma3:4b LLM, 둘 다 R9700 GPU ollama @ .244)에서:
+
+1. **라벨 도달**: `search --json` competing 쿼리("WiredTiger checkpoint", auth=wiki)가
+   wiki(primary)·jira(secondary) **둘 다 retrieval** + 각 hit 에 정확한
+   `source_id`/`trust_level` 노출 — 라벨이 올바른 출처에서 채워져 프롬프트에 도달함을
+   end-to-end 입증.
+2. **LLM-judge (rag-v3 vs rag-v4, competing 전체 66 = wiki-auth 34 + jira-auth 32,
+   gemma3:4b)**: 타깃 실패 모드 = 저신뢰 jira 가 권위 wiki 를 **덮어씀**(wiki 인용 없이
+   jira 단독)은 **두 버전 모두 0/34** — 이 코퍼스+모델 조합에서 애초에 재현 안 됨(고칠
+   대상 부재). 품질 지표 전부 표본오차(±1) 내라 통계적 구분 불가: wiki-grounded 32 vs 31,
+   jira-correct 29 vs 28, 거부 4 vs 5, 둘 다 인용(귀속) 5 vs 4. 사전 등록한 거친 지표
+   (wiki-auth 가 jira 를 *한 번이라도* 인용)도 5 vs 4 로 평탄 — N=8 예비 run 의 1→3
+   "악화"는 소표본 노이즈였고 powered run(N=66)에서 소멸. 유일한 실질 델타: v4 가 약간
+   더 간결(평균 인용 5.14 → 4.23).
+
+**결론**: rag-v4 는 **무해(회귀 0)** 이고 라벨이 프롬프트에 도달함은 확인됐으나, 헤드라인
+효과(trust-steering 으로 jira-override 억제)는 **이 모델/코퍼스에서 실패 모드 자체가
+재현 안 돼 입증 불가**. 즉 v4 는 *이 설정이 노출하지 않는 실패 모드*를 위한 가드레일 —
+더 큰 모델(사용자 실 모델 gemma4:e4b 은 gfx1201 ollama 0.15.4 빌드가 arch 미지원이라
+gemma3:4b 로 대체), wiki↔jira 가 실제로 모순되는 코퍼스, 또는 retrieval 순서에 더
+휘둘리는 모델에서 의미를 가질 것. 인프라 메모: 홈랩 ollama(.2/.47) 다운 + lemonade
+`/api/generate` 는 it-model chat template 미적용이라, 도그푸딩용으로 R9700 에
+`androiddrew/ollama:0.15.4-rocm-7.2`(gfx1201 GPU) 컨테이너를 일시 기동해 gemma3:4b
+(106 tok/s) + arctic2(1024d) 로 측정한 뒤 lemonade 복원. harness:
+`/home/user/large_data/out/kebab-ab/dogfood_rag_v4.py`(거친 지표 외 pure-override /
+attribution / grounding 분해 지표 추가). 설계:
 `docs/superpowers/plans/2026-06-24-rag-v4-provenance-label.md`.
 
 ## 2026-06-24 — pdf-page-v1.2: PDF 페이지 oversize 분할 + 공유 `crate::oversize` 모듈
