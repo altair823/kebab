@@ -140,7 +140,7 @@ cache_capacity = 256                 # p9-fb-19 — in-process LRU cap; 0 disabl
 stale_threshold_days = 30            # p9-fb-32 — 0 = disable. Marks hits/citations whose source doc was last reindexed > N days ago.
 
 [rag]
-prompt_template_version = "rag-v4"   # default — 각 근거의 source/trust 라벨로 low-trust 출처 discount. rag-v1/v2/v3 는 legacy.
+prompt_template_version = "rag-v4"   # default — 각 근거의 source/trust 라벨로 low-trust 출처 discount. rag-v3 는 legacy.
 score_gate = 0.05                    # RRF 정규화 후 [0, 1] 범위라 default 그대로 OK
 explain_default = false
 max_context_tokens = 6000
