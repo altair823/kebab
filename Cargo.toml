@@ -32,7 +32,7 @@ edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/altair823/kebab"
-version       = "0.30.0"   # v0.30.0 — md-heading-v2 청커: 예산 초과 청크 일반 분할. v1 의 "블록 미분할" 한계(거대 list/code/table/paragraph 가 한 청크→임베더 ctx 초과)를 일반화 — `token_estimate > max_chunk_tokens`(신규 config, byte/3, default 4000)인 청크만 줄(→UTF-8 char) 경계로 분할, 각 조각 ≤ 예산. 분할 조각 chunk_id 는 `#seg{i}` 접미사로 충돌 회피, `max_chunk_tokens` 는 v2 policy_hash 에 fold(공유 ChunkPolicy 미변경). 미분할 청크는 v1 과 byte-identical. `chunker_version` v1→v2 → 다음 ingest 에서 markdown 1회 자동 재청크(코드/PDF 무영향). 동기: strict 임베더(AMD Lemonade)는 oversize 입력을 truncate 아닌 거부 → 청커가 애초에 안 만드는 게 옳음. 신규 config 키 + 청커 동작(검색 hit 분할) 변경 → minor + 도그푸딩 트리거. — CLAUDE.md §Release
+version       = "0.30.1"   # v0.30.1 — 후속 배치 3건. (1) pdf-page-v1.2: md-heading-v2 의 oversize 분할을 PDF 청커로 확장 — 거대 PDF 페이지(> max_chunk_tokens)만 공유 `crate::oversize` 모듈로 재분할, 미분할 페이지는 v1.1 과 동일. `chunker_version` v1.1→v1.2 → 다음 ingest 에서 PDF 1회 자동 재청크(markdown/코드 무영향). (2) rag-v4 provenance 라벨: RAG 컨텍스트의 각 청크 머리에 `source=/trust=` 라벨 렌더 + system prompt 에 신뢰도 우선(discount)·[#번호] 귀속 2규칙 추가, `prompt_template_version` 기본 rag-v3→rag-v4, `search_hit.v1` 에 `source_id`/`trust_level` additive optional(v2 bump 아님). LLM-judge 도그푸딩(gemma3:4b@R9700, competing 66): jira-override 0/0(실패 모드 미재현) — v4 무해, trust-steering 효과는 미입증. (3) config `[ingest.chunking]` budget floor 검증. NB: chunker_version·prompt_template_version 변경은 §Versioning 상 minor 트리거지만 사용자 재량으로 patch(0.30.1) 처리. — CLAUDE.md §Release
 
 # pre-v0.18 workspace-wide cleanup: enable clippy::pedantic group with
 # intentional allow-list. The allowed lints are either cosmetic (doc style),
