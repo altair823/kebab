@@ -4,7 +4,7 @@
 
 ## 한 줄
 
-Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-cli`, `kebab-tui`, 미래 `kebab-desktop`) 가 facade crate (`kebab-app`) 만 참조. 도메인 / 파이프라인 / 저장소 / 외부 어댑터가 명확한 boundary 로 분리.
+Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-cli`, 미래 `kebab-desktop`) 가 facade crate (`kebab-app`) 만 참조. 도메인 / 파이프라인 / 저장소 / 외부 어댑터가 명확한 boundary 로 분리.
 
 ## 핵심 기술 결정 (lock 됨)
 
@@ -27,7 +27,6 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 | PDF parser | `lopdf` per-page 텍스트 + scanned-page image extract (`page_image::extract_dctdecode_page_image`, v0.20.0). `chunker_version = "pdf-page-v1"` 하드코딩 (HOTFIXES P7-3). `parser_version = "pdf-text-v1"` 보존 (v0.20 OCR 후에도) — provenance event 로 OCR 사용 차별화. force-reingest 가 v0.19 indexed scanned PDF 의 재처리에 필요. |
 | code parser | `tree-sitter` + `tree-sitter-rust` / `tree-sitter-python` / `tree-sitter-typescript` / `tree-sitter-javascript` / `tree-sitter-go` / `tree-sitter-java` / `tree-sitter-kotlin-ng` — **parser-side** (`kebab-parse-code`), chunker-side 아님 (design §6.3). chunker versions: Rust = `code-rust-ast-v1`, Python = `code-python-ast-v1`, TypeScript = `code-ts-ast-v1`, JavaScript = `code-js-ast-v1`, Go = `code-go-ast-v1`, Java = `code-java-ast-v1`, Kotlin = `code-kotlin-ast-v1`. `ast_chunk_max_lines = 200` 상수 고정 (HOTFIXES 2026-05-19 — Chunker trait 이 per-medium config 미노출). Kotlin grammar 은 `tree-sitter-kotlin-ng` 사용 — bare `tree-sitter-kotlin` 은 tree-sitter 0.21–0.23 에 고착되어 있어 사용 불가. **Tier 2 (p10-2)**: YAML/k8s → `serde_yaml` + `k8s-manifest-resource-v1` (apiVersion+kind per resource), Dockerfile → `dockerfile-file-v1` (whole-file), Cargo.toml/go.mod/.json/.xml/.groovy → `manifest-file-v1` (whole-file). Tier 2 chunkers live in `kebab-chunk`; no tree-sitter grammar needed (structure from file type, not AST). **Tier 3 (p10-3)**: shell scripts (`.sh`/`.bash`/`.zsh`) direct → `code-text-paragraph-v1` (blank-line paragraph segmentation + 80-line / 20-overlap line-window for oversize). Same chunker also serves as fallback when Tier 1/2 emit 0 chunks or Err — non-k8s YAML / invalid YAML / AST extractor failures all picked up. symbol = None; lang preserved from input doc. **Tier 1 family complete (p10-1D)**: C (`tree-sitter-c`, `code-c-ast-v1`, `.c`/`.h`) + C++ (`tree-sitter-cpp`, `code-cpp-ast-v1`, `.cpp`/`.cc`/`.cxx`/`.hpp`/`.hh`/`.hxx`). C symbol = function name only; C++ symbol = `namespace::Class::method` (recursive nesting). `.h` 가 C++ syntax 만나면 tree-sitter-c parse 실패 → Tier 3 fallback. |
 | symbol path 형식 | workspace path → module path: Python = dotted prefix (`kebab_eval.metrics.compute_mrr`), TypeScript/JavaScript = slash-style prefix (`src/Foo.Foo.search`), Go = `package.Func` / `package.(*Receiver).Method`, Java/Kotlin = `com.foo.Foo.bar` (패키지+클래스+메서드/필드), C = 함수명, C++ = `namespace::Class::method`. Rust 1A-2 는 file-scope nesting 만 (workspace prefix 없음, 비일관 수용 — HOTFIXES 2026-05-20). code chunk 은 `citation.kind = "code"` + `citation.lang` + `symbol` + line range, SearchHit 에 `code_lang` + `repo`(`.git` walk-up 디렉토리명) backfill. |
-| TUI | Ratatui + crossterm — Library / Search / Ask / Inspect 패널 (P9-1~4 완료), vim-style NORMAL/INSERT 모드 + `F1` cheatsheet (런타임 키 매핑 권위 소스) |
 | Desktop | Tauri 2 + `pdfjs-dist` (native PDF render backend 금지) — P9-5 |
 | citation 형식 | URI fragment (`path#L12-L34` / `path#p=12` / `path#xywh=0,0,100,50`, W3C Media Fragments) |
 | ID 생성 | `blake3(canonical_json(tuple))[..32]` hex |
@@ -47,7 +46,6 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 flowchart TB
     subgraph UI ["UI binary"]
         cli["kebab-cli"]
-        tui["kebab-tui"]
         mcp["kebab-mcp<br/>(P9-FB-30)"]
         desktop["kebab-desktop<br/>(P9-5)"]
     end
@@ -80,7 +78,6 @@ flowchart TB
     core["kebab-core<br/>(domain types)"]
 
     cli --> app
-    tui --> app
     mcp --> app
     desktop --> app
 
@@ -209,7 +206,6 @@ kebab/
 │   ├── kebab-parse-pdf/                               # lopdf per-page text extractor (P7-1)
 │   ├── kebab-parse-code/                              # tree-sitter AST extractors: Rust (P10-1A-2), Python + TypeScript + JavaScript (P10-1B), Go (P10-1C-Go), Java + Kotlin (P10-1C-JK — java.rs + kotlin.rs), C + C++ (P10-1D — c.rs + cpp.rs); chunker lives in kebab-chunk
 │   ├── kebab-app/                                     # facade (P0 시그니처 + P3-5/P6-4/P7-3 본체). src/derivation_payload.rs = 캐시 payload 인코딩 (v0.21.0)
-│   ├── kebab-tui/                                     # Ratatui shell + Library 패널 (P9-1)
 │   ├── kebab-mcp/                                     # stdio MCP server — tools: schema, doctor, search, ask (P9-FB-30)
 │   └── kebab-cli/                                     # binary (P0 → 핫픽스로 --config flag wiring 강화)
 ├── migrations/                                     # SQLite refinery V001..V014 (V012 = derivation_cache v0.21.0, V013 = drop chunk_aliases v0.25.0, V014 = documents.source_id v0.29.0)

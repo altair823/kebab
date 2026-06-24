@@ -20,7 +20,6 @@ members = [
     "crates/kebab-eval",
     "crates/kebab-parse-image",
     "crates/kebab-parse-pdf",
-    "crates/kebab-tui",
     "crates/kebab-mcp",
     "crates/kebab-parse-code",
     "crates/kebab-nli",
@@ -92,7 +91,7 @@ struct_excessive_bools   = "allow"
 naive_bytecount          = "allow"
 # `#[ignore]` annotations on tests document via the test name + nearby comment.
 ignore_without_reason    = "allow"
-# `format!` push patterns are a hot path for kebab-tui's progressive rendering;
+# `format!` push patterns are common in CLI output paths;
 # `write!` rewrite needs a verified-equal benchmark before swapping.
 format_push_string       = "allow"
 # Builder-style `with_*` methods return `Self`; the existing `#[must_use]`

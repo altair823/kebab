@@ -74,10 +74,6 @@ Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go
 
 검색 결과를 근거로 LLM 답변을 생성하고 [#번호] 인용을 단다. 근거가 부족하면 답을 지어내지 않고 거절한다. compound 질문은 `--multi-hop` 으로 분해→synthesize. 답변의 groundedness 는 mDeBERTa XNLI 로 검증할 수 있다 (`[rag] nli_threshold`, default off).
 
-### TUI
-
-`kebab tui` 는 Ratatui 셸 — Library / Search / Ask / Inspect 패널을 vim-style 모드로 다룬다. 키 매핑은 앱 내 `F1` cheatsheet 가 권위 소스다.
-
 ## 명령
 
 | 명령 | 동작 |
@@ -94,7 +90,6 @@ Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go
 | `kebab eval run \| aggregate \| compare \| variants` | golden query 회귀 측정 + 변형 일관성 진단 |
 | `kebab schema [--json]` | introspection — wire schemas / capabilities / models / stats |
 | `kebab doctor` | 설정 / 모델 / DB 헬스 체크 |
-| `kebab tui` | Ratatui 셸 (Library / Search / Ask / Inspect) |
 | `kebab mcp` | MCP stdio server (`search` / `bulk_search` / `ask` / `fetch` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`) |
 | `kebab reset [--all \| --data-only \| --vector-only \| --config-only \| --orphans-only] [--yes]` | XDG 데이터 wipe (**irreversible**) |
 
@@ -173,7 +168,7 @@ nli_threshold = 0.0                  # >0 (예: 0.5) 면 mDeBERTa XNLI groundedn
 - **`[ingest.code]`** — code ingest 의 skip 정책 (`skip_generated_header`, `max_file_bytes`, `extra_skip_globs`). `.gitignore` 자동 honor, `.kebabignore` 는 추가 layer.
 - **`[ingest.image.ocr]`** — 이미지 OCR (default off / opt-in). `engine` 으로 백엔드 선택: `"ollama-vision"` (default, 원격 vision LM) 또는 `"paddle-onnx"` (PP-OCRv5 ONNX 를 in-process 로 실행, Python 런타임 불필요, 큰 페이지 CPU <4초, 오프라인). `paddle-onnx` 는 워크스페이스에 번들된 모델을 쓰며 `det_model`/`rec_model`/`dict` 로 경로 override, `score_thresh`(0.3)/`unclip_ratio`(1.5)/`max_boxes`(1000) 로 검출 튜닝 가능 (`KEBAB_IMAGE_OCR_*` env 동일 지원 — env 이름은 v3 에서도 불변). engine 또는 모델을 바꾸면 영향 이미지가 자동 재색인된다.
 - **`[ingest.pdf.ocr]`** — scanned PDF 의 page-단위 OCR (default off / opt-in, page 당 ~수십 초 cost). `engine` 은 `[ingest.image.ocr]` 과 동일하게 `"ollama-vision"`/`"paddle-onnx"` 선택. v3 에서 paddle 모델 경로 키(`det_model`/`rec_model`/`dict`/`score_thresh`/`unclip_ratio`/`max_boxes`)를 PDF 자체적으로 가질 수 있다(`KEBAB_PDF_OCR_*` env 동일). 활성화 후 옛 색인분은 `kebab ingest --force-reingest` 로 재처리.
-- **`--config <path>`** — 임시 워크스페이스 / 격리 테스트용 (CLI · TUI 모두 honor).
+- **`--config <path>`** — 임시 워크스페이스 / 격리 테스트용 (CLI honor).
 - **`kebab config migrate`** — 새 버전에서 추가된 config 섹션을 기존 `config.toml` 에 설명 주석과 함께 채워 넣는다 (사용자가 손본 값·주석·순서는 보존, 멱등, 변경 시 자동 `.bak` 백업). `--dry-run` 으로 변경 미리보기. `kebab doctor` 가 갱신 필요 시 안내한다. `kebab init` 으로 새로 생성되는 config.toml 도 섹션별 주석을 포함한다.
 - **`KEBAB_*` env** — 일부 키 override (`KEBAB_RAG_SCORE_GATE`, `KEBAB_EVAL_GOLDEN` 등).
 - **XDG layout**: `~/.config/kebab/`, `~/.local/share/kebab/`, `~/.cache/kebab/`, `~/.local/state/kebab/`.
@@ -186,7 +181,6 @@ flowchart TB
 
     subgraph UI["UI binary"]
         cli["kebab CLI"]
-        tui["kebab TUI"]
     end
 
     subgraph App["Facade"]
@@ -213,9 +207,7 @@ flowchart TB
     end
 
     user --> cli
-    user --> tui
     cli --> app
-    tui --> app
 
     app --> parse
     app --> chunker
@@ -239,7 +231,7 @@ flowchart TB
 
 v0.21.0 기준 핵심 설계:
 
-- **crate facade** — `kebab-app` 가 유일한 facade다. UI binary (`kebab-cli` / `kebab-tui`) 는 store / parse / search / llm / rag 를 직접 참조하지 않는다 (frozen 설계 §8). 각 user-facing 엔트리는 `*_with_config(cfg, …)` 동반 함수로 explicit config 를 thread 한다.
+- **crate facade** — `kebab-app` 가 유일한 facade다. UI binary (`kebab-cli`) 는 store / parse / search / llm / rag 를 직접 참조하지 않는다 (frozen 설계 §8). 각 user-facing 엔트리는 `*_with_config(cfg, …)` 동반 함수로 explicit config 를 thread 한다.
 - **chunk_id 는 위치 기반** — chunk 의 정체성은 문서 내 위치(ordinal + span)다. 반면 파생물 캐시 키는 **내용 해시**라, 내용이 같으면 위치·문서가 달라도 동일 캐시를 재사용한다.
 - **wire schema v1** — 모든 `--json` 출력은 `schema_version` 을 담는 frozen contract다. 깨는 변경은 `*.v2` major bump을 요구한다.
 - **versioning cascade** — `parser_version` / `chunker_version` / `embedding_version` / `prompt_template_version` / `index_version` 변경은 downstream record(청크·임베딩·캐시·eval)를 무효화한다.
