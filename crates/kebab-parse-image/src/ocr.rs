@@ -133,7 +133,7 @@ impl OllamaVisionOcr {
     /// Construction does NOT touch the network — the first HTTP call
     /// happens inside [`OcrEngine::recognize`].
     pub fn new(config: &kebab_config::Config) -> Result<Self> {
-        let ocr = &config.ingest.image.ocr;
+        let ocr = config.image_ocr();
         let endpoint = match ocr.endpoint.as_deref() {
             Some(s) if !s.is_empty() => s.to_string(),
             _ => config.models.llm.endpoint.clone(),

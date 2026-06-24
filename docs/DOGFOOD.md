@@ -803,13 +803,13 @@ Cross-link: `tasks/HOTFIXES.md` (2026-05-29 — 검색 품질 baseline entry), `
 
 ```bash
 KEBAB_PDF_OCR_ENABLED=true \
-    KEBAB_PDF_OCR_MODEL=qwen2.5vl:7b \
+    KEBAB_OCR_MODEL=qwen2.5vl:7b \
     "$RELEASE_BIN" ingest --config "$DOGFOOD/config.toml"
 ```
 
 **verify per env**:
-- `KEBAB_PDF_OCR_*` (11 env, v0.20.0).
-- `KEBAB_IMAGE_OCR_*` (P6).
+- `KEBAB_OCR_*` (config schema v5: 공유 OCR 엔진 env — image·pdf 양쪽 적용).
+- `KEBAB_IMAGE_OCR_ENABLED` / `KEBAB_PDF_OCR_ENABLED` (미디어별 on/off 토글) + PDF 고유 `KEBAB_PDF_OCR_{ALWAYS_ON,VALID_RATIO_THRESHOLD,MIN_CHAR_COUNT,LANG_HINT}`.
 - `KEBAB_MODELS_LLM_*`, `KEBAB_MODELS_EMBEDDING_*`.
 - `KEBAB_READONLY` (write-path subcommand 차단).
 

@@ -9,7 +9,7 @@ use toml_edit::{DocumentMut, Item};
 
 /// 현재 바이너리가 이해하는 config 스키마 버전. 마이그레이션 완료 시
 /// 사용자 파일의 `schema_version` 을 이 값으로 stamp 한다.
-pub const CURRENT_SCHEMA_VERSION: u32 = 4;
+pub const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 /// 한 번의 마이그레이션에서 발생한 개별 변경.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -80,6 +80,7 @@ fn section_comment(path: &str) -> Option<&'static str> {
         "rag" => "# 답변 생성: prompt 템플릿·score gate·NLI.",
         "ui" => "# TUI 팔레트·role 스타일.",
         "ingest" => "# 모든 형식 ingest 우산: 병렬도 + chunking/code/image/pdf.",
+        "ingest.ocr" => "# 공유 OCR 엔진 설정(image/pdf 공통). 각 미디어 블록이 override.",
         "ingest.chunking" => "# 청크 크기·오버랩·heading 존중(전 형식 공통).",
         "ingest.code" => "# code ingest skip 정책(.gitignore 자동 honor).",
         "ingest.image" => "# 이미지 OCR + 캡션(기본 off, asset 당 모델 호출 비용).",
@@ -141,6 +142,16 @@ pub fn annotated_default_document() -> DocumentMut {
     let defaults = crate::Config::defaults();
     let pretty = toml::to_string_pretty(&defaults).expect("defaults serialize");
     let mut doc: DocumentMut = pretty.parse().expect("defaults parse as toml_edit");
+
+    // v5: 직렬화된 defaults 는 `[ingest.image.ocr]` 에 12개 엔진 키를 그대로
+    // 담고 `[ingest.ocr]` 은 비어 있다(`SharedOcrEngineCfg::default()` = 전부
+    // None). 참조 문서를 v5 canonical 형상으로 맞추기 위해 같은 통합을 적용한다
+    // — 그러지 않으면 reconcile 이 마이그레이션으로 끌어올린 키를 image 블록에
+    // 다시 추가해 통합을 되돌린다(그리고 image 의 effective engine 을 default 로
+    // 덮어써 동작을 바꾼다). pdf 블록은 그대로 둔다(자기 default 가 image 와
+    // 달라 override 로 유지).
+    let mut discard = Vec::new();
+    step_4_to_5(&mut doc, &mut discard);
 
     // 헤더: 첫 최상위 항목의 prefix 로.
     if let Some((mut first_key, _)) = doc.as_table_mut().iter_mut().next() {
@@ -413,6 +424,87 @@ pub fn step_3_to_4(doc: &mut DocumentMut, changes: &mut Vec<MigrationChange>) {
     });
 }
 
+/// v5: `[ingest.image.ocr]` 의 12개 **엔진** 키를 새 공유 블록 `[ingest.ocr]`
+/// 로 끌어올린다(`enabled` 은 미디어별 토글이라 제외 — 끌어올리면 공유 블록이
+/// pdf 의 `enabled` 까지 켜버려 동작이 바뀐다). image 는 unique 필드가 없으므로
+/// 공유 블록의 canonical source 로 삼는다. `[ingest.pdf.ocr]` 은 손대지 않는다
+/// — reconcile 이 pdf 의 모든 키를 default 로 채워 명시 상태가 되므로(아래
+/// `resolve_ocr` 의 "미디어가 명시한 키는 공유 overlay 가 덮지 않음" 규칙에 의해)
+/// pdf 의 effective 값은 마이그레이션 전후 불변. 멱등: 키가 이미 옮겨졌으면 no-op.
+///
+/// 결과적으로 image 의 effective OCR 엔진 설정은 `[ingest.ocr]` 에서, pdf 는
+/// 자신의 (reconcile 로 완전 채워진) 블록에서 그대로 resolve 되어 양쪽 모두
+/// 마이그레이션 전 값을 유지한다 — `ingest_config_signature` 바이트도 불변.
+const SHARED_OCR_ENGINE_KEYS: [&str; 12] = [
+    "engine",
+    "model",
+    "endpoint",
+    "languages",
+    "max_pixels",
+    "request_timeout_secs",
+    "det_model",
+    "rec_model",
+    "dict",
+    "score_thresh",
+    "unclip_ratio",
+    "max_boxes",
+];
+
+pub fn step_4_to_5(doc: &mut DocumentMut, changes: &mut Vec<MigrationChange>) {
+    // image OCR 블록이 없으면 끌어올릴 게 없음(reconcile 이 빈 `[ingest.ocr]`
+    // 를 추가). 멱등 진입점.
+    let img_present = doc
+        .get("ingest")
+        .and_then(|i| i.get("image"))
+        .and_then(|i| i.get("ocr"))
+        .and_then(Item::as_table)
+        .is_some();
+    if !img_present {
+        return;
+    }
+
+    let mut lifted_any = false;
+    for key in SHARED_OCR_ENGINE_KEYS {
+        // image.ocr 에 key 가 있고, ingest.ocr 에 아직 없으면 통째(decor 포함) 이동.
+        let has_in_image = doc
+            .get("ingest")
+            .and_then(|i| i.get("image"))
+            .and_then(|i| i.get("ocr"))
+            .and_then(Item::as_table)
+            .is_some_and(|t| t.contains_key(key));
+        if !has_in_image {
+            continue;
+        }
+        let already_in_shared = doc
+            .get("ingest")
+            .and_then(|i| i.get("ocr"))
+            .and_then(Item::as_table)
+            .is_some_and(|t| t.contains_key(key));
+        if already_in_shared {
+            // 공유 블록에 이미 있으면 image 쪽 중복 키는 그냥 제거(공유가 우선).
+            if let Some(img) = doc["ingest"]["image"]["ocr"].as_table_mut() {
+                img.remove(key);
+            }
+            continue;
+        }
+        move_table(
+            doc,
+            &["ingest", "image", "ocr", key],
+            &["ingest", "ocr", key],
+            changes,
+        );
+        lifted_any = true;
+    }
+
+    if lifted_any {
+        changes.push(MigrationChange {
+            kind: ChangeKind::AddedSection,
+            path: "ingest.ocr".to_string(),
+            detail: "OCR 엔진 키를 공유 [ingest.ocr] 로 통합(image/pdf 중복 제거)".to_string(),
+        });
+    }
+}
+
 /// 파일의 schema_version(없으면 1) 부터 CURRENT 까지 step 적용.
 fn run_steps(doc: &mut DocumentMut, from: u32, changes: &mut Vec<MigrationChange>) {
     if from < 2 {
@@ -423,6 +515,9 @@ fn run_steps(doc: &mut DocumentMut, from: u32, changes: &mut Vec<MigrationChange
     }
     if from < 4 {
         step_3_to_4(doc, changes);
+    }
+    if from < 5 {
+        step_4_to_5(doc, changes);
     }
 }
 
@@ -477,6 +572,21 @@ pub fn migrate_document(text: &str) -> MigrationOutcome {
 mod tests {
     use super::*;
 
+    /// v5: parse a config text and run the shared-OCR resolution the way
+    /// `Config::from_file` does (overlay `[ingest.ocr]` down into the
+    /// per-medium concrete blocks), then clear the now-applied shared block.
+    /// The result is the canonical *effective* config — comparable against
+    /// `Config::defaults()` regardless of whether the engine knobs live in
+    /// the shared block (annotated default doc) or the per-medium blocks
+    /// (in-memory `defaults()`).
+    fn parse_effective(text: &str) -> crate::Config {
+        let parsed = toml::from_str::<toml::Value>(text).ok();
+        let mut cfg: crate::Config = toml::from_str(text).expect("parse config");
+        cfg.resolve_ocr(parsed.as_ref());
+        cfg.ingest.ocr = crate::SharedOcrEngineCfg::default();
+        cfg
+    }
+
     #[test]
     fn annotated_default_has_per_key_comments() {
         let text = annotated_default_document().to_string();
@@ -487,9 +597,9 @@ mod tests {
             text.contains("paddle-onnx 는 번들 모델"),
             "ocr.model 주석 누락:\n{text}"
         );
-        // 주석 추가가 파싱을 깨지 않는다.
-        let back: crate::Config = toml::from_str(&text).expect("parse annotated default");
-        assert_eq!(back, crate::Config::defaults());
+        // 주석 추가가 파싱을 깨지 않고, v5 OCR resolution 후 effective 값이
+        // defaults 와 동일.
+        assert_eq!(parse_effective(&text), crate::Config::defaults());
     }
 
     #[test]
@@ -498,10 +608,11 @@ mod tests {
         let text = doc.to_string();
         // v3: 미디어 형식 섹션이 전부 `[ingest.*]` 하위로 통합됐다. IngestCfg
         // 는 스칼라(병렬도) 필드가 있어 bare `[ingest]` + 하위 테이블이 함께
-        // 직렬화된다.
+        // 직렬화된다. v5: 공유 `[ingest.ocr]` 엔진 블록이 추가됐다.
         for section in [
             "[workspace]",
             "[ingest]",
+            "[ingest.ocr]",
             "[ingest.chunking]",
             "[ingest.code]",
             "[ingest.image.ocr]",
@@ -512,8 +623,8 @@ mod tests {
             assert!(text.contains(section), "missing {section}:\n{text}");
         }
         assert!(text.contains("# "), "no comments attached");
-        let back: crate::Config = toml::from_str(&text).expect("parse annotated default");
-        assert_eq!(back, crate::Config::defaults());
+        // v5: effective 값(공유 OCR resolution 후)이 defaults 와 동일.
+        assert_eq!(parse_effective(&text), crate::Config::defaults());
     }
 
     #[test]
@@ -739,7 +850,7 @@ root = \"/my/notes\"
     }
 
     #[test]
-    fn migrate_document_v3_to_v4_adds_sources_and_is_idempotent() {
+    fn migrate_document_v3_to_current_adds_sources_and_is_idempotent() {
         let v3 = "\
 schema_version = 3
 
@@ -749,10 +860,10 @@ exclude = []
 ";
         let outcome = migrate_document(v3);
         assert_eq!(outcome.from_schema_version, 3);
-        assert_eq!(outcome.to_schema_version, 4);
+        assert_eq!(outcome.to_schema_version, CURRENT_SCHEMA_VERSION);
         assert!(outcome.changed());
         assert!(outcome.new_text.contains("[[workspace.sources]]"));
-        assert_eq!(read_schema_version(&outcome.new_text), 4);
+        assert_eq!(read_schema_version(&outcome.new_text), CURRENT_SCHEMA_VERSION);
         let again = migrate_document(&outcome.new_text);
         assert!(!again.changed(), "not idempotent: {:?}", again.changes);
         assert_eq!(again.new_text, outcome.new_text);
@@ -764,5 +875,99 @@ exclude = []
         let outcome = migrate_document(old);
         assert_eq!(outcome.from_schema_version, 1);
         assert_eq!(read_schema_version(&outcome.new_text), CURRENT_SCHEMA_VERSION);
+    }
+
+    /// v4 → v5 무손실 라운드트립: `[ingest.image.ocr]` / `[ingest.pdf.ocr]` 이
+    /// 채워진 v4 config 을 마이그레이션 → from_file 로 로드(공유 OCR resolution
+    /// 포함) → image/pdf OCR 의 effective 값이 마이그레이션 전과 정확히 동일해야
+    /// 한다. image 의 비-default engine(paddle-onnx) 이 공유 블록으로 끌어올려진
+    /// 뒤에도 보존되는지(이전 버그) + pdf 의 고유 값(qwen 모델·2048px)이 공유
+    /// overlay 에 오염되지 않는지를 함께 검증한다.
+    #[test]
+    fn migrate_v4_to_v5_preserves_effective_ocr() {
+        let v4 = "\
+schema_version = 4
+
+[workspace]
+root = \"/my/notes\"
+exclude = []
+
+[[workspace.sources]]
+id = \"default\"
+root = \"/my/notes\"
+
+[ingest.image.ocr]
+enabled = true
+engine = \"paddle-onnx\"
+model = \"gemma4:e4b\"
+languages = [\"eng\", \"kor\"]
+max_pixels = 1280
+request_timeout_secs = 450
+det_model = \"/custom/det.onnx\"
+score_thresh = 0.45
+
+[ingest.pdf.ocr]
+enabled = true
+always_on = false
+engine = \"ollama-vision\"
+model = \"qwen2.5vl:7b\"
+languages = [\"eng\", \"kor\"]
+max_pixels = 2048
+request_timeout_secs = 240
+valid_ratio_threshold = 0.6
+min_char_count = 25
+lang_hint = \"kor\"
+";
+        // pre-migration effective values, loaded the v4 way (no shared block).
+        let dir = std::env::temp_dir().join(format!("kebab_v5_rt_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p4 = dir.join("v4.toml");
+        std::fs::write(&p4, v4).unwrap();
+        let before = crate::Config::from_file(&p4).expect("load v4");
+
+        // migrate → load the v5 text via from_file (runs resolve_ocr).
+        let outcome = migrate_document(v4);
+        assert_eq!(outcome.from_schema_version, 4);
+        assert_eq!(outcome.to_schema_version, 5);
+        assert!(outcome.changed());
+        assert!(
+            outcome.new_text.contains("[ingest.ocr]"),
+            "shared block missing:\n{}",
+            outcome.new_text
+        );
+        let p5 = dir.join("v5.toml");
+        std::fs::write(&p5, &outcome.new_text).unwrap();
+        let after = crate::Config::from_file(&p5).expect("load v5");
+
+        // image OCR effective 값 전부 보존(특히 비-default engine paddle-onnx).
+        assert_eq!(after.image_ocr().enabled, before.image_ocr().enabled);
+        assert_eq!(after.image_ocr().engine, "paddle-onnx");
+        assert_eq!(after.image_ocr().engine, before.image_ocr().engine);
+        assert_eq!(after.image_ocr().model, before.image_ocr().model);
+        assert_eq!(after.image_ocr().languages, before.image_ocr().languages);
+        assert_eq!(after.image_ocr().max_pixels, 1280);
+        assert_eq!(after.image_ocr().max_pixels, before.image_ocr().max_pixels);
+        assert_eq!(
+            after.image_ocr().request_timeout_secs,
+            before.image_ocr().request_timeout_secs
+        );
+        assert_eq!(
+            after.image_ocr().det_model.as_deref(),
+            Some("/custom/det.onnx")
+        );
+        assert_eq!(after.image_ocr().det_model, before.image_ocr().det_model);
+        assert!((after.image_ocr().score_thresh - 0.45).abs() < 1e-6);
+        assert_eq!(after.image_ocr(), before.image_ocr());
+
+        // pdf OCR effective 값 전부 보존(공유 overlay 가 image 값으로 오염 X).
+        assert_eq!(after.pdf_ocr().engine, "ollama-vision");
+        assert_eq!(after.pdf_ocr().model, "qwen2.5vl:7b");
+        assert_eq!(after.pdf_ocr().max_pixels, 2048);
+        assert_eq!(after.pdf_ocr(), before.pdf_ocr());
+
+        // 멱등.
+        let again = migrate_document(&outcome.new_text);
+        assert!(!again.changed(), "v5 재실행 변경: {:?}", again.changes);
+        assert_eq!(again.new_text, outcome.new_text);
     }
 }

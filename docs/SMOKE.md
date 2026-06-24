@@ -347,13 +347,17 @@ MCP tool 동등:
 [workspace]
 include = ["**/*.md", "**/*.png", "**/*.jpg"]
 
-[ingest.image.ocr]
-enabled = true                        # vision LM 으로 이미지 안 텍스트 전사
+# config schema v5: OCR 엔진 설정은 공유 [ingest.ocr] 에 한 번. 각 미디어
+# 블록은 on/off 토글 + 필요한 override 만. 미디어 블록이 같은 키를 적으면 우선.
+[ingest.ocr]
 engine = "ollama-vision"
-model = "gemma4:e4b"                  # 사용자 환경의 비전 모델
+model = "gemma4:e4b"                  # 사용자 환경의 비전 모델 (image 기본)
 endpoint = "http://192.168.0.47:11434"  # 비우면 models.llm.endpoint fallback
 languages = ["eng", "kor"]
 max_pixels = 1600                     # long-edge cap
+
+[ingest.image.ocr]
+enabled = true                        # vision LM 으로 이미지 안 텍스트 전사 (미디어별 토글)
 
 [ingest.image.caption]
 enabled = true                        # vision LM 으로 한 문장 객관 설명 생성
@@ -363,16 +367,15 @@ prompt_template_version = "caption-v1"
 [ingest.pdf.ocr]
 enabled = true               # smoke test 의 OCR path 활성화 (manual invoke)
 always_on = false
-engine = "ollama-vision"
-model = "qwen2.5vl:3b"
-# endpoint = "http://192.168.0.47:11434"   # 사용자 dogfood host
-languages = ["eng", "kor"]
-max_pixels = 2048
+model = "qwen2.5vl:3b"       # PDF 는 다른 비전 모델로 override ([ingest.ocr] 의 gemma4 대신)
+max_pixels = 2048            # PDF 페이지는 더 큰 long-edge
 request_timeout_secs = 600
-valid_ratio_threshold = 0.5
+valid_ratio_threshold = 0.5  # PDF 고유 키 (image 에 없음)
 min_char_count = 20
 lang_hint = "kor"
 ```
+
+> env override: 엔진 설정은 `KEBAB_OCR_*` (예: `KEBAB_OCR_ENDPOINT`, `KEBAB_OCR_MODEL`) 하나로 image·pdf 양쪽에 적용. on/off 는 `KEBAB_IMAGE_OCR_ENABLED` / `KEBAB_PDF_OCR_ENABLED` 로 미디어별. (config schema v5 — 옛 `KEBAB_IMAGE_OCR_*` / `KEBAB_PDF_OCR_*` 엔진 키는 `KEBAB_OCR_*` 로 통합.)
 
 이미지 자산 한 장당 OCR 1 호출 + Caption 1 호출 → ~3-6초 (`gemma4:e4b` 기준). 다이어그램 / 카메라 사진 / 스크린샷 위주 워크스페이스에 권장. 책 / 스캔본은 P7 PDF 라인으로.
 

@@ -172,7 +172,7 @@ fn dropped_receiver_does_not_panic_or_fail_ingest() {
 /// Manual invoke:
 /// ```
 /// KEBAB_PDF_OCR_ENABLED=true \
-///   KEBAB_PDF_OCR_ENDPOINT=http://192.168.0.47:11434 \
+///   KEBAB_OCR_ENDPOINT=http://192.168.0.47:11434 \
 ///   cargo test -p kebab-app --test ingest_progress \
 ///   --ignored pdf_ocr_progress_emits_started_finished_events
 /// ```
@@ -197,7 +197,8 @@ fn pdf_ocr_progress_emits_started_finished_events() {
     config.models.embedding.provider = "none".to_string();
     config.models.embedding.dimensions = 0;
     config.ingest.pdf.ocr.enabled = true;
-    if let Ok(endpoint) = std::env::var("KEBAB_PDF_OCR_ENDPOINT") {
+    // v5: shared KEBAB_OCR_* env (manual harness reads it directly).
+    if let Ok(endpoint) = std::env::var("KEBAB_OCR_ENDPOINT") {
         config.ingest.pdf.ocr.endpoint = Some(endpoint);
     }
 

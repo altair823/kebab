@@ -63,15 +63,14 @@ fn pdf_ocr_defaults_off_with_qwen_3b() {
     assert_eq!(cfg.ingest.pdf.ocr.lang_hint.as_deref(), Some("kor"));
 }
 
-// Test 3: env var override — 4 keys 의 typical override case.
+// Test 3: env var override — pdf-only keys + shared engine knob.
+// v5: `model` moved to the shared `KEBAB_OCR_MODEL` (sets both mediums);
+// `enabled`/`always_on`/`valid_ratio_threshold` stay pdf-specific.
 #[test]
 fn pdf_ocr_env_overrides() {
     let mut env: HashMap<String, String> = HashMap::new();
     env.insert("KEBAB_PDF_OCR_ENABLED".to_string(), "true".to_string());
-    env.insert(
-        "KEBAB_PDF_OCR_MODEL".to_string(),
-        "qwen2.5vl:7b".to_string(),
-    );
+    env.insert("KEBAB_OCR_MODEL".to_string(), "qwen2.5vl:7b".to_string());
     env.insert("KEBAB_PDF_OCR_ALWAYS_ON".to_string(), "true".to_string());
     env.insert(
         "KEBAB_PDF_OCR_VALID_RATIO_THRESHOLD".to_string(),

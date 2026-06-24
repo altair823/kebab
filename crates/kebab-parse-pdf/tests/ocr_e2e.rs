@@ -2,7 +2,7 @@
 // F1 ≥ 0.85, F2 ≥ 0.70. real Ollama 의존 — `#[ignore]` default.
 //
 // Manual invoke:
-// KEBAB_PDF_OCR_ENDPOINT=http://192.168.0.47:11434 \
+// KEBAB_OCR_ENDPOINT=http://192.168.0.47:11434 \
 //   cargo test -p kebab-parse-pdf --test ocr_e2e --ignored -j 4
 
 use kebab_core::Lang;
@@ -11,7 +11,8 @@ use kebab_parse_pdf::extract_dctdecode_page_image;
 use lopdf::Document;
 
 fn run_real_ollama_ocr(pdf: &[u8], page: u32) -> anyhow::Result<String> {
-    let endpoint = std::env::var("KEBAB_PDF_OCR_ENDPOINT")
+    // v5: shared KEBAB_OCR_* env (manual harness reads it directly).
+    let endpoint = std::env::var("KEBAB_OCR_ENDPOINT")
         .unwrap_or_else(|_| "http://localhost:11434".to_string());
     let doc = Document::load_mem(pdf)?;
     let jpeg = extract_dctdecode_page_image(&doc, page)?

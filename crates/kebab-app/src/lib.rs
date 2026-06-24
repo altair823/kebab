@@ -407,7 +407,7 @@ pub fn ingest_with_config_opts(
     // loop is correct and cheap. Construction failure (e.g. invalid
     // endpoint) aborts ingest fail-fast — better than silently disabling
     // OCR/caption mid-run.
-    let ocr_engine: Option<Box<dyn OcrEngine>> = if app.config.ingest.image.ocr.enabled {
+    let ocr_engine: Option<Box<dyn OcrEngine>> = if app.config.image_ocr().enabled {
         Some(build_image_ocr_engine(&app.config).context("kb-app::ingest: build image OCR engine")?)
     } else {
         None
@@ -427,7 +427,7 @@ pub fn ingest_with_config_opts(
     // p10 / v0.20 sub-item 1: PDF OCR engine eager init (H-5 resolution).
     // image OCR pattern mirror — per-ingest 1회 build, fallible → fail-fast.
     let pdf_ocr_engine: Option<Box<dyn OcrEngine>> =
-        if app.config.ingest.pdf.ocr.enabled || app.config.ingest.pdf.ocr.always_on {
+        if app.config.pdf_ocr().enabled || app.config.pdf_ocr().always_on {
             Some(
                 build_pdf_ocr_engine(&app.config)
                     .context("kb-app::ingest: build pdf OCR engine")?,
@@ -892,7 +892,7 @@ type SqliteStoreAlias = kebab_store_sqlite::SqliteStore;
 fn build_image_ocr_engine(
     config: &kebab_config::Config,
 ) -> anyhow::Result<Box<dyn OcrEngine>> {
-    match config.ingest.image.ocr.engine.as_str() {
+    match config.image_ocr().engine.as_str() {
         OLLAMA_VISION_ENGINE => Ok(Box::new(
             OllamaVisionOcr::new(config).context("build OllamaVisionOcr")?,
         )),
@@ -906,29 +906,26 @@ fn build_image_ocr_engine(
     }
 }
 
-/// v0.27.0 (T8): build the PDF OCR engine selected by
-/// `config.ingest.pdf.ocr.engine`. The ollama-vision arm uses the PDF-specific
-/// `model` / `languages` / `max_pixels` / `request_timeout_secs` knobs (and
-/// endpoint fallback to `models.llm.endpoint`). The paddle-onnx arm shares
-/// the same bundled ONNX models as image OCR (resolved from `image.ocr`
-/// overrides) — PaddleOCR is page-agnostic and carries no per-engine prompt.
+/// v0.27.0 (T8): build the PDF OCR engine selected by `pdf.ocr.engine`. The
+/// ollama-vision arm uses the resolved PDF OCR knobs (`model` / `languages` /
+/// `max_pixels` / `request_timeout_secs`, endpoint fallback to
+/// `models.llm.endpoint`) from [`Config::pdf_ocr`].
 ///
-/// # Paddle-ONNX asymmetry
+/// # Paddle-ONNX assets (v5)
 ///
-/// When `pdf.ocr.engine = "paddle-onnx"`, the model paths and tuning knobs
-/// (`det_model`, `rec_model`, `dict`, `score_thresh`, `unclip_ratio`,
-/// `max_boxes`, `max_pixels`) are read from **`[image.ocr]`**, not
-/// `[pdf.ocr]`. PaddleOCR has no PDF-specific prompt or page-level config;
-/// `[pdf.ocr]` fields other than `engine` / `enabled` / `always_on` /
-/// `valid_ratio_threshold` / `min_char_count` / `lang_hint` are effectively
-/// ignored for the paddle path. This asymmetry is intentional — one set of
-/// tuned ONNX knobs serves both image and PDF pages.
+/// The paddle-onnx arm still builds via `OnnxPaddleOcr::new(config)`, which
+/// resolves its ONNX asset paths from the image OCR block
+/// ([`Config::image_ocr`]). After the v5 `[ingest.ocr]` consolidation both
+/// mediums inherit the same shared engine defaults, so image and PDF paddle
+/// resolve to one identical set of tuned ONNX knobs — the historical
+/// "PDF borrows image's paddle assets" behaviour, now expressed as a single
+/// shared block rather than a cross-medium read.
 fn build_pdf_ocr_engine(
     config: &kebab_config::Config,
 ) -> anyhow::Result<Box<dyn OcrEngine>> {
-    match config.ingest.pdf.ocr.engine.as_str() {
+    match config.pdf_ocr().engine.as_str() {
         OLLAMA_VISION_ENGINE => {
-            let cfg = &config.ingest.pdf.ocr;
+            let cfg = config.pdf_ocr();
             let endpoint = match cfg.endpoint.as_deref() {
                 Some(s) if !s.is_empty() => s.to_string(),
                 _ => config.models.llm.endpoint.clone(),
@@ -2304,16 +2301,17 @@ fn ingest_one_pdf_asset(
 
     // v0.20 sub-item 1: post-extract OCR enrichment (PR #187 registry
     // dispatch invariant 보존 — extract_for 가 normal entry).
-    let (pdf_ocr_pages, pdf_ocr_ms_total): (Option<u32>, Option<u64>) =
-        if app.config.ingest.pdf.ocr.enabled || app.config.ingest.pdf.ocr.always_on {
+    let (pdf_ocr_pages, pdf_ocr_ms_total): (Option<u32>, Option<u64>) = {
+        let pdf_ocr = app.config.pdf_ocr();
+        if pdf_ocr.enabled || pdf_ocr.always_on {
             match pdf_ocr_engine {
                 Some(engine) => {
                     let ocr_opts = crate::pdf_ocr_apply::PdfOcrOpts {
-                        enabled: app.config.ingest.pdf.ocr.enabled || app.config.ingest.pdf.ocr.always_on,
-                        always_on: app.config.ingest.pdf.ocr.always_on,
-                        valid_ratio_threshold: app.config.ingest.pdf.ocr.valid_ratio_threshold,
-                        min_char_count: app.config.ingest.pdf.ocr.min_char_count,
-                        lang_hint: app.config.ingest.pdf.ocr.lang_hint.clone().map(kebab_core::Lang),
+                        enabled: pdf_ocr.enabled || pdf_ocr.always_on,
+                        always_on: pdf_ocr.always_on,
+                        valid_ratio_threshold: pdf_ocr.valid_ratio_threshold,
+                        min_char_count: pdf_ocr.min_char_count,
+                        lang_hint: pdf_ocr.lang_hint.clone().map(kebab_core::Lang),
                         cancel: cancel.cloned(),
                     };
                     // v0.20.x Hook 2: pre-clone Arcs for capture by OCR closure.
@@ -2429,7 +2427,8 @@ fn ingest_one_pdf_asset(
             }
         } else {
             (None, None)
-        };
+        }
+    };
 
     // Per-medium chunker selection: PDF docs always use pdf-page-v1
     // regardless of `config.ingest.chunking.chunker_version`. The chunker
@@ -3292,7 +3291,7 @@ fn ingest_config_signature(config: &kebab_config::Config, media: &MediaType) -> 
             // OCR / caption only affect output when their `enabled` flag is
             // on; the model / prompt version matters only then. Off ↔ off is
             // a stable empty token so re-running the same config skips.
-            let ocr = &config.ingest.image.ocr;
+            let ocr = config.image_ocr();
             if ocr.enabled {
                 // v0.27.0 (T9): engine + engine_version so switching engine
                 // (ollama-vision ↔ paddle-onnx) OR changing the model/assets
@@ -3321,7 +3320,7 @@ fn ingest_config_signature(config: &kebab_config::Config, media: &MediaType) -> 
         MediaType::Pdf => {
             // PDF OCR is active when EITHER `enabled` or `always_on` is set
             // (mirrors the ingest gate). `model` only matters when active.
-            let ocr = &config.ingest.pdf.ocr;
+            let ocr = config.pdf_ocr();
             if ocr.enabled || ocr.always_on {
                 // v0.27.0 (T9): engine + engine_version (same cascade rule as
                 // image OCR above) alongside the enabled/always_on gate.

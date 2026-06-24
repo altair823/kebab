@@ -2,7 +2,7 @@
 //!
 //! Tests 1 and 2 require a live Ollama endpoint — `#[ignore]` by default.
 //! Manual invoke:
-//!   KEBAB_PDF_OCR_ENDPOINT=http://192.168.0.47:11434 \
+//!   KEBAB_OCR_ENDPOINT=http://192.168.0.47:11434 \
 //!     cargo test -p kebab-app --test ingest_pdf_ocr_smoke --ignored -j 4
 //!
 //! Test 3 (cancel) uses a dummy endpoint + pre-set cancel — runs by default
@@ -17,7 +17,8 @@ use std::sync::atomic::AtomicBool;
 use common::TestEnv;
 
 fn ollama_endpoint() -> String {
-    std::env::var("KEBAB_PDF_OCR_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".to_string())
+    // v5: shared KEBAB_OCR_* env (manual harness reads it directly).
+    std::env::var("KEBAB_OCR_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".to_string())
 }
 
 fn make_ocr_env_real() -> TestEnv {

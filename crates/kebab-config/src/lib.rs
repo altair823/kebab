@@ -406,6 +406,78 @@ fn default_nli_threshold() -> f32 {
     0.0
 }
 
+/// v5: workspace-wide OCR **engine** defaults shared by image and PDF OCR.
+///
+/// Before v5, the 13 engine-level OCR knobs (engine, model, endpoint,
+/// languages, max_pixels, request_timeout_secs + the 6 paddle-onnx asset /
+/// tuning fields) were duplicated verbatim across `[ingest.image.ocr]` and
+/// `[ingest.pdf.ocr]`. This block holds them ONCE under `[ingest.ocr]`; the
+/// per-medium blocks (`[ingest.image.ocr]` / `[ingest.pdf.ocr]`) keep only
+/// their `enabled` toggle + any medium-specific override / unique field.
+///
+/// Resolution happens at load (`Config::resolve_ocr`, called from
+/// `from_file`): for every shared key present here but **absent** from a
+/// medium's own block, the shared value is merged down into that medium's
+/// concrete [`OcrCfg`] / [`PdfOcrCfg`]. A key the user wrote explicitly in
+/// the per-medium block always wins (precedence: medium override > shared >
+/// medium hardcoded default). Image and PDF therefore keep their distinct
+/// hardcoded defaults (`gemma4:e4b`/1600 vs `qwen2.5vl:3b`/2048) when neither
+/// block sets the field.
+///
+/// Every field is `Option` so "unset in `[ingest.ocr]`" is distinguishable
+/// from "set to the type's zero value". Default = all `None` (no shared
+/// override → each medium uses its own block / hardcoded default), so a
+/// `Config` built without a `[ingest.ocr]` section behaves exactly as before.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SharedOcrEngineCfg {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub languages: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_pixels: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_timeout_secs: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub det_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rec_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dict: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "ser_opt_f32_clean"
+    )]
+    pub score_thresh: Option<f32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "ser_opt_f32_clean"
+    )]
+    pub unclip_ratio: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_boxes: Option<usize>,
+}
+
+/// `Option<f32>` 직렬화 시 `Some` 값을 [`ser_f32_clean`] 과 같은 shortest
+/// round-trip 으로 출력한다(`None` 은 `skip_serializing_if` 가 처리).
+fn ser_opt_f32_clean<S>(v: &Option<f32>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match v {
+        Some(f) => ser_f32_clean(f, s),
+        None => s.serialize_none(),
+    }
+}
+
 /// Settings for the image ingest pipeline (P6). `ocr` controls OCR
 /// behaviour (P6-2); `caption` controls vision-LM captioning (P6-3).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -434,11 +506,19 @@ impl ImageCfg {
 pub struct OcrCfg {
     /// Run OCR on every image during ingest. Default `false` because
     /// OCR adds one model call per asset.
+    ///
+    /// v5: all engine-level fields carry `#[serde(default)]` so a slim
+    /// `[ingest.image.ocr]` block (e.g. only `enabled`, with the engine
+    /// knobs hoisted to the shared `[ingest.ocr]`) still deserializes. The
+    /// per-field defaults match [`OcrCfg::defaults`] (image medium).
+    #[serde(default)]
     pub enabled: bool,
     /// Engine identifier. v1 only ships `"ollama-vision"`.
+    #[serde(default = "default_ocr_engine")]
     pub engine: String,
     /// Model id passed to the engine (e.g. `"gemma4:e4b"` for
     /// Ollama-vision).
+    #[serde(default = "default_image_ocr_model")]
     pub model: String,
     /// HTTP endpoint for the OCR engine. `None` (or a missing key in
     /// TOML) means "fall back to `models.llm.endpoint`" — convenient
@@ -447,9 +527,11 @@ pub struct OcrCfg {
     pub endpoint: Option<String>,
     /// BCP-47 language hints (e.g. `["eng", "kor"]`). The adapter
     /// renders them into the prompt; the LLM honours them probabilistically.
+    #[serde(default = "default_ocr_languages")]
     pub languages: Vec<String>,
     /// Cap the long edge of the image (in pixels) before sending. Larger
     /// images bloat prompt cost. Default `1600`.
+    #[serde(default = "default_image_ocr_max_pixels")]
     pub max_pixels: u32,
     /// v0.17.2 post-dogfood: Hard ceiling on a single HTTP exchange to
     /// the OCR endpoint. Sister knob to [`LlmCfg::request_timeout_secs`]
@@ -519,6 +601,22 @@ impl OcrCfg {
     }
 }
 
+/// v5: shared OCR engine-field defaults (image medium), so a slim
+/// `[ingest.image.ocr]` block with the engine knobs hoisted to
+/// `[ingest.ocr]` still deserializes. Mirror [`OcrCfg::defaults`].
+fn default_ocr_engine() -> String {
+    "ollama-vision".to_string()
+}
+fn default_ocr_languages() -> Vec<String> {
+    vec!["eng".to_string(), "kor".to_string()]
+}
+fn default_image_ocr_model() -> String {
+    "gemma4:e4b".to_string()
+}
+fn default_image_ocr_max_pixels() -> u32 {
+    1600
+}
+
 /// paddle-onnx DBNet box score threshold default. See [`OcrCfg::score_thresh`].
 fn default_ocr_score_thresh() -> f32 {
     0.3
@@ -534,7 +632,8 @@ fn default_ocr_max_boxes() -> usize {
 
 /// v0.17.2 post-dogfood: matches the legacy hard-coded ceiling so
 /// existing configs that omit the field keep behaving identically.
-/// Overridable per config / `KEBAB_IMAGE_OCR_REQUEST_TIMEOUT_SECS`.
+/// Overridable per config / `KEBAB_OCR_REQUEST_TIMEOUT_SECS` (v5: shared
+/// engine env, applies to both image and pdf OCR).
 fn default_ocr_request_timeout_secs() -> u64 {
     300
 }
@@ -646,24 +745,37 @@ impl Default for LoggingCfg {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PdfOcrCfg {
     /// Run OCR on scanned PDF pages. Default `false` (opt-in).
+    ///
+    /// v5: the shared engine fields (engine/model/languages/max_pixels +
+    /// the request-timeout & paddle knobs) carry `#[serde(default)]` so a
+    /// slim `[ingest.pdf.ocr]` block (engine knobs hoisted to the shared
+    /// `[ingest.ocr]`) still deserializes; per-field defaults match the PDF
+    /// medium ([`PdfOcrCfg::defaults`]).
+    #[serde(default)]
     pub enabled: bool,
     /// `false` (default) — text-detect first + vision fallback on
     /// scanned pages only. `true` — vision LLM 호출 on every page
     /// (vector PDF 의 dual-text confidence boost — doubles chunk count).
+    #[serde(default)]
     pub always_on: bool,
     /// Engine identifier: `"ollama-vision"` or `"paddle-onnx"`. When set to
-    /// `"paddle-onnx"`, model paths and tuning knobs are read from
-    /// `[image.ocr]`, not `[pdf.ocr]` — PaddleOCR has no PDF-specific tuning.
+    /// `"paddle-onnx"`, model paths and tuning knobs are read from the shared
+    /// `[ingest.ocr]` (resolved via the image OCR block) — PaddleOCR has no
+    /// PDF-specific tuning.
+    #[serde(default = "default_ocr_engine")]
     pub engine: String,
     /// Vision model id. Default `"qwen2.5vl:3b"` per PoC (§3.5 family
     /// asymmetry vs image OCR's gemma4:e4b is acknowledged).
+    #[serde(default = "default_pdf_ocr_model")]
     pub model: String,
     /// HTTP endpoint. `None` → fall back to `models.llm.endpoint`.
     #[serde(default)]
     pub endpoint: Option<String>,
     /// BCP-47 language hints rendered into prompt.
+    #[serde(default = "default_ocr_languages")]
     pub languages: Vec<String>,
     /// Long-edge cap (px). Larger images bloat prompt cost.
+    #[serde(default = "default_pdf_ocr_max_pixels")]
     pub max_pixels: u32,
     /// HTTP request timeout (sec). Same `0` = "fail immediately"
     /// semantics as `image.ocr.request_timeout_secs` (NOT a disable
@@ -757,6 +869,15 @@ fn default_pdf_ocr_min_char_count() -> u32 {
 fn default_pdf_ocr_lang_hint() -> Option<String> {
     Some("kor".to_string())
 }
+/// v5: PDF-medium engine-field defaults (distinct from image: qwen2.5vl:3b /
+/// 2048 px), so a slim `[ingest.pdf.ocr]` block deserializes. Mirror
+/// [`PdfOcrCfg::defaults`].
+fn default_pdf_ocr_model() -> String {
+    "qwen2.5vl:3b".to_string()
+}
+fn default_pdf_ocr_max_pixels() -> u32 {
+    2048
+}
 
 /// p9-fb-14: TUI-only configuration. Currently a single `theme`
 /// selector (`"dark"` / `"light"`); future fields (custom role
@@ -795,6 +916,11 @@ pub struct IngestCfg {
     pub chunking: ChunkingCfg,
     #[serde(default)]
     pub code: IngestCodeCfg,
+    /// v5: shared OCR engine defaults (`[ingest.ocr]`). Merged down into
+    /// `image.ocr` / `pdf.ocr` at load by [`Config::resolve_ocr`]. Empty
+    /// (all `None`) by default — see [`SharedOcrEngineCfg`].
+    #[serde(default)]
+    pub ocr: SharedOcrEngineCfg,
     #[serde(default = "ImageCfg::defaults")]
     pub image: ImageCfg,
     #[serde(default = "PdfCfg::defaults")]
@@ -809,6 +935,7 @@ impl Default for IngestCfg {
             watch_filesystem: false,
             chunking: ChunkingCfg::defaults(),
             code: IngestCodeCfg::default(),
+            ocr: SharedOcrEngineCfg::default(),
             image: ImageCfg::defaults(),
             pdf: PdfCfg::defaults(),
         }
@@ -916,6 +1043,7 @@ impl Config {
                 watch_filesystem: false,
                 chunking: ChunkingCfg::defaults(),
                 code: IngestCodeCfg::default(),
+                ocr: SharedOcrEngineCfg::default(),
                 image: ImageCfg::defaults(),
                 pdf: PdfCfg::defaults(),
             },
@@ -1174,6 +1302,13 @@ impl Config {
                 cause: format!("parse_failed: {e}"),
             })
         })?;
+        // v5: merge `[ingest.ocr]` shared engine defaults down into the
+        // per-medium concrete OCR blocks. Driven by toml-level presence
+        // (a key explicitly written in `[ingest.image.ocr]` /
+        // `[ingest.pdf.ocr]` wins over the shared block) — so we hand the
+        // parsed `toml::Value` (which preserves presence) to the resolver.
+        let parsed_value = toml::from_str::<toml::Value>(&parse_text).ok();
+        cfg.resolve_ocr(parsed_value.as_ref());
         cfg.validate_sources().map_err(|cause| {
             anyhow::Error::new(ConfigInvalid {
                 path: path.to_path_buf(),
@@ -1259,6 +1394,192 @@ impl Config {
             ));
         }
         Ok(())
+    }
+
+    /// v5: merge the shared `[ingest.ocr]` engine block down into the
+    /// per-medium concrete OCR structs (`ingest.image.ocr` /
+    /// `ingest.pdf.ocr`). For each shared field that is `Some`, the value is
+    /// written into a medium's block **only if** that medium did not set the
+    /// field explicitly in its own table. Presence is read from `parsed`
+    /// (the raw `toml::Value` of the loaded file) because the typed struct
+    /// has already absorbed serde defaults and can no longer distinguish
+    /// "user wrote the default" from "omitted".
+    ///
+    /// `parsed = None` (programmatic config, no source text) → only the
+    /// "explicitly set" guard is unavailable, but in that path
+    /// `ingest.ocr` is whatever the caller built; the common case
+    /// (`SharedOcrEngineCfg::default()` = all `None`) is a no-op. Idempotent.
+    pub(crate) fn resolve_ocr(&mut self, parsed: Option<&toml::Value>) {
+        // No shared overrides → nothing to merge (the overwhelming common
+        // case: configs without an `[ingest.ocr]` block).
+        if self.ingest.ocr == SharedOcrEngineCfg::default() {
+            return;
+        }
+        let shared = self.ingest.ocr.clone();
+
+        // Helper: was `key` explicitly present in `ingest.<medium>.ocr`?
+        let medium_has = |medium: &str, key: &str| -> bool {
+            parsed
+                .and_then(|v| v.get("ingest"))
+                .and_then(|v| v.get(medium))
+                .and_then(|v| v.get("ocr"))
+                .and_then(|v| v.get(key))
+                .is_some()
+        };
+
+        // ── image OCR ──────────────────────────────────────────────────
+        let img = &mut self.ingest.image.ocr;
+        if let Some(v) = &shared.enabled {
+            if !medium_has("image", "enabled") {
+                img.enabled = *v;
+            }
+        }
+        if let Some(v) = &shared.engine {
+            if !medium_has("image", "engine") {
+                img.engine = v.clone();
+            }
+        }
+        if let Some(v) = &shared.model {
+            if !medium_has("image", "model") {
+                img.model = v.clone();
+            }
+        }
+        if let Some(v) = &shared.endpoint {
+            if !medium_has("image", "endpoint") {
+                img.endpoint = Some(v.clone());
+            }
+        }
+        if let Some(v) = &shared.languages {
+            if !medium_has("image", "languages") {
+                img.languages = v.clone();
+            }
+        }
+        if let Some(v) = &shared.max_pixels {
+            if !medium_has("image", "max_pixels") {
+                img.max_pixels = *v;
+            }
+        }
+        if let Some(v) = &shared.request_timeout_secs {
+            if !medium_has("image", "request_timeout_secs") {
+                img.request_timeout_secs = *v;
+            }
+        }
+        if let Some(v) = &shared.det_model {
+            if !medium_has("image", "det_model") {
+                img.det_model = Some(v.clone());
+            }
+        }
+        if let Some(v) = &shared.rec_model {
+            if !medium_has("image", "rec_model") {
+                img.rec_model = Some(v.clone());
+            }
+        }
+        if let Some(v) = &shared.dict {
+            if !medium_has("image", "dict") {
+                img.dict = Some(v.clone());
+            }
+        }
+        if let Some(v) = &shared.score_thresh {
+            if !medium_has("image", "score_thresh") {
+                img.score_thresh = *v;
+            }
+        }
+        if let Some(v) = &shared.unclip_ratio {
+            if !medium_has("image", "unclip_ratio") {
+                img.unclip_ratio = *v;
+            }
+        }
+        if let Some(v) = &shared.max_boxes {
+            if !medium_has("image", "max_boxes") {
+                img.max_boxes = *v;
+            }
+        }
+
+        // ── pdf OCR (same shared fields; the 4 pdf-unique fields are never
+        //    touched by the shared block) ─────────────────────────────────
+        let pdf = &mut self.ingest.pdf.ocr;
+        if let Some(v) = &shared.enabled {
+            if !medium_has("pdf", "enabled") {
+                pdf.enabled = *v;
+            }
+        }
+        if let Some(v) = &shared.engine {
+            if !medium_has("pdf", "engine") {
+                pdf.engine = v.clone();
+            }
+        }
+        if let Some(v) = &shared.model {
+            if !medium_has("pdf", "model") {
+                pdf.model = v.clone();
+            }
+        }
+        if let Some(v) = &shared.endpoint {
+            if !medium_has("pdf", "endpoint") {
+                pdf.endpoint = Some(v.clone());
+            }
+        }
+        if let Some(v) = &shared.languages {
+            if !medium_has("pdf", "languages") {
+                pdf.languages = v.clone();
+            }
+        }
+        if let Some(v) = &shared.max_pixels {
+            if !medium_has("pdf", "max_pixels") {
+                pdf.max_pixels = *v;
+            }
+        }
+        if let Some(v) = &shared.request_timeout_secs {
+            if !medium_has("pdf", "request_timeout_secs") {
+                pdf.request_timeout_secs = *v;
+            }
+        }
+        if let Some(v) = &shared.det_model {
+            if !medium_has("pdf", "det_model") {
+                pdf.det_model = Some(v.clone());
+            }
+        }
+        if let Some(v) = &shared.rec_model {
+            if !medium_has("pdf", "rec_model") {
+                pdf.rec_model = Some(v.clone());
+            }
+        }
+        if let Some(v) = &shared.dict {
+            if !medium_has("pdf", "dict") {
+                pdf.dict = Some(v.clone());
+            }
+        }
+        if let Some(v) = &shared.score_thresh {
+            if !medium_has("pdf", "score_thresh") {
+                pdf.score_thresh = *v;
+            }
+        }
+        if let Some(v) = &shared.unclip_ratio {
+            if !medium_has("pdf", "unclip_ratio") {
+                pdf.unclip_ratio = *v;
+            }
+        }
+        if let Some(v) = &shared.max_boxes {
+            if !medium_has("pdf", "max_boxes") {
+                pdf.max_boxes = *v;
+            }
+        }
+    }
+
+    /// Effective image OCR settings (`[ingest.ocr]` shared block merged with
+    /// the `[ingest.image.ocr]` override block). After [`Config::resolve_ocr`]
+    /// has run at load, the concrete `ingest.image.ocr` already holds the
+    /// resolved values, so this is the canonical read handle for OCR
+    /// consumers. (Decouples them from the merge mechanics — they ask the
+    /// `Config` for "image OCR" rather than reaching into the struct path.)
+    pub fn image_ocr(&self) -> &OcrCfg {
+        &self.ingest.image.ocr
+    }
+
+    /// Effective PDF OCR settings (shared `[ingest.ocr]` merged with the
+    /// `[ingest.pdf.ocr]` override + 4 pdf-unique fields). See
+    /// [`Config::image_ocr`].
+    pub fn pdf_ocr(&self) -> &PdfOcrCfg {
+        &self.ingest.pdf.ocr
     }
 
     /// Apply `KEBAB_<SECTION>_<KEY>` env overrides. Unknown keys are ignored.
@@ -1456,62 +1777,91 @@ impl Config {
                     ),
                 },
 
-                // image.ocr
-                "KEBAB_IMAGE_OCR_ENABLED" => {
-                    self.ingest.image.ocr.enabled = parse_bool(v);
+                // ── shared OCR engine (v5: KEBAB_OCR_*) ──────────────────
+                // The 13 engine-level knobs collapsed from the v4
+                // KEBAB_IMAGE_OCR_* / KEBAB_PDF_OCR_* duplicate sets. Each
+                // arm writes BOTH the image and pdf concrete blocks (env is a
+                // deliberate "set the OCR engine for the whole workspace"
+                // override — applied after load-time `resolve_ocr`, with no
+                // toml presence to consult). Per-medium `enabled` stays
+                // separately addressable below (KEBAB_IMAGE_OCR_ENABLED /
+                // KEBAB_PDF_OCR_ENABLED) so a user can turn image OCR on
+                // without forcing pdf OCR on.
+                "KEBAB_OCR_ENGINE" => {
+                    self.ingest.image.ocr.engine = v.clone();
+                    self.ingest.pdf.ocr.engine = v.clone();
                 }
-                "KEBAB_IMAGE_OCR_ENGINE" => self.ingest.image.ocr.engine = v.clone(),
-                "KEBAB_IMAGE_OCR_MODEL" => self.ingest.image.ocr.model = v.clone(),
-                "KEBAB_IMAGE_OCR_ENDPOINT" => {
-                    // Empty env value is treated the same as "fall back
-                    // to models.llm.endpoint" — i.e. set None.
-                    self.ingest.image.ocr.endpoint = if v.is_empty() { None } else { Some(v.clone()) };
+                "KEBAB_OCR_MODEL" => {
+                    self.ingest.image.ocr.model = v.clone();
+                    self.ingest.pdf.ocr.model = v.clone();
                 }
-                "KEBAB_IMAGE_OCR_LANGUAGES" => {
+                "KEBAB_OCR_ENDPOINT" => {
+                    // Empty env value → None (= fall back to models.llm.endpoint).
+                    let e = if v.is_empty() { None } else { Some(v.clone()) };
+                    self.ingest.image.ocr.endpoint = e.clone();
+                    self.ingest.pdf.ocr.endpoint = e;
+                }
+                "KEBAB_OCR_LANGUAGES" => {
                     // Comma-separated list, e.g. "eng,kor".
-                    self.ingest.image.ocr.languages = v
+                    let langs: Vec<String> = v
                         .split(',')
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
                         .collect();
+                    self.ingest.image.ocr.languages = langs.clone();
+                    self.ingest.pdf.ocr.languages = langs;
                 }
-                "KEBAB_IMAGE_OCR_MAX_PIXELS" => {
+                "KEBAB_OCR_MAX_PIXELS" => {
                     if let Ok(n) = v.parse::<u32>() {
                         self.ingest.image.ocr.max_pixels = n;
+                        self.ingest.pdf.ocr.max_pixels = n;
                     }
                 }
-                "KEBAB_IMAGE_OCR_REQUEST_TIMEOUT_SECS" => {
+                "KEBAB_OCR_REQUEST_TIMEOUT_SECS" => {
                     if let Ok(n) = v.parse::<u64>() {
                         self.ingest.image.ocr.request_timeout_secs = n;
+                        self.ingest.pdf.ocr.request_timeout_secs = n;
                     }
                 }
-                // paddle-onnx engine overrides (v0.27.0). Empty string → None
+                // paddle-onnx engine overrides. Empty string → None
                 // (fall back to bundled / KEBAB_IMAGE_OCR_MODEL_DIR).
-                "KEBAB_IMAGE_OCR_DET_MODEL" => {
-                    self.ingest.image.ocr.det_model =
-                        if v.is_empty() { None } else { Some(v.clone()) };
+                "KEBAB_OCR_DET_MODEL" => {
+                    let m = if v.is_empty() { None } else { Some(v.clone()) };
+                    self.ingest.image.ocr.det_model = m.clone();
+                    self.ingest.pdf.ocr.det_model = m;
                 }
-                "KEBAB_IMAGE_OCR_REC_MODEL" => {
-                    self.ingest.image.ocr.rec_model =
-                        if v.is_empty() { None } else { Some(v.clone()) };
+                "KEBAB_OCR_REC_MODEL" => {
+                    let m = if v.is_empty() { None } else { Some(v.clone()) };
+                    self.ingest.image.ocr.rec_model = m.clone();
+                    self.ingest.pdf.ocr.rec_model = m;
                 }
-                "KEBAB_IMAGE_OCR_DICT" => {
-                    self.ingest.image.ocr.dict = if v.is_empty() { None } else { Some(v.clone()) };
+                "KEBAB_OCR_DICT" => {
+                    let m = if v.is_empty() { None } else { Some(v.clone()) };
+                    self.ingest.image.ocr.dict = m.clone();
+                    self.ingest.pdf.ocr.dict = m;
                 }
-                "KEBAB_IMAGE_OCR_SCORE_THRESH" => {
+                "KEBAB_OCR_SCORE_THRESH" => {
                     if let Ok(f) = v.parse::<f32>() {
                         self.ingest.image.ocr.score_thresh = f;
+                        self.ingest.pdf.ocr.score_thresh = f;
                     }
                 }
-                "KEBAB_IMAGE_OCR_UNCLIP_RATIO" => {
+                "KEBAB_OCR_UNCLIP_RATIO" => {
                     if let Ok(f) = v.parse::<f32>() {
                         self.ingest.image.ocr.unclip_ratio = f;
+                        self.ingest.pdf.ocr.unclip_ratio = f;
                     }
                 }
-                "KEBAB_IMAGE_OCR_MAX_BOXES" => {
+                "KEBAB_OCR_MAX_BOXES" => {
                     if let Ok(n) = v.parse::<usize>() {
                         self.ingest.image.ocr.max_boxes = n;
+                        self.ingest.pdf.ocr.max_boxes = n;
                     }
+                }
+
+                // image OCR enabled toggle (kept per-medium addressable).
+                "KEBAB_IMAGE_OCR_ENABLED" => {
+                    self.ingest.image.ocr.enabled = parse_bool(v);
                 }
 
                 // image.caption (P6-3)
@@ -1527,31 +1877,14 @@ impl Config {
                     self.ingest.image.caption.prompt_template_version = v.clone();
                 }
 
-                // pdf.ocr (v0.20.0 sub-item 1)
+                // ── pdf-only OCR knobs (v5: the 4 fields with no image
+                //    counterpart + the per-medium enabled toggle) ──────────
+                // The engine-level pdf knobs (engine/model/endpoint/languages/
+                // max_pixels/request_timeout_secs + the 6 paddle fields) moved
+                // to the shared KEBAB_OCR_* set above. These five have no
+                // image analogue, so they stay pdf-specific.
                 "KEBAB_PDF_OCR_ENABLED" => self.ingest.pdf.ocr.enabled = parse_bool(v),
                 "KEBAB_PDF_OCR_ALWAYS_ON" => self.ingest.pdf.ocr.always_on = parse_bool(v),
-                "KEBAB_PDF_OCR_ENGINE" => self.ingest.pdf.ocr.engine = v.clone(),
-                "KEBAB_PDF_OCR_MODEL" => self.ingest.pdf.ocr.model = v.clone(),
-                "KEBAB_PDF_OCR_ENDPOINT" => {
-                    self.ingest.pdf.ocr.endpoint = if v.is_empty() { None } else { Some(v.clone()) };
-                }
-                "KEBAB_PDF_OCR_LANGUAGES" => {
-                    self.ingest.pdf.ocr.languages = v
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                }
-                "KEBAB_PDF_OCR_MAX_PIXELS" => {
-                    if let Ok(n) = v.parse::<u32>() {
-                        self.ingest.pdf.ocr.max_pixels = n;
-                    }
-                }
-                "KEBAB_PDF_OCR_REQUEST_TIMEOUT_SECS" => {
-                    if let Ok(n) = v.parse::<u64>() {
-                        self.ingest.pdf.ocr.request_timeout_secs = n;
-                    }
-                }
                 "KEBAB_PDF_OCR_VALID_RATIO_THRESHOLD" => {
                     if let Ok(n) = v.parse::<f32>() {
                         self.ingest.pdf.ocr.valid_ratio_threshold = n.clamp(0.0, 1.0);
@@ -1564,34 +1897,6 @@ impl Config {
                 }
                 "KEBAB_PDF_OCR_LANG_HINT" => {
                     self.ingest.pdf.ocr.lang_hint = if v.is_empty() { None } else { Some(v.clone()) };
-                }
-                // pdf paddle-onnx engine overrides (v3). image.ocr paddle 패턴 복제.
-                // Empty string → None (fall back to bundled / KEBAB_IMAGE_OCR_MODEL_DIR).
-                "KEBAB_PDF_OCR_DET_MODEL" => {
-                    self.ingest.pdf.ocr.det_model =
-                        if v.is_empty() { None } else { Some(v.clone()) };
-                }
-                "KEBAB_PDF_OCR_REC_MODEL" => {
-                    self.ingest.pdf.ocr.rec_model =
-                        if v.is_empty() { None } else { Some(v.clone()) };
-                }
-                "KEBAB_PDF_OCR_DICT" => {
-                    self.ingest.pdf.ocr.dict = if v.is_empty() { None } else { Some(v.clone()) };
-                }
-                "KEBAB_PDF_OCR_SCORE_THRESH" => {
-                    if let Ok(f) = v.parse::<f32>() {
-                        self.ingest.pdf.ocr.score_thresh = f;
-                    }
-                }
-                "KEBAB_PDF_OCR_UNCLIP_RATIO" => {
-                    if let Ok(f) = v.parse::<f32>() {
-                        self.ingest.pdf.ocr.unclip_ratio = f;
-                    }
-                }
-                "KEBAB_PDF_OCR_MAX_BOXES" => {
-                    if let Ok(n) = v.parse::<usize>() {
-                        self.ingest.pdf.ocr.max_boxes = n;
-                    }
                 }
 
                 // Unknown KEBAB_* keys are silently ignored — see
@@ -1874,24 +2179,31 @@ max_pixels = 1600
         env.insert("KEBAB_CHUNKING_TARGET_TOKENS".into(), "640".into());
         env.insert("KEBAB_INDEXING_MAX_PARALLEL_EXTRACTORS".into(), "6".into());
         env.insert("KEBAB_IMAGE_OCR_ENABLED".into(), "true".into());
-        env.insert("KEBAB_PDF_OCR_ENGINE".into(), "paddle-onnx".into());
+        // v5: shared engine knob — sets BOTH image and pdf OCR engine.
+        env.insert("KEBAB_OCR_ENGINE".into(), "paddle-onnx".into());
         let c = Config::defaults().apply_env(&env);
         assert_eq!(c.ingest.chunking.target_tokens, 640);
         assert_eq!(c.ingest.max_parallel_extractors, 6);
         assert!(c.ingest.image.ocr.enabled);
+        assert_eq!(c.ingest.image.ocr.engine, "paddle-onnx");
         assert_eq!(c.ingest.pdf.ocr.engine, "paddle-onnx");
     }
 
+    /// v5: the paddle engine overrides moved to the shared `KEBAB_OCR_*` set
+    /// and apply to BOTH mediums in one shot.
     #[test]
-    fn env_pdf_paddle_symmetric_overrides() {
+    fn env_shared_ocr_paddle_overrides_both_mediums() {
         let mut env = HashMap::new();
-        env.insert("KEBAB_PDF_OCR_DET_MODEL".into(), "/d.onnx".into());
-        env.insert("KEBAB_PDF_OCR_SCORE_THRESH".into(), "0.4".into());
-        env.insert("KEBAB_PDF_OCR_MAX_BOXES".into(), "500".into());
+        env.insert("KEBAB_OCR_DET_MODEL".into(), "/d.onnx".into());
+        env.insert("KEBAB_OCR_SCORE_THRESH".into(), "0.4".into());
+        env.insert("KEBAB_OCR_MAX_BOXES".into(), "500".into());
         let c = Config::defaults().apply_env(&env);
         assert_eq!(c.ingest.pdf.ocr.det_model.as_deref(), Some("/d.onnx"));
         assert!((c.ingest.pdf.ocr.score_thresh - 0.4).abs() < 1e-6);
         assert_eq!(c.ingest.pdf.ocr.max_boxes, 500);
+        assert_eq!(c.ingest.image.ocr.det_model.as_deref(), Some("/d.onnx"));
+        assert!((c.ingest.image.ocr.score_thresh - 0.4).abs() < 1e-6);
+        assert_eq!(c.ingest.image.ocr.max_boxes, 500);
     }
 
     #[test]
@@ -1989,12 +2301,14 @@ max_pixels = 1600
     #[test]
     fn env_overrides_image_ocr_request_timeout_secs() {
         let mut env = HashMap::new();
+        // v5: shared KEBAB_OCR_REQUEST_TIMEOUT_SECS sets both mediums.
         env.insert(
-            "KEBAB_IMAGE_OCR_REQUEST_TIMEOUT_SECS".to_string(),
+            "KEBAB_OCR_REQUEST_TIMEOUT_SECS".to_string(),
             "900".to_string(),
         );
         let c = Config::defaults().apply_env(&env);
         assert_eq!(c.ingest.image.ocr.request_timeout_secs, 900);
+        assert_eq!(c.ingest.pdf.ocr.request_timeout_secs, 900);
     }
 
     /// post-v0.17.1 dogfood: a config file written before the OCR
@@ -2136,25 +2450,24 @@ max_pixels = 1600
         );
     }
 
+    /// v5: the engine-level OCR knobs come from the shared `KEBAB_OCR_*` set
+    /// (sets image AND pdf); only `enabled` stays per-medium.
     #[test]
     fn image_ocr_env_overrides() {
         let mut env = HashMap::new();
         env.insert("KEBAB_IMAGE_OCR_ENABLED".to_string(), "true".to_string());
+        env.insert("KEBAB_OCR_MODEL".to_string(), "gemma4:31b".to_string());
         env.insert(
-            "KEBAB_IMAGE_OCR_MODEL".to_string(),
-            "gemma4:31b".to_string(),
-        );
-        env.insert(
-            "KEBAB_IMAGE_OCR_ENDPOINT".to_string(),
+            "KEBAB_OCR_ENDPOINT".to_string(),
             "http://192.168.0.47:11434".to_string(),
         );
         // Empty env value should map to None (= fall back to llm.endpoint).
         // We exercise that branch in a separate test.
         env.insert(
-            "KEBAB_IMAGE_OCR_LANGUAGES".to_string(),
+            "KEBAB_OCR_LANGUAGES".to_string(),
             "eng, kor, jpn".to_string(),
         );
-        env.insert("KEBAB_IMAGE_OCR_MAX_PIXELS".to_string(), "2048".to_string());
+        env.insert("KEBAB_OCR_MAX_PIXELS".to_string(), "2048".to_string());
         let c = Config::defaults().apply_env(&env);
         assert!(c.ingest.image.ocr.enabled);
         assert_eq!(c.ingest.image.ocr.model, "gemma4:31b");
@@ -2164,6 +2477,9 @@ max_pixels = 1600
         );
         assert_eq!(c.ingest.image.ocr.languages, vec!["eng", "kor", "jpn"]);
         assert_eq!(c.ingest.image.ocr.max_pixels, 2048);
+        // shared knob also reached the pdf block.
+        assert_eq!(c.ingest.pdf.ocr.model, "gemma4:31b");
+        assert_eq!(c.ingest.pdf.ocr.max_pixels, 2048);
     }
 
     /// Pre-P6 config files don't have an `[image]` section. The
@@ -2198,15 +2514,17 @@ max_pixels = 1600
         assert_eq!(c.ingest.image.caption.prompt_template_version, "caption-v2");
     }
 
-    /// `KEBAB_IMAGE_OCR_ENDPOINT=""` (empty value) should map to `None`
+    /// v5: `KEBAB_OCR_ENDPOINT=""` (empty value) should map to `None`
     /// rather than to `Some("")` so the fallback to `models.llm.endpoint`
-    /// kicks in. Covers the env-equivalent of a missing TOML key.
+    /// kicks in (for both mediums). Covers the env-equivalent of a missing
+    /// TOML key.
     #[test]
     fn image_ocr_endpoint_empty_env_value_is_none() {
         let mut env = HashMap::new();
-        env.insert("KEBAB_IMAGE_OCR_ENDPOINT".to_string(), String::new());
+        env.insert("KEBAB_OCR_ENDPOINT".to_string(), String::new());
         let c = Config::defaults().apply_env(&env);
         assert_eq!(c.ingest.image.ocr.endpoint, None);
+        assert_eq!(c.ingest.pdf.ocr.endpoint, None);
     }
 
     #[test]
