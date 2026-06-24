@@ -169,7 +169,7 @@ fn ingest_3_page_pdf_produces_one_doc_and_per_page_chunks() {
     );
     assert_eq!(
         pdf_item.chunker_version.as_ref().map(|c| c.0.as_str()),
-        Some("pdf-page-v1.1")
+        Some("pdf-page-v1.2")
     );
 
     // Inspect the stored doc to confirm SourceSpan::Page round-trip.
@@ -363,7 +363,7 @@ fn mixed_page_pdf_stores_asset_with_scanned_candidate_warning() {
     assert_eq!(
         pdf_item.chunk_count,
         Some(2),
-        "pdf-page-v1.1 emits 0 chunks for the empty page; total = 2"
+        "pdf-page-v1.2 emits 0 chunks for the empty page; total = 2"
     );
 
     let doc = kebab_app::inspect_doc_with_config(cfg, pdf_item.doc_id.as_ref().unwrap()).unwrap();

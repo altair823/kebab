@@ -85,19 +85,22 @@ fn multi_scanned_pdf_ingest_no_chunk_id_collision() {
     let f1_canonical = extract_and_ocr(&f1_bytes, "page1.pdf", '1', &f1_engine);
     let f2_canonical = extract_and_ocr(&f2_bytes, "page2.pdf", '2', &f2_engine);
 
+    // v1.2: PdfPageV1Chunker carries a tier-2 oversize budget. Use a
+    // generous budget so the tier-2 split never fires — this test exercises
+    // the tier-1 sentence/paragraph `#c{segment_start}` collision-avoidance,
+    // which is unchanged from v1.1.
+    let chunker = PdfPageV1Chunker {
+        max_chunk_tokens: 100_000,
+    };
     let chunk_policy = ChunkPolicy {
         target_tokens: 500,
         overlap_tokens: 80,
         respect_markdown_headings: false,
-        chunker_version: PdfPageV1Chunker.chunker_version(),
+        chunker_version: chunker.chunker_version(),
     };
 
-    let f1_chunks = PdfPageV1Chunker
-        .chunk(&f1_canonical, &chunk_policy)
-        .unwrap();
-    let f2_chunks = PdfPageV1Chunker
-        .chunk(&f2_canonical, &chunk_policy)
-        .unwrap();
+    let f1_chunks = chunker.chunk(&f1_canonical, &chunk_policy).unwrap();
+    let f2_chunks = chunker.chunk(&f2_canonical, &chunk_policy).unwrap();
 
     assert!(
         f2_chunks.len() >= 2,

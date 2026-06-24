@@ -14,6 +14,44 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-24 — pdf-page-v1.2: PDF 페이지 oversize 분할 + 공유 `crate::oversize` 모듈
+
+**무엇을 바꿨나.** md-heading-v2 의 oversize 분할 primitive(`text_pieces`/
+`char_pieces`/`BYTES_PER_TOKEN`)를 `crates/kebab-chunk/src/oversize.rs` 공유 모듈로
+추출하고, **PDF 청커를 `pdf-page-v1.1` → `pdf-page-v1.2`** 로 올려 같은 분할을
+적용했다. v1.1 의 `chunk_page` 는 문장/문단 경계로만 잘라서, 경계 없는 거대
+페이지(빽빽한 scanned page 가 한 줄로 OCR 된 경우)가 통째로 한 청크 → strict
+임베더에서 실패하는 hole 이 PDF 에 잔존했다(md 와 동형). v1.2 는 **2-tier**:
+tier-1(문장/문단 greedy + overlap) 후, segment 가 `max_chunk_tokens`(공유 config,
+default 4000) 초과면 tier-2 가 `text_pieces` 로 재분할 → 모든 PDF 청크 ≤ 예산.
+
+**구현.** `PdfPageV1Chunker { max_chunk_tokens }`(이전 unit struct), `policy_hash`
+budget fold(md 와 동일), `pdf_chunker_from_config`(kebab-app)로 config 주입(신규
+config 키 없음). 분할 조각 chunk_id 는 `#c{segment_start}s{i}`(미분할 단일 segment
+는 bare `#c{segment_start}` 유지 → 공통 경우 hash 컴포넌트 v1.1 동일). md-heading-v2
+는 공유 모듈을 호출만 하고 **출력 byte-identical**(md 라벨·동작 불변, parity 테스트
+전부 통과).
+
+**span 버그 발견·수정(코드 리뷰).** 최초 구현은 분할 조각 Page span 의
+char_start/char_end 를 per-piece 로 정밀 narrow 하려 했으나, `text_pieces` 가 줄
+분할 시 piece 사이 `'\n'` 구분자를 소실시켜 running offset 이 줄 경계마다 1씩
+drift(`"aaaa\nbbbb\ncccc"` → drift 2). `Vec<String>` 만으로 복구 불가 →
+**md 와 동일하게 부모 segment span(`char_start..seg_char_end`)을 모든 sub-piece 에
+적용**(segment-granular, 절대 drift 없음, never wrong). 회귀 테스트
+`oversize_pdf_page_with_newlines_splits_without_span_drift` 로 잠금.
+
+**cascade.** `chunker_version` v1.1→v1.2 → 다음 plain `kebab ingest` 에서 PDF 자산
+1회 자동 재청크(markdown/code 무영향). wire/CLI/포맷 불변(검색 hit 의 거대 PDF
+페이지가 여러 hit 로 나뉠 수 있음).
+
+**도그푸딩 evidence**(실험 KB, scanned PDF + paddle-onnx OCR + arctic@Lemonade,
+budget 200 으로 tier-2 강제). 625/625 errors=0. scanned_page1.pdf 1→**3 청크**
+(max 190 ≤200), scanned_page2.pdf 3→**7 청크**(max 197 ≤200), 둘 다
+`chunker_version=pdf-page-v1.2` 스탬프. 전 코퍼스(markdown+이미지OCR+PDF) **10215
+청크 전부 ≤200, 초과 0**. 단위: kebab-chunk lib 93 pass(span 회귀 테스트 포함),
+kebab-app green, clippy `-D warnings` 0. 설계:
+`docs/superpowers/plans/2026-06-24-pdf-page-v1.2-oversize-split.md`.
+
 ## 2026-06-24 — config: `[ingest.chunking]` budget floor 검증
 
 **무엇을 바꿨나.** `Config::from_file` 에 `validate_chunking()` 을 추가해
@@ -30,6 +68,7 @@ bloat, 에러 없음)를 냈다. 기존 `target_tokens`/`overlap_tokens` 도 동
 < target`, `overlap ≥ target`)만 명확한 메시지로 load 실패. 새 config 키·migration
 없음, 동작 변경 없음 → patch-level. 테스트: `defaults_pass_chunking_validation`
 + reject 4종 + `from_file_rejects_invalid_chunking`(e2e).
+
 
 ## 2026-06-24 — md-heading-v2: 예산 초과 청크 일반 분할 (oversize-chunk split) (v0.30.0)
 
