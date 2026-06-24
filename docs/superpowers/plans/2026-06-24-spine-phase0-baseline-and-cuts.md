@@ -54,12 +54,18 @@ while IFS= read -r q; do
 done < "$BASE/queries.txt"
 diff "$BASE/ask.jsonl" /tmp/parity/ask.jsonl && echo "ASK IDENTICAL"
 
-# 4. Chunk byte-identity (proves ingest output unchanged — no re-ingest in Phase 1)
-sqlite3 "$GATE/data/kebab/kebab.sqlite" \
-  "SELECT chunk_id, text, chunker_version, embedding_version FROM chunks ORDER BY chunk_id" \
-  > /tmp/parity/chunks.tsv
+# 4. Chunk byte-identity (no sqlite3 CLI on this host → python3 stdlib). DB at
+#    $GATE/data/kebab.sqlite; chunks table has no embedding_version (use policy_hash).
+python3 - "$GATE/data/kebab.sqlite" /tmp/parity/chunks.tsv <<'PYEOF'
+import sys, sqlite3
+c = sqlite3.connect(sys.argv[1])
+rows = c.execute("SELECT chunk_id, text, chunker_version, policy_hash FROM chunks ORDER BY chunk_id").fetchall()
+open(sys.argv[2], "w").write("\n".join("\t".join(str(x) for x in r) for r in rows) + "\n")
+PYEOF
 diff "$BASE/chunks.tsv" /tmp/parity/chunks.tsv && echo "CHUNKS IDENTICAL"
 ````
+
+> **Env (this host, verified Task 0):** parity KB `$GATE=/home/user/large_data/out/kebab-parity` (183 docs / 7676 chunks), embedder `snowflake-arctic-embed2` + LLM `gemma3:4b` on **GPU ollama `192.168.0.244:11434`** (lemonade stopped for Phase 1; restore after). `search` AND `ask` deterministic at temp 0 / seed 12345 (2× byte-identical — verified). One gate run ≈ 65s. `sqlite3` CLI NOT installed — python3 stdlib for all DB reads.
 
 **PASS criteria (all are byte-diffs — output-equality, label-free):**
 - `SEARCH IDENTICAL` — every query's lexical + hybrid hits byte-identical. No LLM needed; deletions don't touch retrieval. ANY diff is a real regression.

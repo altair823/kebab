@@ -14,6 +14,19 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-24 — spine-rewrite Phase 0: 출력-동등성 parity baseline 동결
+
+척추 재작성/단순화(설계 `2026-06-24-spine-rewrite-simplification-design`)의 per-수정-단위
+**코어 품질 패리티 게이트** 기준선. eval golden set 이 ground-truth 라벨 부재 → metric 기반
+대신 **출력 동등성**(`search`/`ask --json` byte-diff + chunk dump diff) 채택(삭제 단계엔 더 정확).
+
+- parity KB `/home/user/large_data/out/kebab-parity` — corpus = kebab 자체 docs(**183 doc / 7676 chunk**),
+  임베더 `snowflake-arctic-embed2` + LLM `gemma3:4b`, 둘 다 R9700 **GPU ollama(.244)**. baseline 바이너리 = main `cea390d`.
+- 산출물 `baseline/{queries.txt(7), search.jsonl(14=7×lex/hyb), ask.jsonl(7), chunks.tsv(7676)}`.
+- **결정성 검증**: `search`·`ask` 모두 temp0/seed12345 에서 2× byte-identical(ollama gemma3 정상 chat-templating). 게이트 1회 ≈ 65s.
+- 인프라: `sqlite3` CLI 미설치 → python3 stdlib. lemonade 는 Phase 1 동안 stop(opencode/hermes down), 종료 후 복원.
+- 게이트 정의: `docs/superpowers/plans/2026-06-24-spine-phase0-baseline-and-cuts.md` "Parity Gate".
+
 ## 2026-06-24 — RAG provenance 라벨: `rag-v4` (출처/trust 라벨 + 신뢰도 우선 지시)
 
 **무엇을 추가했나.** RAG 프롬프트의 각 [근거] 청크 머리에 출처/trust 라벨을
