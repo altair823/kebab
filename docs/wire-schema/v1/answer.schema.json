@@ -45,15 +45,6 @@
     "retrieval":               { "type": "object" },
     "usage":                   { "type": "object" },
     "created_at":              { "type": "string", "format": "date-time" },
-    "conversation_id":         {
-      "type": ["string", "null"],
-      "description": "p9-fb-15: same conversation 의 turn 들이 공유. CLI single-shot / TUI 첫 turn 은 null."
-    },
-    "turn_index":              {
-      "type": ["integer", "null"],
-      "minimum": 0,
-      "description": "p9-fb-15: 같은 conversation 안 0-based 순서. null 이면 single-shot."
-    },
     "hops": {
       "anyOf": [
         {

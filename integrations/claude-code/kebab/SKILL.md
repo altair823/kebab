@@ -80,13 +80,12 @@ Use when the user wants a synthesized answer, not a list of links.
 
 Input:
 ```json
-{ "query": "<question>", "session_id": "<optional-slug>", "mode": "hybrid", "multi_hop": false }
+{ "query": "<question>", "mode": "hybrid", "multi_hop": false }
 ```
 
-- Returns `answer.v1`: `answer` (markdown), `citations[]`, `grounded` (bool), `refusal_reason`, `model`, `conversation_id`, `turn_index`, `hops` (multi-hop only).
+- Returns `answer.v1`: `answer` (markdown), `citations[]`, `grounded` (bool), `refusal_reason`, `model`, `hops` (multi-hop only).
 - **If `grounded == false`** → KB doesn't have enough context. Don't paraphrase the refusal as if it were an answer. Tell the user the KB came up dry and fall back to your own knowledge or ask for the source.
-- For follow-up turns on the same topic, pass `session_id` (e.g. `"team-onboarding-2026-05"`) and reuse it across the conversation. Sessions persist until `kebab reset --data-only`.
-- p9-fb-40: 기본 `prompt_template_version = "rag-v2"`. 답변이 더 strict — fact 인용 시 verbatim span, 학습 지식 동원 금지, 근거 모호 시 "확실하지 않다" 출현 가능. user 가 `[rag] prompt_template_version = "rag-v1"` 명시 시 legacy 동작.
+- p9-fb-40: 기본 `prompt_template_version = "rag-v4"`. 답변이 strict — fact 인용 시 verbatim span, 학습 지식 동원 금지, 근거 모호 시 "확실하지 않다" 출현 가능. `[rag] prompt_template_version = "rag-v3"` 로 이전 템플릿 선택 가능.
 - **p9-fb-41 `multi_hop: true`** — opt the ask into the multi-hop pipeline. The query is decomposed into sub-questions, each retrieved independently (LLM-driven decide loop, up to `rag.multi_hop_max_depth` iters), then synthesized over the merged chunk pool. Cost trade-off: 2–5× LLM calls vs. single-pass. **Use** for compound questions ("X 와 Y 의 차이는?", prereq chains, cross-doc reasoning where one chunk alone is insufficient). **Don't** for simple fact-finding (single-pass is faster + cheaper). When set, `answer.v1.hops[]` carries the per-hop trace (`{iter, kind, sub_queries[], context_chunks_added, forced_stop, llm_call_ms}`) — surface a brief "Searched in N hops" note when the trace is non-trivial. Decompose-failure (model emitted non-JSON) → `refusal_reason = "multi_hop_decompose_failed"`; treat like any other refusal.
 - **v0.18+ multi-hop NLI verification** — multi-hop ask (`mcp__kebab__ask` with `multi_hop: true`) runs a post-synthesize NLI groundedness gate when `[rag] nli_threshold > 0` is set in the user's config. `answer.v1.verification.nli_passed == true` means the generated answer is entailed by the retrieved chunks (grounded); `false` means the answer is refused with `refusal_reason = "nli_verification_failed"` and the `verification` block still ships so the agent can show what entailment score was rejected. Threshold tuning: 0.5 is the production default, 0.9 is strict mode. If the NLI model download / inference fails the pipeline emits `refusal_reason = "nli_model_unavailable"` — user-side workaround is `[rag] nli_threshold = 0` then retry multi-hop. Single-pass `ask` (multi_hop: false / unset) is unaffected — it keeps the LLM self-judge gate as the only verification.
 
@@ -113,7 +112,6 @@ If MCP tools aren't in scope (host without MCP support, or `mcp.json` not config
 ```bash
 kebab search "<query>" --mode hybrid --json 2>/dev/null
 kebab ask "<question>" --json 2>/dev/null
-kebab ask "<question>" --session <stable-id> --json 2>/dev/null
 kebab ask "<question>" --stream  # ndjson answer_event.v1 on stderr, final answer.v1 on stdout
 ```
 
@@ -151,9 +149,9 @@ Claude Code spawns `kebab mcp` at session start; the process stays alive across 
 
 ## Capability discovery
 
-Before using streaming or multi-turn features, probe what this binary supports — call `mcp__kebab__schema` (or CLI `kebab schema --json`):
+Before using streaming features, probe what this binary supports — call `mcp__kebab__schema` (or CLI `kebab schema --json`):
 
-Returns `schema.v1`: `wire.schemas` (supported wire ids), `capabilities` (bool flags — e.g. `streaming_ask`, `rag_multi_turn`), `models` (version cascade 6-axis + v0.20.1 `active_parsers` / `active_chunkers` arrays for multi-version corpora), `stats` (doc/chunk/asset count + last_ingest_at, plus p9-fb-37 health surface: `media_breakdown` per-kind doc counts (5 zero-padded keys: markdown / pdf / image / audio / other), `lang_breakdown` per BCP-47 lang (NULL keyed as the literal string `"null"`), `index_bytes.{sqlite,lancedb}` on-disk byte sums, `stale_doc_count` for docs older than `config.search.stale_threshold_days`). Gate streaming / session flows on `capabilities.streaming_ask` / `capabilities.rag_multi_turn` being `true`. Cheap call (no LLM), once per session.
+Returns `schema.v1`: `wire.schemas` (supported wire ids), `capabilities` (bool flags — e.g. `streaming_ask`, `rag_multi_turn`), `models` (version cascade 6-axis + v0.20.1 `active_parsers` / `active_chunkers` arrays for multi-version corpora), `stats` (doc/chunk/asset count + last_ingest_at, plus p9-fb-37 health surface: `media_breakdown` per-kind doc counts (5 zero-padded keys: markdown / pdf / image / audio / other), `lang_breakdown` per BCP-47 lang (NULL keyed as the literal string `"null"`), `index_bytes.{sqlite,lancedb}` on-disk byte sums, `stale_doc_count` for docs older than `config.search.stale_threshold_days`). Gate streaming flows on `capabilities.streaming_ask` being `true`. Cheap call (no LLM), once per session.
 
 ## Quick health check
 
@@ -198,4 +196,3 @@ For files already on disk the user references, prefer `mcp__kebab__ingest_file` 
 - Don't auto-invoke `mcp__kebab__ingest_file` / `mcp__kebab__ingest_stdin` / `kebab ingest` / `kebab reset` / `kebab init`. Those mutate state — the user must explicitly request.
 - Don't pass user-supplied raw text into the query without trimming — long queries (> a few hundred chars) waste embedding budget. Extract the question.
 - Don't fabricate `doc_path`s. If you didn't see a doc in `search` / `ask` output, it's not in the KB.
-- Don't use `kebab tui` from a skill — it's interactive only.

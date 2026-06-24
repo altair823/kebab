@@ -11,7 +11,6 @@
     "ts":             { "type": "string", "format": "date-time" },
     "hits":           { "type": "array",  "description": "retrieval_done: search_hit.v1[]" },
     "delta":          { "type": "string", "description": "token: incremental string chunk" },
-    "turn_index":     { "type": ["integer", "null"], "minimum": 0, "description": "token: matches Answer.turn_index" },
     "answer":         { "type": "object", "description": "final: complete answer.v1 payload" }
   }
 }
