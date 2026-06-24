@@ -46,6 +46,29 @@ git history.
 - 브랜치 `refactor/spine-cuts`. surface 동기화: README `[ingest.ocr]` 절 + SMOKE config 블록 +
   DOGFOOD env 표.
 
+## 2026-06-24 — spine-rewrite Phase 2: config 슬라이스 + 표면 정리
+
+config god-struct·중복·과노출을 정리. 3 유닛, 각 패리티 게이트(출력 동등성) 통과.
+
+- **Unit 1 — OCR 중복 제거 (da323af)**: image/pdf OCR의 13 공유 필드를 `[ingest.ocr]`
+  엔진 블록으로 추출(image-고유 0, pdf-고유 4). `resolve_ocr()`가 shared→medium 오버레이.
+  apply_env OCR arm 27→16. **config schema v4→v5** 무손실 자동 마이그레이션(`step_4_to_5`,
+  enabled 는 안 옮김=pdf OCR 오작동 방지, annotated_default 동일 consolidation=reconcile
+  재주입 regression 방지). `ingest_config_signature` 보존(재색인 없음) — round-trip 테스트로 잠금.
+- **Unit 2 — 표면 정리 (bf7769c)**: `apply_env` arm 75→**22**(런타임 override용만 유지 —
+  endpoint/model/path/toggle; long-tail 튜닝 노브는 config-only). 노출 키 README/SMOKE 축소.
+  struct 필드는 고급 TOML용 유지(`deny_unknown_fields` 미사용 → 무손실). truly-dead 0.
+- **Unit 3 — slice refactor (2dfbbe4)**: consumer 6종이 `&Config` 통째 대신 타입 슬라이스 수령
+  — Fastembed/Ollama 임베더 `&EmbeddingModelCfg`, SqliteStore/LanceVectorStore `&StorageCfg`,
+  HybridRetriever `&SearchCfg`, RagPipeline `RagCfg+ModelsCfg+SearchCfg`. VectorRetriever 의
+  숨은 `Config::defaults()` 결합 제거. 46 콜사이트. god-struct 결합 해소.
+- **검증**: 각 유닛 패리티 SEARCH/ASK/CHUNKS byte-IDENTICAL, clippy --workspace --all-targets 0,
+  tests green. baseline = Phase 0 동결(GPU ollama).
+- **팀 메모**: Unit 1/2 는 compile-coupled 단일 teammate(u1-ocr opus, u2-surface). Unit 3 는
+  worktree 격리 병렬 3-팀을 시도했으나 `isolation:"worktree"` 가 현재 HEAD 가 아닌 cea390d(세션
+  시작점)에서 분기하는 버그로 통합 불가 → main 에서 단일 opus(u3-redo) 재적용. **교훈: 진화 중인
+  브랜치 위 *수정* 작업엔 worktree 격리 teammate 부적합(삭제는 base-무관이라 Phase 1 은 OK).**
+
 ## 2026-06-24 — spine-rewrite Phase 1: 5건 삭제 (cache/templates/candle/sessions/tui) — 코어 출력 불변
 
 척추 단순화 Phase 1 = 순수 삭제 5건. **OMC-style worktree 격리 병렬 teammate** 5명이 각자
