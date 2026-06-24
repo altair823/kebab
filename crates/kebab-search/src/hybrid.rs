@@ -516,6 +516,8 @@ mod tests {
             score_kind: kebab_core::ScoreKind::Rrf,
             repo: None,
             code_lang: None,
+            source_id: Some("default".into()),
+            trust_level: Some(kebab_core::TrustLevel::Primary),
         }
     }
 
@@ -583,6 +585,31 @@ mod tests {
         assert!(yy.retrieval.vector_score.is_some());
         assert_eq!(yy.retrieval.lexical_rank, None);
         assert_eq!(yy.retrieval.vector_rank, Some(1));
+    }
+
+    #[test]
+    fn hybrid_fusion_propagates_source_id_and_trust_level() {
+        // rag-provenance-label: the fused SearchHit is cloned from one side's
+        // hit (lexical preferred), so source_id / trust_level must survive
+        // fusion unchanged for both lex-side and vec-only chunks.
+        let mut lex_hit = mk_hit("xxxx", 1, SearchMode::Lexical, 0.9);
+        lex_hit.source_id = Some("jira".into());
+        lex_hit.trust_level = Some(kebab_core::TrustLevel::Secondary);
+        let mut vec_hit = mk_hit("yyyy", 1, SearchMode::Vector, 0.8);
+        vec_hit.source_id = Some("wiki".into());
+        vec_hit.trust_level = Some(kebab_core::TrustLevel::Primary);
+
+        let lex = Arc::new(CannedRetriever::new(vec![lex_hit], "lex-v1"));
+        let vec = Arc::new(CannedRetriever::new(vec![vec_hit], "vec-v1"));
+        let h = HybridRetriever::with_policy(lex, vec, rrf_policy(60), 5);
+        let out = h.search(&make_query(SearchMode::Hybrid, 5)).unwrap();
+
+        let xx = out.iter().find(|h| h.chunk_id.0 == "xxxx").unwrap();
+        assert_eq!(xx.source_id.as_deref(), Some("jira"));
+        assert_eq!(xx.trust_level, Some(kebab_core::TrustLevel::Secondary));
+        let yy = out.iter().find(|h| h.chunk_id.0 == "yyyy").unwrap();
+        assert_eq!(yy.source_id.as_deref(), Some("wiki"));
+        assert_eq!(yy.trust_level, Some(kebab_core::TrustLevel::Primary));
     }
 
     #[test]
@@ -783,6 +810,8 @@ mod tests {
                 score_kind: kebab_core::ScoreKind::Rrf,
                 repo: None,
                 code_lang: None,
+                source_id: Some("default".into()),
+                trust_level: Some(kebab_core::TrustLevel::Primary),
             }
         }
 

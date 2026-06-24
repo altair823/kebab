@@ -252,6 +252,57 @@ fn lexical_single_doc_match_returns_one_hit_with_citation_round_trip() {
     assert_eq!(parsed.to_uri(), uri);
     // Sanity: this is a Line citation matching the seeded source span.
     assert_eq!(uri, "notes/rust.md#L4");
+
+    // rag-provenance-label: defaults from the documents join — `source_id`
+    // is V014 `DEFAULT 'default'`, trust_level seeded as 'primary'.
+    assert_eq!(h.source_id.as_deref(), Some("default"));
+    assert_eq!(h.trust_level, Some(TrustLevel::Primary));
+}
+
+#[test]
+fn lexical_build_hit_populates_source_id_and_trust_level_from_join() {
+    // rag-provenance-label: a non-default source_id + secondary trust_level
+    // must round-trip from the documents join into the SearchHit.
+    let env = Env::new();
+    let conn = env.raw_conn();
+    insert_document(
+        &conn,
+        &id32("d"),
+        "notes/jira.md",
+        "Jira note",
+        "en",
+        "secondary",
+        &[],
+    );
+    // V014 source_id column DEFAULTs to 'default'; override it for this doc.
+    conn.execute(
+        "UPDATE documents SET source_id = 'jira' WHERE doc_id = ?",
+        rusqlite::params![id32("d")],
+    )
+    .expect("set source_id");
+    insert_chunk(
+        &conn,
+        &id32("c1"),
+        &id32("d"),
+        "incident postmortem timeline notes",
+        &["Note"],
+        None,
+        r#"[{"kind":"line","start":1,"end":3}]"#,
+        "v1",
+    );
+    drop(conn);
+
+    let r = env.retriever();
+    let q = SearchQuery {
+        text: "incident".to_string(),
+        mode: SearchMode::Lexical,
+        k: 10,
+        filters: SearchFilters::default(),
+    };
+    let hits = r.search(&q).expect("search");
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].source_id.as_deref(), Some("jira"));
+    assert_eq!(hits[0].trust_level, Some(TrustLevel::Secondary));
 }
 
 #[test]

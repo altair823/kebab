@@ -22,7 +22,7 @@ use anyhow::{Context, Result};
 use kebab_core::{
     ChunkId, ChunkerVersion, DocumentId, Embedder, EmbeddingInput, EmbeddingKind, IndexVersion,
     RetrievalDetail, Retriever, ScoreKind, SearchHit, SearchMode, SearchQuery, SourceSpan,
-    VectorHit, VectorStore, WorkspacePath,
+    TrustLevel, VectorHit, VectorStore, WorkspacePath,
 };
 use kebab_store_sqlite::SqliteStore;
 use rusqlite::params_from_iter;
@@ -219,6 +219,12 @@ struct ChunkMeta {
     workspace_path: String,
     /// p9-fb-32: documents.updated_at (RFC3339).
     updated_at: String,
+    /// rag-provenance-label: documents.trust_level (lowercase TEXT; V001
+    /// `NOT NULL`). Parsed to `TrustLevel` in `build_hit`.
+    trust_level: String,
+    /// rag-provenance-label: documents.source_id (TEXT; V014 `NOT NULL
+    /// DEFAULT 'default'`).
+    source_id: String,
 }
 
 fn hydrate_chunks(sqlite: &SqliteStore, chunk_ids: &[&str]) -> Result<HashMap<String, ChunkMeta>> {
@@ -241,7 +247,8 @@ fn hydrate_chunks(sqlite: &SqliteStore, chunk_ids: &[&str]) -> Result<HashMap<St
         "SELECT \
             c.chunk_id, c.text, c.heading_path_json, c.section_label, \
             c.source_spans_json, c.chunker_version, \
-            c.doc_id, d.workspace_path, d.updated_at \
+            c.doc_id, d.workspace_path, d.updated_at, \
+            d.trust_level, d.source_id \
          FROM chunks c \
          JOIN documents d ON d.doc_id = c.doc_id \
          WHERE c.chunk_id IN ({placeholders})"
@@ -269,6 +276,8 @@ fn hydrate_chunks(sqlite: &SqliteStore, chunk_ids: &[&str]) -> Result<HashMap<St
                         doc_id: row.get(6)?,
                         workspace_path: row.get(7)?,
                         updated_at: row.get(8)?,
+                        trust_level: row.get(9)?,
+                        source_id: row.get(10)?,
                     },
                 ))
             },
@@ -315,6 +324,13 @@ fn build_hit(
     )
     .context("kb-search vector: parse documents.updated_at as RFC3339")?;
 
+    // rag-provenance-label: mirror lexical::build_hit — trust_level is the
+    // lowercase TEXT form matching `TrustLevel`'s serde; source_id is V014
+    // `NOT NULL DEFAULT 'default'`.
+    let trust_level: TrustLevel =
+        serde_json::from_value(serde_json::Value::String(meta.trust_level.clone()))
+            .context("kb-search vector: parse documents.trust_level")?;
+
     let score = hit.score;
     Ok(SearchHit {
         rank,
@@ -344,6 +360,8 @@ fn build_hit(
         score_kind: ScoreKind::Cosine,
         repo: None,
         code_lang: None,
+        source_id: Some(meta.source_id.clone()),
+        trust_level: Some(trust_level),
     })
 }
 

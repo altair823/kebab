@@ -640,8 +640,8 @@ fn ask_multi_hop_dispatches_and_decompose_garbage_refuses() {
         "refusal Answer carries no citations"
     );
     assert_eq!(
-        answer.prompt_template_version.0, "rag-multi-hop-v1",
-        "multi-hop path must stamp the rag-multi-hop-v1 template version"
+        answer.prompt_template_version.0, "rag-multi-hop-v2",
+        "multi-hop path must stamp the rag-multi-hop-v2 template version"
     );
     assert_eq!(
         lm_handle.calls(),
@@ -675,12 +675,12 @@ fn ask_with_multi_hop_false_keeps_single_pass_path() {
     assert_eq!(
         answer.prompt_template_version.0,
         // Single-pass stamps the config's prompt_template_version
-        // (config default = "rag-v3"), NOT "rag-multi-hop-v1".
+        // (config default = "rag-v4"), NOT "rag-multi-hop-v2".
         env.config.rag.prompt_template_version,
         "multi_hop=false must keep the config's prompt template (single-pass)"
     );
     assert_ne!(
-        answer.prompt_template_version.0, "rag-multi-hop-v1",
+        answer.prompt_template_version.0, "rag-multi-hop-v2",
         "multi_hop=false must NOT route through ask_multi_hop"
     );
 }

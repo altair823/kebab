@@ -294,6 +294,12 @@ struct RawRow {
     workspace_path: String,
     /// p9-fb-32: documents.updated_at (RFC3339).
     updated_at: String,
+    /// rag-provenance-label: documents.trust_level (lowercase TEXT; V001
+    /// `NOT NULL`). Parsed to `TrustLevel` in `build_hit`.
+    trust_level: String,
+    /// rag-provenance-label: documents.source_id (TEXT; V014 `NOT NULL
+    /// DEFAULT 'default'`).
+    source_id: String,
 }
 
 /// Build + execute the FTS5 query. The SQL pattern is the one documented
@@ -316,7 +322,9 @@ fn run_query(
             c.heading_path_json, c.section_label, c.source_spans_json, \
             c.chunker_version, \
             d.workspace_path, \
-            d.updated_at \
+            d.updated_at, \
+            d.trust_level, \
+            d.source_id \
          FROM chunks_fts f \
          JOIN chunks c    ON c.chunk_id = f.chunk_id \
          JOIN documents d ON d.doc_id = f.doc_id",
@@ -502,6 +510,8 @@ fn row_from_sql(row: &Row<'_>) -> rusqlite::Result<RawRow> {
         chunker_version: row.get(7)?,
         workspace_path: row.get(8)?,
         updated_at: row.get(9)?,
+        trust_level: row.get(10)?,
+        source_id: row.get(11)?,
     })
 }
 
@@ -545,6 +555,14 @@ fn build_hit(
     )
     .context("kb-search lexical: parse documents.updated_at as RFC3339")?;
 
+    // rag-provenance-label: documents.trust_level is the lowercase TEXT form
+    // matching `#[serde(rename_all = "lowercase")]` on `TrustLevel` (mirrors
+    // kebab_store_sqlite::documents read-back). source_id is V014 `NOT NULL
+    // DEFAULT 'default'`, so always present.
+    let trust_level: TrustLevel =
+        serde_json::from_value(serde_json::Value::String(raw.trust_level))
+            .context("kb-search lexical: parse documents.trust_level")?;
+
     Ok(SearchHit {
         rank,
         chunk_id: ChunkId(raw.chunk_id),
@@ -573,6 +591,8 @@ fn build_hit(
         score_kind: ScoreKind::Bm25,
         repo: None,
         code_lang: None,
+        source_id: Some(raw.source_id),
+        trust_level: Some(trust_level),
     })
 }
 

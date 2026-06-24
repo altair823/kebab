@@ -9,7 +9,9 @@ mod common;
 use std::sync::{Arc, Mutex};
 
 use common::{MockRetriever, RagEnv, id32, mk_hit};
-use kebab_core::{FinishReason, LanguageModel, Retriever, SearchMode, TokenChunk, TokenUsage};
+use kebab_core::{
+    FinishReason, LanguageModel, Retriever, SearchMode, TokenChunk, TokenUsage, TrustLevel,
+};
 use kebab_llm::MockLanguageModel;
 use kebab_rag::{AskOpts, RagPipeline};
 
@@ -23,10 +25,20 @@ const TEST_LM_ID: &str = "mock-lm";
 struct CapturingLm {
     inner: MockLanguageModel,
     captured_system: Arc<Mutex<Option<String>>>,
+    /// rag-provenance-label: also snapshot `req.user` (the packed [근거]
+    /// block) so tests can assert the per-chunk `source=`/`trust=` header.
+    captured_user: Arc<Mutex<Option<String>>>,
 }
 
 impl CapturingLm {
     fn new(captured: Arc<Mutex<Option<String>>>) -> Self {
+        Self::with_user(captured, Arc::new(Mutex::new(None)))
+    }
+
+    fn with_user(
+        captured_system: Arc<Mutex<Option<String>>>,
+        captured_user: Arc<Mutex<Option<String>>>,
+    ) -> Self {
         Self {
             inner: MockLanguageModel {
                 model_id: TEST_LM_ID.to_string(),
@@ -40,7 +52,8 @@ impl CapturingLm {
                     latency_ms: 7,
                 },
             },
-            captured_system: captured,
+            captured_system,
+            captured_user,
         }
     }
 }
@@ -57,6 +70,7 @@ impl LanguageModel for CapturingLm {
         req: kebab_core::GenerateRequest,
     ) -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<TokenChunk>> + Send>> {
         *self.captured_system.lock().unwrap() = Some(req.system.clone());
+        *self.captured_user.lock().unwrap() = Some(req.user.clone());
         self.inner.generate_stream(req)
     }
 }
@@ -183,5 +197,83 @@ fn ask_with_unknown_template_returns_early_error() {
     assert!(
         msg.contains("rag-v99") && msg.contains("expected"),
         "expected error to mention version + expected list, got: {msg}"
+    );
+}
+
+#[test]
+fn ask_with_rag_v4_uses_v4_system_prompt() {
+    let (pipeline, captured, _env) = build_pipeline_with_template("rag-v4");
+    let _ = pipeline.ask("hello", lexical_opts());
+    let s = captured
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("system prompt captured");
+    assert!(
+        s.contains("로컬 KB 위에서 동작"),
+        "shared prefix expected, got: {s}"
+    );
+    // rag-v4 = rag-v3 rules + the two provenance rules.
+    assert!(
+        s.contains("학습 지식") && s.contains("원본 질문"),
+        "V4 must retain V3 rules, got: {s}"
+    );
+    assert!(
+        s.contains("신뢰도 우선") && s.contains("trust=primary"),
+        "V4 must contain trust-discount rule, got: {s}"
+    );
+    assert!(
+        s.contains("귀속"),
+        "V4 must contain attribution rule, got: {s}"
+    );
+}
+
+/// rag-provenance-label: build a pipeline whose retriever returns a single
+/// hit with the given provenance, capturing the packed [근거] user prompt.
+fn pack_user_prompt_for_hit(
+    source_id: Option<&str>,
+    trust_level: Option<TrustLevel>,
+) -> String {
+    let mut env = RagEnv::new();
+    env.config.rag.prompt_template_version = "rag-v4".to_string();
+    env.config.rag.score_gate = 0.0;
+    let captured_system = Arc::new(Mutex::new(None));
+    let captured_user = Arc::new(Mutex::new(None));
+    let lm: Arc<dyn LanguageModel> =
+        Arc::new(CapturingLm::with_user(captured_system, captured_user.clone()));
+    let chunk_id = id32("c");
+    let doc_id = id32("d");
+    env.seed_chunk(&chunk_id, &doc_id, "a.md", "hello world", &["H"]);
+    let mut hit = mk_hit(1, &chunk_id, &doc_id, "a.md", 0.9, &["H"]);
+    hit.source_id = source_id.map(str::to_string);
+    hit.trust_level = trust_level;
+    let retriever: Arc<dyn Retriever> = Arc::new(MockRetriever::new(vec![hit]));
+    let pipeline = RagPipeline::new(env.config.clone(), retriever, lm, env.sqlite.clone());
+    let _ = pipeline.ask("hello", lexical_opts());
+    let out = captured_user
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("user prompt captured");
+    // Keep env alive until after ask returns.
+    drop(env);
+    out
+}
+
+#[test]
+fn pack_context_header_renders_source_and_trust_labels() {
+    let user = pack_user_prompt_for_hit(Some("jira"), Some(TrustLevel::Secondary));
+    assert!(
+        user.contains("[#1] source=jira trust=secondary doc=a.md"),
+        "expected provenance label in chunk header, got: {user}"
+    );
+}
+
+#[test]
+fn pack_context_header_uses_default_source_and_unknown_trust_when_none() {
+    let user = pack_user_prompt_for_hit(None, None);
+    assert!(
+        user.contains("[#1] source=default trust=unknown doc=a.md"),
+        "expected default/unknown provenance label when fields absent, got: {user}"
     );
 }

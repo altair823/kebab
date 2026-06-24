@@ -191,7 +191,7 @@ model = "gemma4:e4b"
 stale_threshold_days = 30   # search hit / citation 의 stale 플래그 기준 (0 = off).
 
 [rag]
-prompt_template_version = "rag-v3"   # 답변 언어 = 질문 언어. rag-v1/v2 는 legacy.
+prompt_template_version = "rag-v4"   # 각 근거의 source/trust 라벨로 low-trust 출처 discount + 답변 언어 = 질문 언어. rag-v1/v2/v3 는 legacy.
 nli_threshold = 0.0                  # >0 (예: 0.5) 면 mDeBERTa XNLI groundedness 검증.
 ```
 

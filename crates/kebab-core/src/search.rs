@@ -120,6 +120,19 @@ pub struct SearchHit {
     /// every code/manifest/k8s chunk; null for markdown / pdf / image hits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_lang: Option<String>,
+    /// rag-provenance-label: source doc's `documents.source_id` (the `id` of
+    /// the `[[workspace.sources]]` entry it was ingested from; `default` when
+    /// absent). Filled by the lexical / vector retrievers from the chunk→doc
+    /// join; null on synthetic hits and older wire. Additive optional — feeds
+    /// the per-chunk provenance label in the RAG prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    /// rag-provenance-label: source doc's `documents.trust_level`
+    /// (`primary` / `secondary` / `generated`). Filled by the retrievers from
+    /// the chunk→doc join; null on synthetic hits and older wire. Additive
+    /// optional — the LLM uses it to discount low-trust sources on conflict.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_level: Option<TrustLevel>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -303,6 +316,8 @@ mod tests {
             score_kind: ScoreKind::Rrf,
             repo: None,
             code_lang: None,
+            source_id: None,
+            trust_level: None,
         };
         let v = serde_json::to_value(&hit).unwrap();
         assert_eq!(v["indexed_at"], "2026-05-09T12:00:00Z");
@@ -501,6 +516,8 @@ mod tests {
             score_kind: ScoreKind::Rrf,
             repo: None,
             code_lang: None,
+            source_id: None,
+            trust_level: None,
         };
         let v = serde_json::to_value(&hit).unwrap();
         assert!(v.get("repo").is_none(), "repo should be omitted when None");
@@ -536,10 +553,115 @@ mod tests {
             score_kind: ScoreKind::Rrf,
             repo: Some("kebab".into()),
             code_lang: Some("rust".into()),
+            source_id: None,
+            trust_level: None,
         };
         let v = serde_json::to_value(&hit).unwrap();
         assert_eq!(v["repo"], "kebab");
         assert_eq!(v["code_lang"], "rust");
+    }
+
+    #[test]
+    fn search_hit_source_id_and_trust_level_omitted_when_none() {
+        let hit = SearchHit {
+            rank: 1,
+            chunk_id: ChunkId("c1".into()),
+            doc_id: DocumentId("d1".into()),
+            doc_path: WorkspacePath("a.md".into()),
+            heading_path: vec![],
+            section_label: None,
+            snippet: String::new(),
+            citation: Citation::Line {
+                path: WorkspacePath("a.md".into()),
+                start: 1,
+                end: 2,
+                section: None,
+            },
+            retrieval: RetrievalDetail::default(),
+            index_version: IndexVersion("v1".into()),
+            embedding_model: None,
+            chunker_version: ChunkerVersion("md-heading-v1".into()),
+            indexed_at: time::OffsetDateTime::UNIX_EPOCH,
+            stale: false,
+            score_kind: ScoreKind::Rrf,
+            repo: None,
+            code_lang: None,
+            source_id: None,
+            trust_level: None,
+        };
+        let v = serde_json::to_value(&hit).unwrap();
+        assert!(
+            v.get("source_id").is_none(),
+            "source_id should be omitted when None"
+        );
+        assert!(
+            v.get("trust_level").is_none(),
+            "trust_level should be omitted when None"
+        );
+    }
+
+    #[test]
+    fn search_hit_source_id_and_trust_level_present_when_some() {
+        let hit = SearchHit {
+            rank: 1,
+            chunk_id: ChunkId("c1".into()),
+            doc_id: DocumentId("d1".into()),
+            doc_path: WorkspacePath("a.md".into()),
+            heading_path: vec![],
+            section_label: None,
+            snippet: String::new(),
+            citation: Citation::Line {
+                path: WorkspacePath("a.md".into()),
+                start: 1,
+                end: 2,
+                section: None,
+            },
+            retrieval: RetrievalDetail::default(),
+            index_version: IndexVersion("v1".into()),
+            embedding_model: None,
+            chunker_version: ChunkerVersion("md-heading-v1".into()),
+            indexed_at: time::OffsetDateTime::UNIX_EPOCH,
+            stale: false,
+            score_kind: ScoreKind::Rrf,
+            repo: None,
+            code_lang: None,
+            source_id: Some("notes".into()),
+            trust_level: Some(TrustLevel::Secondary),
+        };
+        let v = serde_json::to_value(&hit).unwrap();
+        assert_eq!(v["source_id"], "notes");
+        assert_eq!(v["trust_level"], "secondary");
+    }
+
+    #[test]
+    fn search_hit_deserialize_without_source_id_and_trust_level_is_none() {
+        // Old wire (pre rag-provenance-label) omits both fields entirely.
+        let json = serde_json::json!({
+            "rank": 1,
+            "chunk_id": "c1",
+            "doc_id": "d1",
+            "doc_path": "a.md",
+            "heading_path": [],
+            "section_label": null,
+            "snippet": "x",
+            "citation": { "kind": "line", "path": "a.md", "start": 1, "end": 1, "section": null },
+            "retrieval": {
+                "method": "lexical",
+                "fusion_score": 0.5,
+                "lexical_score": 0.5,
+                "vector_score": null,
+                "lexical_rank": 1,
+                "vector_rank": null
+            },
+            "index_version": "v1",
+            "embedding_model": null,
+            "chunker_version": "c1",
+            "indexed_at": "2026-05-10T12:00:00Z",
+            "stale": false
+        });
+        let hit: SearchHit = serde_json::from_value(json).unwrap();
+        assert!(hit.source_id.is_none());
+        assert!(hit.trust_level.is_none());
     }
 
     #[test]

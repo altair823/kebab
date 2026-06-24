@@ -330,3 +330,35 @@ fn vector_hit_carries_indexed_at() {
     // stale is a placeholder set by the retriever; the App layer overwrites.
     assert!(!hit.stale, "vector retriever must default stale=false");
 }
+
+#[test]
+#[ignore = "requires AVX-capable hardware (LanceDB)"]
+fn vector_hit_carries_source_id_and_trust_level() {
+    // rag-provenance-label: VectorRetriever must populate source_id +
+    // trust_level from the documents join in hydrate_chunks. seed helpers
+    // write trust_level='primary' and rely on V014 source_id DEFAULT
+    // 'default'; override source_id to a non-default value to prove the join.
+    use kebab_core::TrustLevel;
+
+    require_avx_or_panic();
+    let env = HybridEnv::new();
+    let _ids = seed_disjoint_corpus(&env);
+    {
+        let conn = env.sqlite.read_conn();
+        conn.execute("UPDATE documents SET source_id = 'notes'", [])
+            .expect("set source_id");
+    }
+
+    let r = env.vector_retriever();
+    let hits = r
+        .search(&SearchQuery {
+            text: "rust".to_string(),
+            mode: SearchMode::Vector,
+            k: 5,
+            filters: SearchFilters::default(),
+        })
+        .expect("vector search");
+    let hit = hits.first().expect("at least one vector hit");
+    assert_eq!(hit.source_id.as_deref(), Some("notes"));
+    assert_eq!(hit.trust_level, Some(TrustLevel::Primary));
+}

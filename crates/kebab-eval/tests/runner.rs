@@ -208,14 +208,16 @@ fn runner_records_config_snapshot_with_versions() {
     assert!(snap.get("config").is_some(), "config field missing");
     assert_eq!(
         snap.pointer("/chunker_version"),
-        Some(&serde_json::Value::String("md-heading-v1".to_string())),
+        // Pre-existing drift from merged PR #209 (md-heading-v2 default):
+        // the config default chunker_version is now md-heading-v2.
+        Some(&serde_json::Value::String("md-heading-v2".to_string())),
     );
     assert!(snap.pointer("/embedding/model").is_some());
     assert!(snap.pointer("/embedding/dimensions").is_some());
     assert!(snap.pointer("/llm/model_id").is_some());
     assert_eq!(
         snap.pointer("/prompt_template_version"),
-        Some(&serde_json::Value::String("rag-v3".to_string())),
+        Some(&serde_json::Value::String("rag-v4".to_string())),
     );
     assert!(snap.pointer("/score_gate").is_some());
     assert!(snap.pointer("/rrf_k").is_some());

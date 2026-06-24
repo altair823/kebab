@@ -940,7 +940,7 @@ impl Config {
                 stale_threshold_days: 30,
             },
             rag: RagCfg {
-                prompt_template_version: "rag-v3".to_string(),
+                prompt_template_version: "rag-v4".to_string(),
                 score_gate: 0.30,
                 explain_default: false,
                 max_context_tokens: 8000,
@@ -1211,6 +1211,20 @@ impl Config {
         for s in &self.workspace.sources {
             if s.id.trim().is_empty() {
                 return Err("workspace.sources: an entry has an empty `id`".to_string());
+            }
+            // rag-provenance-label: source.id renders verbatim into the RAG
+            // prompt context header (`[#n] source=<id> trust=… …`), where the
+            // newline is the per-chunk line terminator and `[#n]` is the
+            // citation grammar. Constrain ids to a safe set so a stray newline
+            // / bracket can't split or spoof a chunk header. Also keeps the
+            // `--source <id>` CLI filter ergonomics clean. (Single-user local
+            // tool — config is self-authored, so this is defense-in-depth.)
+            if !s.id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
+                return Err(format!(
+                    "workspace.sources: source id `{}` has invalid characters \
+                     (allowed: ASCII letters, digits, `.` `_` `-`)",
+                    s.id
+                ));
             }
             if s.root.trim().is_empty() {
                 return Err(format!(
@@ -1844,9 +1858,9 @@ max_pixels = 1600
     }
 
     #[test]
-    fn defaults_rag_prompt_template_version_is_rag_v3() {
+    fn defaults_rag_prompt_template_version_is_rag_v4() {
         let c = Config::defaults();
-        assert_eq!(c.rag.prompt_template_version, "rag-v3");
+        assert_eq!(c.rag.prompt_template_version, "rag-v4");
     }
 
     #[test]
@@ -2452,6 +2466,24 @@ max_context_tokens = 8000
         let mut cfg = Config::defaults();
         cfg.workspace.sources = vec![source_cfg("", "/a")];
         assert!(cfg.validate_sources().is_err(), "empty id must fail");
+    }
+
+    #[test]
+    fn source_id_with_invalid_chars_rejected() {
+        // rag-provenance-label: source.id renders into the RAG prompt header;
+        // a newline / bracket / space must be rejected at load.
+        for bad in ["a b", "a\nb", "a]b", "a/b", "한글"] {
+            let mut cfg = Config::defaults();
+            cfg.workspace.sources = vec![source_cfg(bad, "/a")];
+            assert!(
+                cfg.validate_sources().is_err(),
+                "source id {bad:?} must be rejected"
+            );
+        }
+        // The allowed set still passes.
+        let mut ok = Config::defaults();
+        ok.workspace.sources = vec![source_cfg("wiki-v2.notes_1", "/a")];
+        ok.validate_sources().expect("clean id must pass");
     }
 
     #[test]

@@ -493,6 +493,8 @@ mod tests {
             score_kind: kebab_core::ScoreKind::Rrf,
             repo: None,
             code_lang: None,
+            source_id: None,
+            trust_level: None,
         }
     }
 

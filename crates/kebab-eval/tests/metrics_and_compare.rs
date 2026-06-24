@@ -88,6 +88,8 @@ fn hit(rank: u32, chunk_id: &str, doc_id: &str) -> SearchHit {
         score_kind: kebab_core::ScoreKind::Rrf,
         repo: None,
         code_lang: None,
+        source_id: None,
+        trust_level: None,
     }
 }
 

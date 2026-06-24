@@ -14,6 +14,71 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-24 — RAG provenance 라벨: `rag-v4` (출처/trust 라벨 + 신뢰도 우선 지시)
+
+**무엇을 추가했나.** RAG 프롬프트의 각 [근거] 청크 머리에 출처/trust 라벨을
+붙이고(`[#n] source=jira trust=secondary doc=… …`), system prompt 에 "저신뢰
+출처를 권위 출처와 충돌 시 discount 하고 [#번호]로 귀속하라"는 2규칙을 더했다.
+출처 **필터**(`--source`/`--trust-min`)가 못 잡는 **생성(generation) 측 실패** —
+저신뢰(jira/working-note) 청크가 권위(wiki/curated) 청크를 답변에서 덮어쓰는 것 —
+를 다룬다. 5계층: `SearchHit` 에 `source_id`/`trust_level`(additive optional) +
+lexical/vector retriever 의 `build_hit` 가 documents 조인에서 채움(both 동일 파싱:
+`trust_level` 은 lowercase TEXT → `#[serde(rename_all="lowercase")]` 로 round-trip)
++ hybrid fusion 전파 + `pack_context` 라벨 렌더 + `SYSTEM_PROMPT_RAG_V4`(rag-v3
+8규칙 verbatim + 2규칙). config 기본 `rag-v3` → `rag-v4`. multi-hop synth 도 2규칙
+포함 → `rag-multi-hop-v1` → `rag-multi-hop-v2`.
+
+**라벨/opt-out 동작.** `pack_context` 는 라벨을 **버전 무관 항상** 렌더(무해한
+metadata). `prompt_template_version = "rag-v3"` 핀 = v3 system prompt 선택 →
+라벨을 쓰라는 지시(2규칙)만 빠짐(라벨은 보이되 discount 미적용). label format =
+`source={id} trust={primary|secondary|generated}`(bare, 토큰 절약). source_id 는
+RAG 헤더에 렌더되므로 `validate_sources` 에 char-set 검증 추가(`[A-Za-z0-9._-]` 만
+— newline/bracket 주입 방지).
+
+**wire.** `search_hit.v1` 에 `source_id`/`trust_level` optional 필드 additive 추가
+(`required` 아님, `skip_serializing_if=None` → 구 소비자 무영향, **v2 bump 아님**).
+
+**cascade.** `prompt_template_version` rag-v3→v4 (+ multi-hop v1→v2) 는 design §9
+상 persisted answers + eval runs 무효화 → 다음 ask/eval 부터 v4. DB migration 없음
+(source_id/trust_level 컬럼은 V001/V014 로 이미 존재).
+
+**검증.** kebab-core/search/rag/config/eval 전 테스트 green(25 바이너리), clippy
+`-D warnings` 0. 단위: SearchHit serde round-trip(신구 wire), build_hit 출처 populate
+(lexical+vector), pack_context 라벨 렌더, `system_prompt_for("rag-v4")` 2규칙 포함
++ rag-v3 still selectable, hybrid 전파, source_id char 검증. 독립 코드 리뷰 **APPROVE**
+— 7개 위험(특히 trust round-trip: 저장 lowercase = serde lowercase parse 일치, 실
+DB 확인) 전부 PASS, MEDIUM(rag-v3 opt-out doc 부정확 + multi-hop 버전 미bump) 수정,
+LOW(source_id 검증) 반영.
+
+**도그푸딩 — 라벨 메커니즘 검증됨 + LLM-judge 완료(무해 / 효과 미입증).** 실험 KB
+(snowflake-arctic-embed2 임베드 + gemma3:4b LLM, 둘 다 R9700 GPU ollama @ .244)에서:
+
+1. **라벨 도달**: `search --json` competing 쿼리("WiredTiger checkpoint", auth=wiki)가
+   wiki(primary)·jira(secondary) **둘 다 retrieval** + 각 hit 에 정확한
+   `source_id`/`trust_level` 노출 — 라벨이 올바른 출처에서 채워져 프롬프트에 도달함을
+   end-to-end 입증.
+2. **LLM-judge (rag-v3 vs rag-v4, competing 전체 66 = wiki-auth 34 + jira-auth 32,
+   gemma3:4b)**: 타깃 실패 모드 = 저신뢰 jira 가 권위 wiki 를 **덮어씀**(wiki 인용 없이
+   jira 단독)은 **두 버전 모두 0/34** — 이 코퍼스+모델 조합에서 애초에 재현 안 됨(고칠
+   대상 부재). 품질 지표 전부 표본오차(±1) 내라 통계적 구분 불가: wiki-grounded 32 vs 31,
+   jira-correct 29 vs 28, 거부 4 vs 5, 둘 다 인용(귀속) 5 vs 4. 사전 등록한 거친 지표
+   (wiki-auth 가 jira 를 *한 번이라도* 인용)도 5 vs 4 로 평탄 — N=8 예비 run 의 1→3
+   "악화"는 소표본 노이즈였고 powered run(N=66)에서 소멸. 유일한 실질 델타: v4 가 약간
+   더 간결(평균 인용 5.14 → 4.23).
+
+**결론**: rag-v4 는 **무해(회귀 0)** 이고 라벨이 프롬프트에 도달함은 확인됐으나, 헤드라인
+효과(trust-steering 으로 jira-override 억제)는 **이 모델/코퍼스에서 실패 모드 자체가
+재현 안 돼 입증 불가**. 즉 v4 는 *이 설정이 노출하지 않는 실패 모드*를 위한 가드레일 —
+더 큰 모델(사용자 실 모델 gemma4:e4b 은 gfx1201 ollama 0.15.4 빌드가 arch 미지원이라
+gemma3:4b 로 대체), wiki↔jira 가 실제로 모순되는 코퍼스, 또는 retrieval 순서에 더
+휘둘리는 모델에서 의미를 가질 것. 인프라 메모: 홈랩 ollama(.2/.47) 다운 + lemonade
+`/api/generate` 는 it-model chat template 미적용이라, 도그푸딩용으로 R9700 에
+`androiddrew/ollama:0.15.4-rocm-7.2`(gfx1201 GPU) 컨테이너를 일시 기동해 gemma3:4b
+(106 tok/s) + arctic2(1024d) 로 측정한 뒤 lemonade 복원. harness:
+`/home/user/large_data/out/kebab-ab/dogfood_rag_v4.py`(거친 지표 외 pure-override /
+attribution / grounding 분해 지표 추가). 설계:
+`docs/superpowers/plans/2026-06-24-rag-v4-provenance-label.md`.
+
 ## 2026-06-24 — pdf-page-v1.2: PDF 페이지 oversize 분할 + 공유 `crate::oversize` 모듈
 
 **무엇을 바꿨나.** md-heading-v2 의 oversize 분할 primitive(`text_pieces`/
