@@ -14,6 +14,23 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-24 — config: `[ingest.chunking]` budget floor 검증
+
+**무엇을 바꿨나.** `Config::from_file` 에 `validate_chunking()` 을 추가해
+청킹 budget 의 명백히 깨진 조합을 **load 시점에 reject**(`validate_sources`
+와 동일 패턴, `ConfigInvalid`). 규칙: `target_tokens ≥ 16`(`MIN_CHUNK_TOKENS`),
+`overlap_tokens < target_tokens`, `max_chunk_tokens ≥ target_tokens`.
+
+**왜.** md-heading-v2(PR #209) 의 `max_chunk_tokens` 는 검증이 없어, `0` 같은
+오설정이 청커 내부 `budget.max(1)` 클램프에 흡수돼 **3-byte 청크 폭주**(인덱스
+bloat, 에러 없음)를 냈다. 기존 `target_tokens`/`overlap_tokens` 도 동일하게
+미검증이었다(reviewer 지적). 세 필드를 한 번에 floor + 상호 제약으로 막는다.
+
+**영향.** valid config 는 무영향(동작·결과 불변). 깨진 config(예: `max_chunk
+< target`, `overlap ≥ target`)만 명확한 메시지로 load 실패. 새 config 키·migration
+없음, 동작 변경 없음 → patch-level. 테스트: `defaults_pass_chunking_validation`
++ reject 4종 + `from_file_rejects_invalid_chunking`(e2e).
+
 ## 2026-06-24 — md-heading-v2: 예산 초과 청크 일반 분할 (oversize-chunk split) (v0.30.0)
 
 **무엇을 바꿨나.** markdown 청커에 새 변종 `md-heading-v2` 를 추가하고

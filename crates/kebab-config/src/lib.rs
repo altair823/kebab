@@ -196,6 +196,13 @@ fn default_max_chunk_tokens() -> usize {
     4000
 }
 
+/// Floor for `[ingest.chunking].target_tokens` (and, transitively, the
+/// per-chunk cap `max_chunk_tokens ≥ target_tokens`). A chunk target
+/// below this is never a real config — it only ever appears as a typo /
+/// zero that would shatter the corpus into useless fragments. Enforced
+/// by [`Config::validate_chunking`].
+const MIN_CHUNK_TOKENS: usize = 16;
+
 impl ChunkingCfg {
     pub fn defaults() -> Self {
         Self {
@@ -1186,6 +1193,12 @@ impl Config {
                 cause,
             })
         })?;
+        cfg.validate_chunking().map_err(|cause| {
+            anyhow::Error::new(ConfigInvalid {
+                path: path.to_path_buf(),
+                cause,
+            })
+        })?;
         cfg.source_dir = path.parent().map(Path::to_path_buf);
         Ok(cfg)
     }
@@ -1211,6 +1224,38 @@ impl Config {
                     s.id
                 ));
             }
+        }
+        Ok(())
+    }
+
+    /// Validate `[ingest.chunking]` budget fields. A misconfigured `0`
+    /// (or any nonsensical combination) would otherwise be silently
+    /// absorbed by the chunker's internal `budget.max(1)` clamp into a
+    /// flood of 3-byte chunks — catastrophic index bloat, no error. The
+    /// floors below reject the clearly-broken configs at load time with a
+    /// clear cause, mirroring [`validate_sources`](Self::validate_sources).
+    fn validate_chunking(&self) -> Result<(), String> {
+        let c = &self.ingest.chunking;
+        if c.target_tokens < MIN_CHUNK_TOKENS {
+            return Err(format!(
+                "ingest.chunking.target_tokens = {} is too small (min {MIN_CHUNK_TOKENS}); \
+                 a chunk target this low fragments every document",
+                c.target_tokens
+            ));
+        }
+        if c.overlap_tokens >= c.target_tokens {
+            return Err(format!(
+                "ingest.chunking.overlap_tokens = {} must be < target_tokens = {} \
+                 (overlap ≥ target loops / duplicates content)",
+                c.overlap_tokens, c.target_tokens
+            ));
+        }
+        if c.max_chunk_tokens < c.target_tokens {
+            return Err(format!(
+                "ingest.chunking.max_chunk_tokens = {} must be ≥ target_tokens = {} \
+                 (a per-chunk cap below the soft target would split every normal chunk)",
+                c.max_chunk_tokens, c.target_tokens
+            ));
         }
         Ok(())
     }
@@ -2317,6 +2362,71 @@ max_context_tokens = 8000
         assert_eq!(
             resolved[1].trust_level,
             Some(kebab_core::TrustLevel::Secondary)
+        );
+    }
+
+    #[test]
+    fn defaults_pass_chunking_validation() {
+        Config::defaults()
+            .validate_chunking()
+            .expect("default chunking config must be valid");
+    }
+
+    #[test]
+    fn rejects_target_tokens_below_floor() {
+        let mut cfg = Config::defaults();
+        cfg.ingest.chunking.target_tokens = MIN_CHUNK_TOKENS - 1;
+        // keep max_chunk ≥ target so target is the failing constraint
+        cfg.ingest.chunking.overlap_tokens = 0;
+        let err = cfg.validate_chunking().unwrap_err();
+        assert!(err.contains("target_tokens"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_zero_target_tokens() {
+        let mut cfg = Config::defaults();
+        cfg.ingest.chunking.target_tokens = 0;
+        cfg.ingest.chunking.overlap_tokens = 0;
+        assert!(cfg.validate_chunking().is_err());
+    }
+
+    #[test]
+    fn rejects_overlap_ge_target() {
+        let mut cfg = Config::defaults();
+        cfg.ingest.chunking.target_tokens = 100;
+        cfg.ingest.chunking.overlap_tokens = 100; // == target → invalid
+        cfg.ingest.chunking.max_chunk_tokens = 4000;
+        let err = cfg.validate_chunking().unwrap_err();
+        assert!(err.contains("overlap_tokens"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_max_chunk_below_target() {
+        let mut cfg = Config::defaults();
+        cfg.ingest.chunking.target_tokens = 500;
+        cfg.ingest.chunking.overlap_tokens = 80;
+        cfg.ingest.chunking.max_chunk_tokens = 400; // < target → invalid
+        let err = cfg.validate_chunking().unwrap_err();
+        assert!(err.contains("max_chunk_tokens"), "got: {err}");
+    }
+
+    #[test]
+    fn from_file_rejects_invalid_chunking() {
+        // End-to-end: validate_chunking is wired into from_file, so a
+        // config whose max_chunk_tokens is below target must fail to load.
+        let mut cfg = Config::defaults();
+        cfg.workspace.root = Some("/tmp/kb".to_string());
+        cfg.ingest.chunking.max_chunk_tokens = 10; // < target 500
+        let toml_text = toml::to_string(&cfg).expect("serialize");
+        let dir = std::env::temp_dir().join(format!("kebab-cfgtest-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("config.toml");
+        std::fs::write(&p, &toml_text).unwrap();
+        let res = Config::from_file(&p);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            res.is_err(),
+            "from_file must reject max_chunk_tokens < target_tokens"
         );
     }
 
