@@ -14,6 +14,25 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-24 — spine-rewrite Phase 1: 5건 삭제 (cache/templates/candle/sessions/tui) — 코어 출력 불변
+
+척추 단순화 Phase 1 = 순수 삭제 5건. **OMC-style worktree 격리 병렬 teammate** 5명이 각자
+한 삭제씩(편집+cargo check+커밋) → lead 가 SHA 순차 cherry-pick + 패리티 게이트.
+
+- **삭제**: search LRU 캐시(p9-fb-19) · legacy RAG 템플릿 rag-v1/v2 · candle 임베더 crate
+  (`kebab-embed-candle`) · multi-turn 세션(`ask --session`, chat_sessions/turns, V015 drop
+  migration) · TUI crate(`kebab-tui` + `tui` 서브커맨드). **crate 24→22**.
+- **candle 결정**: 처음 삭제 합의 → "macOS 실사용" 으로 보류 검토 → 실 config 확인 결과
+  macOS 도 임베딩/LLM 전부 ollama(candle/Metal 미사용, mDeBERTa 만 onnx) → **삭제 확정**.
+- **패리티 (output-equality vs Phase 0 baseline)**: 누적 최종 빌드(4m12s) 후
+  **SEARCH·ASK·CHUNKS 전부 byte-IDENTICAL** — 5건 삭제가 코어 검색/RAG 출력을 완전 보존.
+  (templates·cache 는 개별 게이트도 통과.)
+- **검증**: `clippy --workspace --all-targets` 0 warning, touched-crate 테스트 88 ok/0 fail.
+- **회귀 메모**: worker 들이 `cargo check`(test 타깃 미컴파일)만 해서 삭제 심볼 참조한 test
+  파일(mcp session_id, cli rag-v1 config, config cache_capacity fixture)을 놓침 → lead 가
+  `clippy --all-targets` 로 잡아 정리. 교훈: 삭제 작업의 self-check 는 `--all-targets` 필요.
+- 브랜치 `refactor/spine-cuts`. ingest API 5→1 통합은 Phase 3(ingest 스파인)로 이월.
+
 ## 2026-06-24 — spine-rewrite Phase 0: 출력-동등성 parity baseline 동결
 
 척추 재작성/단순화(설계 `2026-06-24-spine-rewrite-simplification-design`)의 per-수정-단위
