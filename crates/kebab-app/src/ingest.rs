@@ -1731,22 +1731,31 @@ fn ingest_one_image_asset(
         },
     );
     let t_embed = std::time::Instant::now();
+    let mut emb_cache_hit = 0_usize;
+    let mut emb_cache_miss = 0_usize;
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
         && !chunks.is_empty()
     {
-        let inputs: Vec<EmbeddingInput<'_>> = chunks
-            .iter()
-            .map(|c| EmbeddingInput {
-                text: c.text.as_str(),
-                kind: EmbeddingKind::Document,
-            })
-            .collect();
-        let vectors = emb
-            .embed(&inputs)
-            .context("Embedder::embed (image chunks)")?;
         let model_id = emb.model_id();
         let model_version = emb.model_version();
         let dimensions = emb.dimensions();
+        // derivation cache(§3.4): same version_key formula + same code path as
+        // the markdown handler (ingest.rs:1374). Media-agnostic — identical
+        // chunk text shares one entry across media.
+        let emb_version_key =
+            format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
+        let body_texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
+        let mut emb_touch_keys: Vec<String> = Vec::new();
+        let vectors = embed_with_cache(
+            &**emb,
+            &app.sqlite,
+            &body_texts,
+            &emb_version_key,
+            &mut emb_cache_hit,
+            &mut emb_cache_miss,
+            &mut emb_touch_keys,
+        )
+        .context("Embedder::embed (image chunks)")?;
         let records: Vec<VectorRecord> = chunks
             .iter()
             .zip(vectors)
@@ -1770,6 +1779,7 @@ fn ingest_one_image_asset(
         vec_store
             .upsert(&records)
             .context("VectorStore::upsert (image)")?;
+        app.sqlite.derivation_cache_touch(&emb_touch_keys)?;
     }
     let embed_ms = u64::try_from(t_embed.elapsed().as_millis()).unwrap_or(u64::MAX);
 
@@ -1790,6 +1800,16 @@ fn ingest_one_image_asset(
             caption_ms,
         },
     );
+
+    // 검증용 hit/miss 카운트 노출(§3.4 / §6): warm 재색인이 embed 0회임을
+    // 로그로 확인. tracing target 은 stderr 로 흐른다.
+    if emb_cache_hit + emb_cache_miss > 0 {
+        tracing::info!(
+            target: "kebab-app",
+            doc = %canonical.doc_id.0,
+            "derivation cache: embedding hit={emb_cache_hit} miss={emb_cache_miss}"
+        );
+    }
 
     let kind = if existing_doc_ids.contains(&canonical.doc_id.0) {
         kebab_core::IngestItemKind::Updated
@@ -2370,20 +2390,28 @@ fn ingest_one_pdf_asset(
         },
     );
     let t_embed = std::time::Instant::now();
+    let mut emb_cache_hit = 0_usize;
+    let mut emb_cache_miss = 0_usize;
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
         && !chunks.is_empty()
     {
-        let inputs: Vec<EmbeddingInput<'_>> = chunks
-            .iter()
-            .map(|c| EmbeddingInput {
-                text: c.text.as_str(),
-                kind: EmbeddingKind::Document,
-            })
-            .collect();
-        let vectors = emb.embed(&inputs).context("Embedder::embed (pdf chunks)")?;
         let model_id = emb.model_id();
         let model_version = emb.model_version();
         let dimensions = emb.dimensions();
+        let emb_version_key =
+            format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
+        let body_texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
+        let mut emb_touch_keys: Vec<String> = Vec::new();
+        let vectors = embed_with_cache(
+            &**emb,
+            &app.sqlite,
+            &body_texts,
+            &emb_version_key,
+            &mut emb_cache_hit,
+            &mut emb_cache_miss,
+            &mut emb_touch_keys,
+        )
+        .context("Embedder::embed (pdf chunks)")?;
         let records: Vec<VectorRecord> = chunks
             .iter()
             .zip(vectors)
@@ -2407,6 +2435,7 @@ fn ingest_one_pdf_asset(
         vec_store
             .upsert(&records)
             .context("VectorStore::upsert (pdf)")?;
+        app.sqlite.derivation_cache_touch(&emb_touch_keys)?;
     }
     let embed_ms = u64::try_from(t_embed.elapsed().as_millis()).unwrap_or(u64::MAX);
 
@@ -2427,6 +2456,16 @@ fn ingest_one_pdf_asset(
             caption_ms: 0,
         },
     );
+
+    // 검증용 hit/miss 카운트 노출(§3.4 / §6): warm 재색인이 embed 0회임을
+    // 로그로 확인. tracing target 은 stderr 로 흐른다.
+    if emb_cache_hit + emb_cache_miss > 0 {
+        tracing::info!(
+            target: "kebab-app",
+            doc = %canonical.doc_id.0,
+            "derivation cache: embedding hit={emb_cache_hit} miss={emb_cache_miss}"
+        );
+    }
 
     let kind = if existing_doc_ids.contains(&canonical.doc_id.0) {
         kebab_core::IngestItemKind::Updated
@@ -2700,22 +2739,28 @@ fn ingest_one_code_asset(
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     store_document_records(app, asset, &bytes, &canonical, &chunks, " (code)")?;
 
+    let mut emb_cache_hit = 0_usize;
+    let mut emb_cache_miss = 0_usize;
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
         && !chunks.is_empty()
     {
-        let inputs: Vec<EmbeddingInput<'_>> = chunks
-            .iter()
-            .map(|c| EmbeddingInput {
-                text: c.text.as_str(),
-                kind: EmbeddingKind::Document,
-            })
-            .collect();
-        let vectors = emb
-            .embed(&inputs)
-            .context("Embedder::embed (code chunks)")?;
         let model_id = emb.model_id();
         let model_version = emb.model_version();
         let dimensions = emb.dimensions();
+        let emb_version_key =
+            format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
+        let body_texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
+        let mut emb_touch_keys: Vec<String> = Vec::new();
+        let vectors = embed_with_cache(
+            &**emb,
+            &app.sqlite,
+            &body_texts,
+            &emb_version_key,
+            &mut emb_cache_hit,
+            &mut emb_cache_miss,
+            &mut emb_touch_keys,
+        )
+        .context("Embedder::embed (code chunks)")?;
         let records: Vec<VectorRecord> = chunks
             .iter()
             .zip(vectors)
@@ -2739,6 +2784,17 @@ fn ingest_one_code_asset(
         vec_store
             .upsert(&records)
             .context("VectorStore::upsert (code)")?;
+        app.sqlite.derivation_cache_touch(&emb_touch_keys)?;
+    }
+
+    // 검증용 hit/miss 카운트 노출(§3.4 / §6): warm 재색인이 embed 0회임을
+    // 로그로 확인. tracing target 은 stderr 로 흐른다.
+    if emb_cache_hit + emb_cache_miss > 0 {
+        tracing::info!(
+            target: "kebab-app",
+            doc = %canonical.doc_id.0,
+            "derivation cache: embedding hit={emb_cache_hit} miss={emb_cache_miss}"
+        );
     }
 
     let kind = if existing_doc_ids.contains(&canonical.doc_id.0) {
