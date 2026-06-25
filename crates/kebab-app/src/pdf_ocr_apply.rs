@@ -192,11 +192,21 @@ where
         });
         // Cache GET error → degrade to a MISS (a corrupt/unavailable cache read
         // must never fail the whole ingest — `.ok().flatten()` swallows it),
-        // matching this loop's per-page `continue`-on-error discipline.
+        // matching this loop's per-page `continue`-on-error discipline. Unlike
+        // the b1/b2 image call sites (which `?`-propagate), the per-page loop is
+        // resilient by design, so we log the swallowed error at debug for
+        // observability rather than aborting.
         let cache_hit: Option<kebab_core::OcrText> =
             if let (Some(store), Some(key)) = (opts.ocr_cache.as_ref(), page_cache_key.as_ref()) {
                 store
                     .derivation_cache_get(key)
+                    .inspect_err(|e| {
+                        tracing::debug!(
+                            target: "kebab-app::pdf_ocr",
+                            error = %e,
+                            "per-page OCR cache GET failed; degrading to a MISS (re-OCR this page)"
+                        );
+                    })
                     .ok()
                     .flatten()
                     .and_then(|p| crate::derivation_payload::decode_ocr_text(&p))
