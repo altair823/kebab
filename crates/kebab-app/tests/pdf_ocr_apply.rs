@@ -99,6 +99,8 @@ fn default_opts(enabled: bool) -> PdfOcrOpts {
         min_char_count: 20,
         lang_hint: None,
         cancel: None,
+        ocr_cache: None,
+        ocr_version_key: String::new(),
     }
 }
 
@@ -117,6 +119,8 @@ fn f1_input_with_ocr_enabled_replaces_empty_block() {
         min_char_count: 20,
         lang_hint: Some(Lang("kor".into())),
         cancel: None,
+        ocr_cache: None,
+        ocr_version_key: String::new(),
     };
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -178,6 +182,8 @@ fn f4_input_with_ocr_enabled_replaces_mojibake_block() {
         min_char_count: 20,
         lang_hint: None,
         cancel: None,
+        ocr_cache: None,
+        ocr_version_key: String::new(),
     };
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -207,6 +213,8 @@ fn f3_input_with_always_on_pushes_dual_blocks() {
         min_char_count: 20,
         lang_hint: None,
         cancel: None,
+        ocr_cache: None,
+        ocr_version_key: String::new(),
     };
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -312,6 +320,8 @@ fn dual_block_ordinals_are_deterministic_and_unique() {
         min_char_count: 20,
         lang_hint: None,
         cancel: None,
+        ocr_cache: None,
+        ocr_version_key: String::new(),
     };
 
     apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -349,6 +359,8 @@ fn cancel_handle_aborts_mid_pdf() {
         min_char_count: 20,
         lang_hint: None,
         cancel: Some(cancel.clone()),
+        ocr_cache: None,
+        ocr_version_key: String::new(),
     };
 
     let result = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {});

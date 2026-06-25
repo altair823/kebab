@@ -2303,6 +2303,16 @@ fn ingest_one_pdf_asset(
         if pdf_ocr.enabled || pdf_ocr.always_on {
             match pdf_ocr_engine {
                 Some(engine) => {
+                    // Per-page OCR cache (b3): fold engine identity + paddle
+                    // output-shaping params into the version key (§3.3), bound to
+                    // an owned String before the literal so `pdf_ocr`'s borrow of
+                    // `app.config` doesn't overlap the `Arc::clone(&app.sqlite)`.
+                    let pdf_ocr_vkey = ocr_cache_version_key(
+                        engine,
+                        pdf_ocr.score_thresh,
+                        pdf_ocr.unclip_ratio,
+                        pdf_ocr.max_boxes,
+                    );
                     let ocr_opts = crate::pdf_ocr_apply::PdfOcrOpts {
                         enabled: pdf_ocr.enabled || pdf_ocr.always_on,
                         always_on: pdf_ocr.always_on,
@@ -2310,6 +2320,8 @@ fn ingest_one_pdf_asset(
                         min_char_count: pdf_ocr.min_char_count,
                         lang_hint: pdf_ocr.lang_hint.clone().map(kebab_core::Lang),
                         cancel: cancel.cloned(),
+                        ocr_cache: Some(Arc::clone(&app.sqlite)),
+                        ocr_version_key: pdf_ocr_vkey,
                     };
                     // v0.20.x Hook 2: pre-clone Arcs for capture by OCR closure.
                     let lw_for_ocr = log_writer.clone();

@@ -59,6 +59,13 @@ pub struct PdfOcrOpts {
     /// loop iteration; set→true 시 `cancelled mid-PDF` error 반환. plan §6 E4
     /// + verifier LOW L-1 resolution + spec §4.8 line 1159 명시.
     pub cancel: Option<Arc<AtomicBool>>,
+    /// Optional derivation-cache handle for per-page OCR results (`"ocr"`
+    /// namespace). `None` ⇒ no caching (unit tests / store-less callers behave
+    /// exactly as before).
+    pub ocr_cache: Option<std::sync::Arc<kebab_store_sqlite::SqliteStore>>,
+    /// Version key folded into the per-page OCR cache key (§3.3). Empty when
+    /// `ocr_cache` is `None`.
+    pub ocr_version_key: String,
 }
 
 /// OCR run summary returned by [`apply_ocr_to_pdf_pages`] for the caller's
@@ -67,7 +74,8 @@ pub struct PdfOcrOpts {
 pub struct PdfOcrSummary {
     /// Number of pages 가 OCR pipeline 을 실제 통과 (skipped page 제외).
     pub pages_ocrd: u32,
-    /// Cumulative wall-clock duration of successful OCR engine calls (ms).
+    /// Cumulative wall-clock duration of per-page OCR acquisition (ms) — the
+    /// engine call on a cache miss, or the (sub-ms) cache read on a hit.
     /// `saturating_add` 사용 — 24-day cumulative 까지 overflow-safe.
     pub ms_total: u64,
 }
@@ -172,38 +180,85 @@ where
         };
 
         let start = Instant::now();
-        let ocr = match engine.recognize(&page_image_bytes, opts.lang_hint.as_ref()) {
-            Ok(t) => t,
-            Err(e) => {
-                // OCR failure: warning event + skip (text-detect block 그대로).
-                let note = format!(
-                    "page={} OCR failed engine={} version={} err={}",
-                    page_num,
-                    engine.engine_name(),
-                    engine.engine_version(),
-                    e
-                );
-                warn!(target: "kebab-app", "{}", note);
-                new_events.push(ProvenanceEvent {
-                    at: OffsetDateTime::now_utc(),
-                    agent: "kb-parse-pdf".to_string(),
-                    kind: ProvenanceKind::Warning,
-                    note: Some(note),
-                });
-                let (image_width, image_height) = extract_image_dimensions(&page_image_bytes)
-                    .map_or((None, None), |(w, h)| (Some(w), Some(h)));
-                emit_progress(PdfOcrProgress::Finished {
-                    page: page_num,
-                    ms: start.elapsed().as_millis() as u64,
-                    chars: 0,
-                    skipped: true,
-                    image_byte_size: Some(page_image_bytes.len() as u64),
-                    image_width,
-                    image_height,
-                    failure_reason: Some("ocr_error".to_string()),
-                });
-                continue;
+
+        // Per-page OCR cache (§3.5 b3): key on the page image bytes + version.
+        // `None` handle ⇒ no key, no lookup, no put ⇒ today's behavior.
+        let page_cache_key = opts.ocr_cache.as_ref().map(|_| {
+            kebab_core::derivation_cache_key_bytes(
+                "ocr",
+                &page_image_bytes,
+                &opts.ocr_version_key,
+            )
+        });
+        // Cache GET error → degrade to a MISS (a corrupt/unavailable cache read
+        // must never fail the whole ingest — `.ok().flatten()` swallows it),
+        // matching this loop's per-page `continue`-on-error discipline.
+        let cache_hit: Option<kebab_core::OcrText> =
+            if let (Some(store), Some(key)) = (opts.ocr_cache.as_ref(), page_cache_key.as_ref()) {
+                store
+                    .derivation_cache_get(key)
+                    .ok()
+                    .flatten()
+                    .and_then(|p| crate::derivation_payload::decode_ocr_text(&p))
+            } else {
+                None
+            };
+
+        // `was_cache_hit` gates the `OcrApplied` provenance push below: a hit
+        // skips both the engine AND the provenance event (§3.6 — provenance is
+        // in no wire schema / not gate-compared); the page MUTATION is shared.
+        let (ocr, was_cache_hit) = if let Some(hit) = cache_hit {
+            // touch the key so LRU/GC sees the reuse; best-effort (`.ok()`).
+            if let Some(store) = opts.ocr_cache.as_ref() {
+                if let Some(key) = page_cache_key.as_ref() {
+                    store.derivation_cache_touch(std::slice::from_ref(key)).ok();
+                }
             }
+            (hit, true)
+        } else {
+            let t = match engine.recognize(&page_image_bytes, opts.lang_hint.as_ref()) {
+                Ok(t) => t,
+                Err(e) => {
+                    // OCR failure: warning event + skip (text-detect block 그대로).
+                    let note = format!(
+                        "page={} OCR failed engine={} version={} err={}",
+                        page_num,
+                        engine.engine_name(),
+                        engine.engine_version(),
+                        e
+                    );
+                    warn!(target: "kebab-app", "{}", note);
+                    new_events.push(ProvenanceEvent {
+                        at: OffsetDateTime::now_utc(),
+                        agent: "kb-parse-pdf".to_string(),
+                        kind: ProvenanceKind::Warning,
+                        note: Some(note),
+                    });
+                    let (image_width, image_height) = extract_image_dimensions(&page_image_bytes)
+                        .map_or((None, None), |(w, h)| (Some(w), Some(h)));
+                    emit_progress(PdfOcrProgress::Finished {
+                        page: page_num,
+                        ms: start.elapsed().as_millis() as u64,
+                        chars: 0,
+                        skipped: true,
+                        image_byte_size: Some(page_image_bytes.len() as u64),
+                        image_width,
+                        image_height,
+                        failure_reason: Some("ocr_error".to_string()),
+                    });
+                    continue;
+                }
+            };
+            // MISS + successful recognize: cache the produced OcrText.
+            // PUT error → ignore (best-effort cache write; never fail ingest).
+            if let (Some(store), Some(key)) = (opts.ocr_cache.as_ref(), page_cache_key.as_ref()) {
+                let _ = store.derivation_cache_put(
+                    key,
+                    "ocr",
+                    &crate::derivation_payload::encode_ocr_text(&t),
+                );
+            }
+            (t, false)
         };
         let elapsed_ms = start.elapsed().as_millis() as u64;
         let chars_ocr = ocr.joined.chars().count() as u32;
@@ -255,20 +310,26 @@ where
             }
         }
 
-        new_events.push(ProvenanceEvent {
-            at: OffsetDateTime::now_utc(),
-            agent: "kb-parse-pdf".to_string(),
-            kind: ProvenanceKind::OcrApplied,
-            note: Some(format!(
-                "page={} engine={} version={} regions={} ms={} chars={}",
-                page_num,
-                engine.engine_name(),
-                engine.engine_version(),
-                ocr.regions.len(),
-                elapsed_ms,
-                chars_ocr
-            )),
-        });
+        // Provenance is replayed ONLY on a fresh recognize (miss). On a cache
+        // hit we skip the `OcrApplied` event (§3.6 — provenance is in no wire
+        // schema / not gate-compared); the page MUTATION above is identical for
+        // hit and miss, so ingest output stays byte-identical.
+        if !was_cache_hit {
+            new_events.push(ProvenanceEvent {
+                at: OffsetDateTime::now_utc(),
+                agent: "kb-parse-pdf".to_string(),
+                kind: ProvenanceKind::OcrApplied,
+                note: Some(format!(
+                    "page={} engine={} version={} regions={} ms={} chars={}",
+                    page_num,
+                    engine.engine_name(),
+                    engine.engine_version(),
+                    ocr.regions.len(),
+                    elapsed_ms,
+                    chars_ocr
+                )),
+            });
+        }
 
         let (image_width, image_height) = extract_image_dimensions(&page_image_bytes)
             .map_or((None, None), |(w, h)| (Some(w), Some(h)));
