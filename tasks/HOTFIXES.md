@@ -14,6 +14,31 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-25 — v0.31.0 릴리스 도그푸딩: OCR 캐시(PR #217) + 마이그레이션(PR #214) evidence
+
+v0.31.0 = 척추 재작성(#214) + 임베딩 캐시 전면화(#216) + OCR/caption 캐시(#217) 누적
+릴리스. release 바이너리(388 MB, HEAD cfffbf6)로 실 데이터 종단 도그푸딩.
+
+- **OCR 캐시 (PR2 #217, b1 이미지 경로) — 실 jira 스크린샷**: 17개 실제 jira 첨부 PNG를
+  paddle-onnx OCR(번들·CPU·결정적) + `embedding=none` 으로 cold ingest → `--force-reingest`
+  warm 재인덱싱. 결과: **17개 `kind='ocr'` derivation_cache 행, 16/17이 비어있지 않은 OCR
+  텍스트**(paddle 가 실 스크린샷에서 텍스트 추출). warm 재인덱싱: **created_at fingerprint
+  동일(cold==warm, 17/17 행 고정), last_used_at 만 갱신(17/17 touched=캐시 HIT), wall-clock
+  8.5s→1.2s = 7.0× 빠름**. 비싼 paddle OCR 가 재인덱싱에서 완전 스킵됨을 실증. (caption b2 는
+  동일 캐시 코드 경로 — engine-agnostic 메커니즘은 mock 게이트 + 이 paddle 실엔진 게이트로
+  입증. ollama-vision caption 품질 도그푸딩은 lemonade(.243, opencode/hermes 의존) 중단
+  비용으로 이연 — 메커니즘은 동일하므로 후속 GPU 박스 가용 시 quality-only 확인.)
+- **마이그레이션 (척추 #214) — 실 v3 KB**: schema_version=3 config + chat_sessions/chat_turns
+  포함 구 sqlite(refinery V13)에 새 바이너리 적용. `kebab config migrate`: **v3→v5 무손실**
+  (OCR 키를 `[ingest.ocr]` 로 통합 + max_chunk_tokens 추가, .bak 백업, schema_version=5).
+  store open(lexical search) 시 **DB 마이그레이션 V14(documents_source_id)+V15(drop_chat_sessions)
+  자동 적용 → chat_sessions/chat_turns DROPPED**. 마이그레이션된 KB 에서 lexical search 정상
+  동작(실 jira 결과 반환) — breaking 변경이 user-visible 파손 없이 적용됨.
+- **임베딩 캐시 (PR1 #216)**: `embed_cache_reingest.rs`(fastembed, AVX, `report.new==1` 격리)로
+  이미 execution-proven(재인덱싱=캐시 히트, byte-identical 벡터). 별도 corpus 도그푸딩 생략.
+- 도그푸딩 store: `large_data/out/kebab-dogfood/{cache-release-run,migration-test}`. corpus =
+  실 jira 첨부 88 assets(이중 이미지 17, 그 외 OCR 비대상 65 skip).
+
 ## 2026-06-24 — spine-rewrite Phase 3: ingest 스파인 stage 추출
 
 kebab-app ingest 모놀리스(lib.rs)를 stage 헬퍼 시퀀스로. 각 단위 **재인덱싱 패리티
