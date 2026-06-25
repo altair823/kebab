@@ -24,10 +24,16 @@ v0.31.0 = 척추 재작성(#214) + 임베딩 캐시 전면화(#216) + OCR/captio
   warm 재인덱싱. 결과: **17개 `kind='ocr'` derivation_cache 행, 16/17이 비어있지 않은 OCR
   텍스트**(paddle 가 실 스크린샷에서 텍스트 추출). warm 재인덱싱: **created_at fingerprint
   동일(cold==warm, 17/17 행 고정), last_used_at 만 갱신(17/17 touched=캐시 HIT), wall-clock
-  8.5s→1.2s = 7.0× 빠름**. 비싼 paddle OCR 가 재인덱싱에서 완전 스킵됨을 실증. (caption b2 는
-  동일 캐시 코드 경로 — engine-agnostic 메커니즘은 mock 게이트 + 이 paddle 실엔진 게이트로
-  입증. ollama-vision caption 품질 도그푸딩은 lemonade(.243, opencode/hermes 의존) 중단
-  비용으로 이연 — 메커니즘은 동일하므로 후속 GPU 박스 가용 시 quality-only 확인.)
+  8.5s→1.2s = 7.0× 빠름**. 비싼 paddle OCR 가 재인덱싱에서 완전 스킵됨을 실증.
+- **caption 캐시 (PR2 #217, b2) — 실 ollama-vision 엔진 (GPU 도그푸딩)**: ollama-r9700(.244,
+  gemma3:4b vision) 로 GPU 스왑 후 실 jira 스크린샷 4개 caption. cold ingest 가 정확한 캡션
+  생성("PowerShell command prompt session running MongoDB", "MongoDB shell session output …",
+  "system log … web server", "fluctuating line graphs … metrics" — 품질 양호). warm 재인덱싱:
+  **4개 `kind='caption'` 행 created_at 고정(4/4 touched=HIT), wall-clock 13.4s→0.6s = 22×
+  빠름** → **비결정적 LLM 캡션이 ollama-vision 재호출 없이 verbatim 재현**(캐시가 첫 결과를
+  박제 = 비결정성 박제 claim 실엔진 확증). 도그푸딩 종료 후 **lemonade 무조건 복구 확인**
+  (.243 UP, 4 models; ollama-r9700 down). b2 = 코드리뷰 + payload 테스트 + 실엔진 도그푸딩
+  으로 검증 완료. (영구 CI 가드용 mock-LLM 결정적 테스트는 후속 패치.)
 - **마이그레이션 (척추 #214) — 실 v3 KB**: schema_version=3 config + chat_sessions/chat_turns
   포함 구 sqlite(refinery V13)에 새 바이너리 적용. `kebab config migrate`: **v3→v5 무손실**
   (OCR 키를 `[ingest.ocr]` 로 통합 + max_chunk_tokens 추가, .bak 백업, schema_version=5).
