@@ -70,7 +70,7 @@ pub use ingest::{
     IngestOpts, ingest, ingest_file_with_config, ingest_stdin_with_config, ingest_with_config,
 };
 #[doc(hidden)]
-pub use ingest::test_ingest_config_signature;
+pub use ingest::{cache_image_caption, test_ingest_config_signature};
 pub use ingest_log::{IngestLogWriter, IngestSummary, LogEvent};
 pub use ingest_progress::{AggregateCounts, IngestEvent, render_skipped_breakdown};
 pub use kebab_config::{ConfigInvalid, ConfigNotFound};

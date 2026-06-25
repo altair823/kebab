@@ -1665,46 +1665,19 @@ fn ingest_one_image_asset(
                 // Only cache when captioning is enabled (apply_caption no-ops when
                 // disabled; mirror that gate so a hit can't bypass the toggle).
                 if app.config.ingest.image.caption.enabled {
-                    let cap_vkey = format!(
-                        "caption|{}|{}",
-                        llm.model_ref().provider,
-                        app.config.ingest.image.caption.prompt_template_version,
-                    );
-                    let cap_key =
-                        kebab_core::derivation_cache_key_bytes("caption", &bytes, &cap_vkey);
-                    if let Some(cached) = app
-                        .sqlite
-                        .derivation_cache_get(&cap_key)?
-                        .and_then(|p| crate::derivation_payload::decode_model_caption(&p))
-                    {
-                        block.caption = Some(cached);
-                        caption_cache_touch.push(cap_key);
-                    } else {
-                        let res = apply_caption(
-                            llm,
-                            &bytes,
-                            block,
-                            lang_hint.as_ref(),
-                            &app.config,
-                            &mut canonical.provenance.events,
-                        );
-                        if let Err(e) = res {
-                            record_image_analysis_failure(
-                                asset,
-                                &mut canonical.provenance.events,
-                                &mut warning_notes,
-                                "CaptionFailed",
-                                e,
-                                now,
-                            );
-                        } else if let Some(produced) = &block.caption {
-                            app.sqlite.derivation_cache_put(
-                                &cap_key,
-                                "caption",
-                                &crate::derivation_payload::encode_model_caption(produced),
-                            )?;
-                        }
-                    }
+                    cache_image_caption(
+                        llm,
+                        &bytes,
+                        block,
+                        lang_hint.as_ref(),
+                        &app.config,
+                        &app.sqlite,
+                        asset,
+                        &mut canonical.provenance.events,
+                        &mut warning_notes,
+                        now,
+                        &mut caption_cache_touch,
+                    )?;
                 }
                 caption_ms = u64::try_from(t_caption.elapsed().as_millis()).unwrap_or(u64::MAX);
             }
@@ -1919,6 +1892,62 @@ fn ocr_cache_version_key(
         unclip_ratio,
         max_boxes,
     )
+}
+
+/// Caption an image with the `"caption"` derivation cache (§3.5 b2). On a cache
+/// HIT sets `block.caption` from the cached `ModelCaption` and skips the LLM (no
+/// provenance — §3.6); on a MISS runs `apply_caption` and caches a successful
+/// result. Hit keys are pushed to `touch_keys`. A caption failure records a
+/// warning (does NOT abort ingest). Mirrors the b3 PDF-OCR cache
+/// (`apply_ocr_to_pdf_pages`).
+///
+/// Caller already gates on `config.ingest.image.caption.enabled` (preserving the
+/// exact v0.31.0 inline behavior — a hit can't bypass the disabled toggle), so
+/// this helper assumes captioning is enabled.
+///
+/// `#[doc(hidden)] pub` — the official callable seam for the deterministic
+/// mock-LLM cache test (`tests/caption_cache.rs`), not a public API. Mirrors how
+/// `pdf_ocr_apply::apply_ocr_to_pdf_pages` is the OCR test seam.
+#[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
+pub fn cache_image_caption(
+    llm: &dyn LanguageModel,
+    image_bytes: &[u8],
+    block: &mut kebab_core::ImageRefBlock,
+    lang_hint: Option<&Lang>,
+    config: &kebab_config::Config,
+    sqlite: &kebab_store_sqlite::SqliteStore,
+    asset: &RawAsset,
+    events: &mut Vec<kebab_core::ProvenanceEvent>,
+    warning_notes: &mut Vec<String>,
+    now: time::OffsetDateTime,
+    touch_keys: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    let cap_vkey = format!(
+        "caption|{}|{}",
+        llm.model_ref().provider,
+        config.ingest.image.caption.prompt_template_version,
+    );
+    let cap_key = kebab_core::derivation_cache_key_bytes("caption", image_bytes, &cap_vkey);
+    if let Some(cached) = sqlite
+        .derivation_cache_get(&cap_key)?
+        .and_then(|p| crate::derivation_payload::decode_model_caption(&p))
+    {
+        block.caption = Some(cached);
+        touch_keys.push(cap_key);
+    } else {
+        let res = apply_caption(llm, image_bytes, block, lang_hint, config, events);
+        if let Err(e) = res {
+            record_image_analysis_failure(asset, events, warning_notes, "CaptionFailed", e, now);
+        } else if let Some(produced) = &block.caption {
+            sqlite.derivation_cache_put(
+                &cap_key,
+                "caption",
+                &crate::derivation_payload::encode_model_caption(produced),
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// Centralised handling for image-analysis (OCR / caption) failures.
