@@ -63,6 +63,8 @@ fn extract_and_ocr(
         min_char_count: 20,
         lang_hint: None,
         cancel: None,
+        ocr_cache: None,
+        ocr_version_key: String::new(),
     };
     apply_ocr_to_pdf_pages(&mut canonical, engine, bytes, &opts, |_| {}).unwrap();
     canonical

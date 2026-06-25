@@ -1588,6 +1588,12 @@ fn ingest_one_image_asset(
     // the slowest-asset summary.
     let mut ocr_ms = 0_u64;
     let mut caption_ms = 0_u64;
+    // PR2 (§3.4): derivation-cache touch keys for OCR / caption hits, flushed
+    // after store. The caption accumulator is declared here but populated by b2;
+    // declaring both now avoids re-editing this region.
+    let mut ocr_cache_touch: Vec<String> = Vec::new();
+    // b2 adds the `.push()` (on a caption cache hit) that makes this `mut`.
+    let mut caption_cache_touch: Vec<String> = Vec::new();
     match canonical.blocks.first_mut() {
         Some(Block::ImageRef(block)) => {
             if let Some(engine) = ocr_engine {
@@ -1601,24 +1607,49 @@ fn ingest_one_image_asset(
                     },
                 );
                 let t_ocr = std::time::Instant::now();
-                let res = apply_ocr(
+                let img_ocr_cfg = app.config.image_ocr();
+                let ocr_vkey = ocr_cache_version_key(
                     engine,
-                    &bytes,
-                    block,
-                    lang_hint.as_ref(),
-                    &mut canonical.provenance.events,
+                    img_ocr_cfg.score_thresh,
+                    img_ocr_cfg.unclip_ratio,
+                    img_ocr_cfg.max_boxes,
                 );
-                ocr_ms = u64::try_from(t_ocr.elapsed().as_millis()).unwrap_or(u64::MAX);
-                if let Err(e) = res {
-                    record_image_analysis_failure(
-                        asset,
+                let ocr_key = kebab_core::derivation_cache_key_bytes("ocr", &bytes, &ocr_vkey);
+                if let Some(cached) = app
+                    .sqlite
+                    .derivation_cache_get(&ocr_key)?
+                    .and_then(|p| crate::derivation_payload::decode_ocr_text(&p))
+                {
+                    // Cache hit: reconstruct block.ocr, skip the engine + provenance
+                    // (design §3.6 — provenance is not output/gate-affecting).
+                    block.ocr = Some(cached);
+                    ocr_cache_touch.push(ocr_key);
+                } else {
+                    let res = apply_ocr(
+                        engine,
+                        &bytes,
+                        block,
+                        lang_hint.as_ref(),
                         &mut canonical.provenance.events,
-                        &mut warning_notes,
-                        "OcrFailed",
-                        e,
-                        now,
                     );
+                    if let Err(e) = res {
+                        record_image_analysis_failure(
+                            asset,
+                            &mut canonical.provenance.events,
+                            &mut warning_notes,
+                            "OcrFailed",
+                            e,
+                            now,
+                        );
+                    } else if let Some(produced) = &block.ocr {
+                        app.sqlite.derivation_cache_put(
+                            &ocr_key,
+                            "ocr",
+                            &crate::derivation_payload::encode_ocr_text(produced),
+                        )?;
+                    }
                 }
+                ocr_ms = u64::try_from(t_ocr.elapsed().as_millis()).unwrap_or(u64::MAX);
             }
             if let Some(llm) = caption_llm {
                 crate::ingest_progress::emit(
@@ -1631,25 +1662,51 @@ fn ingest_one_image_asset(
                     },
                 );
                 let t_caption = std::time::Instant::now();
-                let res = apply_caption(
-                    llm,
-                    &bytes,
-                    block,
-                    lang_hint.as_ref(),
-                    &app.config,
-                    &mut canonical.provenance.events,
-                );
-                caption_ms = u64::try_from(t_caption.elapsed().as_millis()).unwrap_or(u64::MAX);
-                if let Err(e) = res {
-                    record_image_analysis_failure(
-                        asset,
-                        &mut canonical.provenance.events,
-                        &mut warning_notes,
-                        "CaptionFailed",
-                        e,
-                        now,
+                // Only cache when captioning is enabled (apply_caption no-ops when
+                // disabled; mirror that gate so a hit can't bypass the toggle).
+                if app.config.ingest.image.caption.enabled {
+                    let cap_vkey = format!(
+                        "caption|{}|{}",
+                        llm.model_ref().provider,
+                        app.config.ingest.image.caption.prompt_template_version,
                     );
+                    let cap_key =
+                        kebab_core::derivation_cache_key_bytes("caption", &bytes, &cap_vkey);
+                    if let Some(cached) = app
+                        .sqlite
+                        .derivation_cache_get(&cap_key)?
+                        .and_then(|p| crate::derivation_payload::decode_model_caption(&p))
+                    {
+                        block.caption = Some(cached);
+                        caption_cache_touch.push(cap_key);
+                    } else {
+                        let res = apply_caption(
+                            llm,
+                            &bytes,
+                            block,
+                            lang_hint.as_ref(),
+                            &app.config,
+                            &mut canonical.provenance.events,
+                        );
+                        if let Err(e) = res {
+                            record_image_analysis_failure(
+                                asset,
+                                &mut canonical.provenance.events,
+                                &mut warning_notes,
+                                "CaptionFailed",
+                                e,
+                                now,
+                            );
+                        } else if let Some(produced) = &block.caption {
+                            app.sqlite.derivation_cache_put(
+                                &cap_key,
+                                "caption",
+                                &crate::derivation_payload::encode_model_caption(produced),
+                            )?;
+                        }
+                    }
                 }
+                caption_ms = u64::try_from(t_caption.elapsed().as_millis()).unwrap_or(u64::MAX);
             }
         }
         // P6-1 contract: image documents always have exactly one
@@ -1719,6 +1776,11 @@ fn ingest_one_image_asset(
     let t_store = std::time::Instant::now();
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     store_document_records(app, asset, &bytes, &canonical, &chunks, " (image)")?;
+    // PR2 (§3.4): flush OCR / caption cache hits unconditionally — OCR/caption
+    // run even when embedding is disabled, so these touches must sit OUTSIDE the
+    // `if let (Some(emb), Some(vec_store)) = …` embedding block below.
+    app.sqlite.derivation_cache_touch(&ocr_cache_touch)?;
+    app.sqlite.derivation_cache_touch(&caption_cache_touch)?;
     let store_ms = u64::try_from(t_store.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     crate::ingest_progress::emit(
@@ -1834,7 +1896,33 @@ fn ingest_one_image_asset(
     })
 }
 
+/// Version key for the `"ocr"` derivation-cache namespace (§3.3). Folds the
+/// engine identity (name + version — for paddle, version is a blake3 of the
+/// model assets; for ollama-vision it is engine/model) plus the paddle
+/// output-shaping params, so an engine/asset/param change is a cache miss.
+/// `score_thresh`/`unclip_ratio`/`max_boxes` are paddle-only but folding them
+/// always is harmless (constant for non-paddle) and future-proofs the key the
+/// moment they become user-configurable. Takes the params as primitives so the
+/// same fn serves both image (`OcrCfg`) and pdf (`PdfOcrCfg`) — both expose
+/// `score_thresh: f32` / `unclip_ratio: f32` / `max_boxes: usize`.
+fn ocr_cache_version_key(
+    engine: &dyn OcrEngine,
+    score_thresh: f32,
+    unclip_ratio: f32,
+    max_boxes: usize,
+) -> String {
+    format!(
+        "{}/{}|st:{}|uc:{}|mb:{}",
+        engine.engine_name(),
+        engine.engine_version(),
+        score_thresh,
+        unclip_ratio,
+        max_boxes,
+    )
+}
+
 /// Centralised handling for image-analysis (OCR / caption) failures.
+///
 /// Emits a `tracing::warn!`, appends a `ProvenanceKind::Warning`
 /// event sharing the caller's per-document `now`, and pushes a
 /// `<WarningKind>: <err>` note onto the `IngestItem.warnings` slot
@@ -2215,6 +2303,16 @@ fn ingest_one_pdf_asset(
         if pdf_ocr.enabled || pdf_ocr.always_on {
             match pdf_ocr_engine {
                 Some(engine) => {
+                    // Per-page OCR cache (b3): fold engine identity + paddle
+                    // output-shaping params into the version key (§3.3), bound to
+                    // an owned String before the literal so `pdf_ocr`'s borrow of
+                    // `app.config` doesn't overlap the `Arc::clone(&app.sqlite)`.
+                    let pdf_ocr_vkey = ocr_cache_version_key(
+                        engine,
+                        pdf_ocr.score_thresh,
+                        pdf_ocr.unclip_ratio,
+                        pdf_ocr.max_boxes,
+                    );
                     let ocr_opts = crate::pdf_ocr_apply::PdfOcrOpts {
                         enabled: pdf_ocr.enabled || pdf_ocr.always_on,
                         always_on: pdf_ocr.always_on,
@@ -2222,6 +2320,8 @@ fn ingest_one_pdf_asset(
                         min_char_count: pdf_ocr.min_char_count,
                         lang_hint: pdf_ocr.lang_hint.clone().map(kebab_core::Lang),
                         cancel: cancel.cloned(),
+                        ocr_cache: Some(Arc::clone(&app.sqlite)),
+                        ocr_version_key: pdf_ocr_vkey,
                     };
                     // v0.20.x Hook 2: pre-clone Arcs for capture by OCR closure.
                     let lw_for_ocr = log_writer.clone();
