@@ -1592,9 +1592,8 @@ fn ingest_one_image_asset(
     // after store. The caption accumulator is declared here but populated by b2;
     // declaring both now avoids re-editing this region.
     let mut ocr_cache_touch: Vec<String> = Vec::new();
-    // b1 only reads this via `&` (the touch flush); b2 adds the `.push()` that
-    // makes it `mut`. Kept non-`mut` here so b1 compiles clean under -D warnings.
-    let caption_cache_touch: Vec<String> = Vec::new();
+    // b2 adds the `.push()` (on a caption cache hit) that makes this `mut`.
+    let mut caption_cache_touch: Vec<String> = Vec::new();
     match canonical.blocks.first_mut() {
         Some(Block::ImageRef(block)) => {
             if let Some(engine) = ocr_engine {
@@ -1663,25 +1662,51 @@ fn ingest_one_image_asset(
                     },
                 );
                 let t_caption = std::time::Instant::now();
-                let res = apply_caption(
-                    llm,
-                    &bytes,
-                    block,
-                    lang_hint.as_ref(),
-                    &app.config,
-                    &mut canonical.provenance.events,
-                );
-                caption_ms = u64::try_from(t_caption.elapsed().as_millis()).unwrap_or(u64::MAX);
-                if let Err(e) = res {
-                    record_image_analysis_failure(
-                        asset,
-                        &mut canonical.provenance.events,
-                        &mut warning_notes,
-                        "CaptionFailed",
-                        e,
-                        now,
+                // Only cache when captioning is enabled (apply_caption no-ops when
+                // disabled; mirror that gate so a hit can't bypass the toggle).
+                if app.config.ingest.image.caption.enabled {
+                    let cap_vkey = format!(
+                        "caption|{}|{}",
+                        llm.model_ref().provider,
+                        app.config.ingest.image.caption.prompt_template_version,
                     );
+                    let cap_key =
+                        kebab_core::derivation_cache_key_bytes("caption", &bytes, &cap_vkey);
+                    if let Some(cached) = app
+                        .sqlite
+                        .derivation_cache_get(&cap_key)?
+                        .and_then(|p| crate::derivation_payload::decode_model_caption(&p))
+                    {
+                        block.caption = Some(cached);
+                        caption_cache_touch.push(cap_key);
+                    } else {
+                        let res = apply_caption(
+                            llm,
+                            &bytes,
+                            block,
+                            lang_hint.as_ref(),
+                            &app.config,
+                            &mut canonical.provenance.events,
+                        );
+                        if let Err(e) = res {
+                            record_image_analysis_failure(
+                                asset,
+                                &mut canonical.provenance.events,
+                                &mut warning_notes,
+                                "CaptionFailed",
+                                e,
+                                now,
+                            );
+                        } else if let Some(produced) = &block.caption {
+                            app.sqlite.derivation_cache_put(
+                                &cap_key,
+                                "caption",
+                                &crate::derivation_payload::encode_model_caption(produced),
+                            )?;
+                        }
+                    }
                 }
+                caption_ms = u64::try_from(t_caption.elapsed().as_millis()).unwrap_or(u64::MAX);
             }
         }
         // P6-1 contract: image documents always have exactly one
