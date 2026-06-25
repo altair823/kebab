@@ -36,7 +36,7 @@ pub use answer::{
 pub use asset::{AssetStorage, RawAsset, SourceUri, WorkspacePath};
 pub use chunk::Chunk;
 pub use citation::Citation;
-pub use derivation::derivation_cache_key;
+pub use derivation::{derivation_cache_key, derivation_cache_key_bytes};
 pub use document::{
     AudioRefBlock, Block, CanonicalDocument, CodeBlock, CommonBlock, HeadingBlock, ImageRefBlock,
     Inline, ListBlock, ModelCaption, OcrRegion, OcrText, SourceSpan, TableBlock, TextBlock,
