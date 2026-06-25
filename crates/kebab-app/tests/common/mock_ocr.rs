@@ -28,6 +28,12 @@ impl MockOcrEngine {
             fail,
         }
     }
+
+    /// Number of `recognize` calls so far (cache-hit tests assert this stays
+    /// flat across a re-run).
+    pub fn call_count(&self) -> usize {
+        *self.call_index.lock().unwrap()
+    }
 }
 
 impl OcrEngine for MockOcrEngine {
