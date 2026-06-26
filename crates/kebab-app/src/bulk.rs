@@ -1,5 +1,5 @@
 //! p9-fb-42: bulk multi-query facade. Sequential for-loop reusing
-//! one App instance so embedder cold-start + LRU cache amortize
+//! one App instance so the embedder cold-start amortizes
 //! across the N queries.
 
 use anyhow::Context;

@@ -604,10 +604,10 @@ pub fn ingest_with_config(
     crate::ingest_progress::emit(progress, terminal_event);
 
     // p9-fb-19: bump the persistent corpus_revision counter when a
-    // commit landed (any new / updated / purged). This invalidates every
-    // entry in any in-process LRU search cache (in this process or
-    // a sibling) on the next lookup. No-op when nothing changed
-    // (skipped-only run) — the cache stays valid.
+    // commit landed (any new / updated / purged). This invalidates any
+    // outstanding search pagination cursors (stale_cursor) on the next
+    // page request. No-op when nothing changed (skipped-only run) —
+    // outstanding cursors stay valid.
     if new_count > 0 || updated_count > 0 || purged_deleted_files > 0 {
         match app.sqlite.bump_corpus_revision() {
             Ok(rev) => tracing::debug!(
@@ -618,7 +618,7 @@ pub fn ingest_with_config(
             Err(e) => tracing::warn!(
                 target: "kebab-app",
                 error = %e,
-                "bump_corpus_revision failed; cache may serve stale results until process restart"
+                "bump_corpus_revision failed; outstanding search cursors may not be invalidated until the next successful ingest"
             ),
         }
     }

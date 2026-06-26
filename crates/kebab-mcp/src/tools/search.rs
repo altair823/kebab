@@ -49,7 +49,7 @@ pub struct SearchInput {
     pub doc_id: Option<String>,
     /// p9-fb-37: when true, include a `trace` field on the response
     /// with pre-fusion lexical/vector candidate lists + per-stage timing.
-    /// Bypasses cache (debug intent — fresh run guaranteed). Default false.
+    /// Debug intent — always a fresh retriever run. Default false.
     pub trace: Option<bool>,
 }
 

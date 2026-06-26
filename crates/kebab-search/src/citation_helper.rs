@@ -5,8 +5,8 @@
 //! `chunks.source_spans_json` column and need identical mapping logic
 //! so cross-mode citation strings round-trip byte-identically (a
 //! requirement for the hybrid retriever's tie-break on chunk_id and
-//! for the `search --explain` output documented in design §0 Q3 and
-//! §1.6). Living here means a future PDF / image / audio extractor can
+//! for citation provenance in `search --trace` output, design §0 Q3).
+//! Living here means a future PDF / image / audio extractor can
 //! enrich the mapping in one place rather than two.
 
 use kebab_core::{Citation, SourceSpan, WorkspacePath};

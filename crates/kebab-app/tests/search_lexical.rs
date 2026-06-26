@@ -81,26 +81,6 @@ fn cache_key_normalization_treats_case_and_whitespace_as_equivalent() {
     assert_eq!(plain_ids, upper_ids);
 }
 
-/// p9-fb-19 — `--no-cache` (`search_uncached_with_config`) bypasses
-/// the cache. Result correctness is identical to `search_with_config`.
-#[test]
-fn search_uncached_returns_same_hits_as_cached() {
-    let env = TestEnv::lexical_only();
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
-    let cached =
-        kebab_app::search_with_config(env.config.clone(), common::lexical_query("ownership"))
-            .unwrap();
-    let uncached = kebab_app::search_uncached_with_config(
-        env.config.clone(),
-        common::lexical_query("ownership"),
-    )
-    .unwrap();
-    assert_eq!(cached.len(), uncached.len());
-    for (a, b) in cached.iter().zip(uncached.iter()) {
-        assert_eq!(a.chunk_id, b.chunk_id);
-    }
-}
-
 /// p9-fb-19 — first ingest with commits bumps `corpus_revision` from
 /// 0 to ≥1. Verified by reading the persisted kv via a fresh
 /// SqliteStore handle (the field on `App` is `pub(crate)`).
@@ -110,7 +90,7 @@ fn first_ingest_bumps_corpus_revision() {
     let store_before = kebab_store_sqlite::SqliteStore::open(&env.config.storage).unwrap();
     store_before.run_migrations().unwrap();
     // V004 seeds 0; V009 + V010 + V011 migrations each bump by 1 to
-    // invalidate stale LRU caches (spec §5.2). Baseline before ingest = 3.
+    // invalidate outstanding pagination cursors (spec §5.2). Baseline before ingest = 3.
     // (V012 derivation_cache + V013 drop-chunk-aliases are structural/additive
     // — neither bumps corpus_revision.)
     let baseline = store_before.corpus_revision();

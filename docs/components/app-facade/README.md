@@ -42,7 +42,7 @@ classDiagram
         ingest_with_config_progress
         ingest_with_config_cancellable
         list_docs_with_config / inspect_*_with_config
-        search_with_config / search_uncached_with_config
+        search_with_config
         ask_with_config / ask_with_session_with_config
         doctor_with_config_path
     }
@@ -117,7 +117,7 @@ flowchart LR
 - `ingest_with_config(cfg, scope, summary_only)` — 가장 단순.
 - `ingest_with_config_progress(cfg, scope, progress: Option<Sender<IngestEvent>>)` — TTY 진행 표시 / `--json` line-delimited 용.
 - `ingest_with_config_cancellable(cfg, scope, progress, cancel: Option<Arc<AtomicBool>>)` — 위 + cooperative cancel. asset loop iter 시작에서 poll → true 면 break + `Aborted{partial_counts}` + `Ok(IngestReport)` 반환 (Err 아님). 부분 commit 보존.
-- `search_with_config / search_uncached_with_config` — 후자는 LRU cache bypass (debug).
+- `search_with_config` — one-shot `App` 생성 후 `App::search` 위임.
 - `ask_with_session_with_config(cfg, session_id, query, opts)` — multi-turn (p9-fb-18).
 - `doctor_with_config_path(Option<&Path>)` — config 경로 explicit.
 
@@ -125,7 +125,7 @@ flowchart LR
 - `App::open_with_config(cfg) -> Result<Self>` — SQLite open + migration. embedder/vector/llm 은 lazy `OnceLock` 으로 첫 호출에서 build.
 - `App::embedder() -> Option<...>` — `provider == "none"` 또는 `dimensions == 0` 이면 `None` (lexical-only fallback).
 - `App::ask_with_session(session_id, query, opts)` — repo + RAG ask + 새 turn append 한 묶음 (p9-fb-18).
-- `App::search(query)` — LRU cache lookup → miss 시 `search_uncached` → put. cache key = `(query_norm, mode, k, snippet_chars, embedding_version, chunker_version, corpus_revision)`.
+- `App::search(query)` — 설정된 retriever stack 실행 후 top-k hits 반환. staleness stamp + `code_lang` / `repo` backfill 을 hit 에 적용.
 
 **`IngestEvent`** (`kebab-app::ingest_progress`):
 - `Started { total }` / `AssetStarted { workspace_path }` / `AssetCompleted { counts }` / `Completed { counts }` / `Aborted { partial_counts }`. terminal frame 후 sender drop.
@@ -177,6 +177,6 @@ flowchart LR
   - app skeleton + ingest wiring: [`tasks/p3/p3-5-app-wiring.md`](../../../tasks/p3/p3-5-app-wiring.md), [`tasks/p6/p6-4-image-ingest-wiring.md`](../../../tasks/p6/p6-4-image-ingest-wiring.md), [`tasks/p7/p7-3-pdf-ingest-wiring.md`](../../../tasks/p7/p7-3-pdf-ingest-wiring.md)
   - reset: [`tasks/p9/p9-fb-06-data-reset-command.md`](../../../tasks/p9/p9-fb-06-data-reset-command.md)
   - ingest progress / cancel: [`tasks/p9/p9-fb-03-tui-ingest-background.md`](../../../tasks/p9/p9-fb-03-tui-ingest-background.md), [`tasks/p9/p9-fb-04-ingest-cancellation.md`](../../../tasks/p9/p9-fb-04-ingest-cancellation.md)
-  - search cache: [`tasks/p9/p9-fb-19-search-cache.md`](../../../tasks/p9/p9-fb-19-search-cache.md)
+  - search cache (제거됨 — 이력): [`tasks/p9/p9-fb-19-search-cache.md`](../../../tasks/p9/p9-fb-19-search-cache.md)
   - chat session CLI: [`tasks/p9/p9-fb-18-cli-ask-session-repl.md`](../../../tasks/p9/p9-fb-18-cli-ask-session-repl.md)
 - HOTFIXES (P3-5/P4-3 `--config` 누락 + `*_with_config` 패턴, P7-3 storage UNIQUE bug, p9-fb-* 도그푸딩 후속): [`tasks/HOTFIXES.md`](../../../tasks/HOTFIXES.md)

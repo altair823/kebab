@@ -67,7 +67,6 @@ snippet_chars = 220
 [rag]
 prompt_template_version = "rag-v4"
 score_gate = 0.30
-explain_default = false
 max_context_tokens = 8000
 "#,
             workspace = workspace.display(),

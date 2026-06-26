@@ -244,17 +244,6 @@ pub fn search_with_config(
     App::open_with_config(config)?.search(query)
 }
 
-/// p9-fb-19: bypass the LRU search cache for one call. Same shape as
-/// [`search_with_config`] but routes through [`App::search_uncached`]
-/// — used by `kebab search --no-cache`.
-#[doc(hidden)]
-pub fn search_uncached_with_config(
-    config: kebab_config::Config,
-    query: SearchQuery,
-) -> anyhow::Result<Vec<SearchHit>> {
-    App::open_with_config(config)?.search_uncached(query)
-}
-
 /// p9-fb-34: budget-aware search free function. Mirrors
 /// [`search_with_config`] but threads `SearchOpts` (max_tokens,
 /// snippet_chars, cursor) and returns the [`SearchResponse`]

@@ -1,7 +1,7 @@
 //! p9-fb-19: `corpus_revision` kv counter — exposed on `SqliteStore`
 //! so `kebab-app::ingest` can bump after a successful commit and
-//! `App::search`'s LRU cache key can snapshot the current value for
-//! invalidation.
+//! search pagination cursors can snapshot the current value to detect
+//! staleness (`stale_cursor`).
 
 use kebab_config::Config;
 use kebab_store_sqlite::SqliteStore;
@@ -21,8 +21,9 @@ fn open_store(tmp: &TempDir) -> SqliteStore {
 }
 
 /// Fresh store baseline: V004 seeds `corpus_revision = 0`, then V009,
-/// V010, and V011 migrations bump it by one each to invalidate any stale
-/// LRU cache — so a fresh store after `run_migrations()` reads back as `3`.
+/// V010, and V011 migrations bump it by one each to invalidate any
+/// outstanding pagination cursor — so a fresh store after
+/// `run_migrations()` reads back as `3`.
 /// (V012 derivation_cache + V013 drop-chunk-aliases are structural/additive
 /// and do NOT bump corpus_revision.)
 #[test]

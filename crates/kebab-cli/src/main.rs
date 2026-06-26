@@ -114,19 +114,6 @@ enum Cmd {
         #[arg(long, value_enum, default_value_t = ModeFlag::Hybrid)]
         mode: ModeFlag,
 
-        #[arg(long)]
-        explain: bool,
-
-        /// p9-fb-19: bypass the in-process LRU search cache for
-        /// this invocation. Forces a fresh retriever run even when
-        /// the same query was just served from cache. Useful when
-        /// debugging retriever behavior — and a no-op for the CLI
-        /// (each invocation is a new process anyway, so the cache
-        /// starts empty), but the flag stays for parity with the
-        /// future TUI cache-aware search and for explicit intent.
-        #[arg(long)]
-        no_cache: bool,
-
         /// p9-fb-34: cap result wire JSON size at approximately N tokens
         /// (chars/4 estimate). When set, smaller snippets and fewer hits
         /// may be returned; check `truncated` in the JSON wire.
@@ -219,8 +206,8 @@ enum Cmd {
         source: Vec<String>,
 
         /// p9-fb-37: emit pre-fusion lexical / vector / RRF candidate
-        /// lists + per-stage timing in the response. Bypasses cache
-        /// (debug intent — fresh run guaranteed). Requires embeddings
+        /// lists + per-stage timing in the response (debug intent —
+        /// always a fresh retriever run). Requires embeddings
         /// when `--mode hybrid` or `--mode vector`; lexical mode runs
         /// without embeddings via a no-op vector stub.
         #[arg(long)]
@@ -825,8 +812,6 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             query,
             k,
             mode,
-            explain: _,
-            no_cache: _,
             max_tokens,
             snippet_chars,
             cursor,

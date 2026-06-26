@@ -424,15 +424,7 @@ $KB search 'tokenizer' --mode lexical --json | jq '.hits | length' # ≥ 1 if co
 - `next_cursor` opaque token.
 - `corpus_revision` mismatch → `stale_cursor` error.
 
-### §2.6 Search cache (p9-fb-19)
-
-```bash
-"$RELEASE_BIN" search "query" --json   # first call
-"$RELEASE_BIN" search "query" --json   # cached (in-process LRU, no-op in CLI)
-"$RELEASE_BIN" search "query" --no-cache --json   # force fresh
-```
-
-### §2.7 Bulk search
+### §2.6 Bulk search
 
 stdin ndjson — 줄당 하나의 query object (`{"query":"<text>"}` 필수, 나머지 optional):
 ```bash
