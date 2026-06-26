@@ -206,8 +206,8 @@ enum Cmd {
         source: Vec<String>,
 
         /// p9-fb-37: emit pre-fusion lexical / vector / RRF candidate
-        /// lists + per-stage timing in the response. Bypasses cache
-        /// (debug intent — fresh run guaranteed). Requires embeddings
+        /// lists + per-stage timing in the response (debug intent —
+        /// always a fresh retriever run). Requires embeddings
         /// when `--mode hybrid` or `--mode vector`; lexical mode runs
         /// without embeddings via a no-op vector stub.
         #[arg(long)]

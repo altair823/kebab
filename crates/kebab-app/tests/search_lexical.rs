@@ -90,7 +90,7 @@ fn first_ingest_bumps_corpus_revision() {
     let store_before = kebab_store_sqlite::SqliteStore::open(&env.config.storage).unwrap();
     store_before.run_migrations().unwrap();
     // V004 seeds 0; V009 + V010 + V011 migrations each bump by 1 to
-    // invalidate stale LRU caches (spec §5.2). Baseline before ingest = 3.
+    // invalidate outstanding pagination cursors (spec §5.2). Baseline before ingest = 3.
     // (V012 derivation_cache + V013 drop-chunk-aliases are structural/additive
     // — neither bumps corpus_revision.)
     let baseline = store_before.corpus_revision();

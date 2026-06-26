@@ -177,6 +177,6 @@ flowchart LR
   - app skeleton + ingest wiring: [`tasks/p3/p3-5-app-wiring.md`](../../../tasks/p3/p3-5-app-wiring.md), [`tasks/p6/p6-4-image-ingest-wiring.md`](../../../tasks/p6/p6-4-image-ingest-wiring.md), [`tasks/p7/p7-3-pdf-ingest-wiring.md`](../../../tasks/p7/p7-3-pdf-ingest-wiring.md)
   - reset: [`tasks/p9/p9-fb-06-data-reset-command.md`](../../../tasks/p9/p9-fb-06-data-reset-command.md)
   - ingest progress / cancel: [`tasks/p9/p9-fb-03-tui-ingest-background.md`](../../../tasks/p9/p9-fb-03-tui-ingest-background.md), [`tasks/p9/p9-fb-04-ingest-cancellation.md`](../../../tasks/p9/p9-fb-04-ingest-cancellation.md)
-  - search cache: [`tasks/p9/p9-fb-19-search-cache.md`](../../../tasks/p9/p9-fb-19-search-cache.md)
+  - search cache (제거됨 — 이력): [`tasks/p9/p9-fb-19-search-cache.md`](../../../tasks/p9/p9-fb-19-search-cache.md)
   - chat session CLI: [`tasks/p9/p9-fb-18-cli-ask-session-repl.md`](../../../tasks/p9/p9-fb-18-cli-ask-session-repl.md)
 - HOTFIXES (P3-5/P4-3 `--config` 누락 + `*_with_config` 패턴, P7-3 storage UNIQUE bug, p9-fb-* 도그푸딩 후속): [`tasks/HOTFIXES.md`](../../../tasks/HOTFIXES.md)
