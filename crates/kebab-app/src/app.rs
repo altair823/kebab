@@ -250,13 +250,6 @@ impl App {
     /// — long-lived callers (kb-eval, future TUI) get amortized cost
     /// across calls.
     pub fn search(&self, query: SearchQuery) -> Result<Vec<SearchHit>> {
-        self.search_uncached(query)
-    }
-
-    /// p9-fb-19: bypass the LRU cache and run the search directly.
-    /// Used by `--no-cache` CLI invocations and by `search` itself
-    /// on cache miss. Identical behavior to the pre-fb-19 `search`.
-    pub fn search_uncached(&self, query: SearchQuery) -> Result<Vec<SearchHit>> {
         let mut hits = match query.mode {
             SearchMode::Lexical => {
                 let lex = LexicalRetriever::with_settings(
@@ -363,8 +356,8 @@ impl App {
             ..query.clone()
         };
 
-        // p9-fb-37: when --trace is requested, bypass the LRU cache and
-        // run through `HybridRetriever::search_with_trace`, which
+        // p9-fb-37: when --trace is requested, run through
+        // `HybridRetriever::search_with_trace`, which
         // dispatches by mode internally. Vector / hybrid modes require
         // embeddings (same as `--mode hybrid`); lexical mode skips
         // embedder construction via `NoopRetriever` so lexical-only
@@ -398,16 +391,16 @@ impl App {
             let hybrid = HybridRetriever::new(&self.config.search, lex, vec_retr);
             let (mut traced_hits, trace) = hybrid.search_with_trace(&fetch_query)?;
 
-            // Stamp staleness — same as search_uncached.
+            // Stamp staleness — same as `search`.
             let now = time::OffsetDateTime::now_utc();
             crate::staleness::mark_stale_in_place(
                 &mut traced_hits,
                 now,
                 self.config.search.stale_threshold_days,
             );
-            // p10-1A-2: backfill code_lang — same as search_uncached.
+            // p10-1A-2: backfill code_lang — same as `search`.
             backfill_code_lang(&mut traced_hits);
-            // p10-1A-2 Task 8b: backfill repo — same as search_uncached.
+            // p10-1A-2 Task 8b: backfill repo — same as `search`.
             self.backfill_repo(&mut traced_hits);
 
             // Apply offset + k_effective truncation (mirrors non-trace path).
@@ -437,8 +430,8 @@ impl App {
         }
 
         // backfill_code_lang + backfill_repo are applied inside `search`
-        // via `search_uncached` — no explicit call needed here. Trace
-        // branch above calls them directly because it bypasses `search`.
+        // — no explicit call needed here. The trace branch above calls
+        // them directly because it bypasses `search`.
         let mut all_hits = self.search(fetch_query)?;
 
         // Skip offset.

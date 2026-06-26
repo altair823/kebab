@@ -81,26 +81,6 @@ fn cache_key_normalization_treats_case_and_whitespace_as_equivalent() {
     assert_eq!(plain_ids, upper_ids);
 }
 
-/// p9-fb-19 — `--no-cache` (`search_uncached_with_config`) bypasses
-/// the cache. Result correctness is identical to `search_with_config`.
-#[test]
-fn search_uncached_returns_same_hits_as_cached() {
-    let env = TestEnv::lexical_only();
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() }).unwrap();
-    let cached =
-        kebab_app::search_with_config(env.config.clone(), common::lexical_query("ownership"))
-            .unwrap();
-    let uncached = kebab_app::search_uncached_with_config(
-        env.config.clone(),
-        common::lexical_query("ownership"),
-    )
-    .unwrap();
-    assert_eq!(cached.len(), uncached.len());
-    for (a, b) in cached.iter().zip(uncached.iter()) {
-        assert_eq!(a.chunk_id, b.chunk_id);
-    }
-}
-
 /// p9-fb-19 — first ingest with commits bumps `corpus_revision` from
 /// 0 to ≥1. Verified by reading the persisted kv via a fresh
 /// SqliteStore handle (the field on `App` is `pub(crate)`).

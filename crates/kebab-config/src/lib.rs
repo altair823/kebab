@@ -335,7 +335,6 @@ pub struct RagCfg {
     pub prompt_template_version: String,
     #[serde(serialize_with = "ser_f32_clean")]
     pub score_gate: f32,
-    pub explain_default: bool,
     pub max_context_tokens: usize,
     /// p9-fb-41: hard ceiling on the number of multi-hop iterations
     /// (decompose iter + decide iters). When the LLM keeps returning
@@ -1057,7 +1056,6 @@ impl Config {
             rag: RagCfg {
                 prompt_template_version: "rag-v4".to_string(),
                 score_gate: 0.30,
-                explain_default: false,
                 max_context_tokens: 8000,
                 multi_hop_max_depth: default_multi_hop_max_depth(),
                 multi_hop_max_sub_queries_per_iter: default_multi_hop_max_sub_queries_per_iter(),
@@ -1662,7 +1660,7 @@ impl Config {
                 }
 
                 // rag — prompt template version is a release-level toggle;
-                // the per-call tuning knobs (score_gate, explain_default,
+                // the per-call tuning knobs (score_gate,
                 // max_context_tokens, multi_hop_*, nli_threshold) stay
                 // config-only.
                 "KEBAB_RAG_PROMPT_TEMPLATE_VERSION" => {
@@ -1871,7 +1869,6 @@ snippet_chars = 220
 [rag]
 prompt_template_version = "rag-v3"
 score_gate = 0.3
-explain_default = false
 max_context_tokens = 8000
 
 [image.ocr]
@@ -2423,7 +2420,6 @@ stale_threshold_days = 30
 [rag]
 prompt_template_version = "rag-v2"
 score_gate = 0.30
-explain_default = false
 max_context_tokens = 8000
 "#;
         let c: Config = toml::from_str(toml_text).expect("pre-P6 TOML must still parse");

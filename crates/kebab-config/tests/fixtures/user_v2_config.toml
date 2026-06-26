@@ -86,7 +86,6 @@ stale_threshold_days = 30
 [rag]
 prompt_template_version = "rag-v3"
 score_gate = 0.30000001192092896
-explain_default = false
 max_context_tokens = 8000
 multi_hop_max_depth = 3
 multi_hop_max_sub_queries_per_iter = 5

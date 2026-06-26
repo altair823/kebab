@@ -114,19 +114,6 @@ enum Cmd {
         #[arg(long, value_enum, default_value_t = ModeFlag::Hybrid)]
         mode: ModeFlag,
 
-        #[arg(long)]
-        explain: bool,
-
-        /// p9-fb-19: bypass the in-process LRU search cache for
-        /// this invocation. Forces a fresh retriever run even when
-        /// the same query was just served from cache. Useful when
-        /// debugging retriever behavior — and a no-op for the CLI
-        /// (each invocation is a new process anyway, so the cache
-        /// starts empty), but the flag stays for parity with the
-        /// future TUI cache-aware search and for explicit intent.
-        #[arg(long)]
-        no_cache: bool,
-
         /// p9-fb-34: cap result wire JSON size at approximately N tokens
         /// (chars/4 estimate). When set, smaller snippets and fewer hits
         /// may be returned; check `truncated` in the JSON wire.
@@ -825,8 +812,6 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
             query,
             k,
             mode,
-            explain: _,
-            no_cache: _,
             max_tokens,
             snippet_chars,
             cursor,

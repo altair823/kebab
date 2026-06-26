@@ -12,9 +12,8 @@
 //! `m`'s output (chunks not appearing in `m` contribute 0).
 //!
 //! Each `SearchHit.retrieval` is rebuilt with the per-mode scores /
-//! ranks the fusion observed, so `kb search --explain` (§1.6) can
-//! show users exactly which retriever contributed what to the final
-//! ordering.
+//! ranks the fusion observed, so `kebab search --trace` can show
+//! exactly which retriever contributed what to the final ordering.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -62,8 +61,8 @@ pub enum FusionPolicy {
 /// and `embedding_model` — lexical search has FTS5 highlighting that's
 /// more user-relevant than the vector retriever's truncated text.
 /// Vector-only chunks fall through to the vector hit's data verbatim.
-/// This matches `kb search --explain` (§1.6) expectations for snippet
-/// provenance.
+/// This keeps snippet provenance stable in the fused result's
+/// `search --trace` output.
 pub struct HybridRetriever {
     lexical: Arc<dyn Retriever>,
     vector: Arc<dyn Retriever>,

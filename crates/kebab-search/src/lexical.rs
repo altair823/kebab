@@ -585,7 +585,7 @@ fn build_hit(
         chunker_version: ChunkerVersion(raw.chunker_version),
         indexed_at,
         // Placeholder — overwritten by `kebab_app::staleness::mark_stale_in_place`
-        // (called from `App::search` / `App::search_uncached`) and the equivalent
+        // (called from `App::search`) and the equivalent
         // in `RagPipeline::ask` against the configured threshold.
         stale: false,
         score_kind: ScoreKind::Bm25,

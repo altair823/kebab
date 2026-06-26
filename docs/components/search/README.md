@@ -130,7 +130,7 @@ flowchart LR
 
 ## 관련 spec / HOTFIXES
 
-- frozen 설계 §3.7 (SearchHit), §6.4 (`search.hybrid_fusion`/`rrf_k`/`default_k`/`snippet_chars`), §0 Q3 (citation), §1.6 (`--explain`), §7.2 (`Retriever` trait): [`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`](../../superpowers/specs/2026-04-27-kebab-final-form-design.md)
+- frozen 설계 §3.7 (SearchHit), §6.4 (`search.hybrid_fusion`/`rrf_k`/`default_k`/`snippet_chars`), §0 Q3 (citation), §7.2 (`Retriever` trait): [`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`](../../superpowers/specs/2026-04-27-kebab-final-form-design.md)
 - task spec:
   - lexical: [`tasks/p2/p2-2-search-lexical.md`](../../../tasks/p2/p2-2-search-lexical.md)
   - vector + hybrid: [`tasks/p3/p3-4-hybrid-fusion.md`](../../../tasks/p3/p3-4-hybrid-fusion.md)
