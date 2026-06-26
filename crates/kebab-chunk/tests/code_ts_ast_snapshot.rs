@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use kebab_chunk::CodeTsAstV1Chunker;
+use kebab_chunk::CodeAstV1Chunker;
 use kebab_core::{
     AssetId, Block, CanonicalDocument, ChunkPolicy, Chunker, ChunkerVersion, CodeBlock,
     CommonBlock, Lang, Metadata, ParserVersion, Provenance, SourceSpan, SourceType, TrustLevel,
@@ -161,7 +161,7 @@ fn code_ts_ast_chunks_snapshot() {
     let doc = fixed_doc();
     let policy = fixed_policy();
 
-    let chunks = CodeTsAstV1Chunker.chunk(&doc, &policy).expect("chunk");
+    let chunks = CodeAstV1Chunker::for_lang("typescript").chunk(&doc, &policy).expect("chunk");
     let actual = serde_json::to_value(&chunks).unwrap();
 
     let dir = fixtures_dir();
@@ -204,14 +204,14 @@ fn code_ts_ast_chunks_snapshot() {
 #[test]
 fn code_ts_ast_chunks_are_deterministic() {
     let policy = fixed_policy();
-    let baseline: Vec<String> = CodeTsAstV1Chunker
+    let baseline: Vec<String> = CodeAstV1Chunker::for_lang("typescript")
         .chunk(&fixed_doc(), &policy)
         .unwrap()
         .into_iter()
         .map(|c| c.chunk_id.0)
         .collect();
     for _ in 0..5 {
-        let again: Vec<String> = CodeTsAstV1Chunker
+        let again: Vec<String> = CodeAstV1Chunker::for_lang("typescript")
             .chunk(&fixed_doc(), &policy)
             .unwrap()
             .into_iter()

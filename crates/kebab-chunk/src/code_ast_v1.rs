@@ -1,8 +1,16 @@
-//! `code-kotlin-ast-v1` — maps a tree-sitter-derived Kotlin AST
+//! `code-<lang>-ast-v1` — maps a tree-sitter-derived code AST
 //! `CanonicalDocument` (one `Block::Code` per semantic unit, each with
 //! `SourceSpan::Code`) to chunks 1:1. A unit longer than
 //! `AST_CHUNK_MAX_LINES` is split into `<symbol> [part i/N]` sub-chunks
 //! at blank-line paragraph boundaries (design §9.1 oversize fallback).
+//!
+//! This is one generic chunker for all 9 AST languages (rust, python,
+//! typescript, javascript, go, java, kotlin, c, cpp). The body is fully
+//! lang-agnostic: `lang` flows from `SourceSpan::Code { lang }` data, not
+//! the type. The only per-language difference is the `version_label`
+//! string returned by `chunker_version()` — kept verbatim per language so
+//! every `chunk_id` stays byte-identical to the old per-lang chunkers (no
+//! reindex / no version cascade). Construct via `CodeAstV1Chunker::for_lang`.
 //!
 //! tree-sitter is intentionally NOT a dependency here: AST work is
 //! parser-side (`kebab-parse-code`, design §6.3). This chunker only
@@ -19,17 +27,42 @@ use kebab_core::{
     SourceSpan, id_for_chunk,
 };
 
-const VERSION_LABEL: &str = "code-kotlin-ast-v1";
 const BYTES_PER_TOKEN: usize = 3;
 const POLICY_HASH_HEX_LEN: usize = 16;
 const AST_CHUNK_MAX_LINES: u32 = 200;
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct CodeKotlinAstV1Chunker;
+#[derive(Clone, Copy, Debug)]
+pub struct CodeAstV1Chunker {
+    version_label: &'static str,
+}
 
-impl Chunker for CodeKotlinAstV1Chunker {
+impl CodeAstV1Chunker {
+    /// Construct the chunker for one of the 9 supported AST languages,
+    /// pinning the verbatim `chunker_version` label for that language.
+    ///
+    /// Panics on an unsupported lang — callers in ingest already guarantee
+    /// one of the 9 for the AST path, so this is genuinely unreachable
+    /// (mirrors the old `anyhow::bail!("unreachable ...")` guard spirit).
+    pub fn for_lang(lang: &str) -> Self {
+        let version_label = match lang {
+            "rust" => "code-rust-ast-v1",
+            "python" => "code-python-ast-v1",
+            "typescript" => "code-ts-ast-v1",
+            "javascript" => "code-js-ast-v1",
+            "go" => "code-go-ast-v1",
+            "java" => "code-java-ast-v1",
+            "kotlin" => "code-kotlin-ast-v1",
+            "c" => "code-c-ast-v1",
+            "cpp" => "code-cpp-ast-v1",
+            other => panic!("CodeAstV1Chunker::for_lang: unsupported lang {other:?}"),
+        };
+        Self { version_label }
+    }
+}
+
+impl Chunker for CodeAstV1Chunker {
     fn chunker_version(&self) -> ChunkerVersion {
-        ChunkerVersion(VERSION_LABEL.to_string())
+        ChunkerVersion(self.version_label.to_string())
     }
 
     fn policy_hash(&self, policy: &ChunkPolicy) -> String {
@@ -44,12 +77,12 @@ impl Chunker for CodeKotlinAstV1Chunker {
             let c = match b {
                 Block::Code(c) => c,
                 _ => anyhow::bail!(
-                    "CodeKotlinAstV1Chunker only handles code docs (got non-Code block)"
+                    "CodeAstV1Chunker only handles code docs (got non-Code block)"
                 ),
             };
             if !matches!(c.common.source_span, SourceSpan::Code { .. }) {
                 anyhow::bail!(
-                    "CodeKotlinAstV1Chunker only handles code docs (got non-Code source_span)"
+                    "CodeAstV1Chunker only handles code docs (got non-Code source_span)"
                 );
             }
         }
@@ -121,7 +154,8 @@ impl Chunker for CodeKotlinAstV1Chunker {
             target: "kebab-chunk",
             doc_id = %doc.doc_id,
             chunks = out.len(),
-            "code-kotlin-ast-v1 chunked",
+            version = %self.version_label,
+            "code-ast-v1 chunked",
         );
         Ok(out)
     }
@@ -198,9 +232,9 @@ mod tests {
     use time::OffsetDateTime;
 
     fn code_doc(units: &[(&str, u32, u32, &str)]) -> CanonicalDocument {
-        let wp = WorkspacePath("crates/x/src/Main.kt".into());
+        let wp = WorkspacePath("crates/x/src/a.rs".into());
         let aid = AssetId("a".repeat(64));
-        let pv = ParserVersion("code-kotlin-v1".into());
+        let pv = ParserVersion("code-rust-v1".into());
         let doc_id = id_for_doc(&wp, &aid, &pv);
         let blocks = units
             .iter()
@@ -210,7 +244,7 @@ mod tests {
                     line_start: *ls,
                     line_end: *le,
                     symbol: Some((*sym).to_string()),
-                    lang: Some("kotlin".into()),
+                    lang: Some("rust".into()),
                 };
                 let bid = id_for_block(&doc_id, "code", &[], i as u32, &span);
                 Block::Code(CodeBlock {
@@ -219,7 +253,7 @@ mod tests {
                         heading_path: vec![],
                         source_span: span,
                     },
-                    lang: Some("kotlin".into()),
+                    lang: Some("rust".into()),
                     code: (*code).to_string(),
                 })
             })
@@ -243,7 +277,7 @@ mod tests {
                 repo: Some("kebab".into()),
                 git_branch: Some("main".into()),
                 git_commit: Some("0".repeat(40)),
-                code_lang: Some("kotlin".into()),
+                code_lang: Some("rust".into()),
                 source_id: None,
             },
             provenance: Provenance { events: vec![] },
@@ -259,36 +293,61 @@ mod tests {
             target_tokens: 500,
             overlap_tokens: 80,
             respect_markdown_headings: false,
-            chunker_version: ChunkerVersion(VERSION_LABEL.into()),
+            chunker_version: ChunkerVersion("code-rust-ast-v1".into()),
         }
     }
 
     #[test]
-    fn chunker_version_is_code_kotlin_ast_v1() {
+    fn chunker_version_is_code_rust_ast_v1() {
         assert_eq!(
-            CodeKotlinAstV1Chunker.chunker_version(),
-            ChunkerVersion("code-kotlin-ast-v1".into())
+            CodeAstV1Chunker::for_lang("rust").chunker_version(),
+            ChunkerVersion("code-rust-ast-v1".into())
         );
+    }
+
+    #[test]
+    fn for_lang_version_labels_are_verbatim_for_all_9_langs() {
+        let cases = [
+            ("rust", "code-rust-ast-v1"),
+            ("python", "code-python-ast-v1"),
+            ("typescript", "code-ts-ast-v1"),
+            ("javascript", "code-js-ast-v1"),
+            ("go", "code-go-ast-v1"),
+            ("java", "code-java-ast-v1"),
+            ("kotlin", "code-kotlin-ast-v1"),
+            ("c", "code-c-ast-v1"),
+            ("cpp", "code-cpp-ast-v1"),
+        ];
+        for (lang, label) in cases {
+            assert_eq!(
+                CodeAstV1Chunker::for_lang(lang).chunker_version().0,
+                label,
+                "lang {lang} must map to verbatim label {label}"
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "unsupported lang")]
+    fn for_lang_panics_on_unsupported() {
+        let _ = CodeAstV1Chunker::for_lang("brainfuck");
     }
 
     #[test]
     fn one_chunk_per_unit_preserves_code_span() {
         let doc = code_doc(&[
-            ("parse", 1, 3, "fun parse() {\n\t// x\n}"),
-            (
-                "Foo.double",
-                5,
-                7,
-                "fun double(): Int {\n\t//\n\treturn 0\n}",
-            ),
+            ("parse", 1, 3, "pub fn parse() {}\n// x\n}"),
+            ("Foo::double", 5, 7, "fn double() {}\n//\n}"),
         ]);
-        let chunks = CodeKotlinAstV1Chunker.chunk(&doc, &policy()).unwrap();
+        let chunks = CodeAstV1Chunker::for_lang("rust")
+            .chunk(&doc, &policy())
+            .unwrap();
         assert_eq!(chunks.len(), 2);
         for c in &chunks {
             assert_eq!(c.source_spans.len(), 1);
             assert!(matches!(c.source_spans[0], SourceSpan::Code { .. }));
             assert_eq!(c.heading_path, Vec::<String>::new());
-            assert_eq!(c.chunker_version.0, "code-kotlin-ast-v1");
+            assert_eq!(c.chunker_version.0, "code-rust-ast-v1");
         }
         match &chunks[0].source_spans[0] {
             SourceSpan::Code {
@@ -307,12 +366,14 @@ mod tests {
     #[test]
     fn oversize_unit_splits_into_parts_with_unique_ids() {
         let body = (0..500)
-            .map(|i| format!("\tval x{i} = {i}"))
+            .map(|i| format!("    let x{i} = {i};"))
             .collect::<Vec<_>>()
             .join("\n");
-        let code = format!("fun big() {{\n{body}\n}}");
+        let code = format!("pub fn big() {{\n{body}\n}}");
         let doc = code_doc(&[("big", 1, 502, &code)]);
-        let chunks = CodeKotlinAstV1Chunker.chunk(&doc, &policy()).unwrap();
+        let chunks = CodeAstV1Chunker::for_lang("rust")
+            .chunk(&doc, &policy())
+            .unwrap();
         assert!(
             chunks.len() >= 2,
             "oversize unit must split, got {}",
@@ -339,7 +400,7 @@ mod tests {
     #[test]
     fn non_code_doc_errors() {
         use kebab_core::TextBlock;
-        let mut doc = code_doc(&[("parse", 1, 1, "fun parse() {}")]);
+        let mut doc = code_doc(&[("parse", 1, 1, "fn parse(){}")]);
         doc.blocks = vec![Block::Paragraph(TextBlock {
             common: CommonBlock {
                 block_id: kebab_core::BlockId("b".into()),
@@ -349,21 +410,23 @@ mod tests {
             text: "x".into(),
             inlines: vec![],
         })];
-        let err = CodeKotlinAstV1Chunker.chunk(&doc, &policy()).unwrap_err();
-        assert!(err.to_string().contains("CodeKotlinAstV1Chunker"));
+        let err = CodeAstV1Chunker::for_lang("rust")
+            .chunk(&doc, &policy())
+            .unwrap_err();
+        assert!(err.to_string().contains("CodeAstV1Chunker"));
     }
 
     #[test]
     fn deterministic_chunk_ids_1000() {
-        let doc = code_doc(&[("parse", 1, 2, "fun parse() {}\n")]);
-        let base: Vec<String> = CodeKotlinAstV1Chunker
+        let doc = code_doc(&[("parse", 1, 2, "fn parse(){}\n}")]);
+        let base: Vec<String> = CodeAstV1Chunker::for_lang("rust")
             .chunk(&doc, &policy())
             .unwrap()
             .into_iter()
             .map(|c| c.chunk_id.0)
             .collect();
         for _ in 0..1000 {
-            let again: Vec<String> = CodeKotlinAstV1Chunker
+            let again: Vec<String> = CodeAstV1Chunker::for_lang("rust")
                 .chunk(&doc, &policy())
                 .unwrap()
                 .into_iter()
@@ -377,7 +440,7 @@ mod tests {
     fn policy_hash_matches_md_heading_v1() {
         let p = policy();
         assert_eq!(
-            CodeKotlinAstV1Chunker.policy_hash(&p),
+            CodeAstV1Chunker::for_lang("rust").policy_hash(&p),
             crate::MdHeadingV1Chunker.policy_hash(&p)
         );
     }

@@ -17,9 +17,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Context;
 
 use kebab_chunk::{
-    CodeCAstV1Chunker, CodeCppAstV1Chunker, CodeGoAstV1Chunker, CodeJavaAstV1Chunker,
-    CodeJsAstV1Chunker, CodeKotlinAstV1Chunker, CodePythonAstV1Chunker, CodeRustAstV1Chunker,
-    CodeTextParagraphV1Chunker, CodeTsAstV1Chunker, DockerfileFileV1Chunker,
+    CodeAstV1Chunker, CodeTextParagraphV1Chunker, DockerfileFileV1Chunker,
     K8sManifestResourceV1Chunker, ManifestFileV1Chunker, MdHeadingV2Chunker, PdfPageV1Chunker,
 };
 use kebab_core::{
@@ -2638,7 +2636,7 @@ fn ingest_one_pdf_asset(
 /// documented in the task spec:
 ///   - parser_version → `code-rust-v1` (via `RUST_PARSER_VERSION`)
 ///   - extractor     → `RustAstExtractor`
-///   - chunker       → `CodeRustAstV1Chunker`
+///   - chunker       → `CodeAstV1Chunker::for_lang("rust")`
 ///
 /// All other steps (incremental skip, byte read, ExtractContext, put_*,
 /// embed, purge_vector_orphans) are identical to the PDF function.
@@ -2698,22 +2696,16 @@ fn ingest_one_code_asset(
 
     // p10-1b Task D/G/J/L: chunker_version per-lang.
     let mut chunker_version = match code_lang {
-        "rust" => CodeRustAstV1Chunker.chunker_version(),
-        "python" => CodePythonAstV1Chunker.chunker_version(),
-        "typescript" => CodeTsAstV1Chunker.chunker_version(),
-        "javascript" => CodeJsAstV1Chunker.chunker_version(),
-        "go" => CodeGoAstV1Chunker.chunker_version(),
-        "java" => CodeJavaAstV1Chunker.chunker_version(),
-        "kotlin" => CodeKotlinAstV1Chunker.chunker_version(),
+        // p10-1: the 9 AST langs share one generic chunker; the per-lang
+        // version label is pinned in CodeAstV1Chunker::for_lang.
+        "rust" | "python" | "typescript" | "javascript" | "go" | "java" | "kotlin" | "c"
+        | "cpp" => CodeAstV1Chunker::for_lang(code_lang).chunker_version(),
         // p10-2 Tier 2:
         "yaml" => K8sManifestResourceV1Chunker.chunker_version(),
         "dockerfile" => DockerfileFileV1Chunker.chunker_version(),
         "toml" | "json" | "xml" | "groovy" | "go-mod" => ManifestFileV1Chunker.chunker_version(),
         // p10-3:
         "shell" => CodeTextParagraphV1Chunker.chunker_version(),
-        // p10-1D: C + C++ AST chunkers.
-        "c" => CodeCAstV1Chunker.chunker_version(),
-        "cpp" => CodeCppAstV1Chunker.chunker_version(),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -3254,22 +3246,16 @@ fn chunk_code_asset(
     // also computes it pre-chunk for fingerprint_and_skip); this match is the
     // single source for the post-chunk effective value.
     let mut chunker_version = match code_lang {
-        "rust" => CodeRustAstV1Chunker.chunker_version(),
-        "python" => CodePythonAstV1Chunker.chunker_version(),
-        "typescript" => CodeTsAstV1Chunker.chunker_version(),
-        "javascript" => CodeJsAstV1Chunker.chunker_version(),
-        "go" => CodeGoAstV1Chunker.chunker_version(),
-        "java" => CodeJavaAstV1Chunker.chunker_version(),
-        "kotlin" => CodeKotlinAstV1Chunker.chunker_version(),
+        // p10-1: the 9 AST langs share one generic chunker; the per-lang
+        // version label is pinned in CodeAstV1Chunker::for_lang.
+        "rust" | "python" | "typescript" | "javascript" | "go" | "java" | "kotlin" | "c"
+        | "cpp" => CodeAstV1Chunker::for_lang(code_lang).chunker_version(),
         // p10-2 Tier 2:
         "yaml" => K8sManifestResourceV1Chunker.chunker_version(),
         "dockerfile" => DockerfileFileV1Chunker.chunker_version(),
         "toml" | "json" | "xml" | "groovy" | "go-mod" => ManifestFileV1Chunker.chunker_version(),
         // p10-3:
         "shell" => CodeTextParagraphV1Chunker.chunker_version(),
-        // p10-1D: C + C++ AST chunkers.
-        "c" => CodeCAstV1Chunker.chunker_version(),
-        "cpp" => CodeCppAstV1Chunker.chunker_version(),
         other => anyhow::bail!("unreachable chunker_version: {other}"),
     };
 
@@ -3295,27 +3281,14 @@ fn chunk_code_asset(
             .context("kb-chunk::CodeTextParagraphV1Chunker::chunk (tier 3 after extract fallback)")
     } else {
         match code_lang {
-            "rust" => CodeRustAstV1Chunker
+            // p10-1: the 9 AST langs share one generic chunker (lang flows
+            // from SourceSpan::Code data, version label pinned per lang).
+            "rust" | "python" | "typescript" | "javascript" | "go" | "java" | "kotlin" | "c"
+            | "cpp" => CodeAstV1Chunker::for_lang(code_lang)
                 .chunk(canonical, chunk_policy)
-                .context("kb-chunk::CodeRustAstV1Chunker::chunk (code:rust)"),
-            "python" => CodePythonAstV1Chunker
-                .chunk(canonical, chunk_policy)
-                .context("kb-chunk::CodePythonAstV1Chunker::chunk (code:python)"),
-            "typescript" => CodeTsAstV1Chunker
-                .chunk(canonical, chunk_policy)
-                .context("kb-chunk::CodeTsAstV1Chunker::chunk (code:typescript)"),
-            "javascript" => CodeJsAstV1Chunker
-                .chunk(canonical, chunk_policy)
-                .context("kb-chunk::CodeJsAstV1Chunker::chunk (code:javascript)"),
-            "go" => CodeGoAstV1Chunker
-                .chunk(canonical, chunk_policy)
-                .context("kb-chunk::CodeGoAstV1Chunker::chunk (code:go)"),
-            "java" => CodeJavaAstV1Chunker
-                .chunk(canonical, chunk_policy)
-                .context("kb-chunk::CodeJavaAstV1Chunker::chunk (code:java)"),
-            "kotlin" => CodeKotlinAstV1Chunker
-                .chunk(canonical, chunk_policy)
-                .context("kb-chunk::CodeKotlinAstV1Chunker::chunk (code:kotlin)"),
+                .context(format!(
+                    "kb-chunk::CodeAstV1Chunker::chunk (code:{code_lang})"
+                )),
             // p10-2 Tier 2:
             "yaml" => K8sManifestResourceV1Chunker
                 .chunk(canonical, chunk_policy)
@@ -3330,13 +3303,6 @@ fn chunk_code_asset(
             "shell" => CodeTextParagraphV1Chunker
                 .chunk(canonical, chunk_policy)
                 .context("kb-chunk::CodeTextParagraphV1Chunker::chunk (code:shell)"),
-            // p10-1D: C + C++ AST chunkers.
-            "c" => CodeCAstV1Chunker
-                .chunk(canonical, chunk_policy)
-                .context("kebab-chunk::CodeCAstV1Chunker::chunk (code:c)"),
-            "cpp" => CodeCppAstV1Chunker
-                .chunk(canonical, chunk_policy)
-                .context("kebab-chunk::CodeCppAstV1Chunker::chunk (code:cpp)"),
             other => anyhow::bail!("unreachable (chunk): {other}"),
         }
     };

@@ -22,16 +22,8 @@
 //! embedder, the retriever, the LLM, the RAG layer, or the UI layers.
 //! It consumes `CanonicalDocument` purely through `kb-core` types.
 
-mod code_c_ast_v1;
-mod code_cpp_ast_v1;
-mod code_go_ast_v1;
-mod code_java_ast_v1;
-mod code_js_ast_v1;
-mod code_kotlin_ast_v1;
-mod code_python_ast_v1;
-mod code_rust_ast_v1;
+mod code_ast_v1;
 pub mod code_text_paragraph_v1;
-mod code_ts_ast_v1;
 pub mod dockerfile_file_v1;
 pub mod k8s_manifest_resource_v1;
 pub mod manifest_file_v1;
@@ -41,16 +33,8 @@ mod oversize;
 mod pdf_page_v1;
 mod tier2_shared;
 
-pub use code_c_ast_v1::CodeCAstV1Chunker;
-pub use code_cpp_ast_v1::CodeCppAstV1Chunker;
-pub use code_go_ast_v1::CodeGoAstV1Chunker;
-pub use code_java_ast_v1::CodeJavaAstV1Chunker;
-pub use code_js_ast_v1::CodeJsAstV1Chunker;
-pub use code_kotlin_ast_v1::CodeKotlinAstV1Chunker;
-pub use code_python_ast_v1::CodePythonAstV1Chunker;
-pub use code_rust_ast_v1::CodeRustAstV1Chunker;
+pub use code_ast_v1::CodeAstV1Chunker;
 pub use code_text_paragraph_v1::CodeTextParagraphV1Chunker;
-pub use code_ts_ast_v1::CodeTsAstV1Chunker;
 pub use dockerfile_file_v1::DockerfileFileV1Chunker;
 pub use k8s_manifest_resource_v1::K8sManifestResourceV1Chunker;
 pub use manifest_file_v1::ManifestFileV1Chunker;
