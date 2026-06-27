@@ -16,10 +16,8 @@ kebab-chunk = { path = "../kebab-chunk" }
 kebab-store-sqlite = { path = "../kebab-store-sqlite" }
 kebab-store-vector = { path = "../kebab-store-vector" }
 kebab-search = { path = "../kebab-search" }
-kebab-embed = { path = "../kebab-embed" }
 kebab-embed-local = { path = "../kebab-embed-local" }
 kebab-embed-ollama = { path = "../kebab-embed-ollama" }
-kebab-llm = { path = "../kebab-llm" }
 kebab-llm-local = { path = "../kebab-llm-local" }
 kebab-rag = { path = "../kebab-rag" }
 # p9-fb-41 PR-9c-2: facade construction of OnnxNliVerifier when
@@ -67,10 +65,6 @@ rusqlite             = { workspace = true }
 
 [dev-dependencies]
 kebab-config = { path = "../kebab-config" }
-# doc-side expansion (Phase 2) Task 4: ExpansionGenerator unit tests build
-# MockLanguageModel (gated behind kebab-llm's `mock` feature, default OFF in
-# [dependencies]). Enabling it here turns it on for the test build only.
-kebab-llm            = { path = "../kebab-llm", features = ["mock"] }
 rusqlite             = { workspace = true }
 filetime             = "0.2"
 tempfile             = { workspace = true }

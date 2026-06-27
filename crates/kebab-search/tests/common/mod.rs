@@ -22,7 +22,7 @@ use kebab_core::{
     EmbeddingVersion, IndexVersion, MediaType, Retriever, SearchFilters, SearchHit, SearchMode,
     SearchQuery, VectorRecord, VectorStore,
 };
-use kebab_embed::{Embedder, MockEmbedder};
+use kebab_core::{Embedder, MockEmbedder};
 use kebab_search::{LexicalRetriever, VectorRetriever};
 use kebab_store_sqlite::SqliteStore;
 use kebab_store_vector::LanceVectorStore;

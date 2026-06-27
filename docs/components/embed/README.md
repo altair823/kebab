@@ -6,7 +6,6 @@
 
 | Crate | 역할 |
 |-------|------|
-| `kebab-embed` | `Embedder` trait re-export + 테스트 도구 (`assert_vector_shape`, `assert_unit_norm`) + optional `MockEmbedder` (feature gated). 새 type 추가 **금지** — 순수 facade. |
 | `kebab-embed-local` | `FastembedEmbedder` — fastembed-rs 위 ONNX-backed local 임베더. default `multilingual-e5-small` 384d. |
 
 ## 구조
@@ -64,7 +63,7 @@ flowchart LR
 
 ## 주요 type / trait / 함수
 
-**Trait** (`kebab-core`, re-export `kebab-embed`):
+**Trait** (`kebab-core`):
 - `Embedder::embed(&self, inputs: &[EmbeddingInput<'_>]) -> Result<Vec<Vec<f32>>>` — 출력 shape `inputs.len()` × `dimensions()`. 결과 벡터 모두 L2 = 1 + finite.
 - `EmbeddingInput { text: &str, kind: EmbeddingKind }` — kind = `Document` / `Query` (E5 prefix 분기).
 - `EmbeddingModelId(String)`, `EmbeddingVersion(String)` — `model_id × version × dim` 으로 vector store 테이블 분리.
@@ -75,22 +74,21 @@ flowchart LR
 - E5 prefix 자동 적용: `Document` → `"passage: "`, `Query` → `"query: "` (§11.3).
 - L2 정규화 = fastembed 내장 (`transformer_with_precedence`). 별도 정규화 안 함, 단 `assert_unit_norm` 테스트로 invariant pin.
 
-**테스트 도구** (`kebab-embed`):
+**테스트 도구** (`kebab-core`, feature `mock`):
 - `assert_vector_shape(&[Vec<f32>], expected_dims)` — 길이 + finite 검증.
 - `assert_unit_norm(&[Vec<f32>], tolerance)` — L2 norm 이 `1.0 ± tolerance`. f32 384d 권장 tol = `5e-4`.
 - `MockEmbedder` (feature `mock`, default OFF) — 테스트용 deterministic double. 실 어댑터는 `kebab-embed-local` 또는 future P+ adapter 가 담당.
 
 ## 외부 의존
 
-- `kebab-embed` → `kebab-core` 만 (re-export crate).
-- `kebab-embed-local` → `kebab-embed` + `kebab-config`, `fastembed`, `anyhow`.
+- `kebab-embed-local` → `kebab-core` + `kebab-config`, `fastembed`, `anyhow`.
 - 외부 lib: `fastembed-rs` (ONNX wrapper, Hugging Face 모델 다운로드 포함). 로컬 ORT runtime.
 - 외부 서비스: 첫 호출 시 모델 다운로드 (Hugging Face). 그 후 오프라인.
 
 ## 핵심 결정
 
-- **`kebab-embed` = trait re-export only, **새 type 금지****.
-  **왜**: `kebab-store-vector`, `kebab-search` 등 downstream 이 `use kebab_embed::Embedder` 안정 surface 의존. `kebab-core` 재구성 시 trait 이동해도 downstream 안 깨짐. spec 가 명시 — 어댑터 코드는 `kebab-embed-local` 또는 future `kebab-embed-<provider>` 로.
+- **`Embedder` trait + 테스트 도구가 `kebab-core` 에 직접 거주 (`mock` feature)**.
+  **왜**: `kebab-store-vector`, `kebab-search` 등 downstream 은 `use kebab_core::Embedder` 로 의존 — 별도 re-export shim 불필요. `MockEmbedder` / `assert_vector_shape` / `assert_unit_norm` 은 default-OFF `mock` feature 뒤에 둠. 과거의 순수 facade `kebab-embed` 는 `kebab-core` 로 fold-in 되어 삭제됨 (crate 그래프는 [`docs/ARCHITECTURE.md`](../../ARCHITECTURE.md) 참조). 어댑터 코드는 `kebab-embed-local` 또는 future `kebab-embed-<provider>` 로.
 
 - **`multilingual-e5-small` 384d default**.
   **왜**: 한국어 + 영어 동시 강함, ONNX 작음 (~120MB), 384d 가 retrieval 정확도/저장 비용 균형 좋음. e5 prefix 컨벤션 (`"passage: "` / `"query: "`) 으로 같은 모델이 doc + query 두 모드 cover.

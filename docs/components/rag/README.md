@@ -106,7 +106,7 @@ flowchart LR
 
 ## 외부 의존
 
-- crate dep: `kebab-core` + `kebab-config` + `kebab-search` (`Retriever` trait 만) + `kebab-llm` (trait 만) + `kebab-store-sqlite` (`DocumentStore` + `put_answer` helper).
+- crate dep: `kebab-core` (`LanguageModel` trait 포함) + `kebab-config` + `kebab-search` (`Retriever` trait 만) + `kebab-store-sqlite` (`DocumentStore` + `put_answer` helper).
 - 외부 lib: `serde`/`serde_json`, `regex` (citation marker `[N]` 매칭), `time` (timestamps), `blake3` (`TraceId` 채굴), `thiserror`, `anyhow`.
 - 외부 서비스: 없음 (concrete adapter 가 가져옴).
 

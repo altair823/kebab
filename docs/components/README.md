@@ -95,7 +95,7 @@ flowchart TB
 
 - **새 미디어 타입 추가** (예: epub) — Parse → Normalize+Chunk → Store (chunker_version) → App facade (라우팅).
 - **새 retrieval 모드** — Search → App facade (mode dispatch) → UI (--mode flag).
-- **새 LLM 어댑터** — LLM (trait crate, 새 type 금지) + 새 `kebab-llm-<provider>` crate → App facade (config provider switch).
+- **새 LLM 어댑터** — `kebab-core` 의 `LanguageModel` trait 구현 + 새 `kebab-llm-<provider>` crate → App facade (config provider switch).
 - **TUI 신규 pane** — UI 만. Mode + Theme + InputBuffer 재사용.
 
 ## 다이어그램 제약

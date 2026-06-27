@@ -60,7 +60,7 @@ use crate::error::LlmError;
 
 /// `reqwest::blocking` adapter implementing [`LanguageModel`] over Ollama's
 /// local HTTP API. Construction is cheap and offline; the first network
-/// call happens inside [`generate_stream`].
+/// call happens inside [`LanguageModel::generate_stream`].
 pub struct OllamaLanguageModel {
     client: reqwest::blocking::Client,
     /// Already-validated endpoint URL string (e.g. `"http://127.0.0.1:11434"`).

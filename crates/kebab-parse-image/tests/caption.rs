@@ -1,6 +1,6 @@
 //! Integration tests for the caption adapter (P6-3).
 //!
-//! All hermetic tests use `MockLanguageModel` from `kebab-llm/mock`
+//! All hermetic tests use `MockLanguageModel` from `kebab-core` (`mock` feature)
 //! which captures `req.images` indirectly via the canned response. A
 //! single opt-in test (`#[ignore]`) wires the real
 //! `kebab-llm-local::OllamaLanguageModel` against the workspace's
@@ -15,7 +15,7 @@ use kebab_core::{
     AssetId, BlockId, CommonBlock, FinishReason, GenerateRequest, ImageRefBlock, Lang,
     LanguageModel, ModelRef, ProvenanceEvent, ProvenanceKind, SourceSpan, TokenChunk, TokenUsage,
 };
-use kebab_llm::MockLanguageModel;
+use kebab_core::MockLanguageModel;
 use kebab_parse_image::{apply_caption, caption_image};
 
 use crate::common::red_100x50_png;

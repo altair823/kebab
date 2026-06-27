@@ -8,8 +8,8 @@ repository    = { workspace = true }
 description   = "Local fastembed-rs adapter implementing kb_core::Embedder (multilingual-e5-large default, e5-small backwards-compat)"
 
 [dependencies]
+kebab-core = { path = "../kebab-core" }
 kebab-config = { path = "../kebab-config" }
-kebab-embed = { path = "../kebab-embed" }
 # Default features bring `ort-download-binaries` (bundled ONNX runtime)
 # and `hf-hub-native-tls` (first-run model download). No extra features
 # needed for the multilingual-e5-{small,large} paths.
@@ -18,6 +18,10 @@ tracing   = { workspace = true }
 anyhow    = { workspace = true }
 
 [dev-dependencies]
+# `tests/embed_model.rs` uses `kebab_core::assert_unit_norm` /
+# `assert_vector_shape` (the `mock` module's test helpers, gated OFF by
+# default). Enable the feature for the test build only.
+kebab-core = { path = "../kebab-core", features = ["mock"] }
 tempfile = { workspace = true }
 serde_json = { workspace = true }
 

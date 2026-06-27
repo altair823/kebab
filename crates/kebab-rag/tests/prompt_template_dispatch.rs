@@ -12,7 +12,7 @@ use common::{MockRetriever, RagEnv, id32, mk_hit};
 use kebab_core::{
     FinishReason, LanguageModel, Retriever, SearchMode, TokenChunk, TokenUsage, TrustLevel,
 };
-use kebab_llm::MockLanguageModel;
+use kebab_core::MockLanguageModel;
 use kebab_rag::{AskOpts, RagPipeline};
 
 const TEST_LM_ID: &str = "mock-lm";

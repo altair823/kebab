@@ -20,6 +20,8 @@ pub mod ingest;
 pub mod jobs;
 pub mod media;
 pub mod metadata;
+#[cfg(feature = "mock")]
+mod mock;
 pub mod normalize;
 pub mod search;
 pub mod traits;
@@ -53,6 +55,10 @@ pub use ingest::{IngestItem, IngestItemKind, IngestReport, SkipExamples};
 pub use jobs::{JobFilter, JobId, JobKind, JobRow, JobStatus};
 pub use media::{AudioType, Checksum, ImageType, Lang, MediaType};
 pub use metadata::{Metadata, Provenance, ProvenanceEvent, ProvenanceKind, SourceType, TrustLevel};
+#[cfg(feature = "mock")]
+pub use mock::{
+    MockEmbedder, MockLanguageModel, assert_finish_chunk, assert_unit_norm, assert_vector_shape,
+};
 pub use normalize::{nfc, to_posix};
 pub use search::{
     BulkSearchItem, BulkSearchResponse, BulkSearchSummary, DocFilter, DocSummary, IndexBytes,

@@ -11,7 +11,6 @@ description   = "RAG pipeline: retrieve → gate → pack → generate → cite-
 kebab-core = { path = "../kebab-core" }
 kebab-config = { path = "../kebab-config" }
 kebab-search = { path = "../kebab-search" }
-kebab-llm = { path = "../kebab-llm" }
 kebab-nli = { path = "../kebab-nli" }
 kebab-store-sqlite = { path = "../kebab-store-sqlite" }
 serde           = { workspace = true }
@@ -24,7 +23,7 @@ anyhow          = { workspace = true }
 blake3          = { workspace = true }
 
 [dev-dependencies]
-kebab-llm = { path = "../kebab-llm", features = ["mock"] }
+kebab-core = { path = "../kebab-core", features = ["mock"] }
 tempfile        = { workspace = true }
 rusqlite        = { workspace = true }
 serde_json      = { workspace = true }

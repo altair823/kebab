@@ -20,7 +20,7 @@
 //! OFF at compile time). We collapse this into a single runtime gate
 //! (`config.ingest.image.caption.enabled = false`, default OFF). Reasoning:
 //! the captioning module's only extra deps are `base64` + `image` +
-//! `kebab-llm` trait — all already pulled in by the rest of the
+//! the `kebab-core` `LanguageModel` trait — all already pulled in by the rest of the
 //! crate. A cargo feature would only complicate the build matrix
 //! without saving meaningful binary weight. See `tasks/HOTFIXES.md`
 //! (2026-05-02) for the deviation log.

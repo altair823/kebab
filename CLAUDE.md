@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Single-user local-first knowledge base + RAG. Rust 2024 workspace, 22 crates, single binary (`kebab`). All inference is local (Ollama + fastembed + whisper.cpp).
+Single-user local-first knowledge base + RAG. Rust 2024 workspace, 20 crates, single binary (`kebab`). All inference is local (Ollama + fastembed + whisper.cpp).
 
 The repo's documentation is split by audience — don't duplicate across them:
 
