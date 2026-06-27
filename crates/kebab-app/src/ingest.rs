@@ -3286,9 +3286,9 @@ fn chunk_code_asset(
             "rust" | "python" | "typescript" | "javascript" | "go" | "java" | "kotlin" | "c"
             | "cpp" => CodeAstV1Chunker::for_lang(code_lang)
                 .chunk(canonical, chunk_policy)
-                .context(format!(
-                    "kb-chunk::CodeAstV1Chunker::chunk (code:{code_lang})"
-                )),
+                .with_context(|| {
+                    format!("kb-chunk::CodeAstV1Chunker::chunk (code:{code_lang})")
+                }),
             // p10-2 Tier 2:
             "yaml" => K8sManifestResourceV1Chunker
                 .chunk(canonical, chunk_policy)
