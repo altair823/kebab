@@ -16,7 +16,7 @@ git history.
 
 ## 2026-06-27 — v0.32.0 ponytail-audit 정리 arc 도그푸딩 (chunker A/B byte-identical + GPU r9700)
 
-over-engineering 감사(ponytail-audit) 후 4 PR(#219–#222) 로 표면·구조·crate 수 단순화. **능력 불변, 누적 −3200줄 / crate 24→20 / dep −2.** 실엔진 종단 검증:
+over-engineering 감사(ponytail-audit) 후 4 PR(#219–#222) 로 표면·구조·crate 수 단순화. **능력 불변, 이 arc(#219–#222) 누적 −3400줄 / crate 22→20 / dep −1**(serde_yaml 제거; unsafe-libyaml 은 serde_yaml_ng 가 여전히 transitive 로 가져옴). 실엔진 종단 검증:
 
 ### chunker 통합(#220) A/B — byte-identical 확증 (핵심 게이트)
 
