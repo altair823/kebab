@@ -156,7 +156,7 @@ fn k8s_multi_doc_emits_one_chunk_per_resource() {
 /// must cause the chunker to return 0 chunks for the entire file.
 #[test]
 fn k8s_invalid_yaml_emits_zero_chunks() {
-    // serde_yaml 0.9 is lenient about duplicate keys (last wins), so use a
+    // serde_yaml_ng is lenient about duplicate keys (last wins), so use a
     // genuine YAML structural error (unclosed flow sequence) to force a parse
     // failure.
     let actually_bad = "apiVersion: v1\nkind: Service\nfoo: [\nbar\n";

@@ -6,7 +6,7 @@
 //!   `kb-store-vector::LanceVectorStore`) and a `dyn Embedder`,
 //!   hydrating SQLite metadata for full `SearchHit`s.
 //! - [`HybridRetriever`] (P3-4): composes lexical + vector retrievers,
-//!   dispatches by `SearchMode`, fuses Hybrid via [`FusionPolicy::Rrf`].
+//!   dispatches by `SearchMode`, fuses Hybrid via Reciprocal Rank Fusion.
 //!
 //! Allowed deps per the P2-2 + P3-4 task specs: `kb-core`, `kb-config`,
 //! `kb-store-sqlite`, `kb-store-vector`, `kb-embed` (trait re-export
@@ -22,6 +22,6 @@ mod lexical;
 mod trace;
 mod vector;
 
-pub use hybrid::{FusionPolicy, HybridRetriever};
+pub use hybrid::HybridRetriever;
 pub use lexical::LexicalRetriever;
 pub use vector::VectorRetriever;

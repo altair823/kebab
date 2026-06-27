@@ -36,7 +36,7 @@ impl Chunker for K8sManifestResourceV1Chunker {
 
         for slice in slices {
             // Invalid YAML in any document → return 0 chunks for the file.
-            let value: serde_yaml::Value = match serde_yaml::from_str(slice.text) {
+            let value: serde_yaml_ng::Value = match serde_yaml_ng::from_str(slice.text) {
                 Ok(v) => v,
                 Err(_) => return Ok(vec![]),
             };

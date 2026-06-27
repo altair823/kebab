@@ -15,14 +15,14 @@ use common::{
     HybridEnv, TEST_LEX_INDEX_VERSION, TEST_VEC_INDEX_VERSION, id32, require_avx_or_panic,
 };
 use kebab_core::{MediaType, Retriever, SearchFilters, SearchHit, SearchMode, SearchQuery};
-use kebab_search::{FusionPolicy, HybridRetriever};
+use kebab_search::HybridRetriever;
 use rusqlite::params;
 use serde_json::json;
 
 fn build_hybrid(env: &HybridEnv) -> HybridRetriever {
     let lex: Arc<dyn Retriever> = Arc::new(env.lexical_retriever());
     let vec: Arc<dyn Retriever> = Arc::new(env.vector_retriever());
-    HybridRetriever::with_policy(lex, vec, FusionPolicy::Rrf { k_rrf: 60 }, 5)
+    HybridRetriever::with_policy(lex, vec, 60, 5)
 }
 
 /// Seed a tiny corpus that lets us prove hybrid recall ≥ each side

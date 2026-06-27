@@ -27,7 +27,7 @@ use crate::types::GoldenQuery;
 pub fn load_golden_set(path: &Path) -> Result<Vec<GoldenQuery>> {
     let bytes =
         std::fs::read(path).with_context(|| format!("read golden YAML from {}", path.display()))?;
-    let queries: Vec<GoldenQuery> = serde_yaml::from_slice(&bytes)
+    let queries: Vec<GoldenQuery> = serde_yaml_ng::from_slice(&bytes)
         .with_context(|| format!("parse golden YAML at {}", path.display()))?;
     check_unique_ids(&queries)?;
     check_group_integrity(&queries)?;

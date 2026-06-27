@@ -470,7 +470,7 @@ fn lang_default_is_used_when_omitted_in_yaml() {
     let tmp = TempDir::new().unwrap();
     let golden = tmp.path().join("g.yaml");
     fs::write(&golden, yaml).unwrap();
-    let qs: Vec<GoldenQuery> = serde_yaml::from_str(yaml).unwrap();
+    let qs: Vec<GoldenQuery> = serde_yaml_ng::from_str(yaml).unwrap();
     assert_eq!(qs.len(), 1);
     assert_eq!(qs[0].lang, Lang(String::new()));
 }

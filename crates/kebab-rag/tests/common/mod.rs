@@ -454,6 +454,12 @@ impl NliVerifier for MockNliVerifier {
             MockMode::Err(e) => anyhow::bail!("{e}"),
         }
     }
+
+    // Mock doesn't model tokenization; preserves the old trait default
+    // (Ok(0)) so the char-budget retry loop passes through immediately.
+    fn hypothesis_token_count(&self, _hypothesis: &str) -> anyhow::Result<usize> {
+        Ok(0)
+    }
 }
 
 /// S3 follow-up (2026-05-26): closure type aliases for `SpyNliVerifier`

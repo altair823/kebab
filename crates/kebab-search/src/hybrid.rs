@@ -43,17 +43,6 @@ const HYBRID_FANOUT_MULTIPLIER: usize = 2;
 /// Default `k` when `SearchQuery::k == 0`. Mirrors §6.4 default_k=10.
 const DEFAULT_K: usize = 10;
 
-/// Fusion algorithm. Today only Reciprocal Rank Fusion is supported;
-/// listing as an enum so future score-calibration policies (P+) can
-/// land without an API break.
-#[derive(Clone, Copy, Debug)]
-pub enum FusionPolicy {
-    /// Reciprocal Rank Fusion. `k_rrf` is the standard rank-bias
-    /// hyperparameter (§6.4); larger values flatten the rank-bias
-    /// curve, smaller values privilege top-of-list hits.
-    Rrf { k_rrf: u32 },
-}
-
 /// Hybrid retriever composing a lexical and a vector retriever.
 ///
 /// For chunks that appear in both retrievers, the lexical-side hit
@@ -66,7 +55,7 @@ pub enum FusionPolicy {
 pub struct HybridRetriever {
     lexical: Arc<dyn Retriever>,
     vector: Arc<dyn Retriever>,
-    fusion: FusionPolicy,
+    k_rrf: u32,
     /// Default `k` for queries that arrive with `k == 0`. Pulled from
     /// `config.search.default_k` at construction.
     default_k: usize,
@@ -81,7 +70,7 @@ impl HybridRetriever {
         lexical: Arc<dyn Retriever>,
         vector: Arc<dyn Retriever>,
     ) -> Self {
-        let fusion = parse_fusion(&search.hybrid_fusion, search.rrf_k);
+        let k_rrf = parse_fusion(&search.hybrid_fusion, search.rrf_k);
         let default_k = if search.default_k == 0 {
             DEFAULT_K
         } else {
@@ -104,7 +93,7 @@ impl HybridRetriever {
         Self {
             lexical,
             vector,
-            fusion,
+            k_rrf,
             default_k,
         }
     }
@@ -114,13 +103,13 @@ impl HybridRetriever {
     pub fn with_policy(
         lexical: Arc<dyn Retriever>,
         vector: Arc<dyn Retriever>,
-        fusion: FusionPolicy,
+        k_rrf: u32,
         default_k: usize,
     ) -> Self {
         Self {
             lexical,
             vector,
-            fusion,
+            k_rrf,
             default_k: if default_k == 0 { DEFAULT_K } else { default_k },
         }
     }
@@ -219,7 +208,7 @@ impl HybridRetriever {
         // the same positive constant), so the sort + tiebreak path is
         // unchanged. Wire schema label `fusion_score` keeps its slot in
         // `RetrievalDetail`; only the magnitude shifts.
-        let FusionPolicy::Rrf { k_rrf } = self.fusion;
+        let k_rrf = self.k_rrf;
         let k_rrf_f = f64::from(k_rrf);
         // Both retrievers can contribute, so the per-mode RRF max is
         // 2 / (k_rrf + 1). Even when a chunk lands in only one mode, we
@@ -412,20 +401,20 @@ impl HybridRetriever {
     }
 }
 
-/// Parse the `hybrid_fusion` config string into a [`FusionPolicy`].
+/// Parse the `hybrid_fusion` config string into an RRF `k_rrf`.
 /// Today only `"rrf"` is recognised; anything else falls back to RRF
 /// with a warn log so misconfiguration is visible but not fatal.
-fn parse_fusion(name: &str, k_rrf: u32) -> FusionPolicy {
+fn parse_fusion(name: &str, k_rrf: u32) -> u32 {
     let k = if k_rrf == 0 { DEFAULT_K_RRF } else { k_rrf };
     match name {
-        "rrf" => FusionPolicy::Rrf { k_rrf: k },
+        "rrf" => k,
         other => {
             tracing::warn!(
                 target: "kebab-search",
                 policy = other,
                 "kb-search hybrid: unknown fusion policy; falling back to RRF"
             );
-            FusionPolicy::Rrf { k_rrf: k }
+            k
         }
     }
 }
@@ -520,8 +509,8 @@ mod tests {
         }
     }
 
-    fn rrf_policy(k_rrf: u32) -> FusionPolicy {
-        FusionPolicy::Rrf { k_rrf }
+    fn rrf_policy(k_rrf: u32) -> u32 {
+        k_rrf
     }
 
     fn make_query(mode: SearchMode, k: usize) -> SearchQuery {
@@ -743,14 +732,13 @@ mod tests {
 
     #[test]
     fn parse_fusion_falls_back_to_rrf_on_unknown() {
-        let p = parse_fusion("nonsense", 60);
-        let FusionPolicy::Rrf { k_rrf } = p;
+        let k_rrf = parse_fusion("nonsense", 60);
         assert_eq!(k_rrf, 60);
     }
 
     #[test]
     fn parse_fusion_zero_k_falls_back_to_default() {
-        let FusionPolicy::Rrf { k_rrf } = parse_fusion("rrf", 0);
+        let k_rrf = parse_fusion("rrf", 0);
         assert_eq!(k_rrf, DEFAULT_K_RRF);
     }
 
@@ -838,12 +826,7 @@ mod tests {
                 mk_hit(2, "c3", 0.6, SearchMode::Vector),
             ],
         });
-        let hybrid = HybridRetriever::with_policy(
-            lex.clone(),
-            vec_r.clone(),
-            FusionPolicy::Rrf { k_rrf: 60 },
-            2,
-        );
+        let hybrid = HybridRetriever::with_policy(lex.clone(), vec_r.clone(), 60, 2);
         let q = SearchQuery {
             text: "x".into(),
             mode: SearchMode::Hybrid,
@@ -873,7 +856,7 @@ mod tests {
         }
         let lex = Arc::new(EmptyR);
         let vec_r = Arc::new(EmptyR);
-        let hybrid = HybridRetriever::with_policy(lex, vec_r, FusionPolicy::Rrf { k_rrf: 60 }, 2);
+        let hybrid = HybridRetriever::with_policy(lex, vec_r, 60, 2);
         let q = SearchQuery {
             text: "x".into(),
             mode: SearchMode::Lexical,
@@ -908,7 +891,7 @@ mod tests {
         let vec_r = Arc::new(Stub {
             hits: vec![mk_hit("c1", 1, SearchMode::Vector, 0.8)],
         });
-        let hybrid = HybridRetriever::with_policy(lex, vec_r, FusionPolicy::Rrf { k_rrf: 60 }, 2);
+        let hybrid = HybridRetriever::with_policy(lex, vec_r, 60, 2);
         let q = SearchQuery {
             text: "x".into(),
             mode: SearchMode::Hybrid,
@@ -944,7 +927,7 @@ mod tests {
             hits: vec![lex_hit],
         });
         let vec_r = Arc::new(Stub { hits: vec![] });
-        let hybrid = HybridRetriever::with_policy(lex, vec_r, FusionPolicy::Rrf { k_rrf: 60 }, 2);
+        let hybrid = HybridRetriever::with_policy(lex, vec_r, 60, 2);
         let q = SearchQuery {
             text: "x".into(),
             mode: SearchMode::Lexical,

@@ -105,7 +105,7 @@ flowchart LR
 ## 주요 type / trait / 함수
 
 **Loader** (`kebab-eval::loader`):
-- `load_golden_set(path: &Path) -> Result<Vec<GoldenQuery>>` — `serde_yaml` 위 YAML 파싱.
+- `load_golden_set(path: &Path) -> Result<Vec<GoldenQuery>>` — `serde_yaml_ng` 위 YAML 파싱.
 - `GoldenQuery { id, query, mode, k, must_contain, expected_doc_ids, ask }` — fixture 한 entry. `must_contain` 가 case-sensitive substring 검사.
 
 **Runner** (`kebab-eval::runner`):
@@ -133,7 +133,7 @@ flowchart LR
 ## 외부 의존
 
 - crate dep: `kebab-core` + `kebab-config` + `kebab-app` (facade only) + `kebab-store-sqlite` (SQLite 직접 read/write — `eval_runs` / `eval_query_results` 측). retrieval / embedding / LLM crate 직접 import **금지**.
-- 외부 lib: `serde_yaml` (golden YAML), `serde_json`, `uuid` (v7), `time`, `tracing`, `anyhow`.
+- 외부 lib: `serde_yaml_ng` (golden YAML), `serde_json`, `uuid` (v7), `time`, `tracing`, `anyhow`.
 - 외부 서비스: 없음 (facade 가 가져옴).
 
 ## 핵심 결정

@@ -11,7 +11,7 @@
 //! ## Allowed deps (per task spec)
 //!
 //! `kb-core`, `kb-config`, `kb-app`, `kb-store-sqlite`, plus `serde`,
-//! `serde_yaml`, `serde_json`, `time`, `tracing`,
+//! `serde_yaml_ng`, `serde_json`, `time`, `tracing`,
 //! `anyhow`, `uuid`. Retrieval / embedding / LLM crates are NOT
 //! reachable here — every retrieval and `ask` call must go through
 //! `kb-app`.
