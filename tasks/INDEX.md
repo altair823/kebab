@@ -1,185 +1,38 @@
 ---
-title: "KB 작업 단위 인덱스"
+title: "작업 단위 인덱스 (per-component 진척)"
 source: kebab_local_rust_report.md
 date: 2026-04-27
 ---
 
-# KB 작업 단위 인덱스
+# 작업 단위 인덱스 (per-component 진척)
 
-[`kebab_local_rust_report.md`](../kebab_local_rust_report.md) 의 Phase 로드맵을 아키텍처 수준 작업 단위로 분해. 각 task 문서는 독립적으로 착수/검수 가능한 단위.
+> phase 단위 진척 → [HANDOFF.md](../HANDOFF.md), 동작이 설계와 다를 때의 진실 → [HOTFIXES.md](HOTFIXES.md), crate 구조·기술결정 → [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md), 전체 문서 지도 → [DOCS.md](../DOCS.md). 설계 원안 → [frozen 계약](../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md).
+>
+> 컴포넌트별 task 의 원본 명세(`tasks/p*/`)는 2026-06-27 doc-reorg 에서 제거됨 — 코드가 진실이고, 설계는 frozen 계약, 머지 후 변경은 HOTFIXES. 옛 task spec 은 `git log --all -- tasks/p<N>/` 로 복구 가능.
 
-## 의존 그래프
+## 컴포넌트 상태 (phase별)
 
-```text
-P0 ── P1 ── P2 ── P3 ── P4 ── P5
-                              │
-                              ├─ P6 (image)
-                              ├─ P7 (pdf)
-                              ├─ P8 (audio)
-                              └─ P9 (TUI/desktop)
-```
+전부 ✅ 머지(P8 audio·P9-5 desktop 제외). 새 task 작성 템플릿은 [_template.md](_template.md), phase epic 개요는 `tasks/phase-*.md`.
 
-P0~P5 는 직렬. P6~P9 는 P5 이후 병렬 가능.
+| Phase | 컴포넌트 | crate / 산출 | 상태 |
+|-------|----------|--------------|------|
+| **P0** | skeleton · 도메인 계약 · config · app facade · cli | `kebab-core`/`kebab-config`/`kebab-app`/`kebab-cli` | ✅ |
+| **P1** | source-fs walk · md frontmatter+blocks · chunk · store-sqlite | `kebab-source-fs`/`kebab-parse-md`/`kebab-chunk`/`kebab-store-sqlite` | ✅ |
+| **P2** | lexical 검색 (FTS5) + citation | `kebab-search` | ✅ |
+| **P3** | embedder trait · fastembed adapter · LanceDB · hybrid(RRF) · app wiring | `kebab-embed-local`/`kebab-store-vector`/`kebab-search` | ✅ |
+| **P4** | llm trait · ollama adapter · RAG pipeline · NLI verifier | `kebab-llm-local`/`kebab-rag`/`kebab-nli` | ✅ |
+| **P5** | golden 러너 · metrics/compare | `kebab-eval` | ✅ |
+| **P6** | image extractor · OCR(ollama-vision/paddle-onnx) · caption · ingest wiring | `kebab-parse-image` | ✅ |
+| **P7** | pdf text extractor · page chunker · ingest wiring · scanned OCR enrich | `kebab-parse-pdf`/`kebab-app::pdf_ocr_apply` | ✅ |
+| **P8** | audio transcription | `kebab-parse-audio` | ⏸ 보류 |
+| **P9** | reset · progress/cancel · multi-turn · introspection/error-wire · MCP · single-file/stdin ingest · search filters · streaming · fetch · trace/stats · multi-hop RAG · bulk (+CLI/MCP UX fb-01~42) | `kebab-mcp` 등 | ✅ (desktop P9-5 ⏸) |
+| **P10** | code ingest framework · Rust/Py/TS/JS/Go/Java/Kotlin/C/C++ AST · Tier2 리소스 · Tier3 fallback | `kebab-parse-code`/`kebab-chunk` | ✅ |
 
-## 작업 단위
+> trait-전용이던 `kebab-embed`/`kebab-llm`/`kebab-parse-types`/`kebab-normalize` 흡수됨 → 현재 20 crate (ARCHITECTURE 참조).
 
-| # | 코드 | 제목 | 핵심 산출 crate | 선행 |
-|---|------|------|----------------|------|
-| P0 | [phase-0-skeleton.md](phase-0-skeleton.md) | Workspace 뼈대 + 도메인 계약 | kebab-core, kebab-parse-types, kebab-config, kebab-app, kebab-cli | – |
-| P1 | [phase-1-markdown-ingestion.md](phase-1-markdown-ingestion.md) | Markdown ingestion 파이프라인 | kebab-source-fs, kebab-parse-md, kebab-normalize, kebab-chunk, kebab-store-sqlite | P0 |
-| P2 | [phase-2-lexical-search.md](phase-2-lexical-search.md) | SQLite FTS5 lexical 검색 + citation | kebab-search (lexical) | P1 |
-| P3 | [phase-3-vector-hybrid.md](phase-3-vector-hybrid.md) | Local embedding + LanceDB + hybrid | kebab-embed, kebab-embed-local, kebab-store-vector, kebab-search | P2 |
-| P4 | [phase-4-local-llm-rag.md](phase-4-local-llm-rag.md) | Local LLM + RAG + grounded answer | kebab-llm, kebab-llm-local, kebab-rag | P3 |
-| P5 | [phase-5-evaluation.md](phase-5-evaluation.md) | Golden query / regression eval | kebab-eval | P4 |
-| P6 | [phase-6-image.md](phase-6-image.md) | 이미지 ingestion (OCR + caption) | kebab-parse-image | P5 |
-| P7 | [phase-7-pdf.md](phase-7-pdf.md) | PDF text + page citation | kebab-parse-pdf | P5 |
-| P8 | [phase-8-audio.md](phase-8-audio.md) | 음성 transcription + timestamp citation | kebab-parse-audio | P5 |
-| P9 | [phase-9-ui.md](phase-9-ui.md) | TUI + desktop app | kebab-tui, kebab-desktop | P5 |
-| P10 | [p10/INDEX.md](p10/INDEX.md) | Code ingest framework + AST chunkers | kebab-parse-code, kebab-source-fs (code walk) | P5 |
+## 그 외
 
-## Component task decomposition (per phase)
-
-각 phase 의 component-level 분해. AI sub-agent 1세션 = 1 task 가 sweet spot.
-
-- P0 — [p0/](p0/) — 1 component
-  - [p0-1 skeleton](p0/p0-1-skeleton.md)
-- P1 — [p1/](p1/) — 6 components
-  - [p1-1 source-fs](p1/p1-1-source-fs.md)
-  - [p1-2 parse-md frontmatter](p1/p1-2-parse-md-frontmatter.md)
-  - [p1-3 parse-md blocks](p1/p1-3-parse-md-blocks.md)
-  - [p1-4 normalize](p1/p1-4-normalize.md)
-  - [p1-5 chunk](p1/p1-5-chunk.md)
-  - [p1-6 store-sqlite](p1/p1-6-store-sqlite.md)
-- P2 — [p2/](p2/) — 2 components
-  - [p2-1 fts-schema](p2/p2-1-fts-schema.md)
-  - [p2-2 lexical-retriever](p2/p2-2-lexical-retriever.md)
-- P3 — [p3/](p3/) — 5 components
-  - [p3-1 embedder-trait](p3/p3-1-embedder-trait.md)
-  - [p3-2 fastembed-adapter](p3/p3-2-fastembed-adapter.md)
-  - [p3-3 lancedb-store](p3/p3-3-lancedb-store.md)
-  - [p3-4 hybrid-fusion](p3/p3-4-hybrid-fusion.md)
-  - [p3-5 app-wiring](p3/p3-5-app-wiring.md)
-- P4 — [p4/](p4/) — 3 components
-  - [p4-1 llm-trait](p4/p4-1-llm-trait.md)
-  - [p4-2 ollama-adapter](p4/p4-2-ollama-adapter.md)
-  - [p4-3 rag-pipeline](p4/p4-3-rag-pipeline.md)
-- P5 — [p5/](p5/) — 2 components
-  - [p5-1 golden-fixture-runner](p5/p5-1-golden-fixture-runner.md)
-  - [p5-2 metrics-compare](p5/p5-2-metrics-compare.md)
-- P6 — [p6/](p6/) — 4 components
-  - [p6-1 image-extractor-exif](p6/p6-1-image-extractor-exif.md)
-  - [p6-2 ocr-adapter](p6/p6-2-ocr-adapter.md)
-  - [p6-3 caption-adapter](p6/p6-3-caption-adapter.md)
-  - [p6-4 image-ingest-wiring](p6/p6-4-image-ingest-wiring.md)
-- P7 — [p7/](p7/) — 3 components
-  - [p7-1 pdf-text-extractor](p7/p7-1-pdf-text-extractor.md)
-  - [p7-2 pdf-page-chunker](p7/p7-2-pdf-page-chunker.md)
-  - [p7-3 pdf-ingest-wiring](p7/p7-3-pdf-ingest-wiring.md)
-- P8 — [p8/](p8/) — 2 components
-  - [p8-1 whisper-adapter](p8/p8-1-whisper-adapter.md)
-  - [p8-2 segment-chunker](p8/p8-2-segment-chunker.md)
-- P9 — [p9/](p9/) — 5 components + 도그푸딩 피드백
-  - [p9-1 tui-library](p9/p9-1-tui-library.md)
-  - [p9-2 tui-search](p9/p9-2-tui-search.md)
-  - [p9-3 tui-ask](p9/p9-3-tui-ask.md)
-  - [p9-4 tui-inspect](p9/p9-4-tui-inspect.md)
-  - [p9-5 desktop-tauri](p9/p9-5-desktop-tauri.md)
-  - [p9-dogfooding 피드백 인덱스](p9/p9-dogfooding-feedback.md) — 사용자가 직접 돌려보며 수집한 UX 잡음 → p9-fb-01 ~ 20 으로 분해 + 구현 **20/20 ✅ (2026-05-03 완료)**
-  - [p9-fb-01 ingest progress callback](p9/p9-fb-01-ingest-progress-callback.md)
-  - [p9-fb-02 CLI progress display](p9/p9-fb-02-cli-progress-display.md)
-  - [p9-fb-03 TUI ingest background](p9/p9-fb-03-tui-ingest-background.md)
-  - [p9-fb-04 ingest cancellation](p9/p9-fb-04-ingest-cancellation.md)
-  - [p9-fb-05 config path policy](p9/p9-fb-05-config-path-policy.md)
-  - [p9-fb-06 kebab reset](p9/p9-fb-06-data-reset-command.md)
-  - [p9-fb-07 MD title fallback](p9/p9-fb-07-md-title-fallback.md)
-  - [p9-fb-08 search debounce](p9/p9-fb-08-search-debounce.md)
-  - [p9-fb-09 editor restore](p9/p9-fb-09-tui-editor-restore.md)
-  - [p9-fb-10 CJK input](p9/p9-fb-10-tui-cjk-input.md)
-  - [p9-fb-11 ask markdown render](p9/p9-fb-11-ask-markdown-render.md)
-  - [p9-fb-12 mode machine](p9/p9-fb-12-tui-mode-machine.md)
-  - [p9-fb-13 cheatsheet](p9/p9-fb-13-tui-cheatsheet.md)
-  - [p9-fb-14 color theme](p9/p9-fb-14-tui-color-theme.md)
-  - [p9-fb-15 RAG multi-turn core](p9/p9-fb-15-rag-multi-turn-core.md)
-  - [p9-fb-16 TUI ask conversation](p9/p9-fb-16-tui-ask-conversation.md)
-  - [p9-fb-17 chat session storage (V004)](p9/p9-fb-17-chat-session-storage.md)
-  - [p9-fb-18 CLI ask session/repl](p9/p9-fb-18-cli-ask-session-repl.md)
-  - [p9-fb-19 search cache](p9/p9-fb-19-search-cache.md)
-  - [p9-fb-20 citation surface](p9/p9-fb-20-citation-surface.md)
-  - [p9-fb-21 Insert-key + F1 visibility (post-도그푸딩)](p9/p9-fb-21-tui-insert-key-discoverability.md)
-  - [p9-fb-22 cursor mid-string editing + Ask follow-tail (post-도그푸딩)](p9/p9-fb-22-tui-cursor-and-autoscroll.md)
-  - [p9-fb-23 incremental ingest (post-도그푸딩)](p9/p9-fb-23-incremental-ingest.md)
-  - [p9-fb-24 status bar + Library header + page scroll (post-도그푸딩)](p9/p9-fb-24-tui-affordances.md)
-  - [p9-fb-25 config workspace.include 제거 + 지원 형식 가시성 (post-도그푸딩)](p9/p9-fb-25-config-include-removal.md)
-  - **⏳ fb-32 ~ fb-42: 백로그 only — 미구현 + brainstorm 선행 필요.** spec 작성 시 [superpowers:brainstorming](../docs/superpowers/) 부터 시작. status: open. 다른 세션에서 이 그룹 손대기 전 사용자 확인 필요. **번호 = release 순서** — 작은 번호일수록 먼저 작업 (2026-05-06 renumber).
-
-    ### 🎯 0.3.x — agent foundation (MCP + introspection) ✅ 완료
-    - [p9-fb-26 ingest 로그 출력 일관성](p9/p9-fb-26-ingest-log-consistency.md) — ✅ 머지 (2026-05-07)
-    - [p9-fb-27 introspection + structured error wire](p9/p9-fb-27-introspection-and-error-wire.md) — ✅ 머지 + v0.3.0 cut (2026-05-07)
-    - [p9-fb-28 agent invocation flags (--readonly / --quiet)](p9/p9-fb-28-agent-invocation-flags.md) — ✅ 머지 (2026-05-07)
-    - [p9-fb-29 HTTP daemon (`kebab serve`)](p9/p9-fb-29-http-daemon.md) — 🚫 deferred (2026-05-07) — fb-30 stdio MCP 가 동일 가치 제공, daemon 복잡도 회피. P+ 재개 trigger 는 spec 참조.
-    - [p9-fb-30 MCP server](p9/p9-fb-30-mcp-server.md) — ✅ 머지 + v0.3.1 cut (2026-05-07)
-    - [p9-fb-31 single-file / stdin ingest](p9/p9-fb-31-single-file-stdin-ingest.md) — ✅ 머지 + v0.3.2 cut (2026-05-07)
-
-    ### 🎯 0.4.0 — agent surface refinement (additive only)
-    - [p9-fb-32 stale doc indicator](p9/p9-fb-32-stale-doc-indicator.md) — ✅ 머지 + v0.4.0 cut 후보 (2026-05-09)
-    - [p9-fb-33 streaming ask (ndjson delta)](p9/p9-fb-33-streaming-ask.md) — ✅ 머지 + v0.5.0 cut 후보 (2026-05-09)
-    - [p9-fb-34 output budget controls](p9/p9-fb-34-output-budget-controls.md) — ✅ 머지 + v0.5.0 cut 후보 (2026-05-09)
-    - [p9-fb-35 verbatim fetch](p9/p9-fb-35-verbatim-fetch.md) — ✅ 머지 + v0.5.0 cut 후보 (2026-05-09)
-    - [p9-fb-36 search filter args](p9/p9-fb-36-search-filters.md) — ✅ 머지 (2026-05-10)
-    - [p9-fb-37 trace + stats](p9/p9-fb-37-trace-and-stats.md) — ✅ 머지 (2026-05-10)
-
-    ### 🎯 0.5.0 — RAG quality (cascade 동반: V00X + reindex)
-    - [p9-fb-38 score semantics](p9/p9-fb-38-score-semantics.md) — ✅ 머지 (2026-05-10)
-    - [p9-fb-39 retrieval precision 튜닝](p9/p9-fb-39-retrieval-precision-tuning.md) — ✅ 머지 (2026-05-10) — eval foundation only, lever 적용 deferred
-    - [p9-fb-39b embedding upgrade](p9/p9-fb-39b-embedding-upgrade.md) — ✅ 머지 (2026-05-10) — multilingual-e5-large default
-    - [p9-fb-40 fact-grounded answer](p9/p9-fb-40-fact-grounded-answer.md) — ✅ 머지 (2026-05-10)
-
-    ### 🎯 0.6.0 또는 P+ — reasoning
-    - [p9-fb-41 multi-hop reasoning](p9/p9-fb-41-multi-hop-reasoning.md) — ✅ 머지 (v0.18.0, 2026-05-26). 5 sub-PR (PR #176-180) + NLI verification (mDeBERTa-v3 XNLI ONNX). spec: `docs/superpowers/specs/2026-05-25-p9-fb-41-finalize-spec.md`. plan: `docs/superpowers/plans/2026-05-25-p9-fb-41-finalize-plan.md`.
-    - [p9-fb-42 bulk multi-query + re-rank hint](p9/p9-fb-42-bulk-multi-query-rerank.md) — ✅ 머지 (2026-05-10) — bulk only, rerank hint deferred
-
-- P10 — [p10/](p10/) — code ingest (multi-task, sub-indexed in [p10/INDEX.md](p10/INDEX.md))
-  - [p10-1A-1 code ingest framework](p10/p10-1a-1-code-ingest-framework.md) — ✅ 머지
-  - [p10-1A-2 Rust AST chunker](p10/p10-1a-2-rust-ast-chunker.md) — ✅ 머지
-  - [p10-1B Python + TS/JS AST chunkers](p10/p10-1b-py-ts-js-ast-chunkers.md) — 🟡 PR 오픈 (코드 완성, 머지 대기)
-  - p10-1C-Go Go AST chunker — 🟡 PR 오픈 (v0.12.0, `code-go-ast-v1`)
-  - p10-1C-JavaKotlin Java + Kotlin AST chunkers — 🟢 PR 오픈 (v0.13.0, `code-java-ast-v1` / `code-kotlin-ast-v1`)
-  - p10-1D C + C++ AST chunkers — ✅ 머지 (v0.16.0, `code-c-ast-v1` + `code-cpp-ast-v1`)
-  - p10-2 Tier 2 resource-aware — ✅ 머지 (v0.14.0, `k8s-manifest-resource-v1` / `dockerfile-file-v1` / `manifest-file-v1`)
-  - p10-3 Tier 3 paragraph + line-window fallback — ✅ 머지 (v0.15.0, `code-text-paragraph-v1`)
-
-  ### 🎯 P10 Dogfooding Feedback (v0.17.0)
-
-  도그푸딩 round 2 (2026-05-22) 에서 발견된 follow-up 셋. spec + plan: `docs/superpowers/specs/2026-05-22-korean-trigram-tokenizer-design.md`, `docs/superpowers/plans/2026-05-22-korean-trigram-tokenizer.md`. release: [v0.17.0](https://gitea.altair823.xyz/altair823-org/kebab/releases/tag/v0.17.0).
-
-  - **PR-A 한국어 trigram FTS5 tokenizer + lexical builder + hint** — ✅ 머지 (#159, 2026-05-24). `chunks_fts` 가 V007 migration 으로 `unicode61` → `trigram`. `lexical.rs::build_match_string` trigram-aware 재설계 (whole-phrase OR token-AND, 3자 미만 토큰 drop, raw FTS5 mode 유지). `SearchResponse.hint` additive 필드 + CLI/TUI 안내. 영어 lexical 도 substring 매칭으로 동작 변경.
-  - **PR-B C typedef alias unit + parser_version cascade** — ✅ 머지 (#160, 2026-05-24). `type_definition` 분기 — top-level typedef-wrapped anonymous struct/enum/union 의 alias 이름으로 synthetic unit. `PARSER_VERSION code-c-v1` → `code-c-v2` bump + same-workspace_path orphan purge cascade.
-  - **PR-C `code_lang_chunk_breakdown` additive wire field** — ✅ 머지 (#161, 2026-05-24). `schema.v1.stats` 에 chunk 수 집계 sister 필드 + 기존 `code_lang_breakdown` / `repo_breakdown` JSON schema description 정정 ("chunk count" 오기재 → "doc count").
-
-  **v0.17.1 post-dogfood polish** (release: [v0.17.1](https://gitea.altair823.xyz/altair823-org/kebab/releases/tag/v0.17.1)):
-  - **PR #162 `[models.llm] request_timeout_secs` config + 권장 모델 가이드** — ✅ 머지 (2026-05-25). 8B+ 모델 CPU 추론 시 5분 hard timeout 회피용 노브. additive serde default + env override + 0-edge doc. README + SMOKE 에 CPU only / ≤16GB RAM ⇒ ≤4B Q4 모델 권장 한 단락.
-  - **PR #163 sudo 없이 ollama 설치 + ask --stream 권장 (docs only)** — ✅ 머지 (2026-05-25). README + SMOKE 에 tarball + OLLAMA_MODELS env 설치 패턴 + cold start 긴 모델은 progressive 토큰 권고 (p9-fb-33 surface).
-
-  **v0.18.0 fb-41 multi-hop RAG + NLI verification ship** (release: [v0.18.0](https://gitea.altair823.xyz/altair823-org/kebab/releases/tag/v0.18.0)):
-  - **PR #176 PR-9a kebab-nli crate skeleton** — ✅ 머지 (2026-05-25). `NliVerifier` trait + `NliScores` struct (XNLI 3-channel: entailment / neutral / contradiction) + `OnnxNliVerifier` placeholder. workspace.dependencies 에 ort 2.0-rc.9, tokenizers 0.21 (default-features=false, onig), hf-hub 0.4, ndarray 0.16.
-  - **PR #177 PR-9b OnnxNliVerifier ONNX inference + model download** — ✅ 머지 (2026-05-25). hf-hub lazy download (XDG `model_dir/nli/<sanitized>`) + ort `Session::commit_from_file` + tokenizers `OnlyFirst` truncation (max_length=512, premise 끝부터 잘림 — hypothesis 보전). `--ignored` integration test 5 cases manual smoke (EN self-entailment / EN unrelated / KR entailment / long premise truncation / empty hypothesis err).
-  - **PR #178 PR-9c-1 core types + wire scaffolding** — ✅ 머지 (2026-05-26). `RefusalReason::NliVerificationFailed` + `NliModelUnavailable` (serde rename_all snake_case, wire = identical strings). `Answer.verification: Option<VerificationSummary>` additive minor wire. `NliCfg` + `RagCfg.nli_threshold` (default 0.0) + env override. `RagPipeline.verifier` field + `with_verifier` builder. wire schemas + `docs/ARCHITECTURE.md` Mermaid 갱신.
-  - **PR #179 PR-9c-2 pipeline integration + mock test + SKILL.md** — ✅ 머지 (2026-05-26). ★ 첫 user-visible behavior. `ask_multi_hop` step 8.5 NLI hook (empty answer 가드 + `truncate_for_nli` + verifier.score + verification field + refusal 분기) + `App::open_with_config` 의 NliVerifier construction + 5 mock multi-hop tests + SKILL.md NLI 안내 한 단락.
-  - **PR #180 PR-9d dogfood retest + HOTFIXES closure + corpus 보존** — ✅ 머지 (2026-05-26). 동일 dogfood corpus 의 S7/S1/S3/S10 multi-hop retest — S7 PR-8 baseline `grounded=true + Adam hallucination` → PR-9 `nli_verification_failed, nli_score 0.0035` (HALLUCINATION FIXED 확정). `docs/dogfood/v0.18.0/` 신규 — sanitized SUMMARY + 4 sample wire JSON 보존.
-  - **PR #181 chore: workspace-wide cleanup + post-PR9 refactor** — ✅ 머지 (2026-05-26). v0.18.0 cut 전 마지막 정리. `[workspace.lints.clippy] pedantic = warn` + 의도적 30+ allow (각 rationale inline). 128 files mechanical clippy --fix. OMC team `post-pr9-refactor` 가 추가 H1 (`[models.nli].model` config wiring — `DEFAULT_MODEL_ID` 제거 + provider 분기) + H2 (`truncate_for_nli` stub `_hypothesis` 제거) + H3 (`was_truncated` tracing::debug! surface) + D (MCP test flake fix) + E (HOTFIXES cross-link) + 9 new tests (T1-T4). post-refactor dogfood = PR-9d byte-identical (deterministic 확인). system-architect 의 component-level review 결론 = pre-cut nothing, all v0.18.1+ defer (kebab-normalize 흡수 — v0.19.0 closure, see HOTFIXES.md 2026-05-26; Extractor dispatch unification; kebab-source-fs dep lightening 등).
-
-## Post-merge 핫픽스
-
-머지 후 발견된 버그들과 그 follow-up PR들은 [HOTFIXES.md](HOTFIXES.md)에 dated 로그로 기록한다. 원래 task spec은 frozen 상태로 두고, post-merge 동작 변경은 HOTFIXES.md를 source of truth로 본다.
-
-## Future work / deferred
-
-- v0.20+ image/pdf normalize integration — design §3.7b intent 미구현 (3 dead struct `ParsedImageRegion` / `ParsedPdfPage` / `ParsedAudioSegment` 보존). PR #186 (normalize-absorption) 의 spec §11 (`docs/superpowers/specs/2026-05-26-normalize-absorption-spec.md`) 참조.
-
-## 모든 task 공통 규약
-
-- 의존성 경계 (`Allowed` / `Forbidden`) 위반 금지. report §19 참조.
-- citation 없는 검색 결과 / RAG 응답 금지.
-- 원본 파일 파괴 금지. 파생물만 재생성.
-- 모든 record 에 version (parser/chunker/embedding/index/prompt) 기록.
-- 각 phase 완료 = `cargo check --workspace && cargo test --workspace` 통과 + 해당 phase 의 완료 조건 CLI 데모 통과.
+- **머지 후 핫픽스 / deviation**: [HOTFIXES.md](HOTFIXES.md) (dated, live 진실).
+- **버전별 변경 이력**: [CHANGELOG.md](../CHANGELOG.md).
+- **Future / deferred**: P9-5 desktop(Tauri), P8 audio(whisper-rs 시스템 dep 결정 대기). HANDOFF §다음 task 후보 참조.
+- **공통 규약**(facade 룰 · 의존성 경계 · 버전 cascade · wire schema)은 [CLAUDE.md](../CLAUDE.md) + [설계 계약](../docs/superpowers/specs/2026-04-27-kebab-final-form-design.md) §8/§9.

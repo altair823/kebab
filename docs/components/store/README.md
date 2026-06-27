@@ -143,10 +143,5 @@ flowchart LR
 ## 관련 spec / HOTFIXES
 
 - frozen 설계 §5.1 (meta), §5.2 (assets), §5.3 (documents), §5.4 (blocks), §5.5 (chunks + FTS5), §5.6 (embedding_records two-phase), §5.7 (jobs/ingest_runs/answers/eval_runs), §5.7a (chat_sessions/turns), §6.3 (lance table naming), §7.2 (DocumentStore/VectorStore/JobRepo/ChatSessionRepo): [`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`](../../superpowers/specs/2026-04-27-kebab-final-form-design.md)
-- task spec:
-  - SQLite store: [`tasks/p1/p1-6-store-sqlite.md`](../../../tasks/p1/p1-6-store-sqlite.md)
-  - FTS5 + V002: [`tasks/p2/p2-1-fts.md`](../../../tasks/p2/p2-1-fts.md)
-  - V003 + LanceDB + two-phase: [`tasks/p3/p3-3-store-vector.md`](../../../tasks/p3/p3-3-store-vector.md)
-  - V004 kv: [`tasks/p9/p9-fb-19-search-cache.md`](../../../tasks/p9/p9-fb-19-search-cache.md)
-  - V005 chat sessions: [`tasks/p9/p9-fb-17-chat-session-storage.md`](../../../tasks/p9/p9-fb-17-chat-session-storage.md)
+- task specs: 삭제됨(2026-06-27 doc-reorg) — 설계는 frozen 계약, 동작은 tasks/HOTFIXES.md, 상세 git history.
 - HOTFIXES (P7-3 storage UNIQUE bug + delete_by_chunk_ids follow-up, V004→V005 시프트): [`tasks/HOTFIXES.md`](../../../tasks/HOTFIXES.md)

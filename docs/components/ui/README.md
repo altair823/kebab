@@ -176,8 +176,5 @@ flowchart LR
 ## 관련 spec / HOTFIXES
 
 - frozen 설계 §1 (UX scenes), §2.4a (ingest progress wire), §3.7 (SearchHit / DocSummary), §3.8 (Answer / Turn), §8 (boundary), §10 (errors / exit codes): [`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`](../../superpowers/specs/2026-04-27-kebab-final-form-design.md)
-- task spec:
-  - CLI: [`tasks/p0/p0-1-skeleton.md`](../../../tasks/p0/p0-1-skeleton.md) (초기) + 모든 phase 의 wiring task.
-  - TUI: [`tasks/p9/p9-1-tui-library.md`](../../../tasks/p9/p9-1-tui-library.md), [`tasks/p9/p9-2-tui-search.md`](../../../tasks/p9/p9-2-tui-search.md), [`tasks/p9/p9-3-tui-ask.md`](../../../tasks/p9/p9-3-tui-ask.md), [`tasks/p9/p9-4-tui-inspect.md`](../../../tasks/p9/p9-4-tui-inspect.md)
-  - 도그푸딩 후속 (p9-fb-01..21): [`tasks/p9/`](../../../tasks/p9/)
+- task specs: 삭제됨(2026-06-27 doc-reorg) — 설계는 frozen 계약, 동작은 tasks/HOTFIXES.md, 상세 git history.
 - HOTFIXES (P9-1 Backend generic 제거, P9-2 workspace_root 인자, P9-3 e/j/k 텍스트 충돌 → mode machine, p9-fb-* 도그푸딩 후속): [`tasks/HOTFIXES.md`](../../../tasks/HOTFIXES.md)

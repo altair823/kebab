@@ -143,7 +143,5 @@ flowchart LR
 ## 관련 spec / HOTFIXES
 
 - frozen 설계 §7.1 (`GenerateRequest`/`TokenChunk`/`FinishReason`), §7.2 (`LanguageModel` trait), §0 Q5 (streaming), §3.8 (`ModelRef`/`TokenUsage`), §6.4 (`models.llm`), §10 (errors), §11.2 (Ollama protocol notes): [`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`](../../superpowers/specs/2026-04-27-kebab-final-form-design.md)
-- task spec:
-  - trait crate: [`tasks/p4/p4-1-llm-trait.md`](../../../tasks/p4/p4-1-llm-trait.md)
-  - Ollama adapter: [`tasks/p4/p4-2-llm-ollama.md`](../../../tasks/p4/p4-2-llm-ollama.md)
+- task specs: 삭제됨(2026-06-27 doc-reorg) — 설계는 frozen 계약, 동작은 tasks/HOTFIXES.md, 상세 git history.
 - HOTFIXES (P6-3 `GenerateRequest.images` 추가, P6-2 OCR 기본을 Ollama vision 으로 통일): [`tasks/HOTFIXES.md`](../../../tasks/HOTFIXES.md)

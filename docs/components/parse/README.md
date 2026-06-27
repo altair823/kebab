@@ -114,7 +114,7 @@ flowchart LR
 
 - crate dep:
   - 모든 parser → `kebab-core` (`Extractor` trait, `Block`, `Metadata`, `id_for_*`).
-  - `kebab-parse-md` → `kebab-parse-types` (`ParsedBlock`/`ParsedPayload`/`Warning`), `pulldown-cmark`, `serde_yaml_ng`.
+  - `kebab-parse-md` → `pulldown-cmark`, `serde_yaml_ng`. (`ParsedBlock`/`ParsedPayload`/`Warning` 등 옛 `kebab-parse-types` 는 v0.19.0 에 `kebab-parse-md::types` 모듈로 흡수.)
   - `kebab-parse-pdf` → `lopdf`.
   - `kebab-parse-image` → `image` (decode), `kamadak-exif` (EXIF), `kebab-core::LanguageModel` (caption).
 - 외부 서비스:
@@ -147,8 +147,5 @@ flowchart LR
 ## 관련 spec / HOTFIXES
 
 - frozen 설계 §3.4 (`Block` enum), §3.7a (`OcrText` / `ModelCaption`), §3.7b (`ParsedBlock` IR), §9 (parser_version cascade), §9.1 (image policy), §9.2 (PDF text extraction): [`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`](../../superpowers/specs/2026-04-27-kebab-final-form-design.md)
-- task spec:
-  - Markdown: [`tasks/p1/p1-2-md-frontmatter.md`](../../../tasks/p1/p1-2-md-frontmatter.md), [`tasks/p1/p1-3-md-blocks.md`](../../../tasks/p1/p1-3-md-blocks.md)
-  - PDF: [`tasks/p7/p7-1-pdf-text-extractor.md`](../../../tasks/p7/p7-1-pdf-text-extractor.md)
-  - Image: [`tasks/p6/p6-1-image-extractor.md`](../../../tasks/p6/p6-1-image-extractor.md), [`tasks/p6/p6-2-image-ocr.md`](../../../tasks/p6/p6-2-image-ocr.md), [`tasks/p6/p6-3-image-caption.md`](../../../tasks/p6/p6-3-image-caption.md)
+- task specs: 삭제됨(2026-06-27 doc-reorg) — 설계는 frozen 계약, 동작은 tasks/HOTFIXES.md, 상세 git history.
 - HOTFIXES (P6-2 OCR 기본, P6-3 caption + `GenerateRequest.images`, P7-2 chunk_id 충돌, P7-3 storage UNIQUE bug, p9-fb-07 title fallback): [`tasks/HOTFIXES.md`](../../../tasks/HOTFIXES.md)

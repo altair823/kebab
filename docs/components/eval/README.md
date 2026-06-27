@@ -165,7 +165,5 @@ flowchart LR
 ## 관련 spec / HOTFIXES
 
 - frozen 설계 §5.7 (eval_runs / eval_query_results), §6.3 (runs_dir), §11 (비-목표 = LLM-as-judge 금지), §9 (5-version cascade): [`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`](../../superpowers/specs/2026-04-27-kebab-final-form-design.md)
-- task spec:
-  - runner: [`tasks/p5/p5-1-eval-runner.md`](../../../tasks/p5/p5-1-eval-runner.md)
-  - metrics + compare: [`tasks/p5/p5-2-eval-metrics.md`](../../../tasks/p5/p5-2-eval-metrics.md)
+- task specs: 삭제됨(2026-06-27 doc-reorg) — 설계는 frozen 계약, 동작은 tasks/HOTFIXES.md, 상세 git history.
 - HOTFIXES (P5-1 facade-inheritance 결정, P5-2 metric definition tweaks): [`tasks/HOTFIXES.md`](../../../tasks/HOTFIXES.md)

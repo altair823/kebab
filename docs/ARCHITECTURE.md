@@ -38,6 +38,33 @@ Cargo workspace, 함수 호출 기반 모듈러 모놀리스. UI binary (`kebab-
 
 전체 frozen 설계는 [docs/superpowers/specs/2026-04-27-kebab-final-form-design.md](superpowers/specs/2026-04-27-kebab-final-form-design.md) 12 sections 참조.
 
+## 핵심 구현 불변식 (durable invariants)
+
+> 삭제된 task spec(p1-5/p3-3/p4-3/p7-2)에서 추출 + 현재 코드 대조 검증 (2026-06-27 doc-reorg). 코드가 진실이며 아래는 비자명한 불변식의 요약.
+
+### VectorStore upsert 순서/원자성
+
+`kebab-store-vector`의 `upsert`는 SQLite-first, Lance-second 두 단계 쓰기로 구현되며, `embedding_records` 테이블의 3-상태 마커(`pending`/`committed`/`tombstone`)로 crash 재조정을 보장한다. **Phase 1**: `status='pending'`, `vector_committed=0`으로 모든 행을 SQLite에 `INSERT OR REPLACE` (단일 tx). **Phase 2**: Lance `MergeInsert` (chunk_id 키). **Phase 3**: 성공 시 `status='committed'`로 UPDATE (`WHERE status='pending'`). Phase 2-3 사이 crash 시 행은 `pending`으로 남고 다음 upsert가 자동 재시도(Lance는 chunk_id로 dedup). `search`는 `embedding_records`와 JOIN 시 `WHERE status='committed'` 필터를 적용 → 부분 쓰기 Lance 고아 행이 검색에 절대 노출 안 됨. `tombstone`은 chunk 삭제 GC 재조정용 예약(구현 P+). (V003 마이그레이션, `store.rs` crash-recovery 주석.)
+
+### RAG score-gate + context budget
+
+- **Score gate** (`config.rag.score_gate`, default 0.30): 검색 top-1 점수가 임계값 미만이면 LLM 호출 없이 즉시 refusal — `refusal_reason = ScoreGate`, `grounded = false`, 답변에 임계 미만 후보 상위 3개를 나열, citations 는 그 후보들(unmarked).
+- **Context packing budget**: `max_context_tokens`(default 8000) − (시스템 프롬프트 + 질문 토큰 + 64). 청크를 순서대로 fetch 해 `[#{marker}] source={source_id} trust={trust} doc={path} heading={heading_path} span={citation}` 헤더 + 본문으로 pack, 예산 초과 시 중단(단 gate 통과 청크 ≥1 은 항상 pack). 토큰 추정 = `chars/4`.
+- **Completion budget**(LLM max_tokens): `llm.context_tokens() − (시스템+질문 + 256 reserve)`, 최소 64 — packing budget 과 **독립** 계산(설계 §6.4).
+- **Drift**: 헤더에 `source=`/`trust=` 필드 추가됨(p9-fb-32 rag-provenance-label); 원본 p4-3 spec 은 `doc=/heading=/span=` 만.
+
+### Markdown 청킹 우선순위 (md-heading-v2)
+
+**Phase 1 (v1-동등)**: 제목 경계 우선(절대) → 코드 블록 절대 불분할 → 표 단일 청크 원칙 → 긴 섹션 문단 분할 → `heading_path` 전파 → `source_spans` 병합. **Phase 2 (oversize 후처리)**: `config.ingest.chunking.max_chunk_tokens` 초과 청크를 라인(→UTF-8 char) 경계로 분할, 조각은 원본의 `block_ids`/`source_spans`/`heading_path` 공유(블록-단위 인용) + `#seg{i}` 접미사로 id 구분. 예산은 `policy_hash` 에 8바이트로 fold → §9 cascade. (원본 p1-5 는 v1; v2 oversize 후처리는 v0.30.0 label-bump — HOTFIXES 2026-06-24.)
+
+### chunk_id 충돌 회피 (split-key variant)
+
+한 source block 이 여러 chunk 로 분할될 때(PDF 1 page → N page-chunk, code 1 unit → M AST chunk) 동일 `block_ids` 로 `chunk_id`(= `blake3(doc, chunker_version, block_ids, policy_hash)`)가 충돌하는 걸, `policy_hash` 슬롯을 chunk 별로 파라미터화해 회피한다. `pdf-page-v1` = `{base_policy_hash}#c{segment_start}[s{i}]`(segment_start = pre-overlap 경계, 단조증가), `code-ast-v1` = `{base_policy_hash}#L{line_start}`, `md-heading-v2` = `#seg{i}`. 단일 조각은 접미사 생략. 원본 `base_policy_hash` 는 `Chunk.policy_hash` 에 보존(audit). (설계 §4.2 collision 회피.)
+
+### PDF OCR 엔진 선택 (PoC 근거)
+
+**text-detect-first + vision LLM fallback**(always-on 아님 — latency 측정 후 always-on 초기안 철회). **single-binary 원칙**(CLAUDE.md 코어)상 native-dep 엔진(Tesseract/EasyOCR/Paddle-py 런타임) 배제 → Ollama-hosted **qwen2.5vl:3b** 채택: scanned 한글 PoC alnum **94.79%**(Tesseract 86.96% / EasyOCR 89.76% / gemma4:e4b 27% 대비 우위). v0.27.0+ 는 `paddle-onnx`(in-process ONNX, native Python 런타임 0)도 선택지. 상세 측정표는 git history(삭제된 v0.20 handoff).
+
 ## crate 의존성 그래프
 
 > 그룹 단위 view + 컴포넌트별 상세는 [docs/components/](components/).
