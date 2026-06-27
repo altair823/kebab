@@ -15,7 +15,7 @@ kebab-app = { path = "../kebab-app" }
 kebab-store-sqlite = { path = "../kebab-store-sqlite" }
 serde           = { workspace = true }
 serde_json      = { workspace = true }
-serde_yaml_ng   = "0.10"
+serde_yaml_ng   = { workspace = true }
 time            = { workspace = true }
 tracing         = { workspace = true }
 anyhow          = { workspace = true }

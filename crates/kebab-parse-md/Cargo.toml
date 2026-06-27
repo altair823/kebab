@@ -26,7 +26,7 @@ pulldown-cmark  = { version = "0.13", default-features = false }
 # serde_yaml (dtolnay) was archived as unmaintained in 2024.
 # We use the maintained fork serde_yaml_ng. Keeping the same `serde_yaml`-style
 # API surface lets us swap if a different fork wins long term.
-serde_yaml_ng   = "0.10"
+serde_yaml_ng   = { workspace = true }
 toml            = "0.8"
 # `lingua` ships every supported language as a feature flag; the `default`
 # feature pulls all 75+ language models (huge build time + binary size).
