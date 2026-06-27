@@ -1,139 +1,116 @@
 ---
-title: Documentation reorganization — living / frozen / archive 3-zone + SoT map
+title: Documentation reorganization — max-compress to living-SoT + single design contract
 date: 2026-06-27
 status: design
+supersedes_decision: 초안의 "archive 이동" 안은 폐기 — frozen 문서끼리 결합도가 높아 이동이 frozen 무결성을 깸. 사용자 지침으로 "압축/감축(destructive 허용)" 으로 전환.
 ---
 
-# 문서 재정리 설계 (doc-reorg)
+# 문서 재정리 설계 (doc-reorg, 최종 = max-compress)
 
-## 1. 문제
+## 1. 목표 (사용자 지침 반영)
 
-여러 세션·작업을 거치며 문서가 ~268개(`docs/**` md 165 + `tasks/**` 99 + root 4)로 불어났다. 3개 병렬 explorer 의 전수 특성화 결과, **코어(living + frozen)는 의외로 잘 정리돼 있고 SoT 도 territory 별로 이미 정의**(CLAUDE.md §User-facing docs)돼 있으나:
+여러 세션 누적으로 ~268개로 불어난 문서에서 **stale·outdated·불필요 정보를 최대한 줄인다.** 핵심:
 
-1. **그 SoT 지도를 한눈에 보여주는 단일 인덱스가 없어** "뭐가 최신/진실인지"가 헷갈린다 — 사용자의 1순위 pain.
-2. **historical 실행 아티팩트**(plans 64 · handoffs 8 · 옛 dogfood 1)가 living 문서와 같은 트리에 섞여 시각적으로 "현재 문서"처럼 보인다.
-3. **오펀**: `docs/spec/` 7개 스텁(240–534B, frozen 설계로 향하는 포인터, inbound 0).
-4. **release-notes**: 9개 `*-draft` 파일, "draft" 오칭, CHANGELOG 부재, 불완전.
-5. **stale**: 컴포넌트 README 2개(normalize-chunk·foundation)가 흡수된 crate(kebab-normalize·kebab-parse-types, v0.19.0) 참조.
+- **현재 코드베이스의 진실(SoT)이 뭔지, 어느 문서가 최신인지**를 단일 지도(`DOCS.md`)로 즉시 알 수 있게.
+- **현재 코드와 달라진 과거 문서는 destructive(삭제) 허용** — frozen 규칙 완화. 단 **durable(아직 living 에 없는, 현재도 유효한) 정보는 삭제 전에 living 문서로 흡수**(안전망). git history 가 원본을 보존.
+- 결과: 트리에 **living(현재 진실) + 설계 계약 1개 + 증거 소수**만 남긴다.
 
-## 2. 목표 / 비목표
+## 2. 근거 (5-에이전트 전수 분석)
 
-**목표**
-- "현재 코드베이스의 진실(SoT)이 뭔지, 어느 문서가 최신인지"를 **단일 지도 문서**로 즉시 알 수 있게 한다.
-- 문서를 **living(현재 진실) / frozen(계약) / archive(이력)** 3구역으로 명확히 분리한다.
-- 오펀·중복 제거, release-notes 통합, stale 수정으로 트리를 가볍게.
+| 클러스터 | 수/크기 | 판정 | 근거 |
+|---|---|---|---|
+| `docs/superpowers/plans/` | 64 / 2.4MB | **삭제** | 머지 완료 작업의 worker 실행 스캐폴딩. durable **0건**(코드+task spec+HOTFIXES 가 완전 대체). inbound 링크는 전부 provenance breadcrumb. |
+| `docs/superpowers/handoffs/` | 8 / 132KB | **삭제** | 측정 기록. durable 측정값이 **이미 HOTFIXES 에 요약돼 있음**(in_living=True). |
+| `tasks/p0../p10../` | 86 / 708KB | **압축→삭제** | 작업별 frozen 계약. 코드+HOTFIXES+ARCHITECTURE 가 대체. 단 **아직 living 에 없는 durable invariant 4건**은 추출 필요(§4). |
+| `docs/superpowers/specs/` (feature specs) | 55 / 1.2MB | **삭제** | feature 설계 문서. 코드+ARCHITECTURE+HOTFIXES 가 대체. HOTFIXES 가 deviation 을 self-contained 로 기술(spec 참조는 provenance). |
+| `docs/spec/` 스텁 | 7 / 32KB | **삭제** | 설계 계약으로 향하는 240–534B 오펀 포인터, inbound 0. |
+| `docs/superpowers/specs/2026-04-27-…-design.md` | 1 / 71KB | **유지(frozen 계약)** | 워크스페이스 유일 설계 계약, 12 섹션. "무엇을 의도했나"의 baseline. HOTFIXES deviation 이 이걸 참조. |
+| `docs/release-notes/` | 9 / 84KB | **유지(living)** | gitea 가 긴 한국어 body 를 손상시켜 release 가 이 커밋 파일을 링크 + release 프로세스가 계속 새로 생성 → load-bearing. |
+| `docs/dogfood/v0.18.0/`, `kebab_local_rust_report.md` | 2 | **유지(증거)** | v0.18.0 NLI 검증 증거 + 설계 기원 보고서. 작고 참조됨. |
+| living (README/ARCHITECTURE/HANDOFF/HOTFIXES/INDEX/CLAUDE/components/wire-schema/DOGFOOD/SMOKE/mcp-usage) | — | **유지** | 현재 진실. SoT territory 별로 명확. |
 
-**비목표**
-- frozen 거버넌스 앵커(`specs/` 56 + `tasks/p*/` 86) 이동·편집 — CLAUDE.md frozen 규칙상 절대 안 함.
-- living 코어 문서의 내용 재작성 — 이미 건강함(SoT 명확, 중복 <20%). stale 2건만 수정.
-- SMOKE.md(40KB) 의 scripts/ 추출 리팩터 — 별도 작업으로 미룸(이번 범위 밖).
-
-## 3. 3구역 정의
-
-| 구역 | 의미 | 편집 정책 | 멤버 |
-|------|------|-----------|------|
-| **living** | 현재 코드베이스의 진실. 코드 변경 시 동기화 필수 | 계속 갱신 | README, HANDOFF, CHANGELOG(신규), CLAUDE.md, DOCS.md(신규), docs/ARCHITECTURE·DOGFOOD·SMOKE·mcp-usage, docs/components/*, docs/wire-schema/v1, tasks/INDEX·HOTFIXES·_template·phase-* |
-| **frozen** | 머지 시점 동결된 계약·역사적 spec. 절대 후편집 안 함 | 동결(편집·이동 금지) | docs/superpowers/specs/ (56, 설계 계약 포함), tasks/p0../p10../ (86) |
-| **archive** | point-in-time 실행/측정 이력. "현재 진실 아님" | 동결(이력) | docs/archive/** (신규) |
-
-**최우선 규칙**: 동작이 frozen spec 과 다를 때 진실은 **tasks/HOTFIXES.md**(living). archive/ 는 "왜 이렇게 됐나"의 이력일 뿐 현재 상태가 아니다.
-
-## 4. 최종 트리 (after)
+## 3. 최종 트리 (after)
 
 ```
 kebab/
-├── README.md                     [SoT·사용법]  (상단에 DOCS.md 포인터 1줄 추가)
-├── DOCS.md                       ← NEW 📍 문서 지도 / SoT 인덱스 (root, 별도 파일)
-├── HANDOFF.md                    [SoT·진척]
-├── CHANGELOG.md                  ← NEW (release-notes 9개 통합, 역순)
-├── CLAUDE.md                     [AI 지침] (§docs 갱신)
-├── kebab_local_rust_report.md    (frozen·원본 설계 보고서, DOCS.md 에서 "이력"으로 링크)
+├── README.md  DOCS.md(NEW)  HANDOFF.md(슬림)  CHANGELOG.md(NEW)  CLAUDE.md(갱신)
+├── kebab_local_rust_report.md            (증거·기원)
 ├── docs/
-│   ├── ARCHITECTURE.md           [SoT·구조/결정]
+│   ├── ARCHITECTURE.md                   (+durable 4건 흡수)
 │   ├── DOGFOOD.md  SMOKE.md  mcp-usage.md
-│   ├── components/ (13)          [컴포넌트 상세]
-│   ├── wire-schema/v1/           [SoT·wire 계약]
-│   ├── superpowers/specs/ (56)   [frozen 앵커 — 제자리]
-│   └── archive/                  ← NEW "현재 진실 아님"
-│       ├── plans/ (64)           ← docs/superpowers/plans/
-│       ├── handoffs/ (8)         ← docs/superpowers/handoffs/
-│       ├── release-notes/ (9)    ← docs/release-notes/ (CHANGELOG 로 요약된 원본)
-│       └── dogfood-runs/v0.18.0/ ← docs/dogfood/v0.18.0/
+│   ├── components/ (13)                  (task-spec 링크 정리)
+│   ├── release-notes/ (9)                (living, CHANGELOG 가 인덱스)
+│   ├── wire-schema/v1/
+│   ├── dogfood/v0.18.0/                  (증거)
+│   └── superpowers/specs/                (2개만: 2026-04-27 계약 + 2026-06-27 본 spec)
 └── tasks/
-    ├── INDEX.md  HOTFIXES.md  _template.md  phase-*.md   (living)
-    └── p0../p10../ (86)          [frozen — 제자리]
+    ├── INDEX.md(슬림)  HOTFIXES.md(링크정리)  _template.md  phase-*.md(링크정리)
+    └── (p0../p10../ 삭제됨)
 ```
 
-삭제: `docs/spec/` (7 스텁). 빈 `docs/superpowers/plans·handoffs`, `docs/release-notes`, `docs/dogfood` 디렉토리 정리.
+삭제 디렉토리: `docs/superpowers/plans/`, `docs/superpowers/handoffs/`, `docs/spec/`, `tasks/p0..p10/`. specs/ 의 feature spec 55개 삭제(계약 + 본 spec 만 잔존).
 
-## 5. DOCS.md — 핵심 산출물 (SoT 지도)
+## 4. durable 추출 (삭제 전 — 안전망)
 
-root `DOCS.md`. 구성:
+분석이 "아직 living 에 없다"고 확인한 항목만. 추출 후 원본 삭제.
 
-1. **한 줄 선언**: "현재 코드베이스의 진실 = 코드 + 아래 *living* 문서. *frozen* 은 동결된 계약, *archive* 는 '왜 이렇게 됐나' 이력(현재 상태 아님)."
-2. **"알고 싶은 것 → SoT" 표**:
+→ **`docs/ARCHITECTURE.md`** 에 추가:
+1. **LanceDB upsert 순서/원자성** (p3-3): SQLite-first(`INSERT OR REPLACE` + 3-state status marker `pending`/`committed`) → Lance-second(`MergeInsert`). 검색은 `status='committed'` 만 → partial-write orphan 회피. 크래시 시 reconcile. → §Persistence 새 소절.
+2. **RAG score-gate + context-budget** (p4-3): `hits[0].fusion_score < rag.score_gate` 면 거절(한국어 메시지 + top-3 후보). budget = `max_context_tokens`(기본 8000) ∩ `llm.context_tokens() − (prompt+query+256 reserve)`. entry-by-entry packing 포맷. → §RAG.
+3. **PDF chunk_id 충돌 회피** (p7-2): pdf-page-v1 이 한 page-block 을 byte 예산 초과 시 다중 chunk 로 분할 → 동일 block_ids 충돌을 `policy_hash#c{char_start}` variant 로 회피. → §핵심 결정 각주.
+4. **heading-aware 청커 우선순위** (p1-5): ① heading 경계 우선 ② code block 절대 미분할 ③ table 가능하면 single-chunk ④ 긴 섹션 paragraph 분할 ⑤ heading_path 전파. → §청킹.
 
-   | 알고 싶은 것 | Source of Truth | 구역 |
-   |---|---|---|
-   | 어떻게 설치·사용하나 | `README.md` | living |
-   | 내부 구조·crate 그래프·기술 결정 | `docs/ARCHITECTURE.md` | living |
-   | 지금 어디까지 됐나(진척) | `HANDOFF.md` + `tasks/INDEX.md` | living |
-   | **동작이 설계와 다를 때 뭐가 맞나** | `tasks/HOTFIXES.md` | living(최우선) |
-   | 버전별 변경 이력 | `CHANGELOG.md` | living |
-   | 컴포넌트(crate 그룹) 상세 | `docs/components/<group>/README.md` | living |
-   | `--json` wire 계약 | `docs/wire-schema/v1/` | living(frozen 계약) |
-   | 설계 원안(12 섹션 계약) | `docs/superpowers/specs/2026-04-27-…-design.md` | frozen |
-   | 컴포넌트별 task 명세(원안) | `tasks/p<N>/` | frozen |
-   | 옛 실행계획·측정·dogfood run | `docs/archive/**` | 이력(편집 금지) |
+→ **`CLAUDE.md`** 에 추가:
+5. **Allowed/Forbidden 의존성 경계표** (86 spec 에 흩어진 §deps 통합): crate별 1행 (예: `kebab-core` MUST NOT depend on `kebab-*`; `kebab-eval` metrics/compare MUST NOT import retrieval/embed/llm; UI crate 는 `kebab-app` 만). 기존 §Allowed/forbidden deps 확장.
 
-3. **3구역 디렉토리 맵** + 각 구역 편집 정책 1줄.
-4. **갱신 책임**: "기능/표면 변경 시 README+ARCHITECTURE 동기화는 CLAUDE.md §User-facing docs 가 강제" 로 연결.
+(version cascade·facade rule·release bump 규칙은 이미 CLAUDE.md 에 있음 — 확인만.)
 
-## 6. CHANGELOG.md
+handoffs/feature-spec 의 측정·deviation durable 은 **이미 HOTFIXES 에 있음**(분석 확인) → 추출 불필요, 삭제 전 grep 확인만.
 
-- 역순(v0.32.0 → v0.20.1). 각 버전: 1–3줄 핵심(사용자 영향 위주) + Gitea release 링크.
-- 문서화 안 된 구간(v0.21.0, v0.23.0–v0.27.x, sub-releases)은 한 줄 `> v0.21–v0.27: Gitea releases 참조(개별 draft 없음)` 로 명시(거짓 완전성 회피).
-- 원본 9개 draft 는 `docs/archive/release-notes/` 에 보존(증거).
-- README 버전 절 + DOCS.md 에서 CHANGELOG 링크.
+## 5. 신규 SoT 문서
 
-## 7. 이동/링크 정책 (frozen 충돌 회피 — 가드레일)
+**`DOCS.md`** (root): "알고 싶은 것 → SoT" 표 + 구역(living / frozen 계약 / 증거) 맵 + 한 줄 선언("현재 진실 = 코드 + living 문서; 계약 = 설계 의도 baseline; 삭제된 historical 은 git history"). 표는 §초안과 동일하되 archive 행 제거, "이력은 git" 로.
 
-1. **이동은 `git mv`** (history 보존).
-2. **사전 점검(blocker gate)**: 이동 대상(plans·handoffs·release-notes·dogfood)을 **frozen spec/task 가 링크하는지 전수 grep**. 발견 시 그 frozen 파일은 편집 불가 → 해당 이동 대상은 **옮기지 않고 제자리 유지**(frozen 무결성 > 정리). explorer 분석상 inbound 는 전부 living(HOTFIXES·HANDOFF·INDEX)뿐이라 충돌 0 예상이나 실행 시 확정.
-3. **living 문서 inbound 링크(~13: HOTFIXES 8 · HANDOFF 3 · INDEX 2)는 repoint 필수** (living 이라 편집 가능).
-4. **archive 내부 문서의 spec 링크**(plan→spec 등)는 best-effort: 깨져도 historical 이라 저-위험. 가능하면 상대경로 보정, 비용 크면 방치 허용(DOCS.md 가 "archive 는 이력" 명시).
-5. **검증**: 이동·삭제 후 living 문서(README·HANDOFF·ARCHITECTURE·DOCS·CLAUDE·HOTFIXES·INDEX)에서 깨진 상대 링크 0 (markdown 링크 grep).
+**`CHANGELOG.md`** (root): release-notes 9개 역순 인덱스(버전·핵심 1–3줄·gitea 링크). 미문서화 구간(v0.21–v0.27)은 "Gitea releases 참조" 명시.
 
-## 8. CLAUDE.md 갱신
+## 6. living 문서 슬림화 + 링크 정리 (~94 inbound)
 
-§User-facing docs 에:
-- **DOCS.md = 문서 지도(SoT 인덱스)** 로 명시, "새 문서를 어디 둘지/뭐가 SoT 인지 헷갈리면 DOCS.md 먼저".
-- **3구역 정책** 명문화: living=갱신 필수 / frozen=동결 / `docs/archive/`=이력(편집·신규금지, point-in-time 만).
-- **CHANGELOG.md** = release 변경 이력 living 문서, release 컷 시 갱신(release 절과 연결).
-- 새 historical 산출물(실행계획·측정·dogfood run)은 처음부터 `docs/archive/<kind>/` 에.
+삭제 대상을 링크하던 kept 문서들 — 전부 living 이라 편집 가능:
+- **`HANDOFF.md`** (52KB): p9-fb-* task spec 링크 + per-task 상세 → **phase-level 요약**으로 슬림(HANDOFF 본래 역할). 삭제된 spec/plan 링크 제거(내용은 이미 HOTFIXES/요약에).
+- **`tasks/INDEX.md`**: 86 task spec 링크 dashboard → **phase 진척 dashboard**(spec 링크 없이 phase 상태만). source 헤더의 rust_report 참조 유지.
+- **`tasks/HOTFIXES.md`**: 삭제된 plans/specs 로의 ~8 링크 → drop(텍스트 self-contained) 또는 inline. **HOTFIXES 본문은 보존**(live 진실).
+- **`docs/components/*/README.md`**: "task spec:" 링크(36) → 제거 또는 "(설계 baseline: design contract §X)" 한 줄로.
+- **`tasks/phase-*.md`**: 삭제된 p*/ 링크 정리(phase epic 요약만 유지).
+- **`docs/superpowers/specs/2026-04-27 계약`**: **frozen — 편집 금지.** 이 계약이 삭제 대상(handoffs/plans)을 링크하면 그 링크만 깨짐 → 허용(계약은 의도 기록, 깨진 historical 링크는 저위험). 단 frontmatter 의 parent 링크는 본 spec 이 정리 가능하면 정리.
 
-## 9. 작업 단위 (구현 시 분할)
+## 7. CLAUDE.md 갱신
 
-1. **stale 수정**(2): normalize-chunk·foundation README 흡수-crate 참조 1줄씩. (독립·무위험)
-2. **삭제**: `docs/spec/` 7 스텁. (inbound 0 확인 후)
-3. **CHANGELOG 합성** → `CHANGELOG.md`.
-4. **archive 이동**: `git mv` plans·handoffs·release-notes·dogfood → `docs/archive/**` (사전 grep gate 통과 후) + living inbound 13 repoint.
-5. **DOCS.md 작성**(지도) + README 포인터 1줄.
-6. **CLAUDE.md §docs 갱신**.
-7. **검증**: living 문서 깨진 링크 0, 트리 확인.
+- **§Spec contract / Allowed-forbidden deps / User-facing docs** 재작성: task spec 층이 사라졌으므로 "task specs frozen" 규칙 → "**유일 frozen 계약 = 2026-04-27 design doc**; 구현 진실 = 코드 + HOTFIXES + ARCHITECTURE" 로. 의존성 경계표(§4-5) 흡수.
+- **DOCS.md = SoT 지도** 명시 + 3구역(living/계약/증거) 정책 + "신규 historical 산출물(plan/handoff 류)은 만들지 않는다 — 결정·deviation 은 HOTFIXES, 구조는 ARCHITECTURE 에 직접" 명문화(중구난방 재발 방지).
+- **CHANGELOG.md** = release 변경 이력 living.
 
-각 단위는 독립 커밋. 4번(이동)이 가장 위험 → 사전 grep gate + 사후 링크 검증 필수.
+## 8. 실행 순서 (안전: 추출 → 슬림 → 삭제 → 검증)
 
-## 10. 성공 기준
+1. **추출**: durable 4건 → ARCHITECTURE, 경계표 → CLAUDE.md. (삭제 전 필수)
+2. **신규**: DOCS.md, CHANGELOG.md.
+3. **stale 수정**: normalize-chunk·foundation README 2건.
+4. **슬림+링크정리**: HANDOFF, INDEX, HOTFIXES, components, phase-*, CLAUDE §docs.
+5. **삭제(`git rm`)**: plans(64)·handoffs(8)·docs/spec(7)·tasks/p*(86)·specs feature(55).
+6. **검증**: kept 문서(README·DOCS·ARCHITECTURE·HANDOFF·INDEX·HOTFIXES·CLAUDE·components·CHANGELOG) **깨진 상대 링크 0** (markdown 링크 grep). 빌드 무관(문서). 계약(2026-04-27)·본 spec 잔존 확인.
 
-- root `DOCS.md` 하나로 "현재 진실/최신 문서/이력"을 즉시 식별 가능.
-- `docs/` 최상위에 historical 아티팩트 0 (전부 `archive/` 하위 또는 frozen `specs/`).
-- 오펀 스텁 0, release-notes 단일 CHANGELOG.
-- living 문서 깨진 링크 0, frozen specs/tasks 무변경.
-- CLAUDE.md 가 3구역 + DOCS.md 지도 정책을 강제.
+각 단계 독립 커밋. 5(삭제) 전에 1(추출) 완료 필수.
 
-## 11. 위험 / 메모
+## 9. 성공 기준
 
-- **frozen→이동대상 링크**가 grep 에서 나오면 그 대상은 제자리 유지(부분 정리 허용). frozen 무결성 우선.
-- DOCS.md 는 living — 새 문서/구역 추가 시 갱신 필요(CLAUDE.md 가 강제).
-- archive 이동으로 git blame 경로가 바뀌나 `git mv` 라 history 추적 가능.
+- root `DOCS.md` 하나로 "현재 진실/최신/계약/증거" 즉시 식별.
+- `docs/superpowers/` = specs/{계약, 본 spec} 만. plans/handoffs/feature-specs/tasks-p 전부 제거.
+- durable 4건 ARCHITECTURE 에 보존, 경계표 CLAUDE.md 에 보존.
+- kept 문서 깨진 링크 0. 계약 무변경(frozen). git history 에 원본 전부 보존.
+- CLAUDE.md 가 신규 historical 누적 금지 정책 명시 → 재발 방지.
+
+## 10. 위험 / 메모
+
+- **되돌리기**: 전부 git history 에 있음(`git mv`/`git rm`). 복구는 git revert/checkout.
+- **계약의 깨진 historical 링크**: frozen 편집 금지라 일부 잔존 허용(저위험, DOCS.md 가 "삭제된 historical 은 git" 명시).
+- **durable 누락 위험**: 분석이 "이미 HOTFIXES 에 있음" 판정한 handoff/feature-spec 은 삭제 전 grep 재확인.
+- **HANDOFF/INDEX 슬림화**가 가장 판단 필요한 content 작업 — phase-level 요약 유지, per-task 상세는 HOTFIXES 가 흡수.
