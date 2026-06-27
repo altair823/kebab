@@ -114,7 +114,7 @@ flowchart LR
 
 - crate dep:
   - 모든 parser → `kebab-core` (`Extractor` trait, `Block`, `Metadata`, `id_for_*`).
-  - `kebab-parse-md` → `kebab-parse-types` (`ParsedBlock`/`ParsedPayload`/`Warning`), `pulldown-cmark`, `serde_yaml_ng`.
+  - `kebab-parse-md` → `pulldown-cmark`, `serde_yaml_ng`. (`ParsedBlock`/`ParsedPayload`/`Warning` 등 옛 `kebab-parse-types` 는 v0.19.0 에 `kebab-parse-md::types` 모듈로 흡수.)
   - `kebab-parse-pdf` → `lopdf`.
   - `kebab-parse-image` → `image` (decode), `kamadak-exif` (EXIF), `kebab-core::LanguageModel` (caption).
 - 외부 서비스:
