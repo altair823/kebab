@@ -14,6 +14,37 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-06-27 — v0.32.0 ponytail-audit 정리 arc 도그푸딩 (chunker A/B byte-identical + GPU r9700)
+
+over-engineering 감사(ponytail-audit) 후 4 PR(#219–#222) 로 표면·구조·crate 수 단순화. **능력 불변, 이 arc(#219–#222) 누적 −3400줄 / crate 22→20 / dep −1**(serde_yaml 제거; unsafe-libyaml 은 serde_yaml_ng 가 여전히 transitive 로 가져옴). 실엔진 종단 검증:
+
+### chunker 통합(#220) A/B — byte-identical 확증 (핵심 게이트)
+
+9개 동일 code AST chunker → `CodeAstV1Chunker` 통합이 출력을 안 바꿨는지, **pre-arc(v0.31.0, 9-chunker `fd3b4ae`) vs post-arc(consolidated) 두 release 바이너리**로 동일 코드 코퍼스를 ingest 해 직접 대조.
+
+- 코퍼스: 5언어 9파일(`corpus/code/{rust×5, python, go, c, typescript}`, kebab 자체 소스 + 소형 실파일).
+- 결과: 양쪽 **120 chunks**, `SELECT chunk_id, chunker_version FROM chunks ORDER BY chunk_id` dump 의 `diff` **완전 비어있음** → chunk_id + chunker_version 모두 byte-identical.
+- chunker_version 분포(post): `code-rust-ast-v1` ×105, `code-python-ast-v1` ×7, `code-c-ast-v1` ×3, `code-go-ast-v1` ×3, `code-ts-ast-v1` ×2 — 라벨이 언어별로 verbatim 보존됨(약어 케이스 `typescript→ts` 포함).
+- 의미: `chunk_id = id_for_chunk(doc, chunker_version, …)` 라 라벨 보존 = chunk_id 불변 = **재인덱싱 0, 임베딩 드리프트 0**. 단위 골든 스냅샷(9개 무수정 통과)에 더해 실코퍼스로 종단 확증.
+
+### GPU (r9700 ollama 스왑)
+
+- `lemonade`(.243, opencode/hermes 의존) ↓ → `ollama-r9700`(.244, `gemma3:4b` + `snowflake-arctic-embed2`) ↑. ingest 가 arctic 임베딩으로 정상 완료(pre 16.4s / post 6.3s, scanned=9 new=9 errors=0).
+- lexical 검색 `"split oversize"` → `python/sample.py`·`c/sample.c`·`rust/code_ast_v1.rs` 의 `split_oversize` 청크 hit(0.93/0.93/0.92). consolidated-chunker KB 검색 정상.
+- **lemonade 무조건 복구**(trap restore EXIT): ollama-r9700 ↓ → lemonade ↑, `.243` 응답 확인. baseline 복원 완료.
+
+### CLI 표면(#219)
+
+- `kebab search --no-cache` / `kebab search --explain` → `error: unexpected argument` (제거 확인).
+- `kebab ask --explain` + `kebab search --trace` → `--help` 에 present (live 유지 확인).
+
+### known limitation
+
+- RAG 생성(ask) 경로는 이 arc 가 변경하지 않아(#222 NLI default 제거는 prod `OnnxNliVerifier` 가 override 라 동작 불변) GPU LLM ask 재도그푸딩은 생략 — GPU 는 임베딩 ingest 로 행사. 다음 RAG-prompt/모델 변경 시 재개.
+- evidence 산출물: `large_data/out/kebab-dogfood/arc-ab/{pre,post}_chunks.txt` (regeneratable).
+
+상세 surface 설명: `docs/release-notes/v0.32.0-draft.md`.
+
 ## 2026-06-25 — v0.31.0 릴리스 도그푸딩: OCR 캐시(PR #217) + 마이그레이션(PR #214) evidence
 
 v0.31.0 = 척추 재작성(#214) + 임베딩 캐시 전면화(#216) + OCR/caption 캐시(#217) 누적

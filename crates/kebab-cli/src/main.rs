@@ -320,7 +320,7 @@ enum Cmd {
     /// Print introspection report (wire schemas, capabilities, model versions, stats).
     Schema,
 
-    /// Eval suite (placeholder; lands in P9).
+    /// Eval suite — 검색/RAG 품질 측정 (run / aggregate / variants / compare).
     Eval {
         #[command(subcommand)]
         what: EvalWhat,
