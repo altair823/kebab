@@ -7,7 +7,7 @@
 | Crate | 역할 |
 |-------|------|
 | `kebab-core` | 도메인 type + ID recipe + trait. 다른 `kebab-*` crate 에 **의존 금지** (frozen 설계 §3, §4, §7). |
-| `kebab-parse-types` | parser intermediate (`ParsedBlock`) — `kebab-core` 만 의존. parser library (`pulldown-cmark`, `lopdf` 등) 의존 금지 (§3.7b). |
+| `kebab-parse-md::types` (모듈; 구 `kebab-parse-types`, v0.19.0 에 `kebab-parse-md` 로 흡수) | parser intermediate (`ParsedBlock`) — `kebab-core` 만 의존. parser library (`pulldown-cmark`, `lopdf` 등) 의존 금지 (§3.7b). |
 | `kebab-config` | `Config` 스키마 + XDG path resolver. `defaults → file → env (KEBAB_*)` 3 layer (§6). |
 
 ## 구조
@@ -108,7 +108,7 @@ flowchart LR
 **Trait** (`traits.rs`) — pipeline contract. 자세한 내용은 각 그룹 페이지:
 - `Extractor` (→ Parse), `Chunker` (→ Normalize+Chunk), `Embedder` (→ Embed), `Retriever` (→ Search), `LanguageModel` (→ LLM), `DocumentStore` / `VectorStore` (→ Store), `ChatSessionRepo` (→ Store, p9-fb-17).
 
-**ParsedBlock IR** (`kebab-parse-types`):
+**ParsedBlock IR** (`kebab-parse-md::types`):
 - `ParsedBlock { kind, heading_path, source_span, payload: ParsedPayload }` — 모든 parser 의 공통 출력.
 - `Warning { kind: WarningKind, note }` — `MalformedFrontmatter` / `MalformedTable` / `EncodingFallback` / `ExtractFailed`.
 
@@ -121,7 +121,7 @@ flowchart LR
 ## 외부 의존
 
 - `kebab-core`: `serde` + `serde_json` + `serde_json_canonicalizer` (JCS) + `blake3` + `time` + `uuid`. parser/store/llm crate 의존 **금지**.
-- `kebab-parse-types`: `kebab-core` + `serde` 만.
+- `kebab-parse-md::types` (구 `kebab-parse-types` crate, 이제 `kebab-parse-md` 모듈): `kebab-core` + `serde` 만.
 - `kebab-config`: `kebab-core` + `serde` + `toml` + `dirs` + `tracing`.
 
 ## 핵심 결정
@@ -145,7 +145,7 @@ flowchart LR
 ## 관련 spec / HOTFIXES
 
 - frozen 설계 §3 (도메인 type) / §4 (ID) / §6 (Config) / §7 (trait) / §9 (cascade): [`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`](../../superpowers/specs/2026-04-27-kebab-final-form-design.md)
-- p9-fb-05 (`workspace.root` path policy): [`tasks/p9/p9-fb-05-config-path-policy.md`](../../../tasks/p9/p9-fb-05-config-path-policy.md)
-- p9-fb-15 (RAG multi-turn — `Turn`, `Answer.conversation_id`/`turn_index`): [`tasks/p9/p9-fb-15-rag-multi-turn-core.md`](../../../tasks/p9/p9-fb-15-rag-multi-turn-core.md)
-- p9-fb-17 (chat session storage — `ChatSessionRow`, `ChatTurnRow`, `ChatSessionRepo`): [`tasks/p9/p9-fb-17-chat-session-storage.md`](../../../tasks/p9/p9-fb-17-chat-session-storage.md)
+- p9-fb-05 (`workspace.root` path policy) — task spec 삭제됨(2026-06-27 doc-reorg), 상세 git history.
+- p9-fb-15 (RAG multi-turn — `Turn`, `Answer.conversation_id`/`turn_index`) — task spec 삭제됨, 상세 git history.
+- p9-fb-17 (chat session storage — `ChatSessionRow`, `ChatTurnRow`, `ChatSessionRepo`) — task spec 삭제됨, 상세 git history.
 - HOTFIXES dated 로그 (P3-5/P4-3 `--config` 누락, P6-3 `GenerateRequest.images` 신설 등): [`tasks/HOTFIXES.md`](../../../tasks/HOTFIXES.md)

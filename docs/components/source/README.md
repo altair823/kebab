@@ -103,5 +103,5 @@ flowchart LR
 ## 관련 spec / HOTFIXES
 
 - frozen 설계 §3.3 (`RawAsset`), §6.2 (workspace + .kebabignore), §6.6 (POSIX 정규화), §7.1 (`SourceScope`), §7.2 (`SourceConnector`): [`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`](../../superpowers/specs/2026-04-27-kebab-final-form-design.md)
-- task spec: [`tasks/p1/p1-1-source-fs.md`](../../../tasks/p1/p1-1-source-fs.md)
-- p9-fb-05 (`expand_tilde` shim 제거 + `Config::resolve_workspace_root` 일원화): [`tasks/p9/p9-fb-05-config-path-policy.md`](../../../tasks/p9/p9-fb-05-config-path-policy.md)
+- task spec: p1-1-source-fs — 삭제됨(2026-06-27 doc-reorg), 설계는 frozen 계약, 상세 git history.
+- p9-fb-05 (`expand_tilde` shim 제거 + `Config::resolve_workspace_root` 일원화) — task spec 삭제됨, 상세 git history.

@@ -6,7 +6,7 @@
 
 | Crate | 역할 |
 |-------|------|
-| `kebab-normalize` | `ParsedBlock` (markdown only) → `CanonicalDocument` lift. NFC + heading-path ordinal + provenance 합성 + title fallback chain (p9-fb-07). |
+| `kebab-parse-md::normalize` (모듈; 구 `kebab-normalize`, v0.19.0 에 `kebab-parse-md` 로 흡수) | `ParsedBlock` (markdown only) → `CanonicalDocument` lift. NFC + heading-path ordinal + provenance 합성 + title fallback chain (p9-fb-07). |
 | `kebab-chunk` | `CanonicalDocument` → `Vec<Chunk>`. markdown 기본 `md-heading-v2`, PDF `pdf-page-v1.2` — 둘 다 공유 `crate::oversize` (line→char 분할)로 예산 초과 청크를 잘라 모든 청크 ≤ `max_chunk_tokens`. `md-heading-v1`/`pdf-page-v1.1` 은 historical 변종으로 잔존. |
 
 ## 구조
@@ -14,7 +14,7 @@
 ```mermaid
 classDiagram
     class Normalize {
-        <<kebab-normalize>>
+        <<kebab-parse-md::normalize>>
         build_canonical_document(asset, metadata, blocks, parser_version, warnings) CanonicalDocument
         derive_title(frontmatter, blocks, file_stem) String
         nfc(s) String
@@ -91,7 +91,7 @@ flowchart TD
 
 ## 주요 type / trait / 함수
 
-**Normalize** (`kebab-normalize`):
+**Normalize** (`kebab-parse-md::normalize`):
 - `build_canonical_document(asset: &RawAsset, metadata: Metadata, blocks: Vec<ParsedBlock>, parser_version: &ParserVersion, warnings: Vec<Warning>) -> Result<CanonicalDocument>`.
   - `doc_id = id_for_doc(workspace_path, asset_id, parser_version)`.
   - 모든 `heading_path` 에 NFC 정규화 적용 (NFD `\u{1100}\u{1161}` 와 NFC `\u{AC00}` = "가" 가 같은 `block_id` 로 hash 되도록).
@@ -120,7 +120,7 @@ flowchart TD
 ## 외부 의존
 
 - crate dep:
-  - `kebab-normalize` → `kebab-core`, `kebab-parse-types` (`ParsedBlock`/`ParsedPayload`/`Warning`), `unicode-normalization`, `time`.
+  - `kebab-parse-md::normalize` (구 `kebab-normalize` crate, 이제 `kebab-parse-md` 모듈) → `kebab-core`, `kebab-parse-md::types` (`ParsedBlock`/`ParsedPayload`/`Warning`), `unicode-normalization`, `time`.
   - `kebab-chunk` → `kebab-core`, `serde_json_canonicalizer`, `blake3`. parser/store/embed 의존 **금지**.
 - 외부 lib: `unicode-normalization` (NFC), `blake3` (policy_hash), `serde_json_canonicalizer` (JCS), `time` (provenance timestamps).
 - 외부 서비스: 없음.
@@ -151,9 +151,5 @@ flowchart TD
 ## 관련 spec / HOTFIXES
 
 - frozen 설계 §3.4 (`Block` / `CanonicalDocument`), §3.5 (`Chunk`), §3.6 (`Provenance`), §3.7b (`ParsedBlock`), §4.2 (ID recipe), §4.3 (ordinal), §0/§14 (chunking priority): [`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`](../../superpowers/specs/2026-04-27-kebab-final-form-design.md)
-- task spec:
-  - normalize: [`tasks/p1/p1-4-normalize.md`](../../../tasks/p1/p1-4-normalize.md)
-  - chunk md: [`tasks/p1/p1-5-chunk-md.md`](../../../tasks/p1/p1-5-chunk-md.md)
-  - chunk pdf: [`tasks/p7/p7-2-chunk-pdf.md`](../../../tasks/p7/p7-2-chunk-pdf.md)
-  - title fallback: [`tasks/p9/p9-fb-07-md-title-fallback.md`](../../../tasks/p9/p9-fb-07-md-title-fallback.md)
+- task specs: 삭제됨(2026-06-27 doc-reorg) — 설계는 frozen 계약, 동작은 tasks/HOTFIXES.md, 상세 git history.
 - HOTFIXES (P7-2 BYTES_PER_TOKEN/=3, chunk_id 충돌 회피, p9-fb-07 title chain): [`tasks/HOTFIXES.md`](../../../tasks/HOTFIXES.md)

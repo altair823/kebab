@@ -6,14 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Single-user local-first knowledge base + RAG. Rust 2024 workspace, 20 crates, single binary (`kebab`). All inference is local (Ollama + fastembed + whisper.cpp).
 
-The repo's documentation is split by audience — don't duplicate across them:
+The repo's documentation is split by audience + zone — don't duplicate across them. **[DOCS.md](DOCS.md)** is the doc map (what's the Source-of-Truth for what); start there if unsure where something belongs.
 
-- **[README.md](README.md)** — first stop for an end user. Quick start, command table, one Mermaid logical-architecture diagram, configuration pointers, license. Stays narrow.
-- **[HANDOFF.md](HANDOFF.md)** — phase-level progress dashboard for someone picking the project up. Phase status table, component count, "next task candidates", short summary of post-merge deviations. The README never duplicates this.
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — internal structure: crate dependency graph, directory tree, locked-in technical decisions. The README links here from the Mermaid diagram.
-- **[docs/superpowers/specs/2026-04-27-kebab-final-form-design.md](docs/superpowers/specs/2026-04-27-kebab-final-form-design.md)** — frozen design contract.
-- **[tasks/INDEX.md](tasks/INDEX.md)** — per-component task tree.
-- **[tasks/HOTFIXES.md](tasks/HOTFIXES.md)** — dated post-merge deviation log; live source of truth where behavior and the frozen spec disagree.
+**zones**: *living* (현재 진실, 갱신 필수) · *frozen 계약* (설계 의도 baseline, 편집 금지 — `docs/superpowers/specs/2026-04-27-…-design.md` 하나) · *증거* (rust_report, dogfood/v0.18.0). 그 외 historical 문서(옛 plans/handoffs/task specs/feature specs)는 2026-06-27 doc-reorg 에서 삭제 — git history 에만. **새 plan/handoff/per-feature spec 문서를 쌓지 않는다**(그게 268개로 불어난 원인): 결정·deviation 은 HOTFIXES, 구조·불변식은 ARCHITECTURE, 릴리스는 CHANGELOG 에 직접.
+
+- **[README.md](README.md)** — first stop for an end user. Quick start, command table, one Mermaid logical-architecture diagram, configuration pointers, license. Stays narrow. (living)
+- **[DOCS.md](DOCS.md)** — 문서 지도 / Source-of-Truth 인덱스. "어느 문서가 현재 진실인지" 한눈에. (living)
+- **[HANDOFF.md](HANDOFF.md)** — phase-level progress dashboard. Phase status table, "next task candidates", short milestone pointers. The README never duplicates this. (living)
+- **[tasks/INDEX.md](tasks/INDEX.md)** — per-component status dashboard. (living)
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — internal structure: crate dependency graph, directory tree, locked-in technical decisions, 핵심 구현 불변식. (living)
+- **[tasks/HOTFIXES.md](tasks/HOTFIXES.md)** — dated post-merge deviation log; live source of truth where behavior and the contract disagree. (living)
+- **[CHANGELOG.md](CHANGELOG.md)** — release 변경 이력 인덱스. (living)
+- **[docs/superpowers/specs/2026-04-27-kebab-final-form-design.md](docs/superpowers/specs/2026-04-27-kebab-final-form-design.md)** — frozen design contract (의도 baseline).
 
 ## Build / test / lint
 
@@ -38,13 +42,12 @@ The dev/test profile is already trimmed (`debug = "line-tables-only"`, `split-de
 
 ## Spec contract
 
-`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md` (12 sections) is the single contract for the whole workspace. Every component task spec under `tasks/p<N>/` lists which `contract_sections` it implements.
+`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md` (12 sections) is the **single frozen design contract** for the whole workspace — "무엇을 의도했나"의 baseline. (The per-component task specs `tasks/p<N>/` + per-feature design specs that referenced it were removed in the 2026-06-27 doc-reorg; the shipped **code is the implementation truth**, the design contract is the intent baseline, and deviations live in HOTFIXES.)
 
-- Changing the design doc requires updating every referencing task spec in the same PR.
-- Task specs themselves stay **frozen** as the historical contract once the task is merged. Don't edit them retroactively to match what shipped.
-- Live deviations from the original contract go in `tasks/HOTFIXES.md` as dated entries, plus a one-line cross-link in the original spec's `Risks / notes`. Treat HOTFIXES.md as the live source of truth when behavior and spec disagree.
+- The design contract stays **frozen** — don't edit it retroactively to match what shipped.
+- **Live deviations from the contract go in `tasks/HOTFIXES.md`** as dated entries. Treat HOTFIXES.md as the live source of truth when behavior and the contract disagree. Don't recreate per-feature spec/plan/handoff files — record decisions in HOTFIXES, structure/invariants in `docs/ARCHITECTURE.md`, releases in `CHANGELOG.md`.
 
-`tasks/INDEX.md` is the dashboard for which phases / components are done; update its phase status when a phase epic completes.
+`tasks/INDEX.md` is the per-component status dashboard; `HANDOFF.md` is the phase-level dashboard. Update them when a component/phase status changes. The full doc map (what's the SoT for what) is **[DOCS.md](DOCS.md)**.
 
 ## Allowed / forbidden deps
 
@@ -189,7 +192,7 @@ The README does NOT carry: phase status, component count, post-merge deviations,
 - A locked-in decision flips (e.g. OCR engine default changes per a HOTFIXES entry) — update the table and link the HOTFIXES entry.
 - A directory moves — update the tree.
 
-Out of scope for all three: HOTFIXES detail (`tasks/HOTFIXES.md`), version cascade mechanics (CLAUDE.md §Versioning cascade), per-task spec rationale (`tasks/p<N>/`).
+Out of scope for all three: HOTFIXES detail (`tasks/HOTFIXES.md`), version cascade mechanics (CLAUDE.md §Versioning cascade), the frozen design contract's section detail (`docs/superpowers/specs/2026-04-27-…-design.md`).
 
 If a feature ships behind a flag that's off-by-default, mention the flag explicitly in the README so a user reading only the README knows the surface exists but is gated.
 

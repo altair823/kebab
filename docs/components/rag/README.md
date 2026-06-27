@@ -142,7 +142,5 @@ flowchart LR
 ## 관련 spec / HOTFIXES
 
 - frozen 설계 §0 Q4 (RAG 9 stages), §1 (cite-validate), §2.3 (`[근거]` 블록 형식), §3.8 (Answer / Turn / RefusalReason), §6.4 (`rag.score_gate` / `max_context_tokens` / `prompt_template_version`), §7.2 (`Retriever` / `LanguageModel` traits), §9 (cascade): [`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`](../../superpowers/specs/2026-04-27-kebab-final-form-design.md)
-- task spec:
-  - pipeline: [`tasks/p4/p4-3-rag-pipeline.md`](../../../tasks/p4/p4-3-rag-pipeline.md)
-  - multi-turn core: [`tasks/p9/p9-fb-15-rag-multi-turn-core.md`](../../../tasks/p9/p9-fb-15-rag-multi-turn-core.md)
+- task specs: 삭제됨(2026-06-27 doc-reorg) — 설계는 frozen 계약, 동작은 tasks/HOTFIXES.md, 상세 git history.
 - HOTFIXES (P4-3 `--config` 누락, p9-fb-15 multi-turn 위 `Answer`/`Turn` 필드 추가, p9-fb-20 citation 표면): [`tasks/HOTFIXES.md`](../../../tasks/HOTFIXES.md)

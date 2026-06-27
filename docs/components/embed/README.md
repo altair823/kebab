@@ -111,7 +111,5 @@ flowchart LR
 ## 관련 spec / HOTFIXES
 
 - frozen 설계 §7.1 (helper input types `EmbeddingInput`/`EmbeddingKind`), §7.2 (`Embedder` trait), §11.3 (E5 prefix), §6.4 (`models.embedding`), §9 (versioning): [`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md`](../../superpowers/specs/2026-04-27-kebab-final-form-design.md)
-- task spec:
-  - trait crate: [`tasks/p3/p3-1-embed-trait.md`](../../../tasks/p3/p3-1-embed-trait.md)
-  - fastembed adapter: [`tasks/p3/p3-2-embed-local.md`](../../../tasks/p3/p3-2-embed-local.md)
+- task specs: 삭제됨(2026-06-27 doc-reorg) — 설계는 frozen 계약, 동작은 tasks/HOTFIXES.md, 상세 git history.
 - HOTFIXES: 이 그룹은 머지 후 deviation 없음.
