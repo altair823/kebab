@@ -164,10 +164,12 @@ The migration from the old `kb` name lives in commits `911fb49 / f1a448d / f9714
 
 Three sibling docs split the audience. Every implementation PR (`feat/*`) keeps them in sync; spec PRs (`spec/*`) don't touch any of the three.
 
-**[README.md](README.md) — end user.** Stays narrow. The three surfaces a user touches:
+**README 최신성은 hard requirement.** README 는 **항상 현재 코드베이스를 반영**해야 한다 — 기능이 추가·변경·삭제되거나 사용자가 닿는 표면(CLI 서브커맨드/플래그/`--json` 필드/config 키/기본값/XDG 경로)이 바뀌면 **그 PR 에서 README 를 함께 갱신**한다 (제거된 surface·플래그는 README 에서도 제거 — 옛 surface 가 남아 있으면 안 됨). 단, **README 에 담는 깊이는 "사용자가 바로 쓰는 설명서" 수준**(무엇을·어떻게: 명령·플래그·config·Quick start·기능이 해주는 일)이지 **아키텍처 설명이 아니다**. 내부 구조·crate 그래프·기술 결정·구현 디테일은 README 에 쓰지 말고 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 에 반영**한다. 경계 = "사용법은 README, 구조는 ARCHITECTURE". 같은 변경이 둘 다 건드리면 양쪽을 각자의 altitude 로 갱신한다 (예: 새 source 형식 → README 는 "이제 X 도 색인됨" 한 줄, ARCHITECTURE 는 extractor/chunker 배선 상세).
 
-- **CLI** — new `kebab <subcommand>`, flag, `--json` field, or exit-code change. Update the **명령** table and the **Quick start** block if the new flow needs a different invocation.
-- **TUI** — new pane, key binding, or run-time behavior visible to a `kebab tui` user. Update the row in the **명령** table and the Mermaid diagram if a new external surface lands.
+**[README.md](README.md) — end user.** Stays narrow. The surfaces a user touches:
+
+- **CLI** — new `kebab <subcommand>`, flag, `--json` field, or exit-code change. Update the **명령** table and the **Quick start** block if the new flow needs a different invocation. 삭제된 서브커맨드/플래그는 표·예시에서 제거.
+- **UI surface** — 현재 사용자 UI 는 `kebab` CLI 가 유일하다 (`kebab tui` + `kebab-tui` crate 는 v0.31.0 에서 제거, desktop 은 P9-5 미착수). 새 외부 UI surface(예: desktop) 가 실제로 land 하면 **명령** 표 + Mermaid 다이어그램 갱신.
 - **Configuration** — new `config.toml` field, `KEBAB_*` env, default change, or XDG path. Update the **Configuration** section AND the config example block in `docs/SMOKE.md`.
 
 The Mermaid logical-architecture diagram stays the only diagram in the README. If a new media type / external service / store crosses the diagram boundary, update it; otherwise leave it alone.

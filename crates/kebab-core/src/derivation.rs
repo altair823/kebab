@@ -10,7 +10,8 @@
 //! cache_key = blake3_hex( kind || 0x00 || text_blake3 || 0x00 || version_key )[:32]
 //! ```
 //! - `text_blake3` = blake3(NFC-normalized UTF-8 bytes of the chunk text).
-//! - `kind` ∈ { "embedding", "alias", "korean_tokens" }.
+//! - `kind` ∈ { "embedding", "ocr", "caption" } (옛 "alias"/"korean_tokens"
+//!   는 제거됨; "ocr"/"caption" 은 v0.31.0 #217 추가).
 //! - `version_key` folds every §9 version-cascade input for that kind
 //!   (model / prompt / tokenizer version). A version bump changes the key →
 //!   automatic cache miss → recompute, keeping the cache consistent with the
