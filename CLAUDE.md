@@ -48,13 +48,18 @@ The dev/test profile is already trimmed (`debug = "line-tables-only"`, `split-de
 
 ## Allowed / forbidden deps
 
-Each task spec lists `Allowed dependencies` and `Forbidden dependencies` per design §8. The most load-bearing ones:
+Crate-boundary rules per design §8 (consolidated here — the per-task specs that originally held these were removed in the 2026-06-27 doc-reorg; this table + design §8 are the reference). New crates inherit the boundary rules of their category (e.g. a new embedder → same forbidden list as `kebab-embed-local`). Verify against the crate's `Cargo.toml` before adding an import.
 
-- `kebab-core` MUST NOT depend on any other `kebab-*` crate. Domain types only.
-- `kebab-eval`'s `metrics` and `compare` modules MUST NOT import retrieval / embedding / LLM crates directly. The runner is allowed to use `kebab-app`'s facade (P5-1 inheritance — see deviations in that task spec).
-- UI crates (`kebab-cli`, `kebab-mcp`, future `kebab-desktop`) MUST NOT import `kebab-store-*` / `kebab-llm-*` / `kebab-parse-*` directly — only `kebab-app`.
-
-Read the relevant task spec's deps section before adding an import. New crates inherit the same boundary rules.
+| Crate / group | Forbidden imports | Why |
+|---|---|---|
+| **kebab-core** | all `kebab-*` | 도메인 타입+trait 만. 구현 없음 → 순환 의존 0. |
+| **kebab-config** | 모든 상위 crate (parsers/stores/embed/search/llm/rag/app/UI) | platform-agnostic. `kebab-core` 만 의존. |
+| **kebab-parse-*** (md/pdf/image/code), **kebab-chunk** | `kebab-store-*`, `kebab-embed-*`, `kebab-search`, `kebab-llm-*`, `kebab-rag`, UI | `CanonicalDocument`/`Chunk` 만 trait 로 산출. 검색/임베딩/저장과 런타임 결합 없음. |
+| **kebab-search** | concrete `kebab-embed-*`, `kebab-llm-*`, `kebab-rag`, UI | 검색은 임베더 provider 무관. adapter 는 app 에서 주입. |
+| **kebab-embed-local/ollama**, **kebab-llm-local** | parsers, chunk, stores, search, 다른 embed/llm, rag, UI | provider 구현은 교체 가능한 trait. 파이프라인 결합 없음. |
+| **kebab-rag** | parsers, chunk, concrete `kebab-embed-*`/`kebab-llm-*`, UI | trait object 를 app 이 주입. adapter 직접 의존 없음. |
+| **kebab-eval** (특히 `metrics`/`compare`) | parsers, chunk, `kebab-store-vector`, embed, search(직접), llm, rag, UI | runner 는 `kebab-app` facade + SQLite store 만. metrics/compare 는 런타임과 분리. |
+| **UI crates** (`kebab-cli`, `kebab-mcp`, future `kebab-desktop`) | `kebab-store-*`, `kebab-parse-*`, `kebab-chunk`, `kebab-embed-*`, `kebab-search`(직접), `kebab-llm-*`, `kebab-rag` | 모든 진입은 `kebab-app` facade 만 (design §8). |
 
 ## Wire schema v1
 
