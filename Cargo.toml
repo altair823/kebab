@@ -28,7 +28,7 @@ edition       = "2024"
 rust-version  = "1.85"
 license       = "MIT OR Apache-2.0"
 repository    = "https://github.com/altair823/kebab"
-version       = "0.31.0"   # v0.31.0 — 척추 단순화 + 캐시 전면화. (1) 척추 재작성(#214, breaking): tui·multi-turn 세션·rag-v1/v2·search캐시·candle 제거(crate 24→22), config v4→v5 무손실 마이그레이션, V015 drop chat_sessions. (2) 임베딩 캐시 전면화(#216, patch): image/pdf/code 핸들러를 markdown 과 동일한 embed_with_cache 경유로 — 출력 byte-identical. (3) OCR/caption derivation 캐시(#217, patch): ocr/caption 네임스페이스로 비전 산출물을 소스 바이트로 캐싱 → 버전-캐스케이드에서 분리, 출력 불변. minor 트리거 = 척추의 V015 + config v5 breaking. 도그푸딩 evidence: HOTFIXES 2026-06-25(OCR 캐시 17 jira PNG 7× + v3 KB 마이그레이션). 상세 docs/release-notes/v0.31.0-draft.md — CLAUDE.md §Release
+version       = "0.32.0"   # v0.32.0 — ponytail-audit over-engineering 정리 arc (능력 불변, 표면·구조만 단순화). (1) 죽은 search-cache scaffold 제거(#219): #214 LRU 캐시 제거 후 잔존 facade/`search --no-cache`·`--explain` 플래그/`explain_default` config 정리, search() byte-identical. (2) 9개 동일 code AST chunker → CodeAstV1Chunker 통합(#220, −3030줄): chunker_version 라벨 verbatim 유지 → chunk_id byte-identical(pre/post-arc 실코퍼스 A/B 120==120 diff-empty 확증), 재인덱싱 0. (3) 빈 re-export shim kebab-embed/kebab-llm → kebab-core mock feature 흡수(#221): crate 22→20, 동작 불변. (4) FusionPolicy 1-arm enum inline + dual-YAML(serde_yaml→ng, unsafe-libyaml 제거) + NLI default 제거(#222). minor 트리거 = #219 의 `--no-cache`/`search --explain` 플래그 + `explain_default` config 키 제거(인터페이스 변경). 도그푸딩: HOTFIXES 2026-06-27(chunker A/B byte-identical + GPU r9700 arctic ingest). 상세 docs/release-notes/v0.32.0-draft.md — CLAUDE.md §Release
 
 # pre-v0.18 workspace-wide cleanup: enable clippy::pedantic group with
 # intentional allow-list. The allowed lints are either cosmetic (doc style),
