@@ -2,6 +2,8 @@
 
 `kebab` 는 개인용 로컬 knowledge base + RAG 도구다. Markdown · PDF · 이미지 · 소스코드를 한 곳에 색인하고, 하이브리드 의미 검색과 근거 인용을 포함한 LLM 답변을 **단일 binary** 로 제공한다. 모든 추론은 로컬 (Ollama + fastembed) 에서 돌아간다.
 
+> 📍 **어느 문서가 현재 진실인지** 한눈에: [DOCS.md](DOCS.md) (문서 지도 / Source-of-Truth 인덱스).
+
 ## Quick start
 
 사전 요구는 두 가지뿐이다.
