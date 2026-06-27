@@ -30,15 +30,11 @@ classDiagram
     }
     class HybridRetriever {
         +new(cfg, lexical, vector) Self
-        +with_policy(lex, vec, FusionPolicy, k)
+        +with_policy(lex, vec, k_rrf, default_k)
         -lexical: Arc~dyn Retriever~
         -vector: Arc~dyn Retriever~
-        -fusion: FusionPolicy
+        -k_rrf: u32
         -default_k: usize
-    }
-    class FusionPolicy {
-        <<enum>>
-        Rrf{k_rrf}
     }
     class SearchMode {
         <<enum>>
@@ -51,7 +47,6 @@ classDiagram
     Retriever <|.. HybridRetriever
     HybridRetriever --> LexicalRetriever
     HybridRetriever --> VectorRetriever
-    HybridRetriever ..> FusionPolicy
     HybridRetriever ..> SearchMode : dispatch
 ```
 
@@ -95,7 +90,7 @@ flowchart LR
 
 **HybridRetriever** (`kebab-search::hybrid`):
 - `HybridRetriever::new(&Config, Arc<dyn Retriever> lex, Arc<dyn Retriever> vec) -> Self` — `config.search.hybrid_fusion` (`"rrf"`) + `config.search.rrf_k` 읽음. 두 retriever 의 `index_version` 가 다르면 `tracing::warn`.
-- `FusionPolicy::Rrf { k_rrf }` — default 60. `with_policy` 헬퍼로 explicit 지정 가능.
+- `k_rrf: u32` — default 60. `with_policy` 헬퍼로 explicit 지정 가능.
 - 상수: `DEFAULT_K = 10` (query.k == 0 fallback), `DEFAULT_K_RRF = 60`, `HYBRID_FANOUT_MULTIPLIER = 2`.
 - merge rule: 양측 등장 chunk 의 `snippet` / `citation` / `heading_path` 는 lexical 측에서 가져옴 (FTS5 highlight 가 vector 의 truncated text 보다 user-relevant).
 
