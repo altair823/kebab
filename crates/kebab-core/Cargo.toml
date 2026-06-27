@@ -17,5 +17,18 @@ blake3                    = { workspace = true }
 serde_json_canonicalizer  = "0.3"
 unicode-normalization     = "0.1"
 
+[features]
+default = []
+# Opt-in `MockEmbedder` / `MockLanguageModel` + test helpers (src/mock.rs).
+# Default OFF so release builds (no `--features mock`) compile the symbols out
+# entirely (verifiable via `nm`/`cargo bloat`). Moved here from the deleted
+# `kebab-embed` / `kebab-llm` re-export shim crates.
+mock    = []
+
+[dev-dependencies]
+# For the mock tests (tests/mock_embedder.rs, tests/mock_language_model.rs),
+# which run only under `--features mock`.
+proptest = { workspace = true }
+
 [lints]
 workspace = true

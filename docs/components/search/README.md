@@ -101,7 +101,7 @@ flowchart LR
 
 ## 외부 의존
 
-- crate dep: `kebab-core` + `kebab-config` + `kebab-store-sqlite` + `kebab-store-vector` + `kebab-embed` (trait re-export). `kebab-embed-local` 은 caller 가 inject (forbidden direct dep).
+- crate dep: `kebab-core` (`Embedder` trait 포함) + `kebab-config` + `kebab-store-sqlite` + `kebab-store-vector`. `kebab-embed-local` 은 caller 가 inject (forbidden direct dep).
 - 외부 lib: `rusqlite` (FTS5 쿼리), `globset` (filter 매칭), `serde_json`, `tracing`.
 - 외부 서비스: 없음.
 
@@ -125,7 +125,7 @@ flowchart LR
 - **두 측 `index_version` mismatch = warn (not error)**.
   **왜**: lexical 이 v2, vector 가 v1 (re-embed 안 했음) 같은 stale state 가 운영 시 일어남. 즉시 fail = ingest 끝나기 전 search 막힘. warning 만 띄우고 계속 동작 = 사용자가 인지하고 re-index 결정.
 
-- **`kebab-embed` (trait crate) 만 의존, `kebab-embed-local` (concrete) **금지****.
+- **`Embedder` trait (`kebab-core`) 만 의존, `kebab-embed-local` (concrete) **금지****.
   **왜**: future MVP 의 swap 가능성 (candle, ollama-embed 등). `kebab-search` 가 concrete 어댑터 import 하면 `kebab-embed-local` 의 fastembed dep (큰 ONNX runtime) 이 search 에 강제 → unrelated build 비용. caller 가 runtime inject.
 
 ## 관련 spec / HOTFIXES

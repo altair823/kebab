@@ -23,7 +23,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use kebab_embed::{Embedder, EmbeddingInput, EmbeddingKind};
+use kebab_core::{Embedder, EmbeddingInput, EmbeddingKind};
 use kebab_embed_local::{FASTEMBED_CACHE_SUBDIR, FastembedEmbedder};
 
 /// Resolve the fastembed cache dir from a `Config`'s storage paths,
@@ -149,12 +149,12 @@ fn output_vectors_are_l2_normalized() {
         },
     ];
     let out = emb.embed(&inputs).expect("embed");
-    // Per `kebab_embed::assert_unit_norm` docs: `5e-4` is the safe bound at
+    // Per `kebab_core::assert_unit_norm` docs: `5e-4` is the safe bound at
     // 1024 dims (f32::EPSILON × √1024 ≈ 2.3e-6, but ONNX kernels add
     // their own per-component noise; 1e-3 is very generous and matches
     // the spec's `± 1e-3`).
-    kebab_embed::assert_unit_norm(&out, 1e-3);
-    kebab_embed::assert_vector_shape(&out, 1024);
+    kebab_core::assert_unit_norm(&out, 1e-3);
+    kebab_core::assert_vector_shape(&out, 1024);
 }
 
 // ─── determinism ──────────────────────────────────────────────────────

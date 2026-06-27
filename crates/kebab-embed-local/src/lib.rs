@@ -1,5 +1,5 @@
 //! `kb-embed-local` — `FastembedEmbedder`, a local ONNX-backed
-//! [`Embedder`](kebab_embed::Embedder) implementation.
+//! [`Embedder`](kebab_core::Embedder) implementation.
 //!
 //! Wraps [`fastembed::TextEmbedding`]. Default is `multilingual-e5-large`
 //! (1024-dim, p9-fb-39b); `multilingual-e5-small` (384-dim) is also supported
@@ -29,7 +29,7 @@ use std::sync::Mutex;
 use anyhow::{Context, Result};
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use kebab_config::EmbeddingModelCfg;
-use kebab_embed::{Embedder, EmbeddingInput, EmbeddingKind, EmbeddingModelId, EmbeddingVersion};
+use kebab_core::{Embedder, EmbeddingInput, EmbeddingKind, EmbeddingModelId, EmbeddingVersion};
 
 /// Subdirectory under `config.storage.model_dir` where the fastembed
 /// adapter writes / reads ONNX + tokenizer files. Hard-coded per task
@@ -224,7 +224,7 @@ pub(crate) fn check_dim(model_dim: usize, cfg_dim: usize) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kebab_embed::EmbeddingInput;
+    use kebab_core::EmbeddingInput;
 
     // ── check_dim ────────────────────────────────────────────────────
     //

@@ -4248,10 +4248,8 @@ dependencies = [
  "kebab-chunk",
  "kebab-config",
  "kebab-core",
- "kebab-embed",
  "kebab-embed-local",
  "kebab-embed-ollama",
- "kebab-llm",
  "kebab-llm-local",
  "kebab-nli",
  "kebab-parse-code",
@@ -4340,6 +4338,7 @@ version = "0.31.0"
 dependencies = [
  "anyhow",
  "blake3",
+ "proptest",
  "serde",
  "serde_json",
  "serde_json_canonicalizer",
@@ -4349,27 +4348,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "kebab-embed"
-version = "0.31.0"
-dependencies = [
- "anyhow",
- "blake3",
- "kebab-config",
- "kebab-core",
- "proptest",
- "serde",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
 name = "kebab-embed-local"
 version = "0.31.0"
 dependencies = [
  "anyhow",
  "fastembed",
  "kebab-config",
- "kebab-embed",
+ "kebab-core",
  "serde_json",
  "tempfile",
  "tracing",
@@ -4410,22 +4395,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "kebab-llm"
-version = "0.31.0"
-dependencies = [
- "anyhow",
- "kebab-core",
- "proptest",
-]
-
-[[package]]
 name = "kebab-llm-local"
 version = "0.31.0"
 dependencies = [
  "anyhow",
  "kebab-config",
  "kebab-core",
- "kebab-llm",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -4504,7 +4479,6 @@ dependencies = [
  "kamadak-exif",
  "kebab-config",
  "kebab-core",
- "kebab-llm",
  "kebab-llm-local",
  "ndarray",
  "ort",
@@ -4559,7 +4533,6 @@ dependencies = [
  "blake3",
  "kebab-config",
  "kebab-core",
- "kebab-llm",
  "kebab-nli",
  "kebab-search",
  "kebab-store-sqlite",
@@ -4581,7 +4554,6 @@ dependencies = [
  "globset",
  "kebab-config",
  "kebab-core",
- "kebab-embed",
  "kebab-store-sqlite",
  "kebab-store-vector",
  "rusqlite",

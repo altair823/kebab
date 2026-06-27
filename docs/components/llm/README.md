@@ -6,7 +6,6 @@
 
 | Crate | 역할 |
 |-------|------|
-| `kebab-llm` | `LanguageModel` trait re-export + `MockLanguageModel` (feature `mock`, default OFF). 새 type 추가 **금지** — 순수 facade. |
 | `kebab-llm-local` | `OllamaLanguageModel` — `reqwest::blocking` 기반 Ollama `POST /api/generate` 어댑터. line-delimited JSON streaming 디코드. |
 
 ## 구조
@@ -86,7 +85,7 @@ flowchart LR
 
 ## 주요 type / trait / 함수
 
-**Trait** (`kebab-core`, re-export `kebab-llm`):
+**Trait** (`kebab-core`):
 - `LanguageModel::model_ref() -> ModelRef` — provider/model/version 식별. `Answer.model_ref` 으로 흘려서 wire payload 가 자가 식별.
 - `LanguageModel::context_tokens() -> usize` — 모델 별 max prompt+completion 합. RAG 가 budget 계산에 사용.
 - `LanguageModel::generate_stream(req: GenerateRequest) -> Result<Box<dyn Iterator<Item = Result<TokenChunk>> + Send>>` — async 안 됨, 매 next() 가 blocking. 모든 stream 이 마지막에 `TokenChunk::Done` 으로 끝남 (error 케이스 포함, §0 Q5).
@@ -106,20 +105,19 @@ flowchart LR
 **`LlmError`** (`kebab-llm-local::error`):
 - ConnectionRefused / HttpStatus(code) / Decode(json error) / Timeout / Aborted / 그 외 — `Err` 로 first chunk 전 surface 가능.
 
-**테스트 도구** (`kebab-llm`):
+**테스트 도구** (`kebab-core`, feature `mock`):
 - `assert_finish_chunk(chunks: &[TokenChunk])` — 마지막이 `Done` 이어야 — 모든 stream contract pin.
 - `MockLanguageModel` (feature `mock`, default OFF) — deterministic test double. 실 adapter 만 `Err` 가능, mock 은 항상 stream 시작 후 yield.
 
 ## 외부 의존
 
-- `kebab-llm` → `kebab-core` 만 (re-export crate).
-- `kebab-llm-local` → `kebab-llm` + `kebab-config`, `reqwest` (`blocking` feature, JSON), `serde` + `serde_json`, `thiserror`, `anyhow`.
+- `kebab-llm-local` → `kebab-core` + `kebab-config`, `reqwest` (`blocking` feature, JSON), `serde` + `serde_json`, `thiserror`, `anyhow`.
 - 외부 서비스: **Ollama HTTP** (default `http://127.0.0.1:11434`). default 모델 `gemma4:e4b` (OCR / caption / RAG 모두 같은 family — 단일 모델 다운로드면 전 시스템 동작).
 
 ## 핵심 결정
 
-- **`kebab-llm` = trait re-export only, **새 type 금지****.
-  **왜**: `kebab-rag` 등 downstream 이 `use kebab_llm::LanguageModel` 안정 surface 의존. 어댑터 (Ollama/llama.cpp/candle) 는 별 crate. swap config-only.
+- **`LanguageModel` trait + `MockLanguageModel` 가 `kebab-core` 에 직접 거주 (`mock` feature)**.
+  **왜**: `kebab-rag` 등 downstream 은 `use kebab_core::LanguageModel` 로 의존 — 별도 re-export shim 불필요. 어댑터 (Ollama/llama.cpp/candle) 는 여전히 별 crate 라 swap config-only. 과거의 순수 facade `kebab-llm` 은 `kebab-core` 로 fold-in 되어 삭제됨 (crate 그래프는 [`docs/ARCHITECTURE.md`](../../ARCHITECTURE.md) 참조).
 
 - **synchronous + blocking + stream iterator**.
   **왜**: §0 Q5 가 streaming 명시. `async` 가 trait object 와 잘 안 맞음 (Rust async-in-trait 안정성 + Send bound 복잡). `reqwest::blocking` + line-delimited frame 의 `Iterator` 가 caller 코드 단순. RAG 가 동기 소비 + UI thread 가 별도 worker 로 spawn.

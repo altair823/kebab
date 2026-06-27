@@ -18,7 +18,6 @@ kebab-store-sqlite = { path = "../kebab-store-sqlite" }
 # adapter — the concrete adapter (`kb-embed-local`) stays out of this
 # crate per the spec's Forbidden deps list.
 kebab-store-vector = { path = "../kebab-store-vector" }
-kebab-embed = { path = "../kebab-embed" }
 rusqlite        = { workspace = true }
 globset         = { workspace = true }
 serde_json      = { workspace = true }
@@ -31,11 +30,11 @@ time            = { workspace = true }
 
 [dev-dependencies]
 tempfile        = { workspace = true }
-# Hybrid integration tests inject a `MockEmbedder` (kb-embed `mock`
+# Hybrid integration tests inject a `MockEmbedder` (kebab-core `mock`
 # feature) and stand up a real `LanceVectorStore` on a tmp directory.
 # The mock-retriever unit tests (the bulk of the hybrid suite) do not
 # need either, but the integration / snapshot lane does.
-kebab-embed = { path = "../kebab-embed", features = ["mock"] }
+kebab-core = { path = "../kebab-core", features = ["mock"] }
 
 [lints]
 workspace = true

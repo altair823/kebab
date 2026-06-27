@@ -10,12 +10,9 @@ description   = "Image extractor + EXIF + OCR (Ollama-vision) for the kebab pipe
 [dependencies]
 kebab-core   = { path = "../kebab-core" }
 kebab-config = { path = "../kebab-config" }
-# `kebab-llm` re-exports the trait crate (`kebab-core::LanguageModel`)
-# under a stable surface; the caption adapter consumes any
-# `dyn LanguageModel`. We do NOT depend on `kebab-llm-local` (forbidden
-# by p6-3 design §8) — the trait abstraction is exactly what spec
-# requires.
-kebab-llm    = { path = "../kebab-llm" }
+# The caption adapter consumes any `dyn LanguageModel` (the trait lives in
+# `kebab-core`). We do NOT depend on `kebab-llm-local` (forbidden by p6-3
+# design §8) — the trait abstraction is exactly what spec requires.
 anyhow       = { workspace = true }
 serde        = { workspace = true }
 serde_json   = { workspace = true }
@@ -66,12 +63,12 @@ tokio        = { workspace = true, features = ["rt-multi-thread"] }
 # font rendering.
 ab_glyph     = "0.2"
 base64       = { workspace = true }
-# `kebab-llm/mock` exposes `MockLanguageModel` for hermetic caption
-# tests. Real adapters (Ollama) live in `kebab-llm-local`, which is
+# `kebab-core`'s `mock` feature exposes `MockLanguageModel` for hermetic
+# caption tests. Real adapters (Ollama) live in `kebab-llm-local`, which is
 # only allowed at the dev-dep level here — the runtime crate stays
 # trait-only, so the §8 forbidden-deps rule (no `kebab-llm-local`
 # at runtime) is preserved.
-kebab-llm        = { path = "../kebab-llm", features = ["mock"] }
+kebab-core       = { path = "../kebab-core", features = ["mock"] }
 kebab-llm-local  = { path = "../kebab-llm-local" }
 
 [lints]

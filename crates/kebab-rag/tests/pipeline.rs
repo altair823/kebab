@@ -11,7 +11,7 @@ use std::sync::atomic::Ordering;
 
 use common::{MockRetriever, RagEnv, id32, mk_hit, mk_hit_with_indexed_at};
 use kebab_core::{FinishReason, LanguageModel, Retriever, SearchMode, TokenChunk, TokenUsage};
-use kebab_llm::MockLanguageModel;
+use kebab_core::MockLanguageModel;
 use kebab_rag::{AskOpts, RagPipeline, RefusalReason, StreamEvent};
 
 /// LM ID used everywhere — kept short so snapshots stay stable.

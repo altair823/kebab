@@ -1,10 +1,13 @@
 //! Integration tests for `MockLanguageModel`. Gated behind the `mock` feature.
 //!
-//! Canonical invocation: `cargo test -p kb-llm --features mock`.
+//! Canonical invocation: `cargo test -p kebab-core --features mock`.
+//! (Without `--features mock` this file compiles to nothing — the `cfg` gate
+//! below short-circuits, since the mock lives in `kebab-core`'s own optional
+//! `mock` module and cannot be enabled via a self dev-dependency.)
 
 #![cfg(feature = "mock")]
 
-use kebab_llm::{
+use kebab_core::{
     FinishReason, GenerateRequest, LanguageModel, MockLanguageModel, TokenChunk, TokenUsage,
     assert_finish_chunk,
 };

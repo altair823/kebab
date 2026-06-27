@@ -10,7 +10,6 @@ description   = "Ollama HTTP adapter implementing kb_core::LanguageModel via req
 [dependencies]
 kebab-core = { path = "../kebab-core" }
 kebab-config = { path = "../kebab-config" }
-kebab-llm = { path = "../kebab-llm" }
 # `default-features = false` drops the `default-tls` (native-tls / openssl)
 # feature so we don't pull in a system OpenSSL; we explicitly pin rustls.
 # Note: `default-features = false` does NOT drop tokio — reqwest 0.12's

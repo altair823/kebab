@@ -3,12 +3,12 @@
 //!
 //! ## Why a separate crate
 //!
-//! `kb-llm` re-exports the trait + [`MockLanguageModel`] for downstream tests.
-//! Real adapters (Ollama, llama.cpp, candle) live outside `kb-llm` so swapping
-//! providers stays config-only and so the trait crate has no heavy
-//! dependencies. p4-2 ("first real LM") is the home of [`OllamaLanguageModel`]
-//! and the [`LlmError`] enum the rest of the workspace will pattern-match
-//! against.
+//! `kebab-core` exposes the [`LanguageModel`] trait + a feature-gated
+//! `MockLanguageModel` for downstream tests. Real adapters (Ollama, llama.cpp,
+//! candle) live outside `kebab-core` so swapping providers stays config-only
+//! and so the core crate stays free of heavy adapter dependencies. p4-2
+//! ("first real LM") is the home of [`OllamaLanguageModel`] and the
+//! [`LlmError`] enum the rest of the workspace will pattern-match against.
 //!
 //! ## Runtime contract
 //!
@@ -40,10 +40,9 @@ pub use error::LlmError;
 pub use ollama::OllamaLanguageModel;
 
 // Re-export the trait surface so adapter consumers can `use kebab_llm_local::*`
-// without also depending on `kb-llm` directly. These are the same symbols
-// `kb-llm` re-exports from `kb-core`; this crate adds **no new types** to
-// the trait surface (`LlmError` and `OllamaLanguageModel` are
+// without also depending on `kb-core` directly. This crate adds **no new
+// types** to the trait surface (`LlmError` and `OllamaLanguageModel` are
 // implementation-side only).
-pub use kebab_llm::{
+pub use kebab_core::{
     FinishReason, GenerateRequest, LanguageModel, ModelRef, TokenChunk, TokenUsage,
 };

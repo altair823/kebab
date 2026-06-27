@@ -64,10 +64,8 @@ flowchart TB
         vector["kebab-store-vector"]
     end
     subgraph Adapters ["traits + adapters"]
-        embed["kebab-embed<br/>(trait)"]
         embedlocal["kebab-embed-local<br/>(fastembed, default)"]
         embedollama["kebab-embed-ollama<br/>(Ollama /api/embed, opt-in)"]
-        llm["kebab-llm<br/>(trait)"]
         llmlocal["kebab-llm-local<br/>(Ollama)"]
         search["kebab-search"]
         rag["kebab-rag"]
@@ -103,24 +101,20 @@ flowchart TB
     pimg --> core
     paud --> core
     pcode --> core
-    embedlocal --> embed
+    embedlocal --> core
     embedollama --> core
     embedollama --> config
-    llmlocal --> llm
+    llmlocal --> core
     rag --> search
-    rag --> llm
     rag --> sqlite
     rag --> nli
     app --> nli
     nli --> config
     search --> sqlite
     search --> vector
-    search --> embed
     eval --> app
 
     config --> core
-    embed --> core
-    llm --> core
     sqlite --> core
     vector --> core
     chunk --> core
@@ -132,7 +126,7 @@ flowchart TB
 
 UI → store/llm/parse 직접 의존 금지. 모든 user-facing 진입은 `kebab-app` facade 만 통한다 (frozen 설계 §8). `kebab-cli` 가 `--config <path>` flag 를 honor 하려면 `kebab_app::*_with_config(cfg, …)` companion 을 통해 Config 을 명시적으로 thread 하는 패턴 — 자세한 이유는 [tasks/HOTFIXES.md](../tasks/HOTFIXES.md) 의 `--config` 항목.
 
-`kebab-parse-code` 의 외부 tree-sitter grammar crate 의존: P10-1A-2 에서 `tree-sitter-rust` 추가, P10-1B 에서 `tree-sitter-python` / `tree-sitter-typescript` / `tree-sitter-javascript` 추가, P10-1C-Go 에서 `tree-sitter-go` 추가, P10-1C-JK 에서 `tree-sitter-java` / `tree-sitter-kotlin-ng` 추가, P10-1D 에서 `tree-sitter-c` / `tree-sitter-cpp` 추가. 모두 `kebab-parse-code` 에만 격리 (facade 룰 — UI crate / chunker 가 직접 import 금지). Kotlin 은 `tree-sitter-kotlin-ng` 사용 (bare `tree-sitter-kotlin` 은 tree-sitter 0.21–0.23 에 고착 — 사용 불가). v0.18.0+ 부터 `kebab-source-fs` 는 자체 `code_meta` 모듈 (lang detect + skip helpers + BUILTIN_BLACKLIST) 을 보유, kebab-parse-code 와 분리 (refactor 2026-05-26). v0.19.0 부터 `kebab-parse-md` 가 `kebab-parse-types` (parser intermediate types) + `kebab-normalize` (CanonicalDocument lift) 두 crate 를 흡수 — 24 → 22 crates, design §3.7b 재작성 (HOTFIXES 2026-05-26). v0.20.1 부터 `kebab-search` 가 `lindera-ko-dic` 를 의존해 한국어 FTS5 형태소 tokenizer 지원 — V009 migration 으로 2자 이상 한국어 query 매칭 (Bug #8 closure).
+`kebab-parse-code` 의 외부 tree-sitter grammar crate 의존: P10-1A-2 에서 `tree-sitter-rust` 추가, P10-1B 에서 `tree-sitter-python` / `tree-sitter-typescript` / `tree-sitter-javascript` 추가, P10-1C-Go 에서 `tree-sitter-go` 추가, P10-1C-JK 에서 `tree-sitter-java` / `tree-sitter-kotlin-ng` 추가, P10-1D 에서 `tree-sitter-c` / `tree-sitter-cpp` 추가. 모두 `kebab-parse-code` 에만 격리 (facade 룰 — UI crate / chunker 가 직접 import 금지). Kotlin 은 `tree-sitter-kotlin-ng` 사용 (bare `tree-sitter-kotlin` 은 tree-sitter 0.21–0.23 에 고착 — 사용 불가). v0.18.0+ 부터 `kebab-source-fs` 는 자체 `code_meta` 모듈 (lang detect + skip helpers + BUILTIN_BLACKLIST) 을 보유, kebab-parse-code 와 분리 (refactor 2026-05-26). v0.19.0 부터 `kebab-parse-md` 가 `kebab-parse-types` (parser intermediate types) + `kebab-normalize` (CanonicalDocument lift) 두 crate 를 흡수 — 24 → 22 crates, design §3.7b 재작성 (HOTFIXES 2026-05-26). v0.20.1 부터 `kebab-search` 가 `lindera-ko-dic` 를 의존해 한국어 FTS5 형태소 tokenizer 지원 — V009 migration 으로 2자 이상 한국어 query 매칭 (Bug #8 closure). pure re-export shim 이던 `kebab-embed` / `kebab-llm` (trait 은 이미 `kebab-core` 소유, mock + test helper 만 보유) 를 `kebab-core` 의 default-OFF `mock` feature 로 흡수 — 22 → 20 crates, trait surface · 동작 불변 (test-only + import-rename churn).
 
 ### 임베딩 백엔드 결정표 (v0.26.0)
 
@@ -195,10 +189,10 @@ kebab/
 │   │       └── tier2_shared.rs               # Tier 2 (p10-2): shared oversize fallback + Chunk builder helpers
 │   ├── kebab-store-sqlite/                            # SQLite + FTS5 (V001/V002/V003) (P1-6, P2-1, P3-3). src/derivation_cache.rs = derivation_cache 테이블 저장소 (V012, v0.21.0)
 │   ├── kebab-search/                                  # Lexical + Vector + Hybrid retriever (P2-2, P3-4)
-│   ├── kebab-embed/  kebab-embed-local/                  # Embedder trait + fastembed adapter (P3-1, P3-2)
+│   ├── kebab-embed-local/                             # fastembed Embedder adapter (P3-2; trait lives in kebab-core)
 │   ├── kebab-embed-ollama/                             # Ollama /api/embed Embedder, opt-in provider=ollama (arctic 경로, v0.26.0)
 │   ├── kebab-store-vector/                            # LanceDB VectorStore (P3-3, P7-3 follow-up)
-│   ├── kebab-llm/  kebab-llm-local/                      # LanguageModel trait + Ollama adapter (P4-1, P4-2)
+│   ├── kebab-llm-local/                               # Ollama LanguageModel adapter (P4-2; trait lives in kebab-core)
 │   ├── kebab-rag/                                     # RAG pipeline (P4-3)
 │   ├── kebab-nli/                                     # NLI verifier (mDeBERTa-v3 XNLI, fb-41 PR-9a/9b/9c-1)
 │   ├── kebab-eval/                                    # golden query runner + metrics (P5-1, P5-2)
