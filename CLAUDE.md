@@ -8,7 +8,7 @@ Single-user local-first knowledge base + RAG. Rust 2024 workspace, 20 crates, si
 
 The repo's documentation is split by audience + zone — don't duplicate across them. **[DOCS.md](DOCS.md)** is the doc map (what's the Source-of-Truth for what); start there if unsure where something belongs.
 
-**zones**: *living* (현재 진실, 갱신 필수) · *frozen 계약* (설계 의도 baseline, 편집 금지 — `docs/superpowers/specs/2026-04-27-…-design.md` 하나) · *증거* (rust_report, dogfood/v0.18.0). 그 외 historical 문서(옛 plans/handoffs/task specs/feature specs)는 2026-06-27 doc-reorg 에서 삭제 — git history 에만. **새 plan/handoff/per-feature spec 문서를 쌓지 않는다**(그게 268개로 불어난 원인): 결정·deviation 은 HOTFIXES, 구조·불변식은 ARCHITECTURE, 릴리스는 CHANGELOG 에 직접.
+**zones**: *living* (현재 진실, 갱신 필수) · *설계 계약* (설계 의도 baseline — `docs/superpowers/specs/2026-04-27-…-design.md` 하나; 원칙 동결이되 코드와 크게 어긋나면 **dated 재조정 주석**(✂제거/⟳갱신/⚠모순수정)으로 정합, 2026-06-27 재조정 선례) · *증거* (rust_report, dogfood/v0.18.0). 그 외 historical 문서(옛 plans/handoffs/task specs/feature specs)는 2026-06-27 doc-reorg 에서 삭제 — git history 에만. **새 plan/handoff/per-feature spec 문서를 쌓지 않는다**(그게 268개로 불어난 원인): 결정·deviation 은 HOTFIXES, 구조·불변식은 ARCHITECTURE, 릴리스는 CHANGELOG 에 직접.
 
 - **[README.md](README.md)** — first stop for an end user. Quick start, command table, one Mermaid logical-architecture diagram, configuration pointers, license. Stays narrow. (living)
 - **[DOCS.md](DOCS.md)** — 문서 지도 / Source-of-Truth 인덱스. "어느 문서가 현재 진실인지" 한눈에. (living)
@@ -42,9 +42,9 @@ The dev/test profile is already trimmed (`debug = "line-tables-only"`, `split-de
 
 ## Spec contract
 
-`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md` (12 sections) is the **single frozen design contract** for the whole workspace — "무엇을 의도했나"의 baseline. (The per-component task specs `tasks/p<N>/` + per-feature design specs that referenced it were removed in the 2026-06-27 doc-reorg; the shipped **code is the implementation truth**, the design contract is the intent baseline, and deviations live in HOTFIXES.)
+`docs/superpowers/specs/2026-04-27-kebab-final-form-design.md` (12 sections) is the **single frozen design contract** for the whole workspace — "무엇을 의도했나"의 baseline. (The per-component task specs `tasks/p<N>/` + per-feature design specs that referenced it were removed in the 2026-06-27 doc-reorg; the shipped **code is the implementation truth**, the design contract is the intent baseline (periodically dated-reconciled to current code — see the doc's 2026-06-27 banner), and live deviations live in HOTFIXES between reconciliations.)
 
-- The design contract stays **frozen** — don't edit it retroactively to match what shipped.
+- The design contract is the intent **baseline**, kept stable — avoid free-form rewriting to chase every code change. BUT when accumulated drift/removals make it describe nonexistent features, a **periodic dated reconciliation pass** (✂ removed / ⟳ updated / ⚠ contradiction-fix — see the 2026-06-27 banner in the doc) is permitted and expected. HOTFIXES remains the fine-grained live deviation log between reconciliations.
 - **Live deviations from the contract go in `tasks/HOTFIXES.md`** as dated entries. Treat HOTFIXES.md as the live source of truth when behavior and the contract disagree. Don't recreate per-feature spec/plan/handoff files — record decisions in HOTFIXES, structure/invariants in `docs/ARCHITECTURE.md`, releases in `CHANGELOG.md`.
 
 `tasks/INDEX.md` is the per-component status dashboard; `HANDOFF.md` is the phase-level dashboard. Update them when a component/phase status changes. The full doc map (what's the SoT for what) is **[DOCS.md](DOCS.md)**.

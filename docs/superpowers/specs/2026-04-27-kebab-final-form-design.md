@@ -13,6 +13,14 @@ related_tasks: ../../../tasks/INDEX.md
 
 전제 보고서는 [`kebab_local_rust_report.md`](../../../kebab_local_rust_report.md). 그 보고서가 *방향*과 *근거*를 제공하며, 이 문서가 *형태*를 못박는다.
 
+> **⟳ 2026-06-27 재조정 (v0.32.0 codebase reconciliation).** 이 문서는 2026-04-27 에 *동결*됐고, 이후 일부 추가 설계(multi-hop RAG·NLI 검증·code ingest·bulk search)는 dated 편집으로 흡수됐으나 **삭제된 기능은 반영되지 않아** 존재하지 않는 코드를 설명하는 죽은 텍스트가 누적됐다. 2026-06-27 에 13개 섹션을 현재 코드(v0.32.0)와 1:1 대조 감사(file:line 검증)한 뒤, 아래 표기로 contract 를 **현행 코드 기준 baseline 으로 재조정**했다:
+>
+> - **✂ 제거됨** — 동결 *이후* spec 에 추가됐다가 코드에서 삭제된 기능. 원 의도는 한 줄로 보존하되 "현재 없음"을 명시.
+> - **⟳ 갱신** — drift(옛 default 값) / gap(실재하나 spec 침묵) 을 현재 코드에 맞춰 정정·추가.
+> - **⚠ 모순 수정** — spec 내부 두 곳이 어긋난 것을 교정.
+>
+> 이 재조정으로 본 문서 역할은 "pristine frozen" 에서 "**현행과 정합된 설계 baseline**" 으로 바뀐다. `CLAUDE.md` / `DOCS.md` 의 "frozen 편집 금지" 문구는 본 재조정과 정합되도록 후속 갱신 필요. 원 동결본은 git history(이 commit 이전)에 보존.
+
 ---
 
 ## 0. 동결된 결정 요약
@@ -42,6 +50,8 @@ related_tasks: ../../../tasks/INDEX.md
 ---
 
 ## 1. Headline UX scenes
+
+> **⟳ 2026-06-27:** 아래 예시 화면의 footer 라벨(model `qwen2.5:14b-instruct`, template `rag-v1`, embedder `e5-small`/`e5-large`(예시 혼재), `index v1.0`)은 **2026-04-27 설계 시점의 historical snapshot** 이다. 현행 default 는 LLM `gemma4:e4b` · template `rag-v4` · embedder `multilingual-e5-large`(1024d) · index 라벨은 합성 문자열(`hybrid:` + `lex:<chunker>:fts5-v009-korean-morphological` + `vec:<model>@<ver>:<dim>`). (⚠ 이 표기는 §1.2/§0 의 `e5-large` 와 §1.5/§1.6 의 `e5-small` 불일치도 해소 — 현행은 e5-large.) 형상(shape) 참조용이며 값은 코드(`kebab-config` defaults)가 진실. 또 §1.1/§1.5 의 `grounded ✓ …` / dense 4줄 + `N hits …` footer 형태는 현 CLI human-mode 출력과 다르다(데이터는 `answer.v1`/`search_hit.v1` wire 로 동일하게 흐름).
 
 ### 1.1 `kebab ask` (default)
 
@@ -299,16 +309,17 @@ Per-query failure 는 `bulk_search_item.v1.error` (error.v1) 에 격리, 다른 
 }
 ```
 
-> 위 `answer.v1` 예시는 historical snapshot (model `qwen2.5:14b-instruct`, `prompt_template_version: "rag-v1"`) — 현행 default (gemma4 계열 / rag-v3) 와 다를 수 있음. 형상(shape) 참조용이다.
+> 위 `answer.v1` 예시는 historical snapshot (model `qwen2.5:14b-instruct`, `prompt_template_version: "rag-v1"`) — 현행 default (gemma4 계열 / **rag-v4** ⟳2026-06-27) 와 다를 수 있음. 형상(shape) 참조용이다.
 
-거절 시 `grounded=false`, `answer` 는 사람 친화 거절 문장, `refusal_reason ∈ {"score_gate","llm_self_judge","no_index","no_chunks"}`. `citations` 는 빈 배열 또는 가까운 후보 (marker null).
+거절 시 `grounded=false`, `answer` 는 사람 친화 거절 문장, `refusal_reason ∈ {"score_gate","llm_self_judge","no_index","no_chunks","llm_stream_aborted","multi_hop_decompose_failed","nli_verification_failed","nli_model_unavailable"}` (**⟳ 2026-06-27 4→8**, fb-15/fb-22/fb-41). `citations` 는 빈 배열 또는 가까운 후보 (marker null).
 
-**Multi-turn extension** (도그푸딩 후 추가 — 2026-05-02, p9-fb-15/16). 두 optional 필드:
+**✂ 제거됨 — Multi-turn extension** (동결 후 추가 2026-05-02 p9-fb-15/16/18 → **삭제 v0.31.0**). 원 의도: `answer.v1` 에 optional `conversation_id: String?` / `turn_index: u32?` 두 필드 + `kebab ask --session <id>`. **현재 코드엔 없음** — 멀티턴 세션 전체(필드·`ask --session`·`chat_sessions`/`chat_turns` 테이블·`ChatSessionRepo`)가 spine-rewrite 에서 삭제됐고 V015 migration 이 backing 테이블 DROP. `grep conversation_id|turn_index crates/` → 0. (HOTFIXES 2026-06-24 Phase1.)
 
-- `conversation_id: String?` — 같은 conversation 의 turn 들이 공유. CLI single-shot (history 없음) / TUI 의 첫 turn 은 null. blake3 해시 또는 사용자 명시 (`kebab ask --session <id>`, p9-fb-18).
-- `turn_index: u32?` — 같은 conversation 안 0-based 순서. 첫 turn = 0. null 이면 single-shot.
+**⟳ 실제 `answer.v1` additive 필드 (2026-06-27).** 위 제거된 멀티턴 대신, 현행 `answer.v1` 은 두 optional object 를 싣는다 (둘 다 `skip_serializing_if=None`, schema_version bump 없음 — 기존 소비자 무영향):
+- `hops: HopRecord[]?` — multi-hop ask 의 hop 별 trace (`kind/iter/sub_queries/context_chunks_added/llm_call_ms/forced_stop`).
+- `verification: VerificationSummary?` — NLI gate 의 `nli_score/nli_threshold/nli_passed` (fb-41).
 
-호환성: 두 필드 모두 optional 이라 기존 `answer.v1` 소비자 (외부 wrapper) 영향 없음. multi-turn 모르는 wrapper 는 그냥 무시.
+wire schema 파일 `answer.schema.json` 은 이미 위 둘 + refusal 8값을 반영함 (이 §2.3 prose 만 뒤처졌었음).
 
 ### 2.4 IngestReport
 
@@ -515,6 +526,9 @@ pub struct CanonicalDocument {
     pub parser_version: ParserVersion,
     pub schema_version: u32,
     pub doc_version: u32,
+    // ⟳ 2026-06-27 (실코드 반영, p9-fb-23 / V006 incremental-ingest skip): 마지막 처리 버전 stamp.
+    pub last_chunker_version: Option<ChunkerVersion>,
+    pub last_embedding_version: Option<EmbeddingVersion>,
 }
 
 pub enum Block {
@@ -554,12 +568,13 @@ pub struct AudioRefBlock{
     pub transcript: Option<Transcript>,
 }
 
+// ⟳ 2026-06-27: 실제 wire 는 #[serde(tag="kind")] 라 newtype variant 불가 → struct variant 로 마이그레이션(§9 schema).
 pub enum Inline {
-    Text(String),
-    Code(String),
+    Text { text: String },
+    Code { code: String },
     Link { text: String, href: String },
-    Strong(Vec<Inline>),
-    Emph(Vec<Inline>),
+    Strong { children: Vec<Inline> },
+    Emph { children: Vec<Inline> },
 }
 
 pub enum SourceSpan {
@@ -584,6 +599,9 @@ pub struct Chunk {
     pub source_spans: Vec<SourceSpan>,
     pub token_estimate: usize,
     pub chunker_version: ChunkerVersion,
+    // ⚠ 2026-06-27 모순 수정: §4.2 chunk_id 레시피 + §5.5 DDL 은 이미 아래 둘을 포함했으나 이 블록만 누락이었음.
+    pub policy_hash: String,
+    pub tokenized_korean_text: Option<String>, // V009 한국어 형태소 (Bug #8)
 }
 
 pub enum Citation {
@@ -592,6 +610,8 @@ pub enum Citation {
     Region { path: WorkspacePath, x: u32, y: u32, w: u32, h: u32 },
     Caption{ path: WorkspacePath, model: String },
     Time   { path: WorkspacePath, start_ms: u64, end_ms: u64, speaker: Option<String> },
+    // ⚠ 2026-06-27 모순 수정: §2.1 은 "6 variants" 라 했으나 이 블록은 5개였음. 코드는 6개.
+    Code   { path: WorkspacePath, line_start: u32, line_end: u32, symbol: Option<String>, lang: Option<String> },
 }
 
 impl Citation {
@@ -616,8 +636,10 @@ pub struct Metadata {
     // p10-1A-1: code corpus fields — None for non-code assets.
     pub repo: Option<String>,         // git repo name (top-level dir or remote basename)
     pub git_branch: Option<String>,   // HEAD branch name at ingest time
-    pub git_commit: Option<String>,   // HEAD commit SHA (short, 12 chars) at ingest time
+    pub git_commit: Option<String>,   // ⟳ 2026-06-27: full 40-hex commit SHA (was "short, 12 chars")
     pub code_lang: Option<String>,    // lowercase language name (e.g. "rust", "python")
+    // ⟳ 2026-06-27 (V014 multi-source [[workspace.sources]]): ingest-time provenance stamp.
+    pub source_id: Option<String>,
 }
 
 pub enum SourceType { Markdown, Note, Paper, Reference, Inbox }
@@ -654,6 +676,14 @@ pub struct SearchFilters {
     pub lang: Option<Lang>,
     pub path_glob: Option<String>,
     pub trust_min: Option<TrustLevel>,
+    // ⟳ 2026-06-27 (실코드 4→11): fb-36 + code-corpus + multi-source 필터. 빈 Vec = 무필터, multi = OR.
+    pub media: Vec<String>,                       // fb-36
+    pub ingested_after: Option<OffsetDateTime>,   // fb-36
+    pub doc_id: Option<DocumentId>,               // fb-36
+    pub repo: Vec<String>,                        // p10-1A-1
+    pub code_lang: Vec<String>,                   // p10-1A-1
+    pub source_type: Vec<String>,                 // jira A/B
+    pub source_id: Vec<String>,                   // multi-source
 }
 
 pub struct SearchHit {
@@ -669,6 +699,14 @@ pub struct SearchHit {
     pub index_version: IndexVersion,
     pub embedding_model: Option<EmbeddingModelId>,
     pub chunker_version: ChunkerVersion,
+    // ⟳ 2026-06-27 (실코드 12→19, 모두 additive optional):
+    pub indexed_at: Option<OffsetDateTime>,       // fb-32
+    pub stale: bool,                              // fb-32
+    pub score_kind: Option<String>,               // fb-38 ("rrf"|"bm25"|"cosine") — §2.2 wire 에 이미 존재
+    pub repo: Option<String>,                     // p10-1A-1
+    pub code_lang: Option<String>,                // p10-1A-1
+    pub source_id: Option<String>,                // rag-provenance-label
+    pub trust_level: Option<TrustLevel>,          // rag-provenance-label
 }
 
 pub struct RetrievalDetail {
@@ -685,6 +723,8 @@ pub struct RetrievalDetail {
 
 `Block::ImageRef` / `AudioRef` variant 은 v1 부터 존재하나, 그 안의 `ocr` / `caption` / `transcript` 필드는 P1 에선 항상 `None`. 다음 타입은 `kebab-core` 에 stub 으로 둠 (최종 도메인 모델 슬롯):
 
+> **⟳ 2026-06-27:** `OcrText` / `OcrRegion` / `ModelCaption` 은 더 이상 stub 이 아니다 — image/PDF OCR(P6/P7) + caption 이 live 라 `kebab-parse-image` / `kebab-app` 에 실제 producer/consumer 존재. `Transcript`(audio) 만 P8 보류로 genuine stub 유지.
+
 ```rust
 pub struct OcrText      { pub joined: String, pub regions: Vec<OcrRegion>, pub engine: String, pub engine_version: String }
 pub struct OcrRegion    { pub bbox: (u32, u32, u32, u32), pub text: String, pub confidence: f32 }
@@ -698,7 +738,7 @@ pub enum   ImageType { Png, Jpeg, Webp, Gif, Tiff, Other(String) }
 pub enum   AudioType { M4a, Mp3, Wav, Flac, Ogg, Other(String) }
 ```
 
-`ExtractConfig`, `DocFilter`, `JobKind`, `JobStatus`, `JobFilter`, `JobRow`, `JobId`, `VectorRecord`, `VectorHit`, `RefusalSignal`, `NoHitSignal`, `DoctorUnhealthy` 도 `kebab-core` 에 정의 (자세한 필드는 사용 시 결정, 이 spec 에서 forward-ref 만 보장).
+`ExtractConfig`, `DocFilter`, `JobKind`, `JobStatus`, `JobFilter`, `JobRow`, `JobId`, `VectorRecord`, `VectorHit` 는 `kebab-core` 에 정의. **⟳ 2026-06-27:** `RefusalSignal` / `NoHitSignal` / `DoctorUnhealthy` 는 (CLI exit-code signal 이라) 실제로는 `kebab-app` (`doctor_signal.rs`) 에 정의 — 원문의 `kebab-core` 배치는 부정확. (자세한 필드는 사용 시 결정, 이 spec 에서 forward-ref 만 보장).
 
 `OffsetDateTime` 는 `time::OffsetDateTime`, `Result` 는 crate-local alias.
 
@@ -769,13 +809,17 @@ pub struct ParsedAudioSegment { pub start_ms: u64, pub end_ms: u64, pub text: St
 **의존 그래프 (post-absorb)**:
 
 ```text
-kebab-core (도메인 모델 — Block, Chunk, SourceSpan, IDs, …)
-   ▲
-   │
-kebab-parse-md (markdown 의 frontmatter + block + types + normalize, 모두 in-crate)
-   ▲
-   │
-kebab-parse-pdf, kebab-parse-image, kebab-parse-code (자체 CanonicalDocument emit)
+                 kebab-core (도메인 모델 — Block, Chunk, SourceSpan, IDs, …)
+                        ▲
+        ┌───────────────┼───────────────────┬───────────────────┐
+        │               │                   │                   │
+ kebab-parse-md   kebab-parse-pdf     kebab-parse-image    kebab-parse-code
+ (frontmatter+    (자체 Canonical     (자체 Canonical      (자체 Canonical
+  block+types+     Document emit)      Document emit)       Document emit)
+  normalize)
+
+# ⚠ 2026-06-27 모순 수정: 이전 그림은 pdf/image/code 를 parse-md 아래(의존)로 그렸으나,
+#   4 parser 는 모두 kebab-core 만 의존하는 형제다 (본문 "나머지 3 parser 는 …직접 emit" + 코드 Cargo.toml 과 일치).
 ```
 
 `kebab-parse-md` 는:
@@ -799,24 +843,15 @@ pub struct Answer {
     pub retrieval: AnswerRetrievalSummary,
     pub usage: TokenUsage,
     pub created_at: OffsetDateTime,
-    /// p9-fb-15: same conversation 의 turn 들이 공유. CLI single-shot
-    /// (history 없음) / TUI 첫 turn 은 None.
-    pub conversation_id: Option<String>,
-    /// p9-fb-15: 같은 conversation 안 0-based 순서. 첫 turn = 0.
-    /// None 이면 single-shot.
-    pub turn_index: Option<u32>,
+    // ✂ 2026-06-27: conversation_id / turn_index (p9-fb-15) 제거됨 — multi-turn 삭제(v0.31.0).
+    // ⟳ 실제 additive 필드는 hops / verification (multi-hop + NLI, fb-41):
+    pub hops: Option<Vec<HopRecord>>,
+    pub verification: Option<VerificationSummary>,
 }
 
-/// p9-fb-15: history 가 prompt 에 들어갈 때의 한 turn. RAG facade
-/// 가 `Vec<Turn>` 받아 system + history + retrieval + new question
-/// 으로 prompt 빌드. token budget 안에 fit 안 되면 oldest turn 부터
-/// drop (newest 우선 보존).
-pub struct Turn {
-    pub question: String,
-    pub answer: String,
-    pub citations: Vec<AnswerCitation>,
-    pub created_at: OffsetDateTime,
-}
+// ✂ 2026-06-27 제거됨: `struct Turn` + RAG facade 의 `ask_with_history(cfg, history: &[Turn], …)`
+// (multi-turn, p9-fb-15). 동결 후 추가됐다가 v0.31.0 spine-rewrite 에서 삭제 —
+// grep `struct Turn` / `ask_with_history` crates/ → 0. 아래 "Multi-turn behaviour" 절(원문)도 전부 해당.
 
 pub struct AnswerCitation { pub marker: Option<String>, pub citation: Citation }
 pub enum RefusalReason {
@@ -865,27 +900,13 @@ pub struct TokenUsage {
 pub struct TraceId(pub String);
 ```
 
-**Multi-turn behaviour** (도그푸딩 후 추가 — 2026-05-02, p9-fb-15):
+**✂ 제거됨 — Multi-turn behaviour** (동결 후 추가 2026-05-02 p9-fb-15 → 삭제 v0.31.0). 원 의도: `kebab-rag` facade 가 `ask` + `ask_with_history(cfg, history: &[Turn], …)` 두 entry 를 제공하고 history 를 token budget 안에서 newest 우선 pack. **현재 코드엔 `ask` + `ask_multi_hop` 만 존재** (`ask_with_history`/`Turn` 0건). Retrieval query expansion 도 multi-turn 전용이라 함께 제거.
 
-`kebab-rag` facade 가 두 entry 제공:
-- `ask(cfg, question, ...)` — single-shot. 기존 동작. `Answer.conversation_id = None`, `turn_index = None`.
-- `ask_with_history(cfg, history: &[Turn], question, ...)` — multi-turn. caller 가 conversation_id 명시 (TUI/CLI session). `Answer` 의 두 필드 채움.
-
-prompt 빌드 priority (token budget = `cfg.rag.max_context_tokens`):
-
-1. **system + new_question** — 항상 포함. budget 초과 시 facade error (절대 잘리면 안 됨).
-2. **retrieved chunks** — k = `cfg.search.default_k`. budget 초과 시 k 줄여서 fit.
-3. **history** — newest turn 부터 포함. budget 남는 만큼 oldest drop. 최소 0 turn 까지 가능 (history 없는 ask 와 동일).
-
-이유: history 의 가치는 보통 직전 1~2 turn 이 가장 큼. 오래된 turn 이 retrieved chunk 에 비해 marginal 가치라 trade-off 시 history 양보.
-
-**Retrieval query expansion** (선택): facade 가 새 question 단독 검색 X — 직전 answer 의 첫 N 자 (default 200) concat 해 query 확장 (간단). LLM 기반 standalone question rewriting 은 P+.
-
-**Aborted vs Completed semantics** 는 ingest 와 다름 — ask 는 single-shot 이라 cancel 시 partial token 그대로 stream 종료 + `Answer.grounded=false, refusal_reason=Some(LlmStreamAborted)`. 새 variant 는 아래 `RefusalReason` 정의에 함께 추가.
+**Aborted semantics (유효):** single-shot `ask` 는 cancel 시 partial token 그대로 stream 종료 + `Answer.grounded=false, refusal_reason=Some(LlmStreamAborted)`. 이 부분은 현행 유지 (위 `RefusalReason` 정의 참조).
 
 #### rag-v2 (fb-40)
 
-기본 prompt template. V1 의 4 규칙 + 3 신규.
+(✂ 2026-06-27: rag-v2 는 더 이상 기본도 선택 가능도 아님 — 삭제됨 v0.31.0. 아래는 historical 기록.) V1 의 4 규칙 + 3 신규.
 
 ```
 당신은 사용자의 로컬 KB 위에서 동작하는 보조자다.
@@ -898,7 +919,7 @@ prompt 빌드 priority (token budget = `cfg.rag.max_context_tokens`):
 - 근거가 모호하면 "확실하지 않다" 라고 명시한다.
 ```
 
-V1 / V2 는 legacy backwards-compat 으로 보존 — v0.20.2 부터 default 는 rag-v3 (query-언어 자동 매칭). user TOML 에 `prompt_template_version = "rag-v1"` 또는 `"rag-v2"` 명시 시 그대로 유지.
+**✂ 2026-06-27:** rag-v1 / rag-v2 템플릿은 **삭제됨**(v0.31.0). `system_prompt_for` 는 `rag-v3`/`rag-v4` 만 허용하고 그 외(`rag-v1`/`rag-v2` 포함)는 **런타임 에러**. 위 rag-v2 프롬프트 전문 + 'V1/V2 legacy 보존' 은 더 이상 사실 아님. **⟳ 현행 default 는 `rag-v4`**(provenance/trust 라벨, 2026-06-24) — `rag-v3` 는 pin-가능한 legacy.
 
 **Multi-hop RAG + NLI verification** (도그푸딩 후 추가 — 2026-05-26, fb-41 v0.18.0 ship):
 
@@ -907,7 +928,7 @@ V1 / V2 는 legacy backwards-compat 으로 보존 — v0.20.2 부터 default 는
 - compound 질문 (cross-doc reasoning, prereq chain) 의 N-hop loop. **decompose → decide → synthesize** 의 3 단계:
   1. **decompose**: 원 질문을 5 sub-query 까지 분해 (LLM JSON 응답). 실패 시 `RefusalReason::MultiHopDecomposeFailed`.
   2. **decide**: pool 의 chunks (probe gate 통과한 candidates) 가 답변에 충분한지 결정. forced_stop 또는 `kind: "stop"` 이면 synthesize 진입. 그 외엔 추가 sub-query 로 N-hop 확장 (max_depth 제한, default 3).
-  3. **synthesize**: 누적 chunks 로 최종 답변 생성. `rag-multi-hop-v1` prompt template — self-check rule 포함.
+  3. **synthesize**: 누적 chunks 로 최종 답변 생성. **⟳ `rag-multi-hop-v2`** prompt template (2026-06-24 provenance bump; self-check rule 포함).
 - **step 8.5 NLI verification** (★ v0.18.0 신규): `cfg.rag.nli_threshold > 0` (default 0.0 = disabled, production 권장 0.5) 일 때 synthesize 답변에 대해 mDeBERTa-v3 XNLI ONNX 가 `(packed_chunks, answer)` entailment 검사. entailment < threshold → `RefusalReason::NliVerificationFailed` (Answer 의 `verification` field 가 `nli_score / nli_threshold / nli_passed` 보존). model unavailable 시 `NliModelUnavailable`.
 - LLM-self-judge 의 *probabilistic ceiling* 을 NLI 의 *deterministic external verifier* 가 극복 — dogfood S7 caffeine hallucination 같은 silent fail 케이스 catch. spec: `docs/superpowers/specs/2026-05-25-p9-fb-41-finalize-spec.md`.
 
@@ -958,7 +979,7 @@ embedding_id = id_from({ kind: "embedding", chunk_id, model_id, model_version, d
 index_id     = id_from({ kind: "index", collection, embedding_model, dimensions, index_version, index_kind, index_params_hash })
 ```
 
-`workspace_path` 정규화: workspace root 기준 POSIX 슬래시, NFC, leading `./` 제거, 중복 슬래시 제거.
+`workspace_path` 정규화: workspace root 기준 POSIX 슬래시, NFC, leading `./` 제거, 중복 슬래시 제거. **⟳ 2026-06-27:** 추가 불변식 — workspace_path 는 `#` 문자를 포함할 수 없다 (W3C Media-Fragments 구분자 + chunk_id `#seg`/`#c`/`#L` 접미사와 충돌 방지). `WorkspacePath::new` / `to_posix` 가 construction 시 reject.
 
 ### 4.3 변경 영향 행렬
 
@@ -1047,6 +1068,8 @@ CREATE TABLE document_tags (
 CREATE INDEX idx_document_tags_tag ON document_tags(tag);
 ```
 
+> **⟳ 2026-06-27 (실 schema 반영):** `documents` 에 이후 마이그레이션이 컬럼 추가 — `last_chunker_version TEXT` + `last_embedding_version TEXT` (V006, incremental-ingest skip 판정), `source_id TEXT NOT NULL DEFAULT 'default'` + `idx_docs_source_id` (V014, multi-source `--source` 필터).
+
 ### 5.4 Blocks
 
 ```sql
@@ -1128,16 +1151,20 @@ END;
 ```sql
 CREATE TABLE embedding_records (
   embedding_id   TEXT PRIMARY KEY,
-  chunk_id       TEXT NOT NULL REFERENCES chunks(chunk_id) ON DELETE CASCADE,
+  chunk_id       TEXT NOT NULL,   -- ⟳ 2026-06-27: FK (REFERENCES chunks ON DELETE CASCADE) 제거됨 (V011) — sentinel chunk_id 허용. 삭제는 put_chunks/purge 의 명시적 DELETE.
   model_id       TEXT NOT NULL,
   model_version  TEXT NOT NULL,
   dimensions     INTEGER NOT NULL,
   lance_table    TEXT NOT NULL,
   created_at     TEXT NOT NULL,
+  -- ⟳ 2026-06-27 (V003, crash-recovery 정확성에 필수): 2-phase write 마커. search 는 status='committed' 만 노출.
+  status           TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','committed','tombstone')),
+  vector_committed INTEGER NOT NULL DEFAULT 0,
   UNIQUE(chunk_id, model_id, model_version, dimensions)
 );
-CREATE INDEX idx_embed_chunk ON embedding_records(chunk_id);
-CREATE INDEX idx_embed_model ON embedding_records(model_id, model_version, dimensions);
+CREATE INDEX idx_embed_chunk  ON embedding_records(chunk_id);
+CREATE INDEX idx_embed_model  ON embedding_records(model_id, model_version, dimensions);
+CREATE INDEX idx_embed_status ON embedding_records(status);
 ```
 
 ### 5.7 Jobs / IngestRuns / Answers / EvalRuns
@@ -1214,9 +1241,9 @@ CREATE TABLE eval_query_results (
 );
 ```
 
-### 5.7a Chat sessions / turns (p9-fb-17)
+### 5.7a ✂ 제거됨 — Chat sessions / turns (p9-fb-17)
 
-multi-turn 대화 영속화 — `kebab ask --session foo` 의 backing store.
+**삭제 v0.31.0.** 동결 후 추가(멀티턴 영속화, `kebab ask --session` backing) → spine-rewrite 에서 삭제. `chat_sessions`/`chat_turns` 테이블 + `ChatSessionRepo` trait(6 메서드) 전부 제거, **V015 migration 이 두 테이블 DROP**. `grep chat_sessions|ChatSessionRepo crates/` → 0. (HOTFIXES 2026-06-24 Phase1.) 아래 DDL/메서드 설명은 historical 기록일 뿐 — 현재 DB 엔 없음.
 
 ```sql
 CREATE TABLE chat_sessions (
@@ -1245,6 +1272,13 @@ CREATE INDEX idx_chat_turns_session ON chat_turns(session_id, turn_index);
 get_session, list_sessions, delete_session, append_turn, list_turns).
 `kebab-store-sqlite::SqliteStore` impl 가 V005 migration 위에서 동작.
 `kebab reset --data-only` (p9-fb-06) 가 양 테이블 wipe.
+
+### 5.7b ⟳ 추가된 실 테이블 (2026-06-27 반영)
+
+원 §5 가 열거하지 않은, 실재·동작 중인 테이블:
+- `kv (key TEXT PRIMARY KEY, value TEXT) STRICT` — V004. 단일행 `corpus_revision` 모노토닉 카운터(영속). 검색 캐시/커서 무효화 근거.
+- `derivation_cache (cache_key TEXT PRIMARY KEY, kind TEXT, payload BLOB, created_at TEXT, last_used_at TEXT)` + `idx_dcache_kind`/`idx_dcache_last_used` — V012. 비싼 파생물(embedding/ocr/caption)을 **내용 해시** `blake3(kind‖text_blake3‖version_key)[:32]` 로 캐싱 → 재색인 시 불변 청크 재계산 skip(측정 145×). §9 cascade 와 정합(version_key 에 model/dim 포함). 순수 가산 — corpus_revision bump 안 함, 손상돼도 정확성 영향 0(miss→재계산).
+- `pdf_ocr_events (id INTEGER PK, run_id, ts, doc_id, …, ocr_engine TEXT)` + 3 인덱스 — V008. per-page OCR latency/failure 관측(observability).
 
 ### 5.8 트랜잭션 정책
 
@@ -1298,12 +1332,13 @@ get_session, list_sessions, delete_session, append_turn, list_turns).
 ### 6.4 Config (`~/.config/kebab/config.toml`) — frozen schema
 
 ```toml
-schema_version = 1
+schema_version = 1   # ⟳ 2026-06-27: 현행 config schema_version = 5 (자동 migrate). 1 은 동결 시점 값.
 
 [workspace]
 root    = "~/KnowledgeBase"
-include = ["**/*.md"]
+# ✂ 2026-06-27: `include` 키 제거됨 (p9-fb-25) — 처리 포맷은 extractor 가 자동 판정. legacy 값은 무시.
 exclude = [".git/**", "node_modules/**", ".obsidian/**"]
+# ⟳ multi-source(V014): 단일 root 대신 [[workspace.sources]] (id/root/trust_level/source_type) 다중 선언 가능.
 
 [storage]
 data_dir          = "${XDG_DATA_HOME:-~/.local/share}/kebab"
@@ -1327,15 +1362,16 @@ respect_markdown_headings = true
 chunker_version           = "md-heading-v1"
 
 [models.embedding]
-provider   = "fastembed"
+provider   = "fastembed"   # ⟳ 2026-06-27: 3-way — "fastembed"(기본) | "ollama"(원격 /api/embed, +endpoint) | "none"(lexical-only). (구 "candle" 제거)
 model      = "multilingual-e5-large"
 version    = "v1"
 dimensions = 1024
 batch_size = 64
+# endpoint = "http://127.0.0.1:11434"   # provider = "ollama" 일 때
 
 [models.llm]
 provider       = "ollama"
-model          = "qwen2.5:14b-instruct"
+model          = "gemma4:e4b"   # ⟳ 2026-06-27 (was qwen2.5:14b-instruct — OCR/caption gemma 계열 통일)
 context_tokens = 32768
 endpoint       = "http://127.0.0.1:11434"
 temperature    = 0.0
@@ -1348,13 +1384,16 @@ rrf_k         = 60
 snippet_chars = 220
 
 [rag]
-prompt_template_version = "rag-v3"          # default. "rag-v1" / "rag-v2" 명시 시 legacy.
+prompt_template_version = "rag-v4"          # ⟳ 2026-06-27 default (was rag-v3). "rag-v3" 만 legacy pin 가능 — ✂ rag-v1/rag-v2 는 삭제(런타임 에러).
 score_gate              = 0.30
-explain_default         = false
+# ✂ 2026-06-27: explain_default 제거됨 — 구현된 적 없음. explain 은 `kebab ask --explain` CLI 플래그.
 max_context_tokens      = 8000
+# ⟳ nli_threshold = 0.0   # >0 시 NLI groundedness gate (fb-41). multi_hop_* / [models.nli] 도 참조.
 ```
 
-config 우선순위: default → file → env (`KB_<SECTION>_<KEY>`) → CLI flag.
+config 우선순위: default → file → env (`KEBAB_<SECTION>_<KEY>`) → CLI flag.  **⟳ 2026-06-27: 접두 `KB_` → `KEBAB_`** (kb→kebab rename).
+
+> **⟳ 2026-06-27:** 위 블록은 2026-04-27 동결 schema 라 이후 추가된 다수 키를 포함하지 않는다. 실 config 는 추가로 `[[workspace.sources]]`, `[models.nli]`, `[ingest.code]`, `[ingest.image]`/`[ingest.pdf]`(OCR/caption + 공유 `[ingest.ocr]`), `[ingest.chunking] max_chunk_tokens`, `[search] stale_threshold_days`, `[models.llm] request_timeout_secs`, `[rag] multi_hop_* / nli_threshold`, `[logging]`, `[ui]` 를 갖는다. 정식 목록은 `kebab-config` 의 `Config::defaults` 가 진실.
 
 ### 6.5 `kebab init` 출력
 
@@ -1414,7 +1453,7 @@ pub enum TokenChunk {
     Token(String),
     Done { finish_reason: FinishReason, usage: TokenUsage },
 }
-pub enum FinishReason { Stop, Length, Aborted, Error(String) }
+pub enum FinishReason { Stop, Length, Aborted, Cancelled, Error(String) } // ⟳ 2026-06-27: +Cancelled (p9-fb-33, caller-side cancel → RefusalReason::LlmStreamAborted)
 ```
 
 ### 7.2 트레잇
@@ -1486,7 +1525,7 @@ pub trait JobRepo {
 ## 8. 모듈 경계 (Allowed / Forbidden)
 
 ```text
-kebab-cli, kebab-tui, kebab-desktop
+kebab-cli, kebab-mcp, kebab-desktop          # ✂ 2026-06-27: kebab-tui 제거(v0.31.0) / ⟳ kebab-mcp 추가(facade-only)
    └─> kebab-app
          ├─> kebab-source-fs
          │     (p10-2 이후: lang detect + skip policy 내장; kebab-parse-code 와 분리)
@@ -1499,15 +1538,18 @@ kebab-cli, kebab-tui, kebab-desktop
          ├─> kebab-store-sqlite (DocumentStore, JobRepo, Retriever[lexical])
          ├─> kebab-store-vector (VectorStore)
          ├─> kebab-embed-local
+         ├─> kebab-embed-ollama   # ⟳ 2026-06-27: opt-in Ollama /api/embed (v0.26)
          ├─> kebab-search (Retriever[hybrid])
          ├─> kebab-llm-local
          ├─> kebab-rag
-         ├─> kebab-eval
+         ├─> kebab-nli            # ⟳ 2026-06-27: NLI 검증 trait (fb-41)
          └─> kebab-config
               └─> kebab-core (모두 의존)
 ```
 
 `kebab-parse-md` 는 v0.19.0 부터 `kebab-parse-types` (parser intermediate types) 와 `kebab-normalize` (CanonicalDocument lift) 를 흡수한다 (§3.7b 참조). 4 parser 중 markdown 한 갈래만 lift 를 경유하므로 thin layer 의 가치가 의미를 잃었다. 보존된 5 사용 type + 3 forward-declared struct 의 surface 는 `kebab-parse-md` 의 `pub` re-export 로 backward-compat. 기존 `parse-* → store/llm/embed ✗` 룰이 흡수된 lift 까지 자동 포함 — parse-md 도 parse-* 의 한 갈래.
+
+**⚠ 2026-06-27 모순 수정 (eval 방향):** 원 그래프의 `kebab-app └─> kebab-eval` 은 역방향이다 — 실제론 `kebab-eval ─> kebab-app(facade)+kebab-store-sqlite`, `kebab-cli ─> kebab-eval` (CLAUDE.md 금지표와 일치). **⟳ UI crate:** 현행은 `kebab-cli` + `kebab-mcp`(facade-only); `kebab-tui` 삭제(v0.31.0), `kebab-desktop` 미착수(P9-5).
 
 핵심 금지:
 - UI → store/llm/parse 직접 의존 ✗
@@ -1516,7 +1558,7 @@ kebab-cli, kebab-tui, kebab-desktop
 - chunk → llm/embed ✗
 - 다른 store 와 cross-write ✗
 
-`cargo deny` + workspace deny.toml + CI 체크로 강제.
+~~`cargo deny` + workspace deny.toml + CI 체크로 강제.~~ **✂ 2026-06-27:** 미구현 — `deny.toml` 없음, **CI 자체가 없음**(별 P9 follow-up 으로 deferred, HOTFIXES). 현재 경계는 손수 Cargo.toml 의존 + 코드리뷰로만 유지.
 
 ---
 
@@ -1531,8 +1573,8 @@ kebab-cli, kebab-tui, kebab-desktop
 | `embedding_model.version` | 같은 모델 가중치/토크나이저 변경 | bump |
 | `embedding.dimensions` | 차원 변경 | 새 lance 테이블 강제 |
 | `index_version` | retrieval 형상 변화 | bump |
-| `corpus_revision` | ingest commit 발생 (ANY new/updated) | 모노토닉 u64, SQLite `kv['corpus_revision']` 에 영속. p9-fb-19 의 in-process LRU search cache 가 cache-key 에 snapshot 으로 포함 → 다음 lookup 에서 자동 무효화. |
-| `prompt_template_version` | template 변경 | 코드 상수 (`rag-v3`) |
+| `corpus_revision` | ingest commit 발생 (ANY new/updated) | 모노토닉 u64, SQLite `kv['corpus_revision']` 에 영속. **✂ 2026-06-27:** 'p9-fb-19 in-process LRU search cache snapshot 무효화' 절은 stale — 캐시 삭제됨(v0.31.0). 카운터 자체는 유효(커서/재색인 판정). |
+| `prompt_template_version` | template 변경 | 코드 상수 (**⟳ 2026-06-27: `rag-v4`**; multi-hop `rag-multi-hop-v2`) |
 | `nli_model_version` | NLI 모델 교체 (fb-41 v0.18.0+) | `[models.nli].model` 의 HuggingFace repo id (예: `Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7`). 모델 교체 = cache_dir 다른 sanitized path. wire 미surface — v0.19+ 의 second adapter 도입 시 `answer.v1.verification` 에 `nli_model_version` field 추가 candidate. |
 | DB `schema_version` | DDL 변경 | 마이그레이션 정수 증가 |
 | wire schema (`*.v1`) | 깨는 변경 시 | `*.v2` 신설, v1 additive only |
@@ -1552,7 +1594,7 @@ CI:
 pub enum CoreError { InvalidId, InvalidCitation, InvalidSpan, Malformed }
 // crate-local examples
 pub enum ParseMdError { Yaml(String), Encoding, Pulldown(String), Span }
-pub enum StoreError { Sqlx(rusqlite::Error), Migration(String), Conflict(String) }
+pub enum StoreError { Sqlite(#[from] rusqlite::Error), Migration(String), Conflict(String) } // ⟳ 2026-06-27: Sqlx → Sqlite (pre-rusqlite 잔재)
 pub enum LlmError { Unreachable, ModelNotPulled(String), Timeout, Stream(String) }
 ```
 
@@ -1602,6 +1644,8 @@ $ kebab doctor
 1 check failed.
 ```
 
+> **⟳ 2026-06-27:** 위 예시는 설계 의도(7 check). **현행 `kebab doctor` 는 3 check 만 구현** — `config_loaded` / `data_dir_writable` / `config_migration` (config-side only). storage-open / ollama reachability / model-pulled / embedding_model check 는 미구현(yagni). 모델명 `qwen2.5:14b-instruct` 도 historical — 현행 default `gemma4:e4b`.
+
 ### 10.1 Capability matrix + introspection (fb-27)
 
 `kebab schema [--json]` 가 binary 의 capability set 을 노출한다.
@@ -1636,7 +1680,7 @@ transitional 형태) 의 source of truth.
 ### 10.2 MCP server transport (fb-30)
 
 `kebab mcp` 가 stdio JSON-RPC server. Rust SDK = `rmcp 1.6`. Tool surface
-v1: `search` / `ask` / `schema` / `doctor` (4 read-only). Resources /
+v1: **⟳ 2026-06-27 현행 8 tools** — `schema` / `doctor` / `search` / `bulk_search` / `ask` / `fetch` / `ingest_file` / `ingest_stdin`. 이 중 `ingest_file`/`ingest_stdin` 은 **KB 를 변경**하므로 '4 read-only' 는 더 이상 사실 아님. Resources /
 Prompts / Sampling 미선언. Output 은 wire schema v1 JSON 을 MCP `text`
 content block 으로 직렬화. Tool dispatch 실패는 `isError: true` + error.v1
 content; refusal / no-hit / unhealthy 는 정상 응답 (semantic flag 으로
@@ -1697,7 +1741,7 @@ agent 가 분기). HTTP-SSE transport 는 fb-29 deferral 따라 P+. classify
 
 1. 이 문서 검토.
 2. 검토 통과 시 `tasks/_template.md` (작업 단위 spec 템플릿) 작성.
-3. P1 (Markdown ingestion) 6 component task 로 분해 — 템플릿 적합성 검증.
+3. P1 (Markdown ingestion) 6 component task 로 분해 — 템플릿 적합성 검증. *(⟳ 2026-06-27: 이 §12 는 2026-04-27 작성된 historical 계획 체크리스트이며 전 단계가 실행 완료됨. 생성됐던 `tasks/p1/*` component spec 파일들은 2026-06-27 doc-reorg 에서 삭제 — git history 에만.)*
 4. 나머지 phase 일괄 분해 (~30 component task).
 
 각 task 는 이 문서의 trait 시그니처 + wire schema + DDL 만 인용. 새 도메인 타입 / 새 trait 도입 금지 (이 문서 수정 절차 거쳐야 함).

@@ -577,7 +577,7 @@ impl RagPipeline {
     /// Only the *initial* decompose's parse failure is a refusal.
     ///
     /// `prompt_template_version` on the returned `Answer` is
-    /// [`PROMPT_TEMPLATE_VERSION_MULTI_HOP`] (`rag-multi-hop-v1`) so
+    /// [`PROMPT_TEMPLATE_VERSION_MULTI_HOP`] (`rag-multi-hop-v2`) so
     /// eval `compare` can isolate multi-hop runs from single-pass.
     pub fn ask_multi_hop(&self, query: &str, opts: AskOpts) -> Result<Answer> {
         let started = std::time::Instant::now();
