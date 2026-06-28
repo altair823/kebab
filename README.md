@@ -85,7 +85,7 @@ Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go
 | `kebab ingest-file <path>` | 단일 파일 ingest (workspace 외부 가능 — `_external/` 로 deterministic copy) |
 | `kebab ingest-stdin --title <T>` | stdin 의 markdown 본문 ingest |
 | `kebab search --mode {lexical,vector,hybrid} "<query>" [flags]` | 검색 (default hybrid = RRF fusion, citation 포함). 출처 필터 `--source <id>` (`[[workspace.sources]]` id) · `--source-type {markdown,note,paper,reference,inbox}` (둘 다 repeatable/comma-sep, OR). 그 외 필터/budget flag 는 `--help` |
-| `kebab ask "<query>" [flags]` | RAG 답변 + 근거 인용 (Ollama 필요). `--session` (multi-turn) · `--stream` · `--multi-hop` |
+| `kebab ask "<query>" [flags]` | RAG 답변 + 근거 인용 (Ollama 필요). `--explain` · `--stream` · `--multi-hop` |
 | `kebab list docs` | 색인된 문서 목록 |
 | `kebab inspect doc <id>` / `inspect chunk <id>` | raw record 보기 |
 | `kebab fetch chunk\|doc\|span <id> [flags]` | indexed corpus 에서 verbatim text fetch |
