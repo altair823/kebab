@@ -225,17 +225,17 @@
     "cache_hit": {
       "type": "integer",
       "minimum": 0,
-      "description": "asset_timings: chunks whose embedding came from the derivation cache."
+      "description": "asset_timings: chunks whose embedding came from the derivation cache. Embeddings only — the OCR and caption derivations share the table but are not counted. Emitted on the markdown / image / PDF paths; the code path does not emit asset_timings at all."
     },
     "cache_miss": {
       "type": "integer",
       "minimum": 0,
-      "description": "asset_timings: chunks whose embedding had to be computed."
+      "description": "asset_timings: chunks whose embedding had to be computed. Same scope as cache_hit."
     },
     "cache_ms": {
       "type": "integer",
       "minimum": 0,
-      "description": "asset_timings: wall-clock the derivation-cache lookup and insert cost, excluding the embedder call the misses trigger (that is `embed_ms`)."
+      "description": "asset_timings: what the derivation-cache path cost — lookup, payload decode, insert, and the last_used_at touch — excluding the embedder call the misses trigger. INCLUDED IN embed_ms rather than additional to it: the embed timer spans the whole vector phase, so summing the phase fields double-counts this one."
     }
   }
 }

@@ -140,21 +140,31 @@ pub enum IngestEvent {
         #[serde(default)]
         caption_ms: u64,
         /// v0.32.1 (additive, issue #231): derivation-cache outcome for
-        /// this asset's chunks, and the wall-clock the cache path itself
+        /// this asset's **embedding** chunks, and what the cache path
         /// cost. Without these the only way to tell whether the cache is
         /// paying for itself was a `tracing::info!` on stderr, which is
         /// gone the moment the run ends — so "is the cache a win on my
         /// corpus" had no answer a user could look up.
+        ///
+        /// Scope: embeddings only. The OCR and caption derivations share
+        /// the same table but go through the single-key API and are not
+        /// counted here, so an image-heavy corpus under-reports what the
+        /// cache actually did.
         #[serde(default)]
         cache_hit: u32,
         #[serde(default)]
         cache_miss: u32,
-        /// Lookup, insert, and the `last_used_at` touch that every hit
-        /// triggers — everything the cache costs except the embedder call
-        /// the misses go on to make, which `embed_ms` already covers.
+        /// Lookup, payload decode, insert, and the `last_used_at` touch
+        /// that every hit triggers — everything the cache costs except
+        /// the embedder call the misses go on to make.
+        ///
         /// The touch is counted deliberately: issue #231's sharpest claim
         /// is that a read-only cache hit generates write traffic, and a
         /// metric that left it out could not test that claim.
+        ///
+        /// **Included in `embed_ms`, not additional to it.** The embed
+        /// timer spans the whole vector phase, cache work included, so
+        /// summing the phase fields double-counts this one.
         #[serde(default)]
         cache_ms: u64,
     },

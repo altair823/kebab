@@ -1010,6 +1010,30 @@ fn unsupported_media_warning(path: &str) -> String {
     }
 }
 
+/// What one asset's trip through the derivation cache cost and produced.
+///
+/// Carried as a struct rather than four out-params: they are read and
+/// reported together (the `asset_timings` event wants all four), and a
+/// caller that updates three of them and forgets the fourth would report
+/// a cache that looks free.
+#[derive(Default)]
+pub(crate) struct CacheStats {
+    pub hit: usize,
+    pub miss: usize,
+    /// Keys that hit, for the batched `last_used_at` bump the caller runs
+    /// after the vector upsert.
+    pub touch_keys: Vec<String>,
+    /// Lookup + decode + insert + touch, in **microseconds**. Not the
+    /// embedder call the misses trigger.
+    ///
+    /// Microseconds because a per-asset millisecond truncation loses the
+    /// measurement entirely: a document's cache work is routinely
+    /// sub-millisecond, so accumulating `as_millis()` per span reported
+    /// zero for most assets and made the total a lower bound rather than
+    /// a figure. The wire event converts to ms at emit.
+    pub us: u64,
+}
+
 /// Embed `texts` with the derivation cache (design 2026-05-31 §3.4).
 ///
 /// 1) 각 text 의 embedding cache_key 계산 → **한 번의 배치 조회**로 히트/미스 분리.
@@ -1025,23 +1049,6 @@ fn unsupported_media_warning(path: &str) -> String {
 /// GPU 에서 배치로, 전역 뮤텍스를 잡지 않고 돌기 때문이다. 결과적으로 캐시가
 /// "병렬 GPU 배치 1회" 를 "직렬 SQLite 왕복 N회" 로 바꿔치기하는 형태였다.
 /// 조회와 삽입을 배치 단위로 접어 그 비대칭을 없앤다.
-/// What one asset's trip through the derivation cache cost and produced.
-///
-/// Carried as a struct rather than four out-params: they are read and
-/// reported together (the `asset_timings` event wants all four), and a
-/// caller that updates three of them and forgets the fourth would report
-/// a cache that looks free.
-#[derive(Default)]
-pub(crate) struct CacheStats {
-    pub hit: usize,
-    pub miss: usize,
-    /// Keys that hit, for the batched `last_used_at` bump the caller runs
-    /// after the vector upsert.
-    pub touch_keys: Vec<String>,
-    /// Lookup + insert + touch. Not the embedder call the misses trigger.
-    pub ms: u64,
-}
-
 fn embed_with_cache(
     emb: &dyn Embedder,
     sqlite: &kebab_store_sqlite::SqliteStore,
@@ -1055,12 +1062,16 @@ fn embed_with_cache(
         .map(|text| kebab_core::derivation_cache_key("embedding", text, version_key))
         .collect();
     let cached = sqlite.derivation_cache_get_many(&keys)?;
-    stats.ms += u64::try_from(t_cache.elapsed().as_millis()).unwrap_or(u64::MAX);
+    stats.us += u64::try_from(t_cache.elapsed().as_micros()).unwrap_or(u64::MAX);
 
     let mut out: Vec<Option<Vec<f32>>> = Vec::with_capacity(texts.len());
     let mut miss_indices: Vec<usize> = Vec::new();
     let mut miss_inputs: Vec<EmbeddingInput<'_>> = Vec::new();
 
+    // Decoding a hit's payload back into `Vec<f32>` is part of what the
+    // cache costs, so it is inside the timer too — a metric that stopped
+    // at the SQL boundary would flatter the cache.
+    let t_decode = std::time::Instant::now();
     for (i, text) in texts.iter().enumerate() {
         // 히트 = 캐시에 있고 payload 가 정상 디코드되는 경우. 손상 payload 는
         // 미스로 강등(재계산, 정확성 우선 §3.5).
@@ -1081,6 +1092,7 @@ fn embed_with_cache(
             out.push(None);
         }
     }
+    stats.us += u64::try_from(t_decode.elapsed().as_micros()).unwrap_or(u64::MAX);
 
     if !miss_inputs.is_empty() {
         let miss_vectors = emb.embed(&miss_inputs)?;
@@ -1095,7 +1107,7 @@ fn embed_with_cache(
         }
         let t_put = std::time::Instant::now();
         sqlite.derivation_cache_put_many(&puts)?;
-        stats.ms += u64::try_from(t_put.elapsed().as_millis()).unwrap_or(u64::MAX);
+        stats.us += u64::try_from(t_put.elapsed().as_micros()).unwrap_or(u64::MAX);
     }
 
     Ok(out
@@ -1449,7 +1461,7 @@ fn ingest_one_asset(
             {
                 let t_touch = std::time::Instant::now();
                 app.sqlite.derivation_cache_touch(&emb_cache.touch_keys)?;
-                emb_cache.ms += u64::try_from(t_touch.elapsed().as_millis()).unwrap_or(u64::MAX);
+                emb_cache.us += u64::try_from(t_touch.elapsed().as_micros()).unwrap_or(u64::MAX);
             }
         }
     }
@@ -1472,7 +1484,7 @@ fn ingest_one_asset(
             caption_ms: 0,
             cache_hit: u32::try_from(emb_cache.hit).unwrap_or(u32::MAX),
             cache_miss: u32::try_from(emb_cache.miss).unwrap_or(u32::MAX),
-            cache_ms: emb_cache.ms,
+            cache_ms: emb_cache.us / 1_000,
         },
     );
 
@@ -1482,10 +1494,10 @@ fn ingest_one_asset(
         tracing::info!(
             target: "kebab-app",
             doc = %canonical.doc_id.0,
-            "derivation cache: embedding hit={} miss={} in {}ms",
+            "derivation cache: embedding hit={} miss={} in {}us",
             emb_cache.hit,
             emb_cache.miss,
-            emb_cache.ms
+            emb_cache.us
         );
     }
 
@@ -1861,7 +1873,7 @@ fn ingest_one_image_asset(
         {
             let t_touch = std::time::Instant::now();
             app.sqlite.derivation_cache_touch(&emb_cache.touch_keys)?;
-            emb_cache.ms += u64::try_from(t_touch.elapsed().as_millis()).unwrap_or(u64::MAX);
+            emb_cache.us += u64::try_from(t_touch.elapsed().as_micros()).unwrap_or(u64::MAX);
         }
     }
     let embed_ms = u64::try_from(t_embed.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -1883,7 +1895,7 @@ fn ingest_one_image_asset(
             caption_ms,
             cache_hit: u32::try_from(emb_cache.hit).unwrap_or(u32::MAX),
             cache_miss: u32::try_from(emb_cache.miss).unwrap_or(u32::MAX),
-            cache_ms: emb_cache.ms,
+            cache_ms: emb_cache.us / 1_000,
         },
     );
 
@@ -1893,10 +1905,10 @@ fn ingest_one_image_asset(
         tracing::info!(
             target: "kebab-app",
             doc = %canonical.doc_id.0,
-            "derivation cache: embedding hit={} miss={} in {}ms",
+            "derivation cache: embedding hit={} miss={} in {}us",
             emb_cache.hit,
             emb_cache.miss,
-            emb_cache.ms
+            emb_cache.us
         );
     }
 
@@ -2755,7 +2767,7 @@ fn ingest_one_pdf_asset(
         {
             let t_touch = std::time::Instant::now();
             app.sqlite.derivation_cache_touch(&emb_cache.touch_keys)?;
-            emb_cache.ms += u64::try_from(t_touch.elapsed().as_millis()).unwrap_or(u64::MAX);
+            emb_cache.us += u64::try_from(t_touch.elapsed().as_micros()).unwrap_or(u64::MAX);
         }
     }
     let embed_ms = u64::try_from(t_embed.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -2777,7 +2789,7 @@ fn ingest_one_pdf_asset(
             caption_ms: 0,
             cache_hit: u32::try_from(emb_cache.hit).unwrap_or(u32::MAX),
             cache_miss: u32::try_from(emb_cache.miss).unwrap_or(u32::MAX),
-            cache_ms: emb_cache.ms,
+            cache_ms: emb_cache.us / 1_000,
         },
     );
 
@@ -2787,10 +2799,10 @@ fn ingest_one_pdf_asset(
         tracing::info!(
             target: "kebab-app",
             doc = %canonical.doc_id.0,
-            "derivation cache: embedding hit={} miss={} in {}ms",
+            "derivation cache: embedding hit={} miss={} in {}us",
             emb_cache.hit,
             emb_cache.miss,
-            emb_cache.ms
+            emb_cache.us
         );
     }
 
@@ -3104,7 +3116,7 @@ fn ingest_one_code_asset(
         {
             let t_touch = std::time::Instant::now();
             app.sqlite.derivation_cache_touch(&emb_cache.touch_keys)?;
-            emb_cache.ms += u64::try_from(t_touch.elapsed().as_millis()).unwrap_or(u64::MAX);
+            emb_cache.us += u64::try_from(t_touch.elapsed().as_micros()).unwrap_or(u64::MAX);
         }
     }
 
@@ -3114,10 +3126,10 @@ fn ingest_one_code_asset(
         tracing::info!(
             target: "kebab-app",
             doc = %canonical.doc_id.0,
-            "derivation cache: embedding hit={} miss={} in {}ms",
+            "derivation cache: embedding hit={} miss={} in {}us",
             emb_cache.hit,
             emb_cache.miss,
-            emb_cache.ms
+            emb_cache.us
         );
     }
 
