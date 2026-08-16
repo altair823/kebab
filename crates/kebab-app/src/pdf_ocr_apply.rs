@@ -313,7 +313,19 @@ where
         // one DCTDecode image, which is why rendering exists — but it is
         // still the right thing to try when rendering is unavailable or
         // fails for this particular page.
-        let dct = |doc: &LopdfDocument| extract_dctdecode_page_image(doc, page_num);
+        let dct = |doc: &LopdfDocument| {
+            extract_dctdecode_page_image(doc, page_num).inspect_err(|e| {
+                // Swallowed by the callers below on purpose — a page-local
+                // parse failure must not abort the document. Logged so the
+                // reason is recoverable, matching the OCR cache GET below.
+                tracing::debug!(
+                    target: "kebab-app::pdf_ocr",
+                    page = page_num,
+                    error = %e,
+                    "DCTDecode extraction failed; treating as no raster for this page"
+                );
+            })
+        };
 
         let rasterized = match (rendered.as_ref(), renderer_configured) {
             (Some(doc), _) => match doc.render_page_png(page_num, opts.render_dpi, opts.max_pixels)
@@ -330,13 +342,24 @@ where
                 // into an aborted document — the opposite of this loop's
                 // per-page `continue`-on-error discipline, and the same
                 // silent-total-loss shape this whole change is about.
+                //
+                // Defensive rather than demonstrated: the loop only visits
+                // pages `get_pages()` lists, which is the same lookup that
+                // makes `extract_dctdecode_page_image` fail, so no fixture
+                // reaches this arm's error path. An attempt at a test for
+                // it passed while exercising nothing and was removed
+                // rather than kept as false coverage.
                 Err(e) => match dct(&pdf_doc).ok().flatten() {
                     Some(b) => Ok(b),
                     None => Err(RasterFailure::Render(e.to_string())),
                 },
             },
-            // A renderer is configured but could not open this PDF.
-            (None, true) => match dct(&pdf_doc)? {
+            // A renderer is configured but could not open this PDF. Same
+            // reasoning as above and stronger: reaching here means pdfium
+            // rejected the whole document, so the odds that lopdf also
+            // stumbles on it are at their highest — exactly where an `?`
+            // would turn one file into an aborted run.
+            (None, true) => match dct(&pdf_doc).ok().flatten() {
                 Some(b) => Ok(b),
                 None => Err(RasterFailure::Unopenable),
             },

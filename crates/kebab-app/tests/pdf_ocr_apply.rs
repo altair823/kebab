@@ -491,39 +491,52 @@ fn a_dctdecode_page_still_works_with_a_renderer_configured() {
     assert_eq!(summary.pages_skipped, 0);
 }
 
-/// A PDF that lopdf parses but pdfium refuses must degrade to the
-/// DCTDecode path rather than reporting `no_renderer` — telling a user
-/// who already configured a renderer to configure one is the wrong
-/// instruction, and giving up on a page the old path could read would
-/// make installing pdfium a downgrade.
+/// A PDF that lopdf parses but pdfium refuses. The renderer is
+/// configured and working — it simply cannot open *this* file — so the
+/// page must fall through to the DCTDecode path and, when that also has
+/// nothing, be reported as `unopenable_pdf` rather than `no_renderer`.
+/// Telling a user who already configured a renderer to configure one is
+/// the wrong instruction.
 ///
-/// Constructed rather than fixtured: the case is a disagreement between
-/// two parsers, which is easier to state than to find in the wild.
+/// The fixture is an encrypted PDF with no password: lopdf reads the
+/// object graph without decrypting, pdfium refuses outright
+/// (`PasswordError`). A first attempt at this test used truncated bytes,
+/// which lopdf rejected before the branch was ever reached — the test
+/// passed while exercising nothing.
 #[test]
 #[ignore = "requires libpdfium"]
 fn a_pdf_the_renderer_cannot_open_falls_back_instead_of_blaming_config() {
-    // Truncated after the header: lopdf's lenient path still yields a
-    // document object, pdfium refuses it outright.
-    let bytes = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
+    let bytes = std::fs::read("../kebab-parse-pdf/tests/fixtures/encrypted_no_password.pdf")
+        .expect("encrypted fixture missing");
     let mut canonical = canonical_with_empty_block();
     let engine = MockOcrEngine::single("SHOULD_NOT_BE_CALLED", false);
 
-    // Either lopdf also rejects it (then this test has nothing to say and
-    // the error surfaces) or the run completes with the page skipped —
-    // what must never happen is a panic or a silent success.
-    let result = apply_ocr_to_pdf_pages(
+    let mut reasons = Vec::new();
+    let summary = apply_ocr_to_pdf_pages(
         &mut canonical,
         &engine,
         &bytes,
         &opts_with_renderer(),
-        |_| {},
+        |p| {
+            if let kebab_app::pdf_ocr_apply::PdfOcrProgress::Finished {
+                failure_reason: Some(r),
+                ..
+            } = p
+            {
+                reasons.push(r);
+            }
+        },
+    )
+    .expect("a PDF the renderer cannot open must not abort the run");
+
+    assert_eq!(summary.pages_ocrd, 0, "nothing could be rasterized");
+    assert_eq!(
+        summary.pages_skipped, 1,
+        "and the page is counted as skipped"
     );
-    // `Err` means lopdf rejected it first, which is the pre-existing path
-    // and not this test's subject.
-    if let Ok(summary) = result {
-        assert_eq!(
-            summary.pages_ocrd, 0,
-            "nothing can be read from a PDF neither parser accepts"
-        );
-    }
+    assert_eq!(
+        reasons,
+        vec!["unopenable_pdf".to_string()],
+        "the reason must name the real problem, not a missing renderer"
+    );
 }
