@@ -209,7 +209,11 @@ impl LanceVectorStore {
             return;
         }
         let version_after = self.table_version(table);
-        if version_after == 0
+        // A version read that failed reports 0. Bailing on either side keeps
+        // that from being read as "crossed every boundary since zero", which
+        // would run this expensive pass on every write.
+        if version_before == 0
+            || version_after == 0
             || version_after / self.compact_every <= version_before / self.compact_every
         {
             return;

@@ -96,10 +96,9 @@ fn repeated_upserts_do_not_accumulate_lance_versions() {
 /// compaction the upsert path got.
 ///
 /// Deliberately large enough that a single call spans more than
-/// `compact_every` batches. That is the case a `version % compact_every == 0`
-/// trigger misses: the call steps the version by several at once and clears the
-/// multiple without ever landing on it. A handful of ids would pass against
-/// either trigger and prove nothing.
+/// `compact_every` batches, because that is the shape the batched sweep
+/// actually ships. A handful of ids commits once or twice and would pass
+/// even with no compaction on the delete path at all, proving nothing.
 #[test]
 #[ignore = "requires AVX-capable hardware (LanceDB)"]
 fn batched_delete_spanning_many_commits_still_compacts() {
