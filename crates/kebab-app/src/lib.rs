@@ -499,36 +499,47 @@ pub fn doctor_with_config_path(
                 true,
                 "점검하지 못했다".to_string(),
                 Some(
-                    "SQLite 를 열거나 읽지 못했다 — 다른 kebab 프로세스가 쓰는 중이거나 \
-                     DB 가 손상됐을 수 있다"
+                    "SQLite 를 열거나 읽지 못했다 — 아직 색인 전이거나, 다른 kebab \
+                     프로세스가 쓰는 중이거나, DB 가 손상됐을 수 있다"
                         .to_string(),
                 ),
             ),
-            // Pre-V016 stores can be misaligned already: V009's backfill
-            // inserted without an explicit rowid, so a store with gaps in
-            // `chunks.rowid` at that moment got a densely-numbered shadow.
-            // That is harmless there — deletes still address rows by
-            // chunk_id. Applying V016 repopulates with explicit rowids and
-            // fixes it, so the advice is "migrate", never "wipe".
-            Some(Some((Some(v), _))) if v < V016 => (
-                true,
-                format!("V016 적용 전 (현재 V{v:03}) — 마이그레이션 후 점검된다"),
-                None,
-            ),
-            Some(Some((_, Ok((checked, 0))))) => (
-                true,
-                format!("chunks_fts rowid 정렬 정상 (양끝 {checked}행 표본)"),
-                None,
-            ),
-            Some(Some((_, Ok((checked, bad))))) => (
-                false,
-                format!("chunks_fts rowid 정렬 어긋남 — 표본 {checked}행 중 {bad}행 불일치"),
-                Some(
-                    "삭제가 엉뚱한 FTS 행을 지우고 있다. `kebab reset` 후 재색인으로 \
-                     인덱스를 다시 만들어라"
-                        .to_string(),
+            // A verdict is only rendered for a store known to be V016 or
+            // later. Pre-V016 stores can be misaligned already — V009's
+            // backfill inserted without an explicit rowid, so a store
+            // with gaps in `chunks.rowid` at that moment got a densely
+            // numbered shadow — and there it is harmless, because
+            // deletes still address rows by chunk_id. Applying V016
+            // repopulates with explicit rowids and fixes it, so the
+            // advice is "migrate", never "wipe". An unreadable history
+            // takes the same branch: not knowing the version is not
+            // grounds for telling someone to destroy their KB.
+            Some(Some((ver, Ok((checked, bad))))) => match ver {
+                Some(v) if v >= V016 && bad > 0 => (
+                    false,
+                    format!("chunks_fts rowid 정렬 어긋남 — 표본 {checked}행 중 {bad}행 불일치"),
+                    Some(
+                        "삭제가 엉뚱한 FTS 행을 지우고 있다. `kebab reset` 후 재색인으로 \
+                         인덱스를 다시 만들어라"
+                            .to_string(),
+                    ),
                 ),
-            ),
+                Some(v) if v >= V016 => (
+                    true,
+                    format!("chunks_fts rowid 정렬 정상 (양끝 {checked}행 표본)"),
+                    None,
+                ),
+                Some(v) => (
+                    true,
+                    format!("V016 적용 전 (현재 V{v:03}) — 마이그레이션 후 점검된다"),
+                    None,
+                ),
+                None => (
+                    true,
+                    "판정 보류 — 마이그레이션 이력을 읽지 못했다".to_string(),
+                    Some("kebab 이 만든 DB 가 아닐 수 있다".to_string()),
+                ),
+            },
         };
         checks.push(DoctorCheck {
             name: "fts_shadow".to_string(),
@@ -540,9 +551,16 @@ pub fn doctor_with_config_path(
 
     // vector_store — Lance fragment / version-history health (issue #230).
     {
-        let cfg = loaded_cfg
-            .clone()
-            .unwrap_or_else(kebab_config::Config::defaults);
+        // Same env precedence as the two checks above — this block
+        // landed in #234 reading the file-only config, so a
+        // KEBAB_STORAGE_DATA_DIR user got stats for the wrong directory.
+        let cfg = match loaded_cfg.as_ref() {
+            Some(c) => {
+                let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+                c.clone().apply_env(&env)
+            }
+            None => kebab_config::Config::defaults(),
+        };
         let data_dir = kebab_config::expand_path(&cfg.storage.data_dir, "");
         let vector_dir =
             kebab_config::expand_path(&cfg.storage.vector_dir, &data_dir.to_string_lossy());

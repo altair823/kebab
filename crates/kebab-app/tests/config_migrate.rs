@@ -123,6 +123,11 @@ fn doctor_does_not_create_a_store_where_none_exists() {
 /// trigger still addresses rows by chunk_id, so the drift is harmless.
 /// Telling that user to `kebab reset` would destroy a healthy KB over a
 /// condition that applying the migration fixes by itself.
+///
+/// Note: doctor applies env overrides with the same precedence as
+/// `Config::load`, so `KEBAB_STORAGE_DATA_DIR` exported in the shell
+/// redirects this check away from the temp store and fails the test.
+/// That is the check behaving correctly, not a broken test — unset it.
 #[test]
 fn doctor_does_not_call_a_pre_v016_store_broken() {
     let dir = tempfile::tempdir().unwrap();
