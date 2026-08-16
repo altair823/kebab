@@ -14,6 +14,66 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-08-17 — #232 PDF OCR 이 DCTDecode 아닌 스캔본을 전량 건너뜀 (페이지 렌더링)
+
+### 무엇이 문제였나
+
+`extract_dctdecode_page_image` 는 페이지의 image XObject 중 `/Filter` 가 **정확히 DCTDecode 인 것 하나**만 받는다. 실제 스캔본에서 흔한 CCITTFaxDecode·JBIG2Decode·FlateDecode·JPXDecode, `[FlateDecode, DCTDecode]` 같은 필터 체인, 그리고 Internet Archive 계열의 "배경 + `/ImageMask`" 분리 구조가 전부 걸러진다.
+
+주목할 점은 **텍스트 게이트가 정상 동작했다**는 것이다. `needs_ocr` 판정을 통과했다는 건 kebab 이 "이 페이지는 스캔본이라 OCR 이 필요하다"고 올바르게 본 것이다. 판정은 맞았고 래스터를 못 꺼냈을 뿐인데, 그 결과가 **조용한 내용 손실**이었다 — 색인은 "성공"으로 끝나고, 검색이 안 되는 시점에야 알게 되며, 그때 원인이 PDF 인코더라는 걸 역추적할 방법이 없다.
+
+### 무엇을 고쳤나
+
+페이지를 **렌더링**한다 (`page_render::PageRenderer`, pdfium). 필터를 지원할 것도, XObject 중에 고를 것도 없고, 벡터 드로잉과 이미지가 섞인 페이지도 리더가 보는 대로 나온다. 부수적으로 이슈가 지적한 "페이지 내 image XObject 선택이 비결정적" 문제도 렌더링 경로에서는 성립하지 않는다.
+
+이슈는 **교체**를 권했지만 **렌더러 우선 + DCTDecode 폴백**으로 갔다. 배포 형태 때문이다 — pdfium 은 공유 라이브러리로만 배포되고 정적 빌드가 없어서, 링크하면 CLAUDE.md 가 규정한 "단일 바이너리" 가 깨진다. 사용자와 상의해 정한 결론이다:
+
+- 런타임 바인딩. 있으면 모든 인코딩 커버, 없으면 오늘 동작 그대로 + **왜 건너뛰었는지 명시**.
+- `[ingest.pdf.ocr] render_library` 로 경로 지정, 비우면 로더 경로 탐색.
+- `kebab doctor` 의 `pdf_render` 가 지금 어느 쪽인지 보고.
+- 바이너리는 392.9 MB → 399.3 MB (+6.4 MB, 바인딩 글루). `ldd` 에 pdfium 없음 — 단일 실행 파일 유지.
+
+### 조용한 손실을 시끄럽게
+
+이슈 부수 제안 2·3 이다.
+
+`failure_reason` 이 CLI 에서 버려지고 있었다(`..` 로 폐기). wire 이벤트는 원인을 구분해 싣는데 사람이 보는 출력이 "no DCTDecode or engine fail" 로 뭉갰다. 이제 `no_renderer` / `render_error` / `ocr_error` 를 구분해 찍는다.
+
+`IngestReport.ocr_skipped_pages` 를 추가하고(additive) 사람용 요약에도 `ocr-skipped N` 으로 낸다. stderr 한 줄로 흘려보내면 대량 ingest 에서 지나간다는 게 이슈의 지적이었다.
+
+### parser_version cascade
+
+`pdf-text-v1` → **`pdf-text-v2`**. 안 올리면 이미 색인된 스캔본에 적용되지 않는다 — PDF 파일 자체는 안 바뀌었으니 해시가 같고 `try_skip_unchanged` 가 Unchanged 로 건너뛴다. 사용자가 `--force-reingest` 를 떠올려야만 고쳐지는 수정은 고쳐진 게 아니다.
+
+스냅샷 두 개가 따라 움직였고, 바뀐 것이 파생 식별자뿐임을 확인했다: `vector_pdf_canonical.json` 의 `doc_id`/`block_id`/`parser_version`/provenance note 만 바뀌고 **본문 텍스트·inlines·source_span·metadata 는 동일**, `ingest_report.snapshot.json` 은 `ocr_skipped_pages` 키 하나만 추가.
+
+### 구현 중 발견한 것 — pdfium 은 동시 사용이 안전하지 않다
+
+테스트를 병렬로 돌리자 `double free or corruption` 으로 프로세스가 죽었다. `pdfium-render` 의 `thread_safe` 기능만으로는 부족하다. 단일 스레드에서는 6개 테스트가 전부 통과한다.
+
+ingest 는 PDF 를 한 번에 하나씩 처리하므로 오늘은 문제가 없지만, `Arc<PageRenderer>` 는 "공유해도 된다"고 광고하는 타입이다. `PageRenderer` 안에 뮤텍스를 두고 `RenderedPdf` 가 문서 수명 동안 잡고 있게 했다 — 필드 선언 순서가 load-bearing 이다(`doc` 이 guard 보다 먼저 드롭돼야 한다). 지금 비용은 0 이고, ingest 루프가 병렬화되는 날 메모리 손상 대신 대기가 된다.
+
+`set_target_width` 만 주면 긴 스캔에서 pdfium 이 C++ `length_error` 로 프로세스를 죽인다(exceptions 비활성 빌드라 Err 로 못 받는다). 양변을 `set_maximum_*` 으로 묶었다.
+
+바인딩도 한 번만 해야 한다 — 여러 스레드에서 동시에 바인딩하면 실패한다. ingest 는 run 당 1회 바인딩해 `Arc` 로 공유한다.
+
+### 실측
+
+`govdocs1-000157-ccitt.pdf` (22쪽, 그중 1쪽이 CCITT 스캔), gemma3:4b vision:
+
+| | 렌더러 없음 | 렌더러 있음 |
+|---|---|---|
+| OCR 결과 | `⊘ 건너뜀 — 인코딩을 읽을 수 없다` | `✓ 101 chars, 6489ms` |
+| 색인 chunk | 35 | **36** |
+| 색인 글자 수 | 35,994 | **36,095** |
+| 요약 | `ocr-skipped 1` | (없음) |
+
+렌더링 자체는 스파이크에서 여섯 필터 계열 전부 확인했다 — CCITT / JBIG2 / Flate / JPX / 혼합(DCT+CCITT+JBIG2+Flate) / DCT, 300dpi 에서 페이지당 40~145 ms. OCR 호출(초 단위)에 묻히는 비용이다.
+
+### 범위 밖
+
+이슈가 권한 "DCTDecode 고속 경로를 남기지 말 것" 은 따르지 않았다. 폴백이 곧 그 경로이고, 폴백을 두는 것이 배포 결정의 귀결이다. 다만 렌더러가 있으면 그 경로는 타지 않는다.
+
 ## 2026-08-16 — #231 derivation_cache: 이슈 가설이 재현되지 않음 + 계측 노출
 
 ### 이슈가 요청한 실측을 채웠다

@@ -130,6 +130,10 @@ pub fn ingest_with_config(
     let ocr_ms_samples: Arc<Mutex<Vec<u64>>> = Arc::new(Mutex::new(Vec::new()));
     let ocr_pages_cnt: Arc<Mutex<u32>> = Arc::new(Mutex::new(0u32));
     let ocr_failures_cnt: Arc<Mutex<u32>> = Arc::new(Mutex::new(0u32));
+    // Pages the text gate wanted OCR'd but that produced no raster
+    // (issue #232). Surfaced on `IngestReport` so a scan that indexed
+    // nothing is visible in the run's own output, not just in stderr.
+    let ocr_skipped_cnt: Arc<Mutex<u32>> = Arc::new(Mutex::new(0u32));
 
     // v0.20.x r2: prune stale pdf_ocr_events rows once per ingest run.
     let _pruned = app
@@ -271,6 +275,44 @@ pub fn ingest_with_config(
             None
         };
 
+    // Page renderer for scanned PDFs (issue #232). Bound once per run —
+    // binding walks the loader path — and shared by every PDF.
+    //
+    // Not fail-fast, unlike the OCR engine above: a missing pdfium is a
+    // narrower capability than a missing OCR engine. Ingest still reads
+    // text PDFs and still OCRs pages that are a single embedded JPEG, so
+    // aborting the run would cost the user more than the gap does. The
+    // warning names the config key, and `kebab doctor` reports the mode.
+    let pdf_renderer: Option<Arc<kebab_parse_pdf::PageRenderer>> =
+        if app.config.pdf_ocr().enabled || app.config.pdf_ocr().always_on {
+            let configured = app.config.pdf_ocr().render_library.clone();
+            let path = configured
+                .as_deref()
+                .map(|p| kebab_config::expand_path(p, ""));
+            match kebab_parse_pdf::PageRenderer::bind(path.as_deref()) {
+                Ok(r) => {
+                    tracing::info!(
+                        target: "kebab-app",
+                        source = r.source(),
+                        "pdf page renderer ready — scanned pages of any encoding will be OCR'd"
+                    );
+                    Some(Arc::new(r))
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "kebab-app",
+                        error = %e,
+                        "no pdf page renderer — only pages that are a single DCTDecode image \
+                         can be OCR'd. Set `[ingest.pdf.ocr] render_library` to a libpdfium \
+                         to cover CCITTFax / JBIG2 / Flate / JPX scans"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
     // Pre-load every existing doc_id so we can label `IngestItem.kind`
     // as `New` vs `Updated` correctly. `list_documents` returns one
     // row per `(workspace_path, asset_id)` — index by the deterministic
@@ -383,12 +425,14 @@ pub fn ingest_with_config(
             &image_pipeline,
             force_reingest,
             pdf_ocr_engine.as_deref(),
+            pdf_renderer.as_ref(),
             progress,
             opts.cancel.as_ref(),
             log_writer.clone(),
             ocr_ms_samples.clone(),
             ocr_pages_cnt.clone(),
             ocr_failures_cnt.clone(),
+            ocr_skipped_cnt.clone(),
         );
 
         let item = match item {
@@ -675,6 +719,7 @@ pub fn ingest_with_config(
         skipped_size_exceeded: fs_skips.skipped_size_exceeded,
         skip_examples: fs_skips.skip_examples,
         purged_deleted_files,
+        ocr_skipped_pages: ocr_skipped_cnt.lock().map_or(0, |v| *v),
         items: if opts.summary_only { None } else { Some(items) },
     })
 }
@@ -1145,12 +1190,14 @@ fn ingest_one_asset(
     image_pipeline: &ImagePipeline<'_>,
     force_reingest: bool,
     pdf_ocr_engine: Option<&dyn OcrEngine>,
+    pdf_renderer: Option<&Arc<kebab_parse_pdf::PageRenderer>>,
     progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
     cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
     log_writer: Option<Arc<Mutex<crate::ingest_log::IngestLogWriter>>>,
     ocr_ms_samples: Arc<Mutex<Vec<u64>>>,
     ocr_pages_cnt: Arc<Mutex<u32>>,
     ocr_failures_cnt: Arc<Mutex<u32>>,
+    ocr_skipped_cnt: Arc<Mutex<u32>>,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     tracing::debug!(
         target: "kebab-app::ingest",
@@ -1194,12 +1241,14 @@ fn ingest_one_asset(
                 source_id,
                 force_reingest,
                 pdf_ocr_engine,
+                pdf_renderer,
                 progress,
                 cancel,
                 log_writer,
                 ocr_ms_samples,
                 ocr_pages_cnt,
                 ocr_failures_cnt,
+                ocr_skipped_cnt,
             );
         }
         // p10-1A-2 / 1B: code ingest dispatch. p10-2: Tier 2 langs added. p10-3: shell added. p10-1D: c/cpp added.
@@ -2462,12 +2511,14 @@ fn ingest_one_pdf_asset(
     source_id: &str,
     force_reingest: bool,
     pdf_ocr_engine: Option<&dyn OcrEngine>,
+    pdf_renderer: Option<&Arc<kebab_parse_pdf::PageRenderer>>,
     progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
     cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
     log_writer: Option<Arc<Mutex<crate::ingest_log::IngestLogWriter>>>,
     ocr_ms_samples: Arc<Mutex<Vec<u64>>>,
     ocr_pages_cnt: Arc<Mutex<u32>>,
     ocr_failures_cnt: Arc<Mutex<u32>>,
+    ocr_skipped_cnt: Arc<Mutex<u32>>,
 ) -> anyhow::Result<kebab_core::IngestItem> {
     let path = match &asset.source_uri {
         SourceUri::File(p) => p.clone(),
@@ -2490,7 +2541,7 @@ fn ingest_one_pdf_asset(
         }
     };
     // p9-fb-23 task 7: incremental-ingest early-skip for the PDF flow.
-    // PDF docs use `pdf-text-v1` as the parser_version and `PdfPageV1Chunker`
+    // PDF docs use `pdf-text-v2` as the parser_version and `PdfPageV1Chunker`
     // as the chunker — both pinned per-medium today (no config knob).
     // v0.26.2: composite parser_version folds pdf.ocr (enabled/always_on/
     // model) + chunking, so enabling scanned-PDF OCR auto-re-indexes PDFs.
@@ -2527,7 +2578,7 @@ fn ingest_one_pdf_asset(
     let mut canonical = app
         .extract_for(&asset.media_type, &ctx, &bytes)
         .context("kb-app::extract_for (pdf)")?;
-    // v0.26.2: store the composite parser_version (base `pdf-text-v1` already
+    // v0.26.2: store the composite parser_version (base `pdf-text-v2` already
     // fixed doc_id) so the next run's skip compare matches.
     canonical.parser_version = eff_parser_version.clone();
     // `[[workspace.sources]]`: stamp the owning source id (pdf extractor
@@ -2561,6 +2612,9 @@ fn ingest_one_pdf_asset(
                         cancel: cancel.cloned(),
                         ocr_cache: Some(Arc::clone(&app.sqlite)),
                         ocr_version_key: pdf_ocr_vkey,
+                        renderer: pdf_renderer.cloned(),
+                        render_dpi: pdf_ocr.render_dpi,
+                        max_pixels: pdf_ocr.max_pixels,
                     };
                     // v0.20.x Hook 2: pre-clone Arcs for capture by OCR closure.
                     let lw_for_ocr = log_writer.clone();
@@ -2669,6 +2723,11 @@ fn ingest_one_pdf_asset(
                             }
                         },
                     )?;
+                    if summary.pages_skipped > 0
+                        && let Ok(mut s) = ocr_skipped_cnt.lock()
+                    {
+                        *s = s.saturating_add(summary.pages_skipped);
+                    }
                     (Some(summary.pages_ocrd), Some(summary.ms_total))
                 }
                 None => (Some(0), Some(0)),

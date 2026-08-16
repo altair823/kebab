@@ -463,15 +463,31 @@ impl ProgressDisplay {
                 chars,
                 ocr_engine,
                 skipped,
+                failure_reason,
                 ..
             } => {
                 if !quiet {
                     let mut err = std::io::stderr().lock();
                     if *skipped {
-                        let _ = writeln!(
-                            err,
-                            "  ⊘ OCR page {page} skipped (no DCTDecode or engine fail, {ms}ms)"
-                        );
+                        // The wire event distinguishes why (issue #232) —
+                        // a page whose encoding could not be rasterized is
+                        // a different problem, with a different fix, from
+                        // one the OCR engine failed on. Collapsing both
+                        // into "no DCTDecode or engine fail" told the user
+                        // neither.
+                        let why = match failure_reason.as_deref() {
+                            Some("no_renderer") => {
+                                " — 이 페이지의 인코딩은 페이지 렌더러 없이 읽을 수 없다"
+                            }
+                            Some("render_error") => " — 페이지 렌더링 실패",
+                            Some(other) => {
+                                let _ =
+                                    writeln!(err, "  ⊘ OCR page {page} 건너뜀 — {other} ({ms}ms)");
+                                return Ok(());
+                            }
+                            None => "",
+                        };
+                        let _ = writeln!(err, "  ⊘ OCR page {page} 건너뜀{why} ({ms}ms)");
                     } else {
                         let _ = writeln!(
                             err,

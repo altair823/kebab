@@ -53,6 +53,15 @@ pub struct IngestReport {
     /// `#[serde(default)]`.
     #[serde(default)]
     pub purged_deleted_files: u32,
+    /// PDF pages the text gate classified as scans but which produced no
+    /// raster to OCR, so their content is not indexed (issue #232).
+    ///
+    /// The condition used to reach the user as one stderr line per page
+    /// and nothing else: the run reported success, and the absence only
+    /// showed up later as a search that found nothing. Additive field —
+    /// older wire consumers read it as 0 via `#[serde(default)]`.
+    #[serde(default)]
+    pub ocr_skipped_pages: u32,
     /// `None` ↔ wire `items: null` (`--summary-only`).
     pub items: Option<Vec<IngestItem>>,
 }
@@ -149,6 +158,7 @@ mod tests {
                 gitignore: vec![],
             },
             purged_deleted_files: 0,
+            ocr_skipped_pages: 0,
             items: None,
         };
         let v = serde_json::to_value(&r).unwrap();

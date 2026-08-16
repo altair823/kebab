@@ -36,6 +36,8 @@
     }
   ],
   "new": 2,
+  "ocr_skipped_pages": 0,
+  "purged_deleted_files": 0,
   "scanned": 3,
   "scope": {
     "exclude": [
@@ -60,6 +62,5 @@
   "skipped_kebabignore": 0,
   "skipped_size_exceeded": 0,
   "unchanged": 0,
-  "purged_deleted_files": 0,
   "updated": 1
 }

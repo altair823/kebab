@@ -172,7 +172,7 @@
     },
     "failure_reason": {
       "type": "string",
-      "description": "pdf_ocr_finished (optional, v0.20.x): OCR failure reason. Present iff skipped=true due to engine error. Values: timeout | ocr_error | network_error | other."
+      "description": "pdf_ocr_finished: why the page was skipped. \"no_renderer\" — no page renderer configured and the page is not a single DCTDecode image, so no raster could be produced (issue #232). \"render_error\" — a renderer was configured and rasterizing failed. \"ocr_error\" — the OCR engine itself failed. Absent when the page succeeded."
     },
     "counts": {
       "type": "object",

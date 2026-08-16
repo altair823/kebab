@@ -141,7 +141,7 @@ enabled = false  # opt-in
 - 1 `Block::Paragraph` per page (P7-1 invariant).
 
 **verify**:
-- `parser_version = "pdf-text-v1"`.
+- `parser_version = "pdf-text-v2"`.
 - `chunker_version = "pdf-page-v1"` (또는 `"pdf-page-v1.1"` from v0.20.1).
 - `block_count` ≥ page count.
 
@@ -166,16 +166,25 @@ valid_ratio_threshold = 0.5
 min_char_count = 20
 ```
 
+**Config (v0.33.0~)**: 위 블록은 `[ingest.pdf.ocr]` 로 옮겨졌고, 스캔본을 제대로 읽으려면 `render_library` 가 필요하다.
+```toml
+render_library = "/path/to/libpdfium.so"
+render_dpi = 300
+```
+
 **verify**:
 - IngestEvent::PdfOcrStarted / PdfOcrFinished emit.
 - `IngestItem.pdf_ocr_pages > 0` for scanned PDF.
 - `IngestItem.pdf_ocr_ms_total > 0`.
 - CLI printer: `📷 OCR page N...` / `✓ OCR page N (chars chars, msms via ollama-vision)`.
+- **렌더러 유무로 갈리는 지점** (issue #232): `render_library` 없이 CCITTFax·JBIG2·Flate·JPX 스캔을 넣으면 `⊘ OCR page N 건너뜀 — 이 페이지의 인코딩은 페이지 렌더러 없이 읽을 수 없다` 가 찍히고, 요약에 `ocr-skipped N`, `--json` 의 `ingest_report.ocr_skipped_pages` 와 `pdf_ocr_finished.failure_reason = "no_renderer"` 로 나온다. 렌더러를 주면 같은 파일이 실제 텍스트를 낸다.
+- `kebab doctor` 의 `pdf_render` 가 바인딩된 라이브러리 경로를 보고하는가.
 
 **scenarios** (이전 dogfood report 의 9 시나리오):
 - 1.4.a scanned 한국어 (F1 / F2) → OCR text indexed + search hit.
 - 1.4.b multi-scanned PDF (5+ files) → chunk_id collision 0 (Bug #3 fix verify).
 - 1.4.c always_on=true → vector PDF page 도 dual-block OCR.
+- 1.4.d **필터별 커버리지** (issue #232): `corpus/pdf/` 의 `scanned-ccitt` / `korean-scan`(JBIG2·DCT) / `scanned-flate` / `scanned-jpx` / `scanned-mixed` 를 렌더러 있음/없음 두 조건으로 색인해 `ocr-skipped` 와 색인된 글자 수를 비교.
 - 1.4.d valid_ratio_threshold variation (0.3 / 0.5 / 0.8) → mojibake / 정상 page 분류.
 - 1.4.e min_char_count variation (5 / 20 / 100) → 짧은 page OCR 호출.
 - 1.4.f DCTDecode-only skip (F6 FlateDecode / F7 CCITTFax) → warning + skip.

@@ -101,6 +101,11 @@ fn default_opts(enabled: bool) -> PdfOcrOpts {
         cancel: None,
         ocr_cache: None,
         ocr_version_key: String::new(),
+        // No renderer in these unit tests: they pin the fallback path's
+        // behavior, which is what a machine without pdfium gets.
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     }
 }
 
@@ -121,6 +126,11 @@ fn f1_input_with_ocr_enabled_replaces_empty_block() {
         cancel: None,
         ocr_cache: None,
         ocr_version_key: String::new(),
+        // No renderer in these unit tests: they pin the fallback path's
+        // behavior, which is what a machine without pdfium gets.
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     };
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -184,6 +194,11 @@ fn f4_input_with_ocr_enabled_replaces_mojibake_block() {
         cancel: None,
         ocr_cache: None,
         ocr_version_key: String::new(),
+        // No renderer in these unit tests: they pin the fallback path's
+        // behavior, which is what a machine without pdfium gets.
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     };
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -215,6 +230,11 @@ fn f3_input_with_always_on_pushes_dual_blocks() {
         cancel: None,
         ocr_cache: None,
         ocr_version_key: String::new(),
+        // No renderer in these unit tests: they pin the fallback path's
+        // behavior, which is what a machine without pdfium gets.
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     };
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -322,6 +342,11 @@ fn dual_block_ordinals_are_deterministic_and_unique() {
         cancel: None,
         ocr_cache: None,
         ocr_version_key: String::new(),
+        // No renderer in these unit tests: they pin the fallback path's
+        // behavior, which is what a machine without pdfium gets.
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     };
 
     apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -361,6 +386,11 @@ fn cancel_handle_aborts_mid_pdf() {
         cancel: Some(cancel.clone()),
         ocr_cache: None,
         ocr_version_key: String::new(),
+        // No renderer in these unit tests: they pin the fallback path's
+        // behavior, which is what a machine without pdfium gets.
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     };
 
     let result = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {});

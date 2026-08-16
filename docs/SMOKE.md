@@ -348,7 +348,11 @@ request_timeout_secs = 600
 valid_ratio_threshold = 0.5  # PDF 고유 키 (image 에 없음)
 min_char_count = 20
 lang_hint = "kor"
+# render_library = "/usr/lib/libpdfium.so"   # 있으면 모든 인코딩의 스캔 페이지 OCR
+render_dpi = 300             # 렌더 해상도. max_pixels 가 상한
 ```
+
+> `render_library` 를 비워 두면 로더 경로에서 찾고, 못 찾으면 **단일 DCTDecode(JPEG) 페이지만** OCR 된다. CCITTFax·JBIG2·Flate·JPX 스캔은 본문 없이 색인되고 그 건수가 `ocr-skipped` 로 찍힌다. `kebab doctor` 의 `pdf_render` 로 확인.
 
 > env override: 엔진 설정은 `KEBAB_OCR_*` (예: `KEBAB_OCR_ENDPOINT`, `KEBAB_OCR_MODEL`) 하나로 image·pdf 양쪽에 적용. on/off 는 `KEBAB_IMAGE_OCR_ENABLED` / `KEBAB_PDF_OCR_ENABLED` 로 미디어별. (config schema v5 — 옛 `KEBAB_IMAGE_OCR_*` / `KEBAB_PDF_OCR_*` 엔진 키는 `KEBAB_OCR_*` 로 통합.)
 

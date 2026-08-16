@@ -277,6 +277,7 @@ mod tests {
             skipped_size_exceeded: 0,
             skip_examples: SkipExamples::default(),
             purged_deleted_files: 0,
+            ocr_skipped_pages: 0,
             items: None,
         };
         let v = wire_ingest(&r);

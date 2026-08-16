@@ -108,6 +108,9 @@ fn opts_with_cache(store: &Arc<SqliteStore>, version_key: &str) -> PdfOcrOpts {
         cancel: None,
         ocr_cache: Some(Arc::clone(store)),
         ocr_version_key: version_key.to_string(),
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     }
 }
 

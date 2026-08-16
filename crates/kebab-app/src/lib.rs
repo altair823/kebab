@@ -445,6 +445,49 @@ pub fn doctor_with_config_path(
         }
     }
 
+    // pdf_render — is a page renderer available (issue #232).
+    //
+    // Reported because the capability is invisible otherwise: without a
+    // renderer, a scanned PDF still ingests "successfully" and simply
+    // contains no text, and the user finds out when a search comes back
+    // empty. Informational rather than a failure — a corpus with no
+    // scanned PDFs loses nothing by not having pdfium, and making doctor
+    // exit 3 over an unused capability would be noise.
+    {
+        let cfg = match loaded_cfg.as_ref() {
+            Some(c) => {
+                let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+                c.clone().apply_env(&env)
+            }
+            None => kebab_config::Config::defaults(),
+        };
+        let configured = cfg.pdf_ocr().render_library.clone();
+        let path = configured
+            .as_deref()
+            .map(|p| kebab_config::expand_path(p, ""));
+        let (detail, hint) = match kebab_parse_pdf::PageRenderer::bind(path.as_deref()) {
+            Ok(r) => (
+                format!(
+                    "pdfium ({}) — 모든 인코딩의 스캔 페이지 OCR 가능",
+                    r.source()
+                ),
+                None,
+            ),
+            Err(e) => (
+                "페이지 렌더러 없음 — 단일 DCTDecode 이미지 페이지만 OCR 된다".to_string(),
+                Some(format!(
+                    "CCITTFax / JBIG2 / Flate / JPX 스캔은 본문 없이 색인된다.                      libpdfium 을 로더 경로에 두거나 `[ingest.pdf.ocr] render_library`                      로 지정하라 ({e})"
+                )),
+            ),
+        };
+        checks.push(DoctorCheck {
+            name: "pdf_render".to_string(),
+            ok: true,
+            detail,
+            hint,
+        });
+    }
+
     // fts_shadow — chunks_fts rowid alignment (issue #229 / V016).
     //
     // V016 made the FTS delete trigger address rows by rowid instead of
