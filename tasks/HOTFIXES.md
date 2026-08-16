@@ -22,7 +22,7 @@ git history.
 
 `sweep_deleted_files`(`ingest.rs`)와 `execute_orphans_only`(`reset.rs`)가 루프 안에서 파일마다 `delete_by_chunk_ids` 를 불렀다. 그 호출 하나가 Lance 커밋 하나라, 문서 삭제 수와 커밋 수가 1:1 이었다 — #230 이 보고한 "삭제 5,834건 → 커밋 5,834회" 가 이것이다.
 
-chunk_id 를 sweep 전체에 걸쳐 모아 루프가 끝난 뒤 한 번만 부르도록 바꿨다. SQLite purge 는 건별 커밋을 유지한다 — 그쪽이 crash-safety 경계이고, 기존 정책이 이미 "중간에 죽으면 orphan 벡터가 남는다" 를 허용한다.
+chunk_id 를 sweep 전체에 걸쳐 모아 루프가 끝난 뒤 한 번만 부르도록 바꿨다. SQLite purge 는 경로마다 즉시 커밋된다(`purge_deleted_workspace_path` 는 트랜잭션을 열지 않는다 — DELETE 세 개가 각각 autocommit 이다). 그래서 버퍼는 무한정 쌓지 않고 5,000 id 마다 flush 한다. 버퍼에 남은 id 는 문서 행이 이미 지워져 있어 다음 sweep 이 다시 찾지 못하는 고아 벡터가 되고, 회수 수단이 `reset --vector-only` 전량 재임베딩뿐이기 때문이다. `reset --orphans-only` 는 에러로 조기 반환할 때도 flush 를 거친다.
 
 실 KB 실측 (28,427 문서 / 600,808 청크, 나무위키 샤드 하나 = 364 문서 삭제):
 
@@ -36,11 +36,13 @@ chunk_id 를 sweep 전체에 걸쳐 모아 루프가 끝난 뒤 한 번만 부�
 
 ### 삭제 경로에도 압축 (제안 2 보강)
 
-압축이 upsert 에만 걸려 있어 `reset --orphans-only` 처럼 삭제만 하는 경로는 여전히 무한 누적이었다. 압축 트리거를 `maybe_compact` 헬퍼로 빼고 `delete_by_chunk_ids` 끝에서도 부른다. 회귀 테스트(`repeated_deletes_do_not_accumulate_lance_versions`)는 압축을 빼면 40회 삭제에 매니페스트 42개로 실패한다.
+압축이 upsert 에만 걸려 있어 `reset --orphans-only` 처럼 삭제만 하는 경로는 여전히 무한 누적이었다. 트리거를 `maybe_compact` 헬퍼로 빼고 `delete_by_chunk_ids` 끝에서도 부른다.
+
+판정을 `version % interval == 0` 에서 **구간 교차**(`after / interval > before / interval`)로 바꿨다. writer 마다 버전을 올리는 폭이 다르기 때문이다 — `upsert` 는 호출당 1 이라 배수를 반드시 밟지만 `delete_by_chunk_ids` 는 200-id 배치마다 커밋해서 한 번의 호출이 28474 → 28507 처럼 배수를 **건너뛴다**. 위 실측이 정확히 그 경우였고(28507 % 512 = 347), modulo 판정이었다면 삭제 경로 압축은 호출당 1/512 확률로만 걸렸을 것이다.
 
 ### doctor 에 Lance 지표 (제안 4)
 
-`kebab doctor` 에 `vector_store` 체크 추가. fragment 수 / 데이터 크기 / 버전 수 / 메타데이터 크기를 보여주고, **메타데이터가 데이터보다 크면 fail** 로 잡는다 — 그게 #230 병리의 모양이다. lancedb 를 열지 않고 파일시스템만 읽어서 임베딩 provider 가 `none` 이어도 나오고 비용도 0 이다. `DoctorCheck` 목록에 항목을 더하는 것이라 `doctor.v1` wire 는 그대로다.
+`kebab doctor` 에 `vector_store` 체크 추가. fragment 수 / 데이터 크기 / 버전 수 / 메타데이터 크기를 보여준다. 판정은 **정보성**(`ok` 항상 true)이다 — `DoctorReport.ok` 가 종료 코드 3 을 만들고 스크립트·에이전트가 그걸로 분기하는데, 압축이 밀린 스토어도 질의에는 정상 응답한다. 대신 보존 버전 수가 압축 간격의 2배를 넘으면 hint 로 경고한다. 메타데이터 대 데이터 바이트 비교는 규모에 따라 부호가 뒤집혀(작은 노트 KB 가 오탐) 쓰지 않았다. lancedb 를 열지 않고 파일시스템만 읽어서 임베딩 provider 가 `none` 이어도 나오고 비용도 0 이다. `DoctorCheck` 목록에 항목을 더하는 것이라 `doctor.v1` wire 는 그대로다.
 
 현재 KB 출력: `✓ vector_store  336 fragments / 2832.7 MB data, 337 versions / 5.3 MB metadata`.
 

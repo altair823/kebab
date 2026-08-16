@@ -453,27 +453,47 @@ pub fn doctor_with_config_path(
         let data_dir = kebab_config::expand_path(&cfg.storage.data_dir, "");
         let vector_dir =
             kebab_config::expand_path(&cfg.storage.vector_dir, &data_dir.to_string_lossy());
-        if let Some((fragments, data_bytes, manifests, meta_bytes)) = lance_dir_stats(&vector_dir) {
-            let mb = |b: u64| b as f64 / 1_048_576.0;
-            // Metadata outweighing vectors is the shape of the #230
-            // pathology; a healthy compacted table is the other way round
-            // by orders of magnitude.
-            let bloated = meta_bytes > data_bytes && data_bytes > 0;
-            checks.push(DoctorCheck {
-                name: "vector_store".to_string(),
-                ok: !bloated,
-                detail: format!(
-                    "{fragments} fragments / {:.1} MB data, {manifests} versions / {:.1} MB metadata",
-                    mb(data_bytes),
-                    mb(meta_bytes)
-                ),
-                hint: bloated.then(|| {
-                    "version history is larger than the vectors it describes — \
-                     a `kebab ingest` on a build with periodic compaction reclaims it"
-                        .to_string()
-                }),
-            });
-        }
+        let (detail, hint) = match lance_dir_stats(&vector_dir) {
+            Some((fragments, data_bytes, manifests, meta_bytes)) => {
+                let mb = |b: u64| b as f64 / 1_048_576.0;
+                // Scale-independent on purpose. Comparing metadata bytes to
+                // data bytes looks obvious but inverts on small stores:
+                // manifest bytes grow with the square of the fragment count
+                // while data grows with the corpus, so a healthy notes KB of
+                // a few hundred one-chunk documents would trip it while a
+                // genuinely bloated 600k-chunk store would not. Versions far
+                // past the compaction interval means compaction is not
+                // keeping up, at any size.
+                let ceiling = kebab_store_vector::COMPACT_EVERY_N_UPSERTS.saturating_mul(2);
+                let behind = manifests > ceiling;
+                (
+                    format!(
+                        "{fragments} fragments / {:.1} MB data, {manifests} versions / {:.1} MB metadata",
+                        mb(data_bytes),
+                        mb(meta_bytes)
+                    ),
+                    behind.then(|| {
+                        format!(
+                            "{manifests} retained versions is past the {ceiling} compaction \
+                             ceiling — version history will keep growing faster than the \
+                             vectors it describes"
+                        )
+                    }),
+                )
+            }
+            // Reported rather than omitted: a silently missing check reads
+            // as a healthy one.
+            None => ("no Lance table yet".to_string(), None),
+        };
+        // Informational. `DoctorReport.ok` drives exit code 3, which
+        // scripts and agents branch on, and a store that needs compacting
+        // still answers every query correctly.
+        checks.push(DoctorCheck {
+            name: "vector_store".to_string(),
+            ok: true,
+            detail,
+            hint,
+        });
     }
 
     let ok = checks.iter().all(|c| c.ok);

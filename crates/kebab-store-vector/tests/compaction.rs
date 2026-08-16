@@ -91,19 +91,30 @@ fn repeated_upserts_do_not_accumulate_lance_versions() {
 
 /// The delete path commits just like the upsert path, and `sweep_deleted_files`
 /// used to call it once per purged document — issue #230 measured 5,834 purges
-/// becoming 5,834 Lance commits. Batching moved that to one call per sweep, but
-/// a large sweep still commits per 200-id batch, so the delete path needs the
-/// same compaction the upsert path got.
+/// becoming 5,834 Lance commits. Batching moved that to one call per flush, but
+/// one call still commits per 200-id batch, so the delete path needs the same
+/// compaction the upsert path got.
+///
+/// Deliberately large enough that a single call spans more than
+/// `compact_every` batches. That is the case a `version % compact_every == 0`
+/// trigger misses: the call steps the version by several at once and clears the
+/// multiple without ever landing on it. A handful of ids would pass against
+/// either trigger and prove nothing.
 #[test]
 #[ignore = "requires AVX-capable hardware (LanceDB)"]
-fn repeated_deletes_do_not_accumulate_lance_versions() {
+fn batched_delete_spanning_many_commits_still_compacts() {
     require_avx_or_panic();
 
-    let env = TestEnv::with_compact_interval(8);
+    const INTERVAL: u64 = 8;
+    // `delete_by_chunk_ids` commits per 200 ids, so this is ~10 commits in
+    // one call — comfortably past INTERVAL.
+    const IDS: u32 = 2_000;
+
+    let env = TestEnv::with_compact_interval(INTERVAL);
     let doc = format!("{:032x}", 0xd0c0u32);
-    for i in 0..40u8 {
+    for i in 0..IDS {
         env.seed_chunk(
-            &format!("{:032x}", 0x2000u32 + u32::from(i)),
+            &format!("{:032x}", 0x2000u32 + i),
             &doc,
             "note.md",
             "en",
@@ -112,26 +123,25 @@ fn repeated_deletes_do_not_accumulate_lance_versions() {
         );
     }
 
-    let recs: Vec<_> = (0..40u8)
+    let recs: Vec<_> = (0..IDS)
         .map(|i| {
-            let mut r = make_record(i, 0, vec![1.0, 0.0, 0.0, 0.0], "hi", &[], MODEL);
-            r.chunk_id = kebab_core::ChunkId(format!("{:032x}", 0x2000u32 + u32::from(i)));
+            let mut r = make_record(0, 0, vec![1.0, 0.0, 0.0, 0.0], "hi", &[], MODEL);
+            r.chunk_id = kebab_core::ChunkId(format!("{:032x}", 0x2000u32 + i));
+            r.embedding_id = kebab_core::EmbeddingId(format!("{:032x}", 0xee000000u32 + i));
             r
         })
         .collect();
     env.vector.upsert(&recs).unwrap();
+    let after_upsert = manifest_count(&env.data_dir());
 
-    // Delete one at a time — the shape the un-batched sweep produced.
-    for r in &recs {
-        env.vector
-            .delete_by_chunk_ids(std::slice::from_ref(&r.chunk_id))
-            .unwrap();
-    }
+    let ids: Vec<_> = recs.iter().map(|r| r.chunk_id.clone()).collect();
+    env.vector.delete_by_chunk_ids(&ids).unwrap();
 
     let manifests = manifest_count(&env.data_dir());
     assert!(
-        manifests <= 12,
-        "delete path accumulated Lance versions: {manifests} manifests after 40 deletes \
-         (compaction interval 8)"
+        manifests <= after_upsert + 2,
+        "batched delete left {manifests} manifests (was {after_upsert} before the delete) — \
+         a single {IDS}-id call spans ~{} commits and must still trigger compaction",
+        IDS / 200
     );
 }
