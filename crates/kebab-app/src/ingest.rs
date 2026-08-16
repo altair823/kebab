@@ -1010,42 +1010,86 @@ fn unsupported_media_warning(path: &str) -> String {
     }
 }
 
+/// What one asset's trip through the derivation cache cost and produced.
+///
+/// Carried as a struct rather than four out-params: they are read and
+/// reported together (the `asset_timings` event wants all four), and a
+/// caller that updates three of them and forgets the fourth would report
+/// a cache that looks free.
+#[derive(Default)]
+pub(crate) struct CacheStats {
+    /// Chunks whose embedding was already cached.
+    pub hit: usize,
+    /// Chunks whose embedding had to be computed.
+    pub miss: usize,
+    /// Keys that hit, for the batched `last_used_at` bump the caller runs
+    /// after the vector upsert.
+    pub touch_keys: Vec<String>,
+    /// Cache-key hashing + lookup + hit/miss split + insert + touch, in
+    /// **microseconds**. Not the embedder call the misses trigger.
+    ///
+    /// The blake3 key hashing is inside the timer on purpose: it hashes
+    /// every chunk's full text and is pure CPU, so a label that said only
+    /// "lookup" would misattribute it on a miss-heavy run.
+    ///
+    /// Microseconds because a per-asset millisecond truncation loses the
+    /// measurement entirely: a document's cache work is routinely
+    /// sub-millisecond, so accumulating `as_millis()` per span reported
+    /// zero for most assets and made the total a lower bound rather than
+    /// a figure. The wire event converts to ms at emit.
+    pub us: u64,
+}
+
 /// Embed `texts` with the derivation cache (design 2026-05-31 §3.4).
 ///
-/// 1) 각 text 의 embedding cache_key 계산 → 히트/미스 분리.
+/// 1) 각 text 의 embedding cache_key 계산 → **한 번의 배치 조회**로 히트/미스 분리.
 /// 2) 미스 text 만 `emb.embed`(축소 배치) 호출.
-/// 3) 미스 결과를 `Vec<f32>` little-endian 으로 캐시 put.
+/// 3) 미스 결과를 `Vec<f32>` little-endian 으로 **한 트랜잭션에** 캐시 put.
 /// 4) 히트(bytes→Vec<f32>) + 미스 벡터를 **원래 순서대로** 합쳐 반환.
 ///
 /// 손상된 payload(길이 misalign)는 미스로 강등 → 재계산(정확성 우선, §3.5).
 /// 히트 키는 `touch_keys` 에 누적(호출측이 배치로 last_used_at 갱신).
+///
+/// Issue #231: 이 함수는 청크마다 SQLite 를 왕복했다. 그러면 캐시 히트가
+/// 미스보다 SQLite 작업을 덜 하지 않는다 — 미스가 추가로 내는 비용인 임베딩은
+/// GPU 에서 배치로, 전역 뮤텍스를 잡지 않고 돌기 때문이다. 결과적으로 캐시가
+/// "병렬 GPU 배치 1회" 를 "직렬 SQLite 왕복 N회" 로 바꿔치기하는 형태였다.
+/// 조회와 삽입을 배치 단위로 접어 그 비대칭을 없앤다.
 fn embed_with_cache(
     emb: &dyn Embedder,
     sqlite: &kebab_store_sqlite::SqliteStore,
     texts: &[&str],
     version_key: &str,
-    hit: &mut usize,
-    miss: &mut usize,
-    touch_keys: &mut Vec<String>,
+    stats: &mut CacheStats,
 ) -> anyhow::Result<Vec<Vec<f32>>> {
+    let t_cache = std::time::Instant::now();
+    let keys: Vec<String> = texts
+        .iter()
+        .map(|text| kebab_core::derivation_cache_key("embedding", text, version_key))
+        .collect();
+    let cached = sqlite.derivation_cache_get_many(&keys)?;
+    stats.us += u64::try_from(t_cache.elapsed().as_micros()).unwrap_or(u64::MAX);
+
     let mut out: Vec<Option<Vec<f32>>> = Vec::with_capacity(texts.len());
     let mut miss_indices: Vec<usize> = Vec::new();
     let mut miss_inputs: Vec<EmbeddingInput<'_>> = Vec::new();
-    let mut keys: Vec<String> = Vec::with_capacity(texts.len());
 
+    // The hit/miss split, including decoding a hit's payload back into
+    // `Vec<f32>`, is part of what the cache costs — a metric that stopped
+    // at the SQL boundary would flatter the cache.
+    let t_decode = std::time::Instant::now();
     for (i, text) in texts.iter().enumerate() {
-        let key = kebab_core::derivation_cache_key("embedding", text, version_key);
         // 히트 = 캐시에 있고 payload 가 정상 디코드되는 경우. 손상 payload 는
         // 미스로 강등(재계산, 정확성 우선 §3.5).
-        let cached = sqlite
-            .derivation_cache_get(&key)?
-            .and_then(|p| crate::derivation_payload::decode_embedding(&p));
-        if let Some(v) = cached {
-            *hit += 1;
-            touch_keys.push(key.clone());
+        let decoded = cached
+            .get(&keys[i])
+            .and_then(|p| crate::derivation_payload::decode_embedding(p));
+        if let Some(v) = decoded {
+            stats.hit += 1;
+            stats.touch_keys.push(keys[i].clone());
             out.push(Some(v));
         } else {
-            *miss += 1;
+            stats.miss += 1;
             miss_indices.push(i);
             miss_inputs.push(EmbeddingInput {
                 text,
@@ -1053,19 +1097,23 @@ fn embed_with_cache(
             });
             out.push(None);
         }
-        keys.push(key);
     }
+    stats.us += u64::try_from(t_decode.elapsed().as_micros()).unwrap_or(u64::MAX);
 
     if !miss_inputs.is_empty() {
         let miss_vectors = emb.embed(&miss_inputs)?;
+        let mut puts: Vec<(String, String, Vec<u8>)> = Vec::with_capacity(miss_indices.len());
         for (slot, v) in miss_indices.iter().zip(miss_vectors) {
-            sqlite.derivation_cache_put(
-                &keys[*slot],
-                "embedding",
-                &crate::derivation_payload::encode_embedding(&v),
-            )?;
+            puts.push((
+                keys[*slot].clone(),
+                "embedding".to_string(),
+                crate::derivation_payload::encode_embedding(&v),
+            ));
             out[*slot] = Some(v);
         }
+        let t_put = std::time::Instant::now();
+        sqlite.derivation_cache_put_many(&puts)?;
+        stats.us += u64::try_from(t_put.elapsed().as_micros()).unwrap_or(u64::MAX);
     }
 
     Ok(out
@@ -1369,8 +1417,7 @@ fn ingest_one_asset(
     // (purge + upsert), so per-phase timings attribute the bottleneck
     // correctly (review fix). Runs before any new upsert, as before.
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
-    let mut emb_cache_hit = 0_usize;
-    let mut emb_cache_miss = 0_usize;
+    let mut emb_cache = CacheStats::default();
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store) {
         if !chunks.is_empty() {
             let model_id = emb.model_id();
@@ -1383,9 +1430,8 @@ fn ingest_one_asset(
             // (Document=`passage:`, Query=`query:`)를 붙여 같은 text 라도 벡터가
             // 달라지므로, 미래에 query 임베딩이 같은 캐시를 타도 충돌하지 않도록
             // 방어적으로 분리(현재 ingest 는 Document 고정이라 live 버그 없음).
-            let emb_version_key =
-                format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
-            let mut emb_touch_keys: Vec<String> = Vec::new();
+            let emb_version_key = format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
+
             // 본문 청크 text 로 캐시 조회 → 미스만 embed → 원래 순서로 합침.
             let body_texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
             let vectors = embed_with_cache(
@@ -1393,9 +1439,7 @@ fn ingest_one_asset(
                 &app.sqlite,
                 &body_texts,
                 &emb_version_key,
-                &mut emb_cache_hit,
-                &mut emb_cache_miss,
-                &mut emb_touch_keys,
+                &mut emb_cache,
             )
             .context("Embedder::embed (document chunks)")?;
             let records: Vec<VectorRecord> = chunks
@@ -1420,7 +1464,11 @@ fn ingest_one_asset(
                 .collect();
             vec_store.upsert(&records).context("VectorStore::upsert")?;
             // 히트한 embedding 키들의 last_used_at 갱신(LRU 보존, §3.5).
-            app.sqlite.derivation_cache_touch(&emb_touch_keys)?;
+            {
+                let t_touch = std::time::Instant::now();
+                app.sqlite.derivation_cache_touch(&emb_cache.touch_keys)?;
+                emb_cache.us += u64::try_from(t_touch.elapsed().as_micros()).unwrap_or(u64::MAX);
+            }
         }
     }
 
@@ -1440,16 +1488,22 @@ fn ingest_one_asset(
             store_ms,
             ocr_ms: 0,
             caption_ms: 0,
+            cache_hit: u32::try_from(emb_cache.hit).unwrap_or(u32::MAX),
+            cache_miss: u32::try_from(emb_cache.miss).unwrap_or(u32::MAX),
+            cache_ms: emb_cache.us.div_ceil(1_000),
         },
     );
 
     // 검증용 hit/miss 카운트 노출(§3.4 / §6): warm 재색인이 embed 0회임을
     // 로그로 확인. tracing target 은 stderr 로 흐른다.
-    if emb_cache_hit + emb_cache_miss > 0 {
+    if emb_cache.hit + emb_cache.miss > 0 {
         tracing::info!(
             target: "kebab-app",
             doc = %canonical.doc_id.0,
-            "derivation cache: embedding hit={emb_cache_hit} miss={emb_cache_miss}"
+            "derivation cache: embedding hit={} miss={} in {}us",
+            emb_cache.hit,
+            emb_cache.miss,
+            emb_cache.us
         );
     }
 
@@ -1778,8 +1832,7 @@ fn ingest_one_image_asset(
         },
     );
     let t_embed = std::time::Instant::now();
-    let mut emb_cache_hit = 0_usize;
-    let mut emb_cache_miss = 0_usize;
+    let mut emb_cache = CacheStats::default();
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
         && !chunks.is_empty()
     {
@@ -1789,18 +1842,15 @@ fn ingest_one_image_asset(
         // derivation cache(§3.4): same version_key formula + same code path as
         // the markdown handler (ingest.rs:1374). Media-agnostic — identical
         // chunk text shares one entry across media.
-        let emb_version_key =
-            format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
+        let emb_version_key = format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
         let body_texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
-        let mut emb_touch_keys: Vec<String> = Vec::new();
+
         let vectors = embed_with_cache(
             &**emb,
             &app.sqlite,
             &body_texts,
             &emb_version_key,
-            &mut emb_cache_hit,
-            &mut emb_cache_miss,
-            &mut emb_touch_keys,
+            &mut emb_cache,
         )
         .context("Embedder::embed (image chunks)")?;
         let records: Vec<VectorRecord> = chunks
@@ -1826,7 +1876,11 @@ fn ingest_one_image_asset(
         vec_store
             .upsert(&records)
             .context("VectorStore::upsert (image)")?;
-        app.sqlite.derivation_cache_touch(&emb_touch_keys)?;
+        {
+            let t_touch = std::time::Instant::now();
+            app.sqlite.derivation_cache_touch(&emb_cache.touch_keys)?;
+            emb_cache.us += u64::try_from(t_touch.elapsed().as_micros()).unwrap_or(u64::MAX);
+        }
     }
     let embed_ms = u64::try_from(t_embed.elapsed().as_millis()).unwrap_or(u64::MAX);
 
@@ -1845,16 +1899,22 @@ fn ingest_one_image_asset(
             store_ms,
             ocr_ms,
             caption_ms,
+            cache_hit: u32::try_from(emb_cache.hit).unwrap_or(u32::MAX),
+            cache_miss: u32::try_from(emb_cache.miss).unwrap_or(u32::MAX),
+            cache_ms: emb_cache.us.div_ceil(1_000),
         },
     );
 
     // 검증용 hit/miss 카운트 노출(§3.4 / §6): warm 재색인이 embed 0회임을
     // 로그로 확인. tracing target 은 stderr 로 흐른다.
-    if emb_cache_hit + emb_cache_miss > 0 {
+    if emb_cache.hit + emb_cache.miss > 0 {
         tracing::info!(
             target: "kebab-app",
             doc = %canonical.doc_id.0,
-            "derivation cache: embedding hit={emb_cache_hit} miss={emb_cache_miss}"
+            "derivation cache: embedding hit={} miss={} in {}us",
+            emb_cache.hit,
+            emb_cache.miss,
+            emb_cache.us
         );
     }
 
@@ -2669,26 +2729,22 @@ fn ingest_one_pdf_asset(
         },
     );
     let t_embed = std::time::Instant::now();
-    let mut emb_cache_hit = 0_usize;
-    let mut emb_cache_miss = 0_usize;
+    let mut emb_cache = CacheStats::default();
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
         && !chunks.is_empty()
     {
         let model_id = emb.model_id();
         let model_version = emb.model_version();
         let dimensions = emb.dimensions();
-        let emb_version_key =
-            format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
+        let emb_version_key = format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
         let body_texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
-        let mut emb_touch_keys: Vec<String> = Vec::new();
+
         let vectors = embed_with_cache(
             &**emb,
             &app.sqlite,
             &body_texts,
             &emb_version_key,
-            &mut emb_cache_hit,
-            &mut emb_cache_miss,
-            &mut emb_touch_keys,
+            &mut emb_cache,
         )
         .context("Embedder::embed (pdf chunks)")?;
         let records: Vec<VectorRecord> = chunks
@@ -2714,7 +2770,11 @@ fn ingest_one_pdf_asset(
         vec_store
             .upsert(&records)
             .context("VectorStore::upsert (pdf)")?;
-        app.sqlite.derivation_cache_touch(&emb_touch_keys)?;
+        {
+            let t_touch = std::time::Instant::now();
+            app.sqlite.derivation_cache_touch(&emb_cache.touch_keys)?;
+            emb_cache.us += u64::try_from(t_touch.elapsed().as_micros()).unwrap_or(u64::MAX);
+        }
     }
     let embed_ms = u64::try_from(t_embed.elapsed().as_millis()).unwrap_or(u64::MAX);
 
@@ -2733,16 +2793,22 @@ fn ingest_one_pdf_asset(
             store_ms,
             ocr_ms: pdf_ocr_ms_total.unwrap_or(0),
             caption_ms: 0,
+            cache_hit: u32::try_from(emb_cache.hit).unwrap_or(u32::MAX),
+            cache_miss: u32::try_from(emb_cache.miss).unwrap_or(u32::MAX),
+            cache_ms: emb_cache.us.div_ceil(1_000),
         },
     );
 
     // 검증용 hit/miss 카운트 노출(§3.4 / §6): warm 재색인이 embed 0회임을
     // 로그로 확인. tracing target 은 stderr 로 흐른다.
-    if emb_cache_hit + emb_cache_miss > 0 {
+    if emb_cache.hit + emb_cache.miss > 0 {
         tracing::info!(
             target: "kebab-app",
             doc = %canonical.doc_id.0,
-            "derivation cache: embedding hit={emb_cache_hit} miss={emb_cache_miss}"
+            "derivation cache: embedding hit={} miss={} in {}us",
+            emb_cache.hit,
+            emb_cache.miss,
+            emb_cache.us
         );
     }
 
@@ -3012,26 +3078,22 @@ fn ingest_one_code_asset(
     purge_vector_orphans_for_workspace_path(app, asset, vector_store)?;
     store_document_records(app, asset, &bytes, &canonical, &chunks, " (code)")?;
 
-    let mut emb_cache_hit = 0_usize;
-    let mut emb_cache_miss = 0_usize;
+    let mut emb_cache = CacheStats::default();
     if let (Some(emb), Some(vec_store)) = (embedder, vector_store)
         && !chunks.is_empty()
     {
         let model_id = emb.model_id();
         let model_version = emb.model_version();
         let dimensions = emb.dimensions();
-        let emb_version_key =
-            format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
+        let emb_version_key = format!("doc|{}|{}|{}", model_id.0, model_version.0, dimensions);
         let body_texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
-        let mut emb_touch_keys: Vec<String> = Vec::new();
+
         let vectors = embed_with_cache(
             &**emb,
             &app.sqlite,
             &body_texts,
             &emb_version_key,
-            &mut emb_cache_hit,
-            &mut emb_cache_miss,
-            &mut emb_touch_keys,
+            &mut emb_cache,
         )
         .context("Embedder::embed (code chunks)")?;
         let records: Vec<VectorRecord> = chunks
@@ -3057,16 +3119,23 @@ fn ingest_one_code_asset(
         vec_store
             .upsert(&records)
             .context("VectorStore::upsert (code)")?;
-        app.sqlite.derivation_cache_touch(&emb_touch_keys)?;
+        {
+            let t_touch = std::time::Instant::now();
+            app.sqlite.derivation_cache_touch(&emb_cache.touch_keys)?;
+            emb_cache.us += u64::try_from(t_touch.elapsed().as_micros()).unwrap_or(u64::MAX);
+        }
     }
 
     // 검증용 hit/miss 카운트 노출(§3.4 / §6): warm 재색인이 embed 0회임을
     // 로그로 확인. tracing target 은 stderr 로 흐른다.
-    if emb_cache_hit + emb_cache_miss > 0 {
+    if emb_cache.hit + emb_cache.miss > 0 {
         tracing::info!(
             target: "kebab-app",
             doc = %canonical.doc_id.0,
-            "derivation cache: embedding hit={emb_cache_hit} miss={emb_cache_miss}"
+            "derivation cache: embedding hit={} miss={} in {}us",
+            emb_cache.hit,
+            emb_cache.miss,
+            emb_cache.us
         );
     }
 

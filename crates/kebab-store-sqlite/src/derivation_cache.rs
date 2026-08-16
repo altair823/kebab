@@ -23,16 +23,94 @@ impl SqliteStore {
     /// per batch (cheaper than a write per `get`).
     pub fn derivation_cache_get(&self, cache_key: &str) -> Result<Option<Vec<u8>>> {
         let conn = self.lock_conn();
+        // `prepare_cached`, not `query_row`: the latter prepares (and so
+        // re-parses the SQL) on every call. Issue #231.
         let payload: Option<Vec<u8>> = conn
-            .query_row(
-                "SELECT payload FROM derivation_cache WHERE cache_key = ?",
-                params![cache_key],
-                |row| row.get::<_, Vec<u8>>(0),
-            )
+            .prepare_cached("SELECT payload FROM derivation_cache WHERE cache_key = ?")
+            .map_err(StoreError::from)?
+            .query_row(params![cache_key], |row| row.get::<_, Vec<u8>>(0))
             .optional()
             .map_err(StoreError::from)
             .context("derivation_cache_get")?;
         Ok(payload)
+    }
+
+    /// Look up many keys at once, returning only the ones present.
+    ///
+    /// One statement per `SQLITE_MAX_VARIABLE_NUMBER`-sized batch instead
+    /// of one round trip per key (issue #231). The per-key form made a
+    /// cache *hit* cost as many `lock_conn()` acquisitions as a miss —
+    /// and a miss at least does its expensive half (the embedding) on the
+    /// GPU, batched, outside the lock. Duplicate keys in `keys` are fine;
+    /// the result is keyed by cache_key so they collapse.
+    pub fn derivation_cache_get_many(
+        &self,
+        keys: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<u8>>> {
+        let mut found = std::collections::HashMap::with_capacity(keys.len());
+        if keys.is_empty() {
+            return Ok(found);
+        }
+        let conn = self.lock_conn();
+        // Conservative against the 999-parameter default: the bundled
+        // build allows far more, but the cost of a few extra statements
+        // is nothing next to the per-key round trips this replaces.
+        for batch in keys.chunks(900) {
+            let placeholders = std::iter::repeat_n("?", batch.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let mut stmt = conn
+                .prepare_cached(&format!(
+                    "SELECT cache_key, payload FROM derivation_cache WHERE cache_key IN ({placeholders})"
+                ))
+                .map_err(StoreError::from)
+                .context("derivation_cache_get_many: prepare")?;
+            let rows = stmt
+                .query_map(rusqlite::params_from_iter(batch.iter()), |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+                })
+                .map_err(StoreError::from)
+                .context("derivation_cache_get_many: query")?;
+            for row in rows {
+                let (k, v) = row.map_err(StoreError::from)?;
+                found.insert(k, v);
+            }
+        }
+        Ok(found)
+    }
+
+    /// Insert many payloads in one transaction.
+    ///
+    /// The single-key [`Self::derivation_cache_put`] runs outside any
+    /// explicit transaction, so each call is its own implicit commit — a
+    /// WAL frame write and wal-index update per embedded chunk (issue
+    /// #231). A batch of misses is one logical unit of work and commits
+    /// as one.
+    pub fn derivation_cache_put_many(&self, entries: &[(String, String, Vec<u8>)]) -> Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let now = OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .context("format derivation_cache.created_at")?;
+        let mut conn = self.lock_conn();
+        let tx = conn.transaction().map_err(StoreError::from)?;
+        {
+            let mut stmt = tx
+                .prepare_cached(
+                    "INSERT OR REPLACE INTO derivation_cache
+                        (cache_key, kind, payload, created_at, last_used_at)
+                     VALUES (?, ?, ?, ?, ?)",
+                )
+                .map_err(StoreError::from)?;
+            for (key, kind, payload) in entries {
+                stmt.execute(params![key, kind, payload, now, now])
+                    .map_err(StoreError::from)
+                    .context("derivation_cache_put_many")?;
+            }
+        }
+        tx.commit().map_err(StoreError::from)?;
+        Ok(())
     }
 
     /// Insert (or overwrite) a cached derivation payload.
@@ -47,12 +125,13 @@ impl SqliteStore {
             .format(&Rfc3339)
             .context("format derivation_cache.created_at")?;
         let conn = self.lock_conn();
-        conn.execute(
+        conn.prepare_cached(
             "INSERT OR REPLACE INTO derivation_cache
                 (cache_key, kind, payload, created_at, last_used_at)
              VALUES (?, ?, ?, ?, ?)",
-            params![cache_key, kind, payload, now, now],
         )
+        .map_err(StoreError::from)?
+        .execute(params![cache_key, kind, payload, now, now])
         .map_err(StoreError::from)
         .context("derivation_cache_put")?;
         Ok(())
@@ -73,7 +152,7 @@ impl SqliteStore {
         let tx = conn.transaction().map_err(StoreError::from)?;
         {
             let mut stmt = tx
-                .prepare("UPDATE derivation_cache SET last_used_at = ? WHERE cache_key = ?")
+                .prepare_cached("UPDATE derivation_cache SET last_used_at = ? WHERE cache_key = ?")
                 .map_err(StoreError::from)?;
             for key in keys {
                 stmt.execute(params![now, key])
@@ -148,6 +227,91 @@ mod tests {
             store.derivation_cache_get("k").unwrap(),
             Some(b"new".to_vec())
         );
+    }
+
+    #[test]
+    fn get_many_returns_only_present_keys() {
+        let (_d, store) = open_store();
+        store.derivation_cache_put("a", "embedding", b"A").unwrap();
+        store.derivation_cache_put("c", "embedding", b"C").unwrap();
+
+        let found = store
+            .derivation_cache_get_many(&[
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                // A repeat: the embed path derives keys from chunk text,
+                // and a document with two identical chunks produces the
+                // same key twice. The map must collapse it, not trip.
+                "a".to_string(),
+            ])
+            .unwrap();
+        assert_eq!(found.len(), 2, "absent keys are simply not in the map");
+        assert_eq!(found.get("a").map(Vec::as_slice), Some(b"A".as_slice()));
+        assert_eq!(found.get("c").map(Vec::as_slice), Some(b"C".as_slice()));
+        assert!(!found.contains_key("b"));
+    }
+
+    #[test]
+    fn get_many_is_empty_for_no_keys() {
+        let (_d, store) = open_store();
+        assert!(store.derivation_cache_get_many(&[]).unwrap().is_empty());
+    }
+
+    /// The batch splits at 900 parameters. A run that embeds more chunks
+    /// than that in one call must still see every one of them — an
+    /// off-by-one in the chunking would silently turn hits into misses,
+    /// which costs nothing but correctness-invisible re-embedding.
+    #[test]
+    fn get_many_spans_more_keys_than_one_statement_holds() {
+        let (_d, store) = open_store();
+        let keys: Vec<String> = (0..2_000).map(|i| format!("k{i:05}")).collect();
+        for k in &keys {
+            store
+                .derivation_cache_put(k, "embedding", k.as_bytes())
+                .unwrap();
+        }
+        let found = store.derivation_cache_get_many(&keys).unwrap();
+        assert_eq!(found.len(), keys.len());
+        for k in &keys {
+            assert_eq!(
+                found.get(k).map(Vec::as_slice),
+                Some(k.as_bytes()),
+                "key {k} must survive the batch split"
+            );
+        }
+    }
+
+    #[test]
+    fn put_many_writes_all_and_replaces() {
+        let (_d, store) = open_store();
+        store
+            .derivation_cache_put("dup", "embedding", b"old")
+            .unwrap();
+        store
+            .derivation_cache_put_many(&[
+                ("x".to_string(), "embedding".to_string(), b"X".to_vec()),
+                ("y".to_string(), "embedding".to_string(), b"Y".to_vec()),
+                ("dup".to_string(), "embedding".to_string(), b"new".to_vec()),
+            ])
+            .unwrap();
+        let found = store
+            .derivation_cache_get_many(&["x".to_string(), "y".to_string(), "dup".to_string()])
+            .unwrap();
+        assert_eq!(found.get("x").map(Vec::as_slice), Some(b"X".as_slice()));
+        assert_eq!(found.get("y").map(Vec::as_slice), Some(b"Y".as_slice()));
+        assert_eq!(
+            found.get("dup").map(Vec::as_slice),
+            Some(b"new".as_slice()),
+            "the batch form keeps INSERT OR REPLACE semantics"
+        );
+    }
+
+    #[test]
+    fn put_many_with_no_entries_is_noop() {
+        let (_d, store) = open_store();
+        store.derivation_cache_put_many(&[]).unwrap();
+        assert!(store.derivation_cache_get_many(&[]).unwrap().is_empty());
     }
 
     #[test]

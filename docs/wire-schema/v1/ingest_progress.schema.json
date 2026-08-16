@@ -221,6 +221,21 @@
       "type": "integer",
       "minimum": 0,
       "description": "sweep_completed: documents removed because their source file is gone."
+    },
+    "cache_hit": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_timings: chunks whose embedding came from the derivation cache. Embeddings only — the OCR and caption derivations share the table but are not counted. Emitted on the markdown / image / PDF paths; the code path does not emit asset_timings at all."
+    },
+    "cache_miss": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_timings: chunks whose embedding had to be computed. Same scope as cache_hit."
+    },
+    "cache_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_timings: what the derivation-cache path cost — cache-key hashing, lookup, payload decode, insert, and the last_used_at touch — excluding the embedder call the misses trigger. Rounded UP to the millisecond, because an asset's cache work is routinely sub-millisecond and truncating would make any sum a systematic undercount. INCLUDED IN embed_ms rather than additional to it: the embed timer spans the whole vector phase, so summing the phase fields double-counts this one."
     }
   }
 }

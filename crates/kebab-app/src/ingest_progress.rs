@@ -139,6 +139,40 @@ pub enum IngestEvent {
         ocr_ms: u64,
         #[serde(default)]
         caption_ms: u64,
+        /// v0.32.1 (additive, issue #231): derivation-cache outcome for
+        /// this asset's **embedding** chunks, and what the cache path
+        /// cost. Without these the only way to tell whether the cache is
+        /// paying for itself was a `tracing::info!` on stderr, which is
+        /// gone the moment the run ends — so "is the cache a win on my
+        /// corpus" had no answer a user could look up.
+        ///
+        /// Scope: embeddings only. The OCR and caption derivations share
+        /// the same table but go through the single-key API and are not
+        /// counted here, so an image-heavy corpus under-reports what the
+        /// cache actually did.
+        #[serde(default)]
+        cache_hit: u32,
+        #[serde(default)]
+        cache_miss: u32,
+        /// Cache-key hashing, lookup, payload decode, insert, and the
+        /// `last_used_at` touch that every hit triggers — everything the
+        /// cache costs except the embedder call the misses go on to make.
+        ///
+        /// Rounded **up** to the millisecond. An asset's cache work is
+        /// routinely sub-millisecond, so truncating would report zero for
+        /// most assets and make any sum a systematic undercount; the cost
+        /// of rounding up is at most 1 ms per asset in the other
+        /// direction, which does not hide a cache that is expensive.
+        ///
+        /// The touch is counted deliberately: issue #231's sharpest claim
+        /// is that a read-only cache hit generates write traffic, and a
+        /// metric that left it out could not test that claim.
+        ///
+        /// **Included in `embed_ms`, not additional to it.** The embed
+        /// timer spans the whole vector phase, cache work included, so
+        /// summing the phase fields double-counts this one.
+        #[serde(default)]
+        cache_ms: u64,
     },
     /// v0.32.1 (additive): the post-scan sweep for documents whose source
     /// file is gone is starting, with `total` stored paths to examine
@@ -315,6 +349,9 @@ mod tests {
             store_ms: 20,
             ocr_ms: 1_200,
             caption_ms: 3_400,
+            cache_hit: 9,
+            cache_miss: 4,
+            cache_ms: 55,
         };
         let v = serde_json::to_value(&ev).unwrap();
         assert_eq!(
@@ -329,6 +366,12 @@ mod tests {
             ("embed_ms", 800),
             ("store_ms", 20),
             ("ocr_ms", 1_200),
+            // issue #231: the derivation-cache counters ride the same
+            // event, so an agent reading `asset_timings` can answer
+            // "did the cache pay for itself" without a second source.
+            ("cache_hit", 9),
+            ("cache_miss", 4),
+            ("cache_ms", 55),
             ("caption_ms", 3_400),
         ] {
             assert_eq!(

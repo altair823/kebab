@@ -207,6 +207,20 @@ fn ingest_log_records_the_deleted_file_sweep() {
     )
     .expect("first ingest should succeed");
 
+    // Remember the first run's log so the second can be identified by
+    // elimination. Sorting by filename does not work: the run id is
+    // `<second-resolution timestamp>-<random hex>`, so two runs inside the
+    // same second sort by the random half.
+    let logs_of = |dir: &std::path::Path| -> std::collections::BTreeSet<PathBuf> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "ndjson"))
+            .collect()
+    };
+    let before = logs_of(&log_dir);
+
     std::fs::remove_file(&doomed).unwrap();
     let report = ingest_with_config(
         minimal_config(&workspace, &log_dir),
@@ -216,15 +230,11 @@ fn ingest_log_records_the_deleted_file_sweep() {
     .expect("second ingest should succeed");
     assert_eq!(report.purged_deleted_files, 1);
 
-    // The second run's log is the later one; both runs write into log_dir.
-    let mut logs: Vec<PathBuf> = std::fs::read_dir(&log_dir)
-        .unwrap()
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "ndjson"))
-        .collect();
-    logs.sort();
-    let body = std::fs::read_to_string(logs.last().expect("a log per run")).unwrap();
+    let after = logs_of(&log_dir);
+    let mut fresh = after.difference(&before);
+    let log = fresh.next().expect("the second run wrote a log");
+    assert!(fresh.next().is_none(), "and exactly one");
+    let body = std::fs::read_to_string(log).unwrap();
 
     let events: Vec<Value> = body
         .lines()

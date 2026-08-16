@@ -295,6 +295,9 @@ impl ProgressDisplay {
                 store_ms,
                 ocr_ms,
                 caption_ms,
+                cache_hit,
+                cache_miss,
+                cache_ms,
                 ..
             } => {
                 // v0.26.1: accumulate (path, total_ms) for the slowest summary.
@@ -321,6 +324,17 @@ impl ProgressDisplay {
                         parts.push(format!("caption {}", fmt_ms(*caption_ms)));
                     }
                     parts.push(format!("embed {}", fmt_ms(*embed_ms)));
+                    // Only when the cache was consulted at all — a run
+                    // with no embedder configured leaves these at zero and
+                    // the line stays as short as it was.
+                    if *cache_hit + *cache_miss > 0 {
+                        parts.push(format!(
+                            "cache {}/{} {}",
+                            cache_hit,
+                            cache_hit + cache_miss,
+                            fmt_ms(*cache_ms)
+                        ));
+                    }
                     parts.push(format!("store {}", fmt_ms(*store_ms)));
                     let _ = writeln!(err, "  ⏱ {}", parts.join(" · "));
                 }
