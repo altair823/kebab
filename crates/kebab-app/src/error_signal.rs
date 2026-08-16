@@ -8,7 +8,7 @@
 //!
 //! See `docs/superpowers/specs/2026-05-07-p9-fb-27-introspection-and-error-wire-design.md`.
 
-pub use crate::doctor_signal::{DoctorUnhealthy, NoHitSignal, RefusalSignal};
+pub use crate::doctor_signal::{DoctorUnhealthy, EvalRegression, NoHitSignal, RefusalSignal};
 
 pub use kebab_config::{ConfigInvalid, ConfigNotFound};
 pub use kebab_llm_local::LlmError;

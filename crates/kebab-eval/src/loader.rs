@@ -127,7 +127,8 @@ pub(crate) fn validate_against_db(
         return Ok(());
     }
 
-    let store = SqliteStore::open(&cfg.storage).context("open SqliteStore for golden validation")?;
+    let store =
+        SqliteStore::open(&cfg.storage).context("open SqliteStore for golden validation")?;
     store
         .run_migrations()
         .context("run migrations for golden validation")?;
@@ -205,8 +206,14 @@ mod tests {
         .unwrap();
         let err = load_golden_set(&yaml_path).unwrap_err();
         let msg = format!("{err:#}");
-        assert!(msg.contains("'g2'"), "should name the divergent query g2: {msg}");
-        assert!(!msg.contains("'g3'"), "g3 matches canonical, must not be flagged: {msg}");
+        assert!(
+            msg.contains("'g2'"),
+            "should name the divergent query g2: {msg}"
+        );
+        assert!(
+            !msg.contains("'g3'"),
+            "g3 matches canonical, must not be flagged: {msg}"
+        );
     }
 
     #[test]

@@ -108,16 +108,15 @@ pub fn compute_variant_consistency(
         let (recall_narrow, recall_pool) = recall_narrow_pool(&qr, &gq.expected_doc_ids);
         // Mirrors metrics.rs groundedness guards: skip errored rows and
         // vacuous-true (no must_contain/forbidden configured).
-        let answer_ok = if qr.error.is_some()
-            || (gq.must_contain.is_empty() && gq.forbidden.is_empty())
-        {
-            None
-        } else {
-            qr.answer.as_ref().map(|a| {
-                gq.must_contain.iter().all(|s| a.answer.contains(s))
-                    && !gq.forbidden.iter().any(|s| a.answer.contains(s))
-            })
-        };
+        let answer_ok =
+            if qr.error.is_some() || (gq.must_contain.is_empty() && gq.forbidden.is_empty()) {
+                None
+            } else {
+                qr.answer.as_ref().map(|a| {
+                    gq.must_contain.iter().all(|s| a.answer.contains(s))
+                        && !gq.forbidden.iter().any(|s| a.answer.contains(s))
+                })
+            };
         let class = classify(&gq.expected_doc_ids, recall_narrow, recall_pool);
         grouped.entry(group).or_default().push(VariantResult {
             query_id: qr.query_id.clone(),
@@ -220,8 +219,14 @@ fn rollup_group(group: String, variants: Vec<VariantResult>) -> VariantGroupRepo
     } else {
         Some(answer_flags.iter().all(|&ok| ok))
     };
-    let mis_ranked = variants.iter().filter(|v| v.class == VariantClass::MisRanked).count() as u32;
-    let missing = variants.iter().filter(|v| v.class == VariantClass::Missing).count() as u32;
+    let mis_ranked = variants
+        .iter()
+        .filter(|v| v.class == VariantClass::MisRanked)
+        .count() as u32;
+    let missing = variants
+        .iter()
+        .filter(|v| v.class == VariantClass::Missing)
+        .count() as u32;
     VariantGroupReport {
         group,
         variants,
@@ -239,7 +244,8 @@ pub fn compute_variant_consistency_with_config(
     cfg: &Config,
     run_id: &str,
 ) -> Result<VariantConsistencyReport> {
-    let store = SqliteStore::open(&cfg.storage).context("open SqliteStore for variant consistency")?;
+    let store =
+        SqliteStore::open(&cfg.storage).context("open SqliteStore for variant consistency")?;
     store.run_migrations().context("run migrations")?;
     let run_record = store
         .load_eval_run(run_id)
@@ -298,9 +304,18 @@ pub fn render_variants_md(rep: &VariantConsistencyReport) -> String {
         let _ = writeln!(
             s,
             "## {} — spread@{}={:.2} worst={:.2} A={} B={} answers={}",
-            g.group, NARROW_K, g.recall_spread_narrow, g.worst_recall_narrow, g.mis_ranked, g.missing, ac
+            g.group,
+            NARROW_K,
+            g.recall_spread_narrow,
+            g.worst_recall_narrow,
+            g.mis_ranked,
+            g.missing,
+            ac
         );
-        let _ = writeln!(s, "| variant | recall@{NARROW_K} | recall@{POOL_K} | class | answer |");
+        let _ = writeln!(
+            s,
+            "| variant | recall@{NARROW_K} | recall@{POOL_K} | class | answer |"
+        );
         let _ = writeln!(s, "|---|---|---|---|---|");
         for v in &g.variants {
             let ans = match v.answer_ok {
@@ -338,7 +353,12 @@ mod tests {
             heading_path: vec![],
             section_label: None,
             snippet: String::new(),
-            citation: Citation::Line { path, start: 1, end: 1, section: None },
+            citation: Citation::Line {
+                path,
+                start: 1,
+                end: 1,
+                section: None,
+            },
             retrieval: RetrievalDetail {
                 method: SearchMode::Vector,
                 fusion_score: 1.0 / rank as f32,
@@ -396,7 +416,11 @@ mod tests {
         //  v1: docX at rank 3  → narrow=1.0  → Ok
         //  v2: docX at rank 25 → narrow=0.0, pool=1.0 → MisRanked (A)
         //  v3: docX 없음        → narrow=0.0, pool=0.0 → Missing   (B)
-        let queries = vec![gq("v1", "g", "docX"), gq("v2", "g", "docX"), gq("v3", "g", "docX")];
+        let queries = vec![
+            gq("v1", "g", "docX"),
+            gq("v2", "g", "docX"),
+            gq("v3", "g", "docX"),
+        ];
         let rows = vec![
             row("v1", vec![hit("docX", 3)]),
             row("v2", vec![hit("docX", 25)]),
@@ -422,7 +446,10 @@ mod tests {
     #[test]
     fn fully_consistent_group_when_all_ok() {
         let queries = vec![gq("v1", "g", "docX"), gq("v2", "g", "docX")];
-        let rows = vec![row("v1", vec![hit("docX", 1)]), row("v2", vec![hit("docX", 2)])];
+        let rows = vec![
+            row("v1", vec![hit("docX", 1)]),
+            row("v2", vec![hit("docX", 2)]),
+        ];
         let rep = compute_variant_consistency(&queries, &rows).unwrap();
         assert_eq!(rep.fully_consistent_groups, 1);
         assert!((rep.groups[0].recall_spread_narrow - 0.0).abs() < 1e-6);
@@ -443,8 +470,9 @@ mod tests {
         error: Option<&str>,
     ) -> EvalQueryResultRecord {
         let hits_json = serde_json::to_value(&hits).unwrap();
-        let error_json =
-            error.map_or(serde_json::Value::Null, |e| serde_json::Value::String(e.into()));
+        let error_json = error.map_or(serde_json::Value::Null, |e| {
+            serde_json::Value::String(e.into())
+        });
         let qr_json = serde_json::json!({
             "query_id": query_id,
             "query": query_id,
@@ -489,7 +517,10 @@ mod tests {
             row("v2", vec![hit("other", 7)]), // rank 7 ≤ NARROW_K=10
         ];
         let rep = compute_variant_consistency(&queries, &rows).unwrap();
-        assert!(rep.pool_possibly_truncated, "all ranks ≤ NARROW_K must set pool_possibly_truncated");
+        assert!(
+            rep.pool_possibly_truncated,
+            "all ranks ≤ NARROW_K must set pool_possibly_truncated"
+        );
         // v2 misses docX, pool also has no rank>10 → classified Missing, not MisRanked
         assert_eq!(rep.a_dominant_groups, 0);
         assert_eq!(rep.b_dominant_groups, 1);
@@ -505,7 +536,10 @@ mod tests {
         let row_v1 = row_with_answer("v1", vec![], "any text", None);
         let rep = compute_variant_consistency(&[gq_no_check], &[row_v1]).unwrap();
         let v = &rep.groups[0].variants[0];
-        assert_eq!(v.answer_ok, None, "vacuous-true guard: no checks → answer_ok = None");
+        assert_eq!(
+            v.answer_ok, None,
+            "vacuous-true guard: no checks → answer_ok = None"
+        );
         assert_eq!(rep.groups[0].answer_consistency, None);
 
         // M1b: must_contain present but error is also set
@@ -514,7 +548,10 @@ mod tests {
         let row_v2 = row_with_answer("v2", vec![], "expected text", Some("llm error"));
         let rep2 = compute_variant_consistency(&[gq_check], &[row_v2]).unwrap();
         let v2 = &rep2.groups[0].variants[0];
-        assert_eq!(v2.answer_ok, None, "error guard: qr.error present → answer_ok = None");
+        assert_eq!(
+            v2.answer_ok, None,
+            "error guard: qr.error present → answer_ok = None"
+        );
     }
 
     /// N1 순수 B: 두 변형 모두 pool 에서도 정답 없음 → b_dominant=1, a_dominant=0.

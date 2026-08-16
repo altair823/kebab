@@ -18,6 +18,7 @@ use kebab_core::{
 use kebab_store_sqlite::{EmbeddingRecordRow, SqliteStore};
 use lancedb::Connection;
 use lancedb::query::{ExecutableQuery, QueryBase};
+use lancedb::table::{CompactionOptions, Duration, OptimizeAction};
 use serde_json::json;
 use time::OffsetDateTime;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
@@ -50,6 +51,31 @@ const INDEX_VERSION: &str = "v1";
 /// reaching into a private constant.
 pub const INDEX_VERSION_STR: &str = INDEX_VERSION;
 
+/// Lance table commits between compactions.
+///
+/// Every `upsert` is one `merge_insert`, which creates a new table
+/// version whose manifest lists **every** fragment in the table. kebab
+/// upserts once per document, so an N-document ingest ends up with N
+/// fragments and an N-entry manifest rewritten on every write: per-write
+/// cost grows linearly with corpus size, manifest bytes quadratically.
+///
+/// Measured on a 16.8k-document dogfood KB with this compaction absent:
+/// ingest decayed 30.7 → 4.3 documents/min, and `_versions/` held 12.2 GB
+/// of manifests against 1.7 GB of vectors. A single full compaction of
+/// that table took 153 s and returned it to 1.70 GB / 1 version.
+///
+/// The interval trades compaction work (each pass rewrites the table)
+/// against manifest size. At 512 the rewrite cost over a 30k-document
+/// ingest is roughly an hour, well under what the un-compacted manifests
+/// cost — and the tail of that ingest stays at full speed instead of
+/// running seven times slower.
+///
+/// Counted against the table's own version rather than a field on this
+/// struct, so single-document paths (`kebab ingest-file`, MCP
+/// `ingest_file`/`ingest_stdin`) still reach it: each opens a fresh
+/// store, and an in-memory counter would restart at zero every call.
+const COMPACT_EVERY_N_UPSERTS: u64 = 512;
+
 /// Lance VectorStore.
 ///
 /// Holds a single `lancedb::Connection` opened against
@@ -79,6 +105,8 @@ pub struct LanceVectorStore {
     /// only — the `Connection` already knows it.
     #[allow(dead_code)]
     vector_dir: PathBuf,
+    /// Commits between compactions. See [`COMPACT_EVERY_N_UPSERTS`].
+    compact_every: u64,
 }
 
 impl LanceVectorStore {
@@ -94,6 +122,21 @@ impl LanceVectorStore {
     /// within a runtime"`. See the struct-level `# Async context`
     /// section.
     pub fn new(storage: &kebab_config::StorageCfg, sqlite: Arc<SqliteStore>) -> Result<Self> {
+        Self::new_with_compact_interval(storage, sqlite, COMPACT_EVERY_N_UPSERTS)
+    }
+
+    /// [`LanceVectorStore::new`] with an explicit compaction interval.
+    ///
+    /// `#[doc(hidden)]` but public: the integration test drives the
+    /// compaction path with a small interval instead of issuing
+    /// [`COMPACT_EVERY_N_UPSERTS`] upserts. Not a config surface —
+    /// production always goes through `new`.
+    #[doc(hidden)]
+    pub fn new_with_compact_interval(
+        storage: &kebab_config::StorageCfg,
+        sqlite: Arc<SqliteStore>,
+        compact_every: u64,
+    ) -> Result<Self> {
         let data_dir = expand_path(&storage.data_dir, "");
         let vector_dir = expand_path(&storage.vector_dir, &data_dir.to_string_lossy());
         std::fs::create_dir_all(&vector_dir)
@@ -125,6 +168,45 @@ impl LanceVectorStore {
             connection,
             sqlite,
             vector_dir,
+            compact_every,
+        })
+    }
+
+    /// Compact the table's fragments and drop superseded versions.
+    ///
+    /// `delete_unverified` tells Lance to reclaim files no manifest
+    /// references yet, regardless of age. That is only sound when nothing
+    /// else is writing this table concurrently — an in-flight commit's
+    /// staged files look identical to garbage.
+    ///
+    /// kebab does not enforce that: there is no lock file anywhere in the
+    /// workspace, so a second `kebab ingest` or a long-lived `kebab mcp`
+    /// server calling `ingest_file` can overlap. Concurrent ingest is
+    /// already unsound for other reasons (`documents.workspace_path` is
+    /// UNIQUE and racing writers collide there first), so this does not
+    /// add a failure mode that a single-writer workspace was free of —
+    /// but it does raise the cost of violating that assumption. Without
+    /// this flag nothing younger than seven days is ever reclaimed, which
+    /// on a fresh index means nothing at all, so the disk half of the fix
+    /// would not happen.
+    fn compact_table(&self, table: &lancedb::Table) -> Result<()> {
+        self.runtime.block_on(async {
+            table
+                .optimize(OptimizeAction::Compact {
+                    options: CompactionOptions::default(),
+                    remap_options: None,
+                })
+                .await
+                .context("Lance compact")?;
+            table
+                .optimize(OptimizeAction::Prune {
+                    older_than: Some(Duration::zero()),
+                    delete_unverified: Some(true),
+                    error_if_tagged_old_versions: None,
+                })
+                .await
+                .context("Lance prune")?;
+            Result::<()>::Ok(())
         })
     }
 
@@ -270,6 +352,40 @@ impl VectorStore for LanceVectorStore {
             rows = recs.len(),
             "upsert committed"
         );
+
+        // Fold the per-document fragments back together every so often.
+        //
+        // The trigger is Lance's own table version, not a counter on this
+        // struct. Version is monotonic and lives in the table, so it keeps
+        // counting across processes — an in-memory counter would restart at
+        // zero on every `kebab ingest-file` and every MCP `ingest_file`
+        // call, which is exactly the workload that accumulates fragments
+        // one at a time and would therefore never compact.
+        //
+        // Failure here is not fatal — the data is already committed and a
+        // later commit crosses the next multiple — but it is logged at warn
+        // because the symptom of silently skipping it is a slow ingest much
+        // later.
+        let version = self
+            .runtime
+            .block_on(async { table.version().await })
+            .unwrap_or(0);
+        if version > 0 && self.compact_every > 0 && version % self.compact_every == 0 {
+            if let Err(e) = self.compact_table(&table) {
+                tracing::warn!(
+                    target: "kebab-store-vector",
+                    table = %table_name,
+                    error = %e,
+                    "Lance compaction failed; ingest continues but writes will slow down"
+                );
+            } else {
+                tracing::info!(
+                    target: "kebab-store-vector",
+                    table = %table_name,
+                    "Lance compaction done"
+                );
+            }
+        }
         Ok(())
     }
 

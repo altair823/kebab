@@ -14,6 +14,7 @@
 //!     "temperature": <float>,
 //!     "seed":        <u64>,
 //!     "num_ctx":     <usize>,
+//!     "num_predict": <usize>,
 //!     "stop":        ["<str>", ...]
 //!   }
 //! }
@@ -177,6 +178,7 @@ impl LanguageModel for OllamaLanguageModel {
                 temperature: effective_temperature,
                 seed: effective_seed,
                 num_ctx: self.context_tokens,
+                num_predict: req.max_tokens,
                 stop: &req.stop,
             },
         };
@@ -233,6 +235,16 @@ struct OllamaOptions<'a> {
     temperature: f32,
     seed: u64,
     num_ctx: usize,
+    /// Generation cap, from `GenerateRequest::max_tokens`.
+    ///
+    /// Ollama defaults `num_predict` to -1 (unbounded) and shifts the
+    /// context window when it fills, so a model that falls into a
+    /// repetition loop streams forever. `request_timeout_secs` cannot
+    /// save the caller: the connection keeps producing bytes, so no read
+    /// ever times out. Seen in the v0.32 dogfood — one `eval` query held
+    /// the run for 30+ minutes and had received 13 MB of token frames
+    /// when it was killed.
+    num_predict: usize,
     stop: &'a [String],
 }
 
@@ -512,6 +524,31 @@ fn truncate_body(s: &str, n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// v0.32 dogfood: `GenerateRequest::max_tokens` was computed by the RAG
+    /// pipeline and then dropped on the floor — `OllamaOptions` never carried
+    /// it. Ollama's default `num_predict` is -1 (unbounded), so a degenerate
+    /// generation ran until something else killed it.
+    #[test]
+    fn request_body_carries_max_tokens_as_num_predict() {
+        let stop: Vec<String> = vec!["</end>".into()];
+        let body = OllamaRequest {
+            model: "m",
+            prompt: "p".into(),
+            images: &[],
+            stream: true,
+            options: OllamaOptions {
+                temperature: 0.0,
+                seed: 7,
+                num_ctx: 8192,
+                num_predict: 1234,
+                stop: &stop,
+            },
+        };
+        let v = serde_json::to_value(&body).unwrap();
+        assert_eq!(v["options"]["num_predict"], 1234);
+        assert_eq!(v["options"]["num_ctx"], 8192);
+    }
 
     #[test]
     fn trim_trailing_newline_removes_lf_and_crlf() {

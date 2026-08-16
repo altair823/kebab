@@ -89,7 +89,7 @@ Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go
 | `kebab list docs` | 색인된 문서 목록 |
 | `kebab inspect doc <id>` / `inspect chunk <id>` | raw record 보기 |
 | `kebab fetch chunk\|doc\|span <id> [flags]` | indexed corpus 에서 verbatim text fetch |
-| `kebab eval run \| aggregate \| compare \| variants` | golden query 회귀 측정 + 변형 일관성 진단 |
+| `kebab eval run \| aggregate \| compare \| variants` | golden query 회귀 측정 + 변형 일관성 진단. `compare --max-drop <낙폭>` 은 어떤 지표든 그 이상 **떨어지면** exit 1 — 절대 하한이 아니라 델타 예산이다 (없으면 delta 만 출력하고 항상 exit 0) |
 | `kebab schema [--json]` | introspection — wire schemas / capabilities / models / stats |
 | `kebab doctor` | 설정 / 모델 / DB 헬스 체크 |
 | `kebab mcp` | MCP stdio server (`search` / `bulk_search` / `ask` / `fetch` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`) |

@@ -1868,17 +1868,38 @@ fn est_tokens(s: &str) -> usize {
     s.chars().count().div_ceil(4)
 }
 
-/// Strict marker regex per design §1 / spec line 107: `[#1]` … `[#999]`.
-/// Matches without `#`, with whitespace, or with non-digit content are
-/// intentionally ignored (see test plan rows 5–6).
+/// Strict marker regex per design §1 / spec line 107: `[#1]` … `[#999]`,
+/// plus the grouped form `[#2, #10]` the model emits when one claim rests
+/// on several sources. Matches without `#`, with leading/trailing
+/// whitespace inside the brackets, or with non-digit content are still
+/// intentionally ignored (see test plan rows 5–6) — the strictness exists
+/// so Rust snippets like `vec![1]` in an answer are not read as citations.
 static MARKER_REGEX: OnceLock<Regex> = OnceLock::new();
+/// Pulls the individual `#N` out of a marker group matched by
+/// [`MARKER_REGEX`]. Only ever run on an already-validated span.
+static MARKER_NUM_REGEX: OnceLock<Regex> = OnceLock::new();
 static REFUSAL_PHRASE: OnceLock<Regex> = OnceLock::new();
 
+/// Markers cited by the answer, in the order they appear.
+///
+/// Grouped markers matter beyond bookkeeping: `citations` is the
+/// intersection of this set with the packed entries, so a marker missed
+/// here is a source silently dropped from `answer.v1` while its `[#N]`
+/// stays visible in the answer text. Found in the v0.32 dogfood — the
+/// model wrote `[#2, #10]` and the reader had no way to resolve `[#2]`.
 fn extract_markers(s: &str) -> Vec<u32> {
-    let re =
-        MARKER_REGEX.get_or_init(|| Regex::new(r"\[#(\d{1,3})\]").expect("static regex compiles"));
-    re.captures_iter(s)
-        .filter_map(|c| c.get(1).and_then(|m| m.as_str().parse::<u32>().ok()))
+    let group = MARKER_REGEX.get_or_init(|| {
+        Regex::new(r"\[#\d{1,3}(?:\s*,\s*#\d{1,3})*\]").expect("static regex compiles")
+    });
+    let num =
+        MARKER_NUM_REGEX.get_or_init(|| Regex::new(r"#(\d{1,3})").expect("static regex compiles"));
+    group
+        .find_iter(s)
+        .flat_map(|g| {
+            num.captures_iter(g.as_str())
+                .filter_map(|c| c.get(1).and_then(|m| m.as_str().parse::<u32>().ok()))
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 
@@ -1959,6 +1980,29 @@ mod tests {
     fn rag_pipeline_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<RagPipeline>();
+    }
+
+    /// v0.32 dogfood (28.4k-document KB): the model groups markers when a
+    /// claim rests on several sources — `근거입니다 [#2, #10]`. The prompt
+    /// only says "attribute with [#번호]", so grouping is not a violation.
+    /// The single-marker-only regex dropped those, and since `citations`
+    /// is built by intersecting the extracted set with the packed entries
+    /// (`cited_set` below), the grouped sources vanished from `answer.v1`
+    /// while their markers stayed visible in the answer text — a reader
+    /// or agent sees `[#2]` with nothing to resolve it to.
+    #[test]
+    fn extract_markers_accepts_grouped_markers() {
+        assert_eq!(extract_markers("근거입니다 [#2, #10]."), vec![2, 10]);
+        assert_eq!(extract_markers("no spaces [#6,#7]"), vec![6, 7]);
+        assert_eq!(extract_markers("three [#1, #2, #3]"), vec![1, 2, 3]);
+        // Mixed with the single form, in document order.
+        assert_eq!(
+            extract_markers("a [#1]. b [#2, #10]. c [#9]."),
+            vec![1, 2, 10, 9]
+        );
+        // Grouping must not loosen the strictness the single form has:
+        // a bare number after the comma is not a marker.
+        assert!(extract_markers("see [#1, 2]").is_empty());
     }
 
     #[test]

@@ -488,6 +488,91 @@ fn build_deltas(
     })
 }
 
+/// Metrics that got worse by more than `tolerance` from run A to run B.
+///
+/// Returns one line per violation, empty when B is within tolerance of A.
+/// This is what turns a golden set into a gate: `compare` on its own only
+/// prints deltas and always exits 0, so "did this change make retrieval
+/// worse" had no machine-checkable answer.
+///
+/// Direction matters per metric. Everything here is higher-is-better
+/// except `empty_result_rate`, where a rise means more queries came back
+/// with nothing.
+///
+/// A metric that was measurable in A but is `NaN` in B counts as a
+/// violation rather than a skip. That case means the measurement itself
+/// disappeared — usually a golden set that lost its ground truth — and
+/// silently reporting "no regression" for it would be the worst possible
+/// answer.
+#[must_use]
+pub fn regressions(report: &CompareReport, tolerance: f64) -> Vec<String> {
+    let mut out = Vec::new();
+    let (a, b) = (&report.aggregate_a, &report.aggregate_b);
+
+    let mut check = |name: String, av: f32, bv: f32, lower_is_better: bool| {
+        if av.is_nan() {
+            // Never measured on the baseline side — nothing to regress from.
+            return;
+        }
+        if bv.is_nan() {
+            out.push(format!(
+                "{name}: {av:.4} -> 측정 불가 (B 에서 지표가 사라짐)"
+            ));
+            return;
+        }
+        let delta = f64::from(bv - av);
+        let worse = if lower_is_better { delta } else { -delta };
+        if worse > tolerance {
+            out.push(format!(
+                "{name}: {av:.4} -> {bv:.4} ({delta:+.4}, 허용치 {tolerance:.4})"
+            ));
+        }
+    };
+
+    for k in crate::metrics::TOP_K_VARIANTS {
+        let nan = f32::NAN;
+        check(
+            format!("hit_at_k[{k}]"),
+            a.hit_at_k.get(k).copied().unwrap_or(nan),
+            b.hit_at_k.get(k).copied().unwrap_or(nan),
+            false,
+        );
+        check(
+            format!("recall_at_k_doc[{k}]"),
+            a.recall_at_k_doc.get(k).copied().unwrap_or(nan),
+            b.recall_at_k_doc.get(k).copied().unwrap_or(nan),
+            false,
+        );
+        check(
+            format!("precision_at_k_chunk[{k}]"),
+            a.precision_at_k_chunk.get(k).copied().unwrap_or(nan),
+            b.precision_at_k_chunk.get(k).copied().unwrap_or(nan),
+            false,
+        );
+    }
+    check("mrr".into(), a.mrr, b.mrr, false);
+    check(
+        "citation_coverage".into(),
+        a.citation_coverage,
+        b.citation_coverage,
+        false,
+    );
+    check("groundedness".into(), a.groundedness, b.groundedness, false);
+    check(
+        "refusal_correctness".into(),
+        a.refusal_correctness,
+        b.refusal_correctness,
+        false,
+    );
+    check(
+        "empty_result_rate".into(),
+        a.empty_result_rate,
+        b.empty_result_rate,
+        true,
+    );
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -543,6 +628,84 @@ mod tests {
         assert!(d["refusal_correctness"].is_null());
         assert!((d["mrr"].as_f64().unwrap() - 0.25).abs() < 1e-6);
         assert_eq!(d["chunker_version_match"], "exact");
+    }
+
+    fn agg(mrr: f32, recall10: f32, empty: f32) -> AggregateMetrics {
+        AggregateMetrics {
+            hit_at_k: Default::default(),
+            mrr,
+            recall_at_k_doc: [(10u32, recall10)].into_iter().collect(),
+            precision_at_k_chunk: Default::default(),
+            citation_coverage: f32::NAN,
+            groundedness: 1.0,
+            empty_result_rate: empty,
+            refusal_correctness: f32::NAN,
+            total_queries: 10,
+            failed_queries: 0,
+        }
+    }
+
+    fn report(a: AggregateMetrics, b: AggregateMetrics) -> CompareReport {
+        CompareReport {
+            run_a: "a".into(),
+            run_b: "b".into(),
+            deltas: build_deltas(&a, &b, "exact"),
+            aggregate_a: a,
+            aggregate_b: b,
+            per_query: vec![],
+        }
+    }
+
+    #[test]
+    fn regressions_empty_when_within_tolerance() {
+        // 0.01 하락은 허용치 0.03 안이다.
+        let r = report(agg(0.50, 0.95, 0.0), agg(0.49, 0.94, 0.0));
+        assert!(regressions(&r, 0.03).is_empty());
+        // 개선은 당연히 위반이 아니다.
+        let up = report(agg(0.50, 0.95, 0.0), agg(0.80, 0.99, 0.0));
+        assert!(regressions(&up, 0.03).is_empty());
+    }
+
+    #[test]
+    fn regressions_flag_metric_drops_beyond_tolerance() {
+        let r = report(agg(0.50, 0.95, 0.0), agg(0.40, 0.80, 0.0));
+        let v = regressions(&r, 0.03);
+        assert_eq!(v.len(), 2, "mrr + recall@10 두 개여야 한다: {v:?}");
+        assert!(v.iter().any(|s| s.starts_with("mrr:")), "{v:?}");
+        assert!(
+            v.iter().any(|s| s.starts_with("recall_at_k_doc[10]:")),
+            "{v:?}"
+        );
+    }
+
+    #[test]
+    fn regressions_treat_empty_result_rate_as_lower_is_better() {
+        // 빈 결과 비율은 오르는 쪽이 나빠지는 것이다.
+        let worse = report(agg(0.5, 0.95, 0.10), agg(0.5, 0.95, 0.30));
+        assert_eq!(regressions(&worse, 0.03).len(), 1);
+        // 내려가는 것은 개선이므로 위반이 아니다.
+        let better = report(agg(0.5, 0.95, 0.30), agg(0.5, 0.95, 0.10));
+        assert!(regressions(&better, 0.03).is_empty());
+    }
+
+    #[test]
+    fn regressions_flag_metric_that_stopped_being_measurable() {
+        // A 에서는 재던 지표가 B 에서 NaN 이면 "회귀 없음"이 아니라 위반이다.
+        // 골든셋이 ground truth 를 잃은 경우가 정확히 이 모양으로 나타난다.
+        let a = agg(0.5, 0.95, 0.0);
+        let mut b = agg(0.5, 0.95, 0.0);
+        b.recall_at_k_doc.clear();
+        let v = regressions(&report(a, b), 0.03);
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert!(v[0].contains("측정 불가"), "{v:?}");
+    }
+
+    #[test]
+    fn regressions_skip_metrics_never_measured_on_either_side() {
+        // citation_coverage / refusal_correctness 는 --with-rag 없이는 양쪽 다 NaN 이다.
+        // 잰 적이 없는 지표로 게이트를 실패시키면 안 된다.
+        let r = report(agg(0.5, 0.95, 0.0), agg(0.5, 0.95, 0.0));
+        assert!(regressions(&r, 0.0).is_empty());
     }
 
     #[test]

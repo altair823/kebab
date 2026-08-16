@@ -14,6 +14,67 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-08-16 — 28.4k 문서 도그푸딩: Lance 압축 부재 · 인용 마커 누락 · ollama 생성 무제한
+
+나무위키 18,282 + Apache Jira 10,145 = **28,427 문서 / 600,808 청크** 코퍼스로 종단 도그푸딩. 기존 최대 규모(620 문서)의 46배라 그 규모에서는 보이지 않던 결함 3개가 드러났다. 셋 다 이 PR 에서 수정.
+
+### 1. Lance fragment 무한 누적 — ingest 가 코퍼스 크기에 비례해 느려진다 (이슈 #230 제안 2)
+
+`upsert` 가 asset 1건당 `merge_insert` 를 1회 호출하고 Lance 는 그때마다 새 테이블 버전 + fragment 를 만든다. manifest 는 **그 시점의 전 fragment 를 나열**하므로 N번째 쓰기가 N줄짜리 manifest 를 새로 쓴다 → 쓰기 비용이 문서 수에 비례, manifest 총량은 제곱. 코드베이스 전체에 `optimize` / `compact_files` / `cleanup_old_versions` 호출이 **0건**이었다.
+
+| | 16,828 문서 시점 | 압축 후 (28,427 문서) |
+|---|---|---|
+| fragment / manifest | 16,814 | 336 |
+| `_versions/` | 12.2 GB | 6.6 MB |
+| 실제 벡터 데이터 | 1.7 GB | 1.7 GB |
+| ingest 속도 | 30.7 → **4.3 문서/분** (단조 하락) | **32~36 문서/분** (평평) |
+
+이슈 #230 이 11,229 문서 시점에 잰 메타/실데이터 비율은 2.5배였는데, 16,828 문서에서는 **7.2배**였다 — 제곱 증가가 두 지점으로 확인됨.
+
+수정: `COMPACT_EVERY_N_UPSERTS = 512` 마다 Compact + Prune. 기존 테이블 1회 압축은 **153초에 15 GB → 1.7 GB**(행 365,991 보존)로 끝났다. 트리거는 이 struct 의 카운터가 아니라 **Lance 테이블 자신의 version** 이다 — 인메모리 카운터는 `kebab ingest-file` 이나 MCP `ingest_file` 처럼 호출마다 store 를 새로 여는 경로에서 매번 0 으로 되돌아가 영영 512 에 못 닿는다. 즉 #230 본문의 "회복 수단이 `reset --vector-only`(전량 재임베딩) 밖에 없다" 는 사실이 아니다.
+
+미해결(같은 이슈의 나머지): 삭제 경로 배치화(제안 1), geodatafusion(제안 3), doctor 지표(제안 4).
+
+### 2. 묶음 인용 마커가 `answer.v1` 에서 조용히 사라짐
+
+마커 추출 정규식이 `\[#(\d{1,3})\]` 라 **괄호 하나에 마커 하나**만 인정했다. 모델은 한 주장이 여러 근거에 걸리면 `[#2, #10]` 으로 묶는데, `SYSTEM_PROMPT_RAG_V4` 는 "`[#번호]` 로 귀속하라"고만 하고 한 괄호에 하나씩 쓰라고 지시하지 않으므로 지시 위반이 아니다.
+
+`citations` 는 추출 마커와 packed entry 의 교집합이라(`cited_set`), 못 잡힌 마커는 근거가 멀쩡히 있는데도 배열에서 빠졌다. 본문에는 `[#2]` 가 남아 사용자도 agent 도 해소할 수 없는 인용이 된다. 부수적으로 `unknown_markers` / `grounded` 판정도 반쪽 마커 집합 위에서 계산됐다.
+
+실측(28.4k KB, "Spark shuffle OOM" 질의): 본문 인용 `1,2,6,7,8,9,10` vs `citations` `1,8,9,10` → 3건 끊김. 수정 후 7/7 해소, `citation_coverage` 1.0.
+
+기존 엄격함(`vec![1]` · `[1]` · `[ #1 ]` · `[#foo]` · `[#1234]` 불인정)은 유지 — 답변에 Rust 코드가 섞일 때의 오탐 방지가 원래 목적이고 기존 테스트가 그걸 고정한다.
+
+### 3. ollama 요청이 `max_tokens` 를 안 보냄 — 반복 루프가 무한 스트림이 된다
+
+`GenerateRequest::max_tokens` 를 RAG 파이프라인이 계산해 넘기는데 `OllamaOptions` 가 `temperature`/`seed`/`num_ctx`/`stop` 만 직렬화하고 **그 값을 버렸다**. ollama 기본 `num_predict` 는 -1(무제한)이고 컨텍스트가 차면 창을 밀어 계속 생성한다.
+
+`request_timeout_secs` 로는 못 막는다 — 연결에 바이트가 계속 흐르므로 읽기 타임아웃이 안 터진다. `eval run --with-rag` 216 질의가 **1시간 45분에 21개**만 끝냈고, 붙잡고 있던 질의 하나가 **13 MB** 를 받은 상태였다(15초에 142 KB 유입 확인, ollama runner 198% CPU).
+
+수정: `num_predict: req.max_tokens`. 같은 216 질의가 **31분**에 완료.
+
+### 골든셋 + 회귀 게이트 (신규)
+
+이 KB 전용 골든셋을 도그푸딩 store 에 만들었다 — 문서 42건 × 표현 5변형(abbr/ko/en/syn/para) + 거절 6 = **216 질의**. 정답(`expected_doc_ids`)은 검색이 아니라 SQLite 에서 `workspace_path → doc_id` 로 직접 뽑아 순환을 피했고, chunk 단위 대신 **문서 단위**로 잡았다(chunk_id 가 blake3(doc_id, chunker_version, block_ids, policy_hash) 파생이라 파일 1바이트 수정으로 전부 무효화됨).
+
+베이스라인:
+
+```
+recall@1 0.8381 · recall@5 0.9429 · recall@10 0.9524
+변형 일관성 42그룹 중 33개 완전 일치 · mean spread@10 0.214
+citation_coverage 1.0 · groundedness 0.3905 · refusal_correctness 0.1667
+```
+
+실패한 9개 그룹은 **전부 para(내용 서술) 변형**이다. 7개는 top-50 에는 있고 top-10 밖(MisRanked, 랭킹 문제), 2개는 top-50 에도 없다(Missing, 어휘 격차).
+
+`kebab eval compare --max-drop <낙폭>` 을 추가했다. 이름은 절대 하한이 아니라 **델타 예산**임을 드러내려고 고른 것이다 — `--fail-under 0.9` 를 "recall 0.9 밑이면 실패"로 읽으면 recall 이 0.95→0.10 으로 무너져도 낙폭 0.85 < 0.9 라 통과하는 함정이 있었다. 음수·nan 은 시작 시점에 거부한다. 이전에는 delta 만 출력하고 exit code 가 항상 0 이라 "회귀했는가"를 기계가 판정할 수 없었다. `empty_result_rate` 는 반대 방향으로 검사하고, **A 에서 재던 지표가 B 에서 NaN 이 되면 위반**으로 잡는다(골든셋이 ground truth 를 잃은 경우가 정확히 그 모양이다).
+
+### 남은 문제 — `refusal_correctness 0.1667`
+
+코퍼스에 없는 가짜 질의 6개 중 **1개만** 제대로 거절했다. "Who won the 2044 Interplanetary Curling Championship?" 에 **"T1이 우승했습니다 [#3]"** 라고 답하고 LoL 문서를 인용하면서 `grounded=True` 로 표시됐다.
+
+원인은 `grounded` 가 "모델이 유효한 마커를 달았는가" 만 보기 때문이다(`grounded_unaware`). 지어낸 답도 마커만 달면 grounded 다. 이걸 막으라고 있는 `rag.nli_threshold` 는 기본값이 0(꺼짐)이라, **기본 설정에는 환각 방어가 사실상 없다.** NLI 를 켜고 같은 6개를 재측정하는 것이 다음 과제.
+
 ## 2026-06-27 — v0.32.0 ponytail-audit 정리 arc 도그푸딩 (chunker A/B byte-identical + GPU r9700)
 
 over-engineering 감사(ponytail-audit) 후 4 PR(#219–#222) 로 표면·구조·crate 수 단순화. **능력 불변, 이 arc(#219–#222) 누적 −3400줄 / crate 22→20 / dep −1**(serde_yaml 제거; unsafe-libyaml 은 serde_yaml_ng 가 여전히 transitive 로 가져옴). 실엔진 종단 검증:

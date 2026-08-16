@@ -91,6 +91,28 @@ impl TestEnv {
         }
     }
 
+    /// Same as [`TestEnv::new`] but with an explicit Lance compaction
+    /// interval, so `tests/compaction.rs` can exercise the compaction
+    /// path without driving the production `COMPACT_EVERY_N_UPSERTS`
+    /// number of upserts.
+    pub fn with_compact_interval(every: u64) -> Self {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = Config::defaults();
+        config.storage.data_dir = temp.path().to_string_lossy().into_owned();
+        let sqlite = SqliteStore::open(&config.storage).unwrap();
+        sqlite.run_migrations().unwrap();
+        let sqlite = Arc::new(sqlite);
+        let vector =
+            LanceVectorStore::new_with_compact_interval(&config.storage, sqlite.clone(), every)
+                .unwrap();
+        Self {
+            temp,
+            config,
+            sqlite,
+            vector,
+        }
+    }
+
     pub fn data_dir(&self) -> PathBuf {
         self.temp.path().to_path_buf()
     }

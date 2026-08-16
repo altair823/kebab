@@ -37,3 +37,18 @@ impl fmt::Display for NoHitSignal {
 }
 
 impl std::error::Error for NoHitSignal {}
+
+/// `kebab eval compare --max-drop` found a metric that regressed past
+/// the tolerance. Like the others here this is normal output, not a
+/// failure — it just has to reach the shell as a non-zero status so a
+/// golden set can actually gate something.
+#[derive(Debug)]
+pub struct EvalRegression;
+
+impl fmt::Display for EvalRegression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("eval regression")
+    }
+}
+
+impl std::error::Error for EvalRegression {}
