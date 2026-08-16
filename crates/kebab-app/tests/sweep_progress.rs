@@ -160,3 +160,58 @@ fn a_sweep_that_purges_nothing_still_announces_itself() {
         "and the candidates it left alone are still reported: {events:?}"
     );
 }
+
+/// The CLI's first Ctrl-C prints "aborting after current asset" and flips
+/// the cancel flag. The sweep did not look at it, so during a long sweep
+/// that message was simply untrue — and the user's only recourse was a
+/// second Ctrl-C, which is `exit(130)` and strands whatever vector deletes
+/// are buffered. Issue #228 is a report of someone pressing Ctrl-C three
+/// times in exactly this phase.
+#[test]
+fn a_cancelled_sweep_stops_and_reports_only_what_it_examined() {
+    let env = TestEnv::lexical_only();
+    for i in 0..6 {
+        std::fs::write(
+            env.workspace_root.join(format!("bye{i}.rs")),
+            format!("// file {i}\nfn g{i}() {{}}\n"),
+        )
+        .unwrap();
+    }
+    ingest_collecting(&env);
+    for i in 0..6 {
+        std::fs::remove_file(env.workspace_root.join(format!("bye{i}.rs"))).unwrap();
+    }
+
+    // Pre-cancelled: the sweep must stop at the top of its first
+    // iteration rather than walk every candidate.
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (tx, rx) = mpsc::channel::<IngestEvent>();
+    let report = ingest_with_config(
+        env.config.clone(),
+        env.scope(),
+        IngestOpts {
+            progress: Some(tx),
+            cancel: Some(cancel),
+            ..Default::default()
+        },
+    )
+    .expect("a cancelled ingest still returns a report");
+    let events: Vec<IngestEvent> = rx.into_iter().collect();
+
+    assert_eq!(
+        report.purged_deleted_files, 0,
+        "nothing is purged after the flag is already set: {report:?}"
+    );
+    let (total, done) = sweep_bounds(&events);
+    assert!(
+        total.expect("the phase is still announced") > 0,
+        "the candidates were counted before the check: {events:?}"
+    );
+    let (checked, purged) = done.expect("and it still reports its end");
+    assert_eq!(
+        (checked, purged),
+        (0, 0),
+        "a cancelled sweep must not claim work it did not do — reporting \
+         the announced total here would be a lie: {events:?}"
+    );
+}

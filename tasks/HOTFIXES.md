@@ -32,7 +32,9 @@ git history.
 
 `purged` 를 두 이벤트에서 다른 타입으로 쓰지 않으려고 `sweep_progress` 쪽은 `removed`(bool) 로, `sweep_completed` 쪽은 `purged`(정수) 로 이름을 나눴다. 같은 wire 키가 두 타입을 갖는 건 소비자 입장에서 함정이다.
 
-ndjson 로그에는 `purge { ts, doc_path }` 와 `sweep_summary { ts, checked, purged, ms }` 를 추가했다. 이슈 제안 2 가 요청한 형태 그대로다. 로그가 유일한 사후 기록이다 — tracing 은 stderr 로 흘러가고 남지 않는다.
+ndjson 로그에는 `purge { ts, doc_path }` 와 `sweep_summary { ts, checked, purged, ms }` 를 추가했다. 이슈 제안 2 가 요청한 형태 그대로다. 로그가 유일한 사후 기록이다 — tracing 은 stderr 로 흘러가고 남지 않는다. 리뷰 지적을 받아 `purge_failed { ts, doc_path, message }` 도 넣었다. 실패는 진행 이벤트에서 "디스크에 남아 있어 그냥 뒀다" 와 똑같이 `removed: false` 로 나가고, `sweep_summary` 의 `checked - purged` 차이로도 못 가르기 때문이다.
+
+sweep 루프가 취소 플래그도 본다. CLI 의 첫 Ctrl-C 는 "aborting after current asset" 을 찍고 플래그를 세우는데, sweep 은 그걸 보지 않아서 **긴 sweep 중에는 그 안내가 사실이 아니었다**. 사용자에게 남은 수단은 두 번째 Ctrl-C 뿐이고 그건 `exit(130)` 이라 버퍼에 쌓인 벡터 삭제가 고아로 남는다. 이 이슈 자체가 "sweep 중 Ctrl-C 를 세 번 눌러 죽였다" 는 보고다. 취소로 중단하면 `checked` 는 실제로 검사한 수로 나간다 — 예고한 `total` 을 그대로 쓰면 하지 않은 일을 했다고 보고하는 셈이다.
 
 CLI 는 sweep 을 asset 진행바와 **별 phase** 로 그린다. 후보 12k 를 훑는 일과 asset 12k 를 색인하는 일은 분모가 다른 별개의 작업이라, 카운터를 공유하면 두 번째 구간이 처음부터 다시 시작하는 것처럼 보인다. 비-TTY 는 실제로 지운 것만 줄로 찍는다 — 검사한 후보마다 한 줄이면 그대로 둔 경로들이 run 의 진짜 출력을 덮는다.
 

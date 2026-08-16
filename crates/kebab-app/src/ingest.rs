@@ -300,6 +300,7 @@ pub fn ingest_with_config(
         vector_store.as_ref().map(std::convert::AsRef::as_ref),
         progress,
         log_writer.as_ref(),
+        &cancelled,
     )?;
 
     let started_at = time::OffsetDateTime::now_utc();
@@ -2123,16 +2124,18 @@ fn store_document_records(
 ///
 /// Returns the number of documents purged.
 ///
-/// Non-fatal design: individual purge failures are logged and counted
-/// as errors on the per-file level but do NOT abort the sweep — a
-/// partial failure is preferable to blocking the rest of ingest. The
-/// return value only counts successful purges.
+/// Non-fatal design: an individual purge failure is logged (tracing plus
+/// a `purge_failed` ndjson line) and skipped, and does NOT abort the
+/// sweep — a partial failure is preferable to blocking the rest of
+/// ingest. It is not counted in `IngestReport.errors`, which tracks the
+/// per-asset loop; the return value counts successful purges only.
 fn sweep_deleted_files(
     app: &App,
     scanned_paths: &std::collections::HashSet<kebab_core::WorkspacePath>,
     vector_store: Option<&kebab_store_vector::LanceVectorStore>,
     progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
     log_writer: Option<&Arc<Mutex<crate::ingest_log::IngestLogWriter>>>,
+    cancelled: &dyn Fn() -> bool,
 ) -> anyhow::Result<u32> {
     use kebab_core::DocumentStore as _;
 
@@ -2181,8 +2184,19 @@ fn sweep_deleted_files(
     // magnitude.
     let mut doomed_chunk_ids: Vec<kebab_core::ChunkId> = Vec::new();
 
+    let mut examined: u32 = 0;
     for (i, stored_path) in candidates.into_iter().enumerate() {
+        // The CLI's first Ctrl-C prints "aborting after current asset"
+        // and flips this flag. Before this check the sweep ignored it,
+        // so during a long sweep that message was simply untrue and the
+        // user's only recourse was a second Ctrl-C — which is `exit(130)`
+        // and strands whatever is buffered below. Issue #228 is literally
+        // a report of someone pressing Ctrl-C three times here.
+        if cancelled() {
+            break;
+        }
         let idx = u32::try_from(i + 1).unwrap_or(u32::MAX);
+        examined = idx;
         // Resolve to an absolute path and check existence on disk.
         // Use `try_exists` + `unwrap_or(true)` so transient FS errors
         // (EACCES on a path we lack read on, NFS hiccups, ownership
@@ -2288,7 +2302,7 @@ fn sweep_deleted_files(
     {
         let _ = w.write_event(&crate::ingest_log::LogEvent::SweepSummary {
             ts: crate::ingest_log::now_ts(),
-            checked: total,
+            checked: examined,
             purged,
             ms,
         });
@@ -2296,7 +2310,10 @@ fn sweep_deleted_files(
     crate::ingest_progress::emit(
         progress,
         crate::ingest_progress::IngestEvent::SweepCompleted {
-            checked: total,
+            // The candidates actually examined, which is short of `total`
+            // when the run was cancelled mid-sweep. Reporting `total`
+            // there would claim work that did not happen.
+            checked: examined,
             purged,
             ms,
         },

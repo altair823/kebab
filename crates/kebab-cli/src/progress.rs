@@ -547,6 +547,71 @@ pub(crate) fn now_rfc3339() -> anyhow::Result<String> {
 mod tests {
     use super::*;
 
+    fn feed(events: &[IngestEvent]) -> ProgressDisplay {
+        // quiet + non-tty: the bar exists with a hidden draw target, so
+        // its state is observable without a terminal and nothing is
+        // printed to the test's stderr.
+        let mut d = ProgressDisplay::new(ProgressMode::Human {
+            tty: false,
+            quiet: true,
+        });
+        for e in events {
+            d.handle(e).expect("handle");
+        }
+        d
+    }
+
+    /// The sweep phase (issue #228) borrows the asset bar and puts its
+    /// own, smaller total on it. If it does not hand the bar back, every
+    /// asset drawn afterwards carries the sweep's label and denominator —
+    /// and the style swap also drops the `{asset_elapsed}` heartbeat that
+    /// is the only sign a slow asset is alive. That shipped once already;
+    /// this pins it so the next phase added here cannot repeat it.
+    #[test]
+    fn sweep_hands_the_bar_back_to_the_asset_loop() {
+        let d = feed(&[
+            IngestEvent::ScanStarted {
+                root: "/ws".to_string(),
+            },
+            IngestEvent::ScanCompleted { total: 17 },
+            IngestEvent::SweepStarted { total: 3 },
+            IngestEvent::SweepProgress {
+                idx: 1,
+                total: 3,
+                path: "gone.md".to_string(),
+                removed: true,
+            },
+        ]);
+        assert_eq!(
+            d.bar.as_ref().and_then(indicatif::ProgressBar::length),
+            Some(3),
+            "during the sweep the bar counts sweep candidates"
+        );
+
+        let d = feed(&[
+            IngestEvent::ScanStarted {
+                root: "/ws".to_string(),
+            },
+            IngestEvent::ScanCompleted { total: 17 },
+            IngestEvent::SweepStarted { total: 3 },
+            IngestEvent::SweepCompleted {
+                checked: 3,
+                purged: 3,
+                ms: 12,
+            },
+        ]);
+        assert_eq!(
+            d.bar.as_ref().and_then(indicatif::ProgressBar::length),
+            Some(17),
+            "and once it ends the bar counts assets again"
+        );
+        assert_eq!(
+            d.bar.as_ref().map(indicatif::ProgressBar::position),
+            Some(0),
+            "from the start, not from wherever the sweep left off"
+        );
+    }
+
     #[test]
     fn from_flags_json_takes_priority_over_tty() {
         assert_eq!(

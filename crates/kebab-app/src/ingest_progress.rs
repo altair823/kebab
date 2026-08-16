@@ -148,8 +148,9 @@ pub enum IngestEvent {
     /// whole sweep and users read it as a hang and killed the run.
     SweepStarted { total: u32 },
     /// v0.32.1 (additive): the `idx`-th sweep candidate (1-based) has been
-    /// examined. `removed` distinguishes "file really is gone, its document
-    /// was purged" from "still on disk, left alone" — a sweep can walk
+    /// examined. `removed` is true only when the file really was gone and
+    /// its document was purged; it is false both for a file still on disk
+    /// (left alone) and for a purge that failed. A sweep can walk
     /// thousands of candidates and purge none, and a bar that only moved
     /// on purges would look frozen in exactly that case. (Named `removed`
     /// rather than `purged` so the wire key keeps one type: `purged` is
@@ -161,7 +162,8 @@ pub enum IngestEvent {
         removed: bool,
     },
     /// v0.32.1 (additive): sweep finished. `checked` candidates examined,
-    /// `purged` documents removed, `ms` wall-clock.
+    /// `purged` documents removed, `ms` wall-clock. `checked` falls short
+    /// of the announced `total` when the run was cancelled mid-sweep.
     SweepCompleted { checked: u32, purged: u32, ms: u64 },
     /// Run finished normally. `counts` is the final aggregate.
     Completed { counts: AggregateCounts },
