@@ -84,6 +84,10 @@ pub fn ingest(scope: SourceScope, opts: IngestOpts) -> anyhow::Result<IngestRepo
 ///
 /// - The current in-flight asset finishes (rollback would break
 ///   idempotent re-run). Subsequent assets are skipped.
+/// - The deleted-file sweep, which runs before the asset loop, checks
+///   the same flag between candidates and stops at the next one
+///   (issue #228). Documents it already purged stay purged, and the
+///   buffered vector deletes are still flushed on the way out.
 /// - Cancellation is a normal exit, not an error — `Result::Err` is
 ///   reserved for actual failures.
 /// - Partial commits in SQLite are kept; the next `kebab ingest` run
@@ -328,7 +332,14 @@ pub fn ingest_with_config(
     // p9-fb-04: track whether the loop exited via cancellation (vs
     // running to completion) so we can emit `Aborted` rather than
     // `Completed` and surface the right summary.
-    let mut was_cancelled = false;
+    // Seeded from the flag rather than only from the asset loop: the loop
+    // body is what normally sets this, and it never runs when the scan
+    // found nothing. That is exactly the case where the sweep is largest
+    // — a scan of zero assets means every stored path is a sweep
+    // candidate — so "wipe the indexed directory, re-ingest, Ctrl-C
+    // during the long sweep" would otherwise end by reporting Completed
+    // to a user who cancelled.
+    let mut was_cancelled = cancelled();
 
     for (zero_idx, asset) in assets.into_iter().enumerate() {
         // Step boundary check (p9-fb-04). Designed §10 invariant: the

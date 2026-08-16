@@ -215,3 +215,68 @@ fn a_cancelled_sweep_stops_and_reports_only_what_it_examined() {
          the announced total here would be a lie: {events:?}"
     );
 }
+
+/// The scan finding nothing is the case where the sweep is largest —
+/// zero assets means every stored path is a candidate. It is also the
+/// case where the asset loop body never runs, and that body is what
+/// normally records "this run was cancelled". So "wipe the indexed
+/// directory, re-ingest, Ctrl-C during the long sweep" used to end by
+/// telling the user the run had Completed.
+#[test]
+fn cancelling_a_sweep_with_nothing_left_to_scan_still_reports_aborted() {
+    let env = TestEnv::lexical_only();
+    std::fs::write(
+        env.workspace_root.join("temporary.rs"),
+        "// here for one ingest\nfn t() {}\n",
+    )
+    .unwrap();
+    ingest_collecting(&env);
+
+    // Empty the workspace, so the next scan finds no assets at all and
+    // every stored path becomes a sweep candidate. Recursive: the test
+    // fixtures sit in subdirectories, and leaving one behind gives the
+    // asset loop an iteration to run — which is precisely the iteration
+    // this test needs to not happen.
+    fn clear(dir: &std::path::Path) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let p = entry.unwrap().path();
+            if p.is_dir() {
+                clear(&p);
+            } else {
+                std::fs::remove_file(p).unwrap();
+            }
+        }
+    }
+    clear(&env.workspace_root);
+
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (tx, rx) = mpsc::channel::<IngestEvent>();
+    ingest_with_config(
+        env.config.clone(),
+        env.scope(),
+        IngestOpts {
+            progress: Some(tx),
+            cancel: Some(cancel),
+            ..Default::default()
+        },
+    )
+    .expect("a cancelled ingest still returns a report");
+    let events: Vec<IngestEvent> = rx.into_iter().collect();
+
+    assert!(
+        matches!(
+            events
+                .iter()
+                .find(|e| matches!(e, IngestEvent::ScanCompleted { .. })),
+            Some(IngestEvent::ScanCompleted { total: 0 })
+        ),
+        "the premise: this run must find nothing to index, or the asset \
+         loop runs an iteration and records the cancel by itself: {events:?}"
+    );
+    assert!(
+        matches!(events.last(), Some(IngestEvent::Aborted { .. })),
+        "a cancelled run must end in Aborted even when the asset loop \
+         never ran a single iteration: {:?}",
+        events.last()
+    );
+}
