@@ -2143,6 +2143,14 @@ fn sweep_deleted_files(
 
     let workspace_root = app.config.resolve_workspace_root();
     let mut purged: u32 = 0;
+    // Vector deletes are batched across the whole sweep instead of issued
+    // per file. Each `delete_by_chunk_ids` call is one Lance commit, so a
+    // per-file call made "documents purged" and "Lance commits" 1:1 —
+    // issue #230 measured 5,834 purges turning into 5,834 commits and a
+    // 32-hour sweep. SQLite stays per-path: it is the crash-safety
+    // boundary, and the pre-existing policy already tolerates orphan
+    // vectors if the run dies mid-sweep.
+    let mut doomed_chunk_ids: Vec<kebab_core::ChunkId> = Vec::new();
 
     for stored_path in stored_paths {
         if scanned_paths.contains(&stored_path) {
@@ -2185,22 +2193,8 @@ fn sweep_deleted_files(
                 }
             };
 
-        // Purge associated vectors (best-effort; partial failure
-        // acceptable — orphan vectors get cleaned by `kebab reset
-        // --vector-only` if they accumulate).
-        if let Some(vec) = vector_store {
-            if !chunk_ids.is_empty() {
-                use kebab_core::VectorStore as _;
-                if let Err(e) = vec.delete_by_chunk_ids(&chunk_ids) {
-                    tracing::warn!(
-                        target: "kebab-app",
-                        path = %stored_path.0,
-                        count = chunk_ids.len(),
-                        error = %e,
-                        "sweep_deleted_files: vector delete failed; SQLite side already cleaned"
-                    );
-                }
-            }
+        if vector_store.is_some() {
+            doomed_chunk_ids.extend(chunk_ids);
         }
 
         tracing::info!(
@@ -2209,6 +2203,22 @@ fn sweep_deleted_files(
             "sweep_deleted_files: purged document for deleted file"
         );
         purged = purged.saturating_add(1);
+    }
+
+    // Purge associated vectors in one call (best-effort; partial failure
+    // acceptable — orphan vectors get cleaned by `kebab reset
+    // --vector-only` if they accumulate).
+    if let (Some(vec), false) = (vector_store, doomed_chunk_ids.is_empty()) {
+        use kebab_core::VectorStore as _;
+        if let Err(e) = vec.delete_by_chunk_ids(&doomed_chunk_ids) {
+            tracing::warn!(
+                target: "kebab-app",
+                count = doomed_chunk_ids.len(),
+                docs = purged,
+                error = %e,
+                "sweep_deleted_files: vector delete failed; SQLite side already cleaned"
+            );
+        }
     }
 
     Ok(purged)

@@ -172,6 +172,50 @@ impl LanceVectorStore {
         })
     }
 
+    /// Compact when the table has accumulated `compact_every` commits.
+    ///
+    /// The trigger is Lance's own table version, not a counter on this
+    /// struct. Version is monotonic and lives in the table, so it keeps
+    /// counting across processes — an in-memory counter would restart at
+    /// zero on every `kebab ingest-file` and every MCP `ingest_file` call,
+    /// which is exactly the workload that accumulates fragments one at a
+    /// time and would therefore never compact.
+    ///
+    /// Both writers call this: `upsert` and `delete_by_chunk_ids`. A large
+    /// sweep is as capable of leaving thousands of fragments behind as a
+    /// large ingest is.
+    ///
+    /// Failure is not fatal — the data is already committed and a later
+    /// commit crosses the next multiple — but it is logged at warn, because
+    /// the symptom of silently skipping it only shows up much later as a
+    /// slow ingest.
+    fn maybe_compact(&self, table: &lancedb::Table, table_name: &str) {
+        if self.compact_every == 0 {
+            return;
+        }
+        let version = self
+            .runtime
+            .block_on(async { table.version().await })
+            .unwrap_or(0);
+        if version == 0 || version % self.compact_every != 0 {
+            return;
+        }
+        if let Err(e) = self.compact_table(table) {
+            tracing::warn!(
+                target: "kebab-store-vector",
+                table = %table_name,
+                error = %e,
+                "Lance compaction failed; writes will slow down until the next attempt"
+            );
+        } else {
+            tracing::info!(
+                target: "kebab-store-vector",
+                table = %table_name,
+                "Lance compaction done"
+            );
+        }
+    }
+
     /// Compact the table's fragments and drop superseded versions.
     ///
     /// `delete_unverified` tells Lance to reclaim files no manifest
@@ -353,39 +397,7 @@ impl VectorStore for LanceVectorStore {
             "upsert committed"
         );
 
-        // Fold the per-document fragments back together every so often.
-        //
-        // The trigger is Lance's own table version, not a counter on this
-        // struct. Version is monotonic and lives in the table, so it keeps
-        // counting across processes — an in-memory counter would restart at
-        // zero on every `kebab ingest-file` and every MCP `ingest_file`
-        // call, which is exactly the workload that accumulates fragments
-        // one at a time and would therefore never compact.
-        //
-        // Failure here is not fatal — the data is already committed and a
-        // later commit crosses the next multiple — but it is logged at warn
-        // because the symptom of silently skipping it is a slow ingest much
-        // later.
-        let version = self
-            .runtime
-            .block_on(async { table.version().await })
-            .unwrap_or(0);
-        if version > 0 && self.compact_every > 0 && version % self.compact_every == 0 {
-            if let Err(e) = self.compact_table(&table) {
-                tracing::warn!(
-                    target: "kebab-store-vector",
-                    table = %table_name,
-                    error = %e,
-                    "Lance compaction failed; ingest continues but writes will slow down"
-                );
-            } else {
-                tracing::info!(
-                    target: "kebab-store-vector",
-                    table = %table_name,
-                    "Lance compaction done"
-                );
-            }
-        }
+        self.maybe_compact(&table, &table_name);
         Ok(())
     }
 
@@ -411,7 +423,8 @@ impl VectorStore for LanceVectorStore {
         // syntactically valid. We chunk into batches of 200 to keep the
         // WHERE clause within typical SQL parser limits.
         const BATCH: usize = 200;
-        self.runtime.block_on(async {
+        let touched = self.runtime.block_on(async {
+            let mut touched: Vec<(String, lancedb::Table)> = Vec::new();
             let names = self
                 .connection
                 .table_names()
@@ -461,14 +474,21 @@ impl VectorStore for LanceVectorStore {
                         .await
                         .with_context(|| format!("Lance delete on {name} ({} ids)", batch.len()))?;
                 }
+                touched.push((name.clone(), table));
             }
-            anyhow::Ok(())
+            anyhow::Ok(touched)
         })?;
         tracing::debug!(
             target: "kebab-store-vector",
             count = chunk_ids.len(),
             "deleted vector rows by chunk_id"
         );
+        // Deletes commit just like upserts do, so the same fragment
+        // accumulation applies. Compaction runs outside the `block_on`
+        // above because `maybe_compact` drives its own.
+        for (name, table) in touched {
+            self.maybe_compact(&table, &name);
+        }
         Ok(())
     }
 

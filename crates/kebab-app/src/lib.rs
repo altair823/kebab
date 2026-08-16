@@ -111,6 +111,48 @@ pub struct DoctorCheck {
     pub hint: Option<String>,
 }
 
+/// Filesystem-level health of the Lance vector store: how many data
+/// fragments exist and how much of the directory is version history
+/// rather than vectors.
+///
+/// Read straight off disk rather than through `lancedb` so it costs
+/// nothing and still reports when the embedding provider is `none`.
+///
+/// Issue #230: without periodic compaction every write left a fragment
+/// and a manifest listing all prior fragments, so metadata grew
+/// quadratically. A 16.8k-document KB held 12.2 GB of manifests against
+/// 1.7 GB of vectors and its ingest had decayed sevenfold. Nothing
+/// surfaced that — the only way to see it was to count files by hand.
+fn lance_dir_stats(vector_dir: &std::path::Path) -> Option<(u64, u64, u64, u64)> {
+    let entries = std::fs::read_dir(vector_dir).ok()?;
+    let (mut fragments, mut data_bytes, mut manifests, mut meta_bytes) = (0u64, 0u64, 0u64, 0u64);
+    let mut saw_table = false;
+    for table in entries.flatten() {
+        let tp = table.path();
+        if !tp.is_dir() || tp.extension().is_none_or(|e| e != "lance") {
+            continue;
+        }
+        saw_table = true;
+        for (sub, count, bytes) in [
+            ("data", &mut fragments, &mut data_bytes),
+            ("_versions", &mut manifests, &mut meta_bytes),
+        ] {
+            let Ok(rd) = std::fs::read_dir(tp.join(sub)) else {
+                continue;
+            };
+            for f in rd.flatten() {
+                if let Ok(md) = f.metadata() {
+                    if md.is_file() {
+                        *count += 1;
+                        *bytes += md.len();
+                    }
+                }
+            }
+        }
+    }
+    saw_table.then_some((fragments, data_bytes, manifests, meta_bytes))
+}
+
 /// Create XDG dirs and write a starter `config.toml`. Idempotent unless
 /// `force=true` (which overwrites an existing config).
 pub fn init_workspace(force: bool) -> anyhow::Result<()> {
@@ -399,6 +441,37 @@ pub fn doctor_with_config_path(
                 ok: mok,
                 detail,
                 hint,
+            });
+        }
+    }
+
+    // vector_store — Lance fragment / version-history health (issue #230).
+    {
+        let cfg = loaded_cfg
+            .clone()
+            .unwrap_or_else(kebab_config::Config::defaults);
+        let data_dir = kebab_config::expand_path(&cfg.storage.data_dir, "");
+        let vector_dir =
+            kebab_config::expand_path(&cfg.storage.vector_dir, &data_dir.to_string_lossy());
+        if let Some((fragments, data_bytes, manifests, meta_bytes)) = lance_dir_stats(&vector_dir) {
+            let mb = |b: u64| b as f64 / 1_048_576.0;
+            // Metadata outweighing vectors is the shape of the #230
+            // pathology; a healthy compacted table is the other way round
+            // by orders of magnitude.
+            let bloated = meta_bytes > data_bytes && data_bytes > 0;
+            checks.push(DoctorCheck {
+                name: "vector_store".to_string(),
+                ok: !bloated,
+                detail: format!(
+                    "{fragments} fragments / {:.1} MB data, {manifests} versions / {:.1} MB metadata",
+                    mb(data_bytes),
+                    mb(meta_bytes)
+                ),
+                hint: bloated.then(|| {
+                    "version history is larger than the vectors it describes — \
+                     a `kebab ingest` on a build with periodic compaction reclaims it"
+                        .to_string()
+                }),
             });
         }
     }

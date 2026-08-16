@@ -14,6 +14,44 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-08-16 — #230 나머지: 삭제 배치화 + 삭제 경로 압축 + doctor 지표
+
+앞 엔트리가 #230 의 제안 2(압축 정책)만 닫았다. 남은 제안 1·3·4 를 여기서 처리.
+
+### 삭제가 파일 1건당 Lance 커밋 1회 (제안 1)
+
+`sweep_deleted_files`(`ingest.rs`)와 `execute_orphans_only`(`reset.rs`)가 루프 안에서 파일마다 `delete_by_chunk_ids` 를 불렀다. 그 호출 하나가 Lance 커밋 하나라, 문서 삭제 수와 커밋 수가 1:1 이었다 — #230 이 보고한 "삭제 5,834건 → 커밋 5,834회" 가 이것이다.
+
+chunk_id 를 sweep 전체에 걸쳐 모아 루프가 끝난 뒤 한 번만 부르도록 바꿨다. SQLite purge 는 건별 커밋을 유지한다 — 그쪽이 crash-safety 경계이고, 기존 정책이 이미 "중간에 죽으면 orphan 벡터가 남는다" 를 허용한다.
+
+실 KB 실측 (28,427 문서 / 600,808 청크, 나무위키 샤드 하나 = 364 문서 삭제):
+
+| | 수정 전 예상 | 실측 |
+|---|---|---|
+| Lance 커밋 | 364 (문서당 1) | **33** |
+| 최신 버전 번호 | 28474 → 28838 | 28474 → **28507** |
+| `_transactions` 파일 | 336 → 700 | 336 → **369** |
+
+33 은 `delete_by_chunk_ids` 내부의 200개 배치 상한에서 나온다 (364 문서 × 약 18 청크 ≈ 6,500 id / 200 = 33). 즉 커밋 수가 **문서 수**가 아니라 **청크 수/200** 에 비례하게 됐다.
+
+### 삭제 경로에도 압축 (제안 2 보강)
+
+압축이 upsert 에만 걸려 있어 `reset --orphans-only` 처럼 삭제만 하는 경로는 여전히 무한 누적이었다. 압축 트리거를 `maybe_compact` 헬퍼로 빼고 `delete_by_chunk_ids` 끝에서도 부른다. 회귀 테스트(`repeated_deletes_do_not_accumulate_lance_versions`)는 압축을 빼면 40회 삭제에 매니페스트 42개로 실패한다.
+
+### doctor 에 Lance 지표 (제안 4)
+
+`kebab doctor` 에 `vector_store` 체크 추가. fragment 수 / 데이터 크기 / 버전 수 / 메타데이터 크기를 보여주고, **메타데이터가 데이터보다 크면 fail** 로 잡는다 — 그게 #230 병리의 모양이다. lancedb 를 열지 않고 파일시스템만 읽어서 임베딩 provider 가 `none` 이어도 나오고 비용도 0 이다. `DoctorCheck` 목록에 항목을 더하는 것이라 `doctor.v1` wire 는 그대로다.
+
+현재 KB 출력: `✓ vector_store  336 fragments / 2832.7 MB data, 337 versions / 5.3 MB metadata`.
+
+### geodatafusion (제안 3) — 미해결
+
+lance 내부라 kebab 쪽에서 끌 수 있는 feature flag 가 없다. 다만 이 비용은 `table.delete()` 호출당 fragment 수만큼 곱해지므로, 위의 커밋 수 감소(364 → 33)가 그대로 곱셈 횟수 감소다. 근본 해결은 upstream 이슈로 올려야 한다.
+
+### 부수 관찰 — sweep 자체는 여전히 느리다
+
+364 문서 삭제에 38.7분이 걸렸다. Lance 쪽은 33 커밋으로 줄었으니 남은 비용은 **#229(chunks_fts 삭제가 FTS5 전체 스캔, 문서당 약 6초)** 다. 364 × 6초 ≈ 36분으로 거의 전부 설명된다. #230 을 고쳐도 sweep 이 빨라지지 않는 이유가 이것이고, #229 를 고쳐야 실제 체감이 바뀐다.
+
 ## 2026-08-16 — 28.4k 문서 도그푸딩: Lance 압축 부재 · 인용 마커 누락 · ollama 생성 무제한
 
 나무위키 18,282 + Apache Jira 10,145 = **28,427 문서 / 600,808 청크** 코퍼스로 종단 도그푸딩. 기존 최대 규모(620 문서)의 46배라 그 규모에서는 보이지 않던 결함 3개가 드러났다. 셋 다 이 PR 에서 수정.

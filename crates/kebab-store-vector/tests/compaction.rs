@@ -88,3 +88,50 @@ fn repeated_upserts_do_not_accumulate_lance_versions() {
         .unwrap();
     assert_eq!(hits.len(), 1, "compaction dropped the upserted row");
 }
+
+/// The delete path commits just like the upsert path, and `sweep_deleted_files`
+/// used to call it once per purged document — issue #230 measured 5,834 purges
+/// becoming 5,834 Lance commits. Batching moved that to one call per sweep, but
+/// a large sweep still commits per 200-id batch, so the delete path needs the
+/// same compaction the upsert path got.
+#[test]
+#[ignore = "requires AVX-capable hardware (LanceDB)"]
+fn repeated_deletes_do_not_accumulate_lance_versions() {
+    require_avx_or_panic();
+
+    let env = TestEnv::with_compact_interval(8);
+    let doc = format!("{:032x}", 0xd0c0u32);
+    for i in 0..40u8 {
+        env.seed_chunk(
+            &format!("{:032x}", 0x2000u32 + u32::from(i)),
+            &doc,
+            "note.md",
+            "en",
+            &[],
+            "primary",
+        );
+    }
+
+    let recs: Vec<_> = (0..40u8)
+        .map(|i| {
+            let mut r = make_record(i, 0, vec![1.0, 0.0, 0.0, 0.0], "hi", &[], MODEL);
+            r.chunk_id = kebab_core::ChunkId(format!("{:032x}", 0x2000u32 + u32::from(i)));
+            r
+        })
+        .collect();
+    env.vector.upsert(&recs).unwrap();
+
+    // Delete one at a time — the shape the un-batched sweep produced.
+    for r in &recs {
+        env.vector
+            .delete_by_chunk_ids(std::slice::from_ref(&r.chunk_id))
+            .unwrap();
+    }
+
+    let manifests = manifest_count(&env.data_dir());
+    assert!(
+        manifests <= 12,
+        "delete path accumulated Lance versions: {manifests} manifests after 40 deletes \
+         (compaction interval 8)"
+    );
+}
