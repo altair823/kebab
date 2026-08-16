@@ -24,7 +24,7 @@ mod page_text;
 mod text_quality;
 
 pub use page_image::extract_dctdecode_page_image;
-pub use page_render::{PageRenderer, RenderedPdf, long_edge_for_dpi};
+pub use page_render::{PageRenderer, RenderedPdf};
 pub use text_quality::compute_valid_char_ratio;
 
 use anyhow::{Context, Result};

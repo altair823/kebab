@@ -185,7 +185,7 @@ impl RenderedPdf<'_> {
 /// `dpi / 72`. Clamped to `max_px` because the OCR engine's own pixel
 /// budget is the real ceiling — raising `render_dpi` past what the engine
 /// accepts would only cost time.
-pub fn long_edge_for_dpi(page_long_edge_pt: f32, dpi: u32, max_px: u32) -> u32 {
+fn long_edge_for_dpi(page_long_edge_pt: f32, dpi: u32, max_px: u32) -> u32 {
     let scaled = (page_long_edge_pt * dpi as f32 / 72.0).round();
     let scaled = if scaled.is_finite() && scaled >= 1.0 {
         scaled as u32

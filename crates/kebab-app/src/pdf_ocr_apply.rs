@@ -323,7 +323,14 @@ where
                 // cost content that the DCTDecode path could still read.
                 // Configuring a renderer should never make a page worse
                 // off than not having one.
-                Err(e) => match dct(&pdf_doc)? {
+                //
+                // `.ok()` rather than `?`: a page that fails to render is
+                // often a page whose lopdf dictionary is also malformed,
+                // and propagating that error here would turn one bad page
+                // into an aborted document — the opposite of this loop's
+                // per-page `continue`-on-error discipline, and the same
+                // silent-total-loss shape this whole change is about.
+                Err(e) => match dct(&pdf_doc).ok().flatten() {
                     Some(b) => Ok(b),
                     None => Err(RasterFailure::Render(e.to_string())),
                 },

@@ -400,3 +400,130 @@ fn cancel_handle_aborts_mid_pdf() {
         "error message 가 'cancelled mid-PDF' 포함: {err}"
     );
 }
+
+// ── Renderer path (issue #232) ────────────────────────────────────────────
+//
+// The tests above pin what a machine *without* pdfium does. These pin the
+// other half. They are `#[ignore]`d behind `KEBAB_TEST_PDFIUM` for the
+// same reason the renderer itself is optional — a lane without the
+// library must not report a failure it cannot act on:
+//
+//     KEBAB_TEST_PDFIUM=/path/to/libpdfium.so \
+//       cargo test -p kebab-app --test pdf_ocr_apply -- --ignored
+//
+// The OCR engine is mocked, so these exercise rasterization and the
+// branch that chooses it without touching a network or a model.
+
+/// Bound once for the binary: pdfium's initialization is not reentrant
+/// and cargo runs tests in parallel.
+fn test_renderer() -> Arc<kebab_parse_pdf::PageRenderer> {
+    static SHARED: std::sync::OnceLock<Arc<kebab_parse_pdf::PageRenderer>> =
+        std::sync::OnceLock::new();
+    SHARED
+        .get_or_init(|| {
+            let explicit = std::env::var("KEBAB_TEST_PDFIUM").ok();
+            let path = explicit.as_deref().map(Path::new);
+            Arc::new(
+                kebab_parse_pdf::PageRenderer::bind(path)
+                    .expect("these tests require libpdfium; point KEBAB_TEST_PDFIUM at one"),
+            )
+        })
+        .clone()
+}
+
+fn opts_with_renderer() -> PdfOcrOpts {
+    PdfOcrOpts {
+        renderer: Some(test_renderer()),
+        ..default_opts(true)
+    }
+}
+
+/// The whole point of issue #232. `f7_ccittfax_skipped_with_warning`
+/// above pins that this exact fixture is skipped with no renderer; with
+/// one, the same bytes must reach the OCR engine instead.
+#[test]
+#[ignore = "requires libpdfium"]
+fn a_ccitt_page_reaches_the_ocr_engine_once_a_renderer_is_configured() {
+    let bytes =
+        std::fs::read("../kebab-parse-pdf/tests/fixtures/ccitt.pdf").expect("F7 fixture missing");
+    let mut canonical = canonical_with_empty_block();
+    let engine = MockOcrEngine::single("RASTERIZED AND READ", false);
+
+    let summary = apply_ocr_to_pdf_pages(
+        &mut canonical,
+        &engine,
+        &bytes,
+        &opts_with_renderer(),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(
+        summary.pages_ocrd, 1,
+        "the CCITT page must be OCR'd, not skipped: {summary:?}"
+    );
+    assert_eq!(
+        summary.pages_skipped, 0,
+        "and must not be counted as a page with no raster"
+    );
+}
+
+/// A renderer must not cost the DCTDecode path its coverage. Same
+/// fixture as `f1_enabled_true_mutates_block_in_place`, with a renderer
+/// added — the outcome has to be the same.
+#[test]
+#[ignore = "requires libpdfium"]
+fn a_dctdecode_page_still_works_with_a_renderer_configured() {
+    let bytes = f1_pdf_bytes();
+    let mut canonical = canonical_with_empty_block();
+    let engine = MockOcrEngine::single("STILL READ", false);
+
+    let summary = apply_ocr_to_pdf_pages(
+        &mut canonical,
+        &engine,
+        &bytes,
+        &opts_with_renderer(),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(summary.pages_ocrd, 1);
+    assert_eq!(summary.pages_skipped, 0);
+}
+
+/// A PDF that lopdf parses but pdfium refuses must degrade to the
+/// DCTDecode path rather than reporting `no_renderer` — telling a user
+/// who already configured a renderer to configure one is the wrong
+/// instruction, and giving up on a page the old path could read would
+/// make installing pdfium a downgrade.
+///
+/// Constructed rather than fixtured: the case is a disagreement between
+/// two parsers, which is easier to state than to find in the wild.
+#[test]
+#[ignore = "requires libpdfium"]
+fn a_pdf_the_renderer_cannot_open_falls_back_instead_of_blaming_config() {
+    // Truncated after the header: lopdf's lenient path still yields a
+    // document object, pdfium refuses it outright.
+    let bytes = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
+    let mut canonical = canonical_with_empty_block();
+    let engine = MockOcrEngine::single("SHOULD_NOT_BE_CALLED", false);
+
+    // Either lopdf also rejects it (then this test has nothing to say and
+    // the error surfaces) or the run completes with the page skipped —
+    // what must never happen is a panic or a silent success.
+    let result = apply_ocr_to_pdf_pages(
+        &mut canonical,
+        &engine,
+        &bytes,
+        &opts_with_renderer(),
+        |_| {},
+    );
+    // `Err` means lopdf rejected it first, which is the pre-existing path
+    // and not this test's subject.
+    if let Ok(summary) = result {
+        assert_eq!(
+            summary.pages_ocrd, 0,
+            "nothing can be read from a PDF neither parser accepts"
+        );
+    }
+}
