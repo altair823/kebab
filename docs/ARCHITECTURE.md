@@ -227,7 +227,7 @@ kebab/
 │   ├── kebab-app/                                     # facade (P0 시그니처 + P3-5/P6-4/P7-3 본체). src/derivation_payload.rs = 캐시 payload 인코딩 (v0.21.0)
 │   ├── kebab-mcp/                                     # stdio MCP server — tools: schema, doctor, search, bulk_search, ask, fetch, ingest_file, ingest_stdin (P9-FB-30)
 │   └── kebab-cli/                                     # binary (P0 → 핫픽스로 --config flag wiring 강화)
-├── migrations/                                     # SQLite refinery V001..V015 (V012 = derivation_cache v0.21.0, V013 = drop chunk_aliases v0.25.0, V014 = documents.source_id v0.29.0, V015 = drop chat_sessions v0.31.0)
+├── migrations/                                     # SQLite refinery V001..V016 (V012 = derivation_cache v0.21.0, V013 = drop chunk_aliases v0.25.0, V014 = documents.source_id v0.29.0, V015 = drop chat_sessions v0.31.0, V016 = chunks_fts rowid 삭제 #229)
 └── fixtures/                                       # 테스트 fixture 트리
 ```
 

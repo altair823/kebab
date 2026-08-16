@@ -41,10 +41,10 @@ static TEMP_SUFFIX_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// truncated, mirrored from `kb-core`'s newtype invariant.
 const ASSET_ID_HEX_LEN: usize = 32;
 
-/// Default file name under `config.storage.data_dir`. Kept private — the
-/// path layout is a §6.3 design decision, not part of the store's public
-/// surface.
-const SQLITE_FILE: &str = "kebab.sqlite";
+/// Filename of the main SQLite database under `storage.data_dir`.
+/// Public so read-only probes (e.g. `kebab doctor`) can test for the
+/// file before calling [`SqliteStore::open`], which creates it.
+pub const SQLITE_FILE: &str = "kebab.sqlite";
 
 /// Subdirectory under `data_dir` holding shard-prefixed asset bytes
 /// (`<aa>/<asset_id>`). Mirrors design §6.3.
@@ -351,6 +351,65 @@ fn temp_path_for(dest: &Path) -> PathBuf {
 }
 
 impl SqliteStore {
+    /// Sample rows from both ends of the rowid range and report
+    /// `(checked, misaligned)` — how many were compared and how many
+    /// disagree with `chunks` about which chunk lives at that rowid
+    /// (issue #229 / V016). A `misaligned` of 0 means the sample agrees.
+    ///
+    /// V016 pointed the FTS delete trigger at `rowid`, so this alignment
+    /// is what keeps a delete from removing some other document's shadow
+    /// row. The full anti-join is a 33s scan at 600k chunks, so this
+    /// takes `sample` rows from each end of the rowid range instead —
+    /// 10ms, and enough to catch the wholesale renumbering that any
+    /// realistic drift would produce. It is a health probe, not a proof:
+    /// a drift confined to the middle of the range passes.
+    pub fn fts_shadow_misaligned_sample(&self, sample: usize) -> Result<(usize, usize)> {
+        let conn = self.read_conn();
+        // UNION of the two ends rather than two separate counts: on a
+        // store with fewer rows than 2×sample the windows overlap, and
+        // counting them separately would double both the numerator and
+        // the denominator the caller reports.
+        let (checked, bad): (i64, i64) = conn
+            .query_row(
+                "WITH ends AS (
+                   SELECT rowid AS r, chunk_id AS cid FROM
+                     (SELECT rowid, chunk_id FROM chunks ORDER BY rowid ASC LIMIT ?1)
+                   UNION
+                   SELECT rowid AS r, chunk_id AS cid FROM
+                     (SELECT rowid, chunk_id FROM chunks ORDER BY rowid DESC LIMIT ?1)
+                 )
+                 SELECT COUNT(*),
+                        COALESCE(SUM(f.rowid IS NULL OR f.chunk_id != c.cid), 0)
+                 FROM ends c LEFT JOIN chunks_fts f ON f.rowid = c.r",
+                params![sample as i64],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(StoreError::from)?;
+        Ok((
+            usize::try_from(checked).unwrap_or(0),
+            usize::try_from(bad).unwrap_or(0),
+        ))
+    }
+
+    /// Highest applied refinery migration version, or `None` if the
+    /// history table is missing (a file that is not a kebab store, or
+    /// one opened before `run_migrations`).
+    ///
+    /// Read-only callers use this to tell "this store predates the
+    /// migration I care about" from "this store is broken" — the two
+    /// need opposite advice.
+    pub fn migration_version(&self) -> Option<u32> {
+        self.read_conn()
+            .query_row(
+                "SELECT MAX(version) FROM refinery_schema_history",
+                [],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .ok()
+            .flatten()
+            .and_then(|v| u32::try_from(v).ok())
+    }
+
     /// p9-fb-19: read the persisted `corpus_revision` from the `kv`
     /// table. Returns `0` if the row is missing (not migrated yet) or
     /// unparseable — defensive: callers use the value as a cache-key

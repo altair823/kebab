@@ -1,14 +1,20 @@
 //! FTS5 maintenance helpers (P2-1).
 //!
-//! `chunks_fts` is a contentless FTS5 virtual table created by
-//! `migrations/V002__fts.sql` and kept in sync with the `chunks` table by
-//! the `chunks_ai` / `chunks_ad` / `chunks_au` triggers (design §5.5).
+//! `chunks_fts` is an FTS5 virtual table (a shadow of `chunks`, not
+//! contentless — no `content=''` in the DDL) created by
+//! `migrations/V002__fts.sql`, retokenized by V009, and repointed to
+//! rowid-addressed deletes by V016. It is kept in sync with the `chunks`
+//! table by the `chunks_ai` / `chunks_ad` / `chunks_au` triggers (design
+//! §5.5). Its rowid mirrors `chunks.rowid`; anything that writes rows here
+//! must preserve that or the delete trigger stops finding them.
 //!
 //! Normal operation needs nothing from this module — every mutation on
 //! `chunks` propagates automatically inside the host transaction. The
-//! only entry point exposed here is [`rebuild_chunks_fts`], used as the
-//! escape hatch for `kb index --rebuild-fts` (wired by `kb-cli` later;
-//! out of scope for P2-1).
+//! only entry point exposed here is [`rebuild_chunks_fts`], the escape
+//! hatch for a shadow that has drifted from `chunks`. It is a library
+//! API with no CLI wiring — `kebab doctor`'s `fts_shadow` check detects
+//! drift, but recovery through the CLI is `kebab reset` plus a
+//! re-ingest.
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
@@ -48,9 +54,22 @@ pub fn rebuild_chunks_fts(conn: &Connection) -> Result<()> {
     let result: Result<()> = (|| {
         conn.execute("DELETE FROM chunks_fts", [])
             .context("DELETE FROM chunks_fts")?;
+        // Mirrors the chunks_ai trigger exactly (V016 §5.5): rowid is
+        // written explicitly so the shadow stays aligned with `chunks`
+        // — the delete trigger addresses rows by rowid, so a rebuild
+        // that let FTS5 assign its own would silently make every later
+        // delete a no-op. The CASE is the same one the trigger applies;
+        // without it a rebuild would strip the Korean morphemes that
+        // V009 indexes and 2-character Korean queries would stop
+        // matching until the next re-ingest.
         conn.execute(
-            "INSERT INTO chunks_fts(chunk_id, doc_id, heading_path, text)
-             SELECT chunk_id, doc_id, heading_path_json, text FROM chunks",
+            "INSERT INTO chunks_fts(rowid, chunk_id, doc_id, heading_path, text)
+             SELECT rowid, chunk_id, doc_id, heading_path_json,
+                    CASE WHEN tokenized_korean_text IS NOT NULL
+                         THEN tokenized_korean_text || ' ' || text
+                         ELSE text
+                    END
+             FROM chunks",
             [],
         )
         .context("repopulate chunks_fts from chunks")?;

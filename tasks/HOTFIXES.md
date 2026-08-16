@@ -14,6 +14,65 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-08-16 — #229 chunks_fts 삭제가 FTS5 전체 스캔 (V016)
+
+### 무엇이 문제였나
+
+`chunk_id` 는 `chunks_fts` 에서 `UNINDEXED` 다. 그런데 V002 이래 삭제 트리거가 그 컬럼으로 행을 찾았다 (`DELETE FROM chunks_fts WHERE chunk_id = old.chunk_id`). FTS5 는 UNINDEXED 컬럼에 색인을 만들지 않으므로 이 조건을 만족할 색인이 없고, 삭제가 색인 전체 스캔으로 떨어진다. chunk 한 건 삭제가 O(색인 전체) 였다.
+
+`chunks` 에서 DELETE 가 나가는 모든 경로가 이 비용을 냈다 — `sweep_deleted_files`, `reset --orphans-only`, 그리고 파일이 수정될 때마다 도는 `purge_orphan_at_workspace_path`. 즉 정상적인 증분 재색인이 코퍼스가 커질수록 느려지는 형태였다.
+
+### 무엇을 고쳤나
+
+`migrations/V016__fts_rowid_delete.sql` 이 `chunks_fts` 를 drop 후 재생성하면서 rowid 를 `chunks.rowid` 와 맞추고, 세 트리거의 행 지정을 `chunk_id` 에서 `rowid` 로 바꾼다. FTS5 는 rowid 로 B-tree 조회를 하므로 삭제가 O(log n) 이 된다.
+
+컬럼 구성·tokenizer 는 그대로다. 검색 경로(`bm25`, `snippet(chunks_fts, 3, …)`, `f.chunk_id` / `f.doc_id` 참조)는 한 줄도 손대지 않았다.
+
+`rebuild_chunks_fts` 도 같이 고쳤다. rowid 를 명시해 넣지 않으면 FTS5 가 자기 번호를 매겨 정렬이 깨지고, 그 뒤의 모든 삭제가 조용히 아무것도 안 하게 된다. 이 함수에는 별개의 잠복 결함도 있었다 — V009 가 색인하는 한국어 형태소 접두(`tokenized_korean_text || ' ' || text`)를 빠뜨리고 raw text 만 넣고 있었다. 재구축을 돌리면 2자 한국어 질의가 다음 재색인 때까지 안 맞는 상태가 됐다. 트리거와 같은 CASE 를 넣어 맞췄다.
+
+### 왜 이슈가 제안한 external-content 가 아닌가
+
+이슈는 `content='chunks'` 를 제안했다. 그 편이 본문 그림자(`chunks_fts_content`, 실측 550 MB)까지 회수한다. 하지만 V009 트리거가 색인하는 값이 `tokenized_korean_text || ' ' || text` 라 `chunks` 의 어느 컬럼과도 일치하지 않는다. generated column 을 새로 만들고, `chunk_id` / `doc_id` 를 FTS 테이블에서 빼고, 검색 경로의 컬럼 참조를 rowid join 으로 바꾸는 변경이 딸려온다. 삭제 비용은 rowid 정렬만으로 같은 복잡도로 내려가므로 그림자 회수는 별 건으로 남겼다.
+
+이슈 본문의 사실관계 두 가지도 정정해 둔다. 지목된 마이그레이션은 V002 가 아니라 V009 다 (V007 이 trigram 으로, V009 가 unicode61 + 한국어 형태소 컬럼으로 각각 다시 만들었다). 그리고 `chunks_fts` 는 contentless 가 아니다 — `chunks_fts_content` 가 실재한다.
+
+### 실측
+
+실제 KB 사본 (문서 28,427건 / chunk 600,808건), 문서 200건 삭제:
+
+| | 시간 |
+|---|---|
+| 현행 (`chunk_id` 로 DELETE) | 1590.1초 |
+| V016 (`rowid` 로 DELETE) | **2.0초** |
+
+약 800배다. 삭제 후 남은 `chunks` 행 수와 `chunks_fts` 행 수가 양쪽 다 595,741 로 같다.
+
+마이그레이션 자체는 60만 chunk 기준 32초 (실제 바이너리로 재봤을 때 검색 한 번을 포함해 37.8초). 재색인은 필요 없다 — `chunks` 와 임베딩은 손대지 않는다.
+
+검색 결과는 바뀌지 않는다. 실제 KB 에서 '한국'(15,977) / 'database'(1,067) / '서울 지하철'(230) / 'kebab'(3) 네 질의의 상위 20건을 chunk_id·bm25 점수·snippet 까지 해시로 비교했고 마이그레이션 전후가 동일했다. 그래서 V016 은 `corpus_revision` 을 올리지 않는다 — 어휘 검색 정렬이 `ORDER BY score, f.chunk_id` 라 rowid 와 무관하므로 미결 pagination cursor 를 무효화할 이유가 없다. tokenizer 가 바뀐 V009 와는 다른 경우다.
+
+### 실패 양상이 바뀌었다 — 그래서 doctor 점검을 같이 넣었다
+
+이건 리뷰에서 지적받아 알게 된 것이다. `chunk_id` 로 행을 찾던 때는 shadow 정렬이 어긋나도 **느릴 뿐 정확**했다. rowid 로 찾으면 정렬이 어긋난 순간 `chunks_ad` 가 **남의 문서 shadow 행을 지우고 아무 오류도 내지 않는다**. 즉 이 마이그레이션은 실패 양상을 "느림"에서 "조용한 오삭제"로 바꿨다.
+
+무엇이 정렬을 깨는지 실제로 재봤다. 처음에는 VACUUM 을 위험으로 적었는데, 측정해 보니 **VACUUM 은 rowid 를 다시 매기지 않았다**. 실제 KB 사본(60만 chunk, 문서 3,000건을 지워 rowid 에 구멍을 낸 뒤)과 소형 합성 DB 양쪽에서 VACUUM 후 전수 대조 불일치가 0 이었다 (sqlite 3.53.4). SQLite 문서는 INTEGER PRIMARY KEY 가 없는 테이블의 rowid 를 VACUUM 이 다시 매길 **수 있다**고 적어 두지만, 보장이 없다는 뜻이지 실제로 그렇게 한다는 뜻이 아니다. 앞선 초안에서 이 위험을 과장했으므로 정정한다.
+
+남는 실제 경로는 **앞으로 `chunks` 를 테이블 재작성 방식(새 테이블 → 복사 → DROP → RENAME)으로 바꾸는 마이그레이션**이다. 그러면 rowid 가 조용히 다시 매겨진다. V016 주석에 "그런 마이그레이션은 repopulate 를 같이 돌려야 한다"는 울타리를 박아 뒀다. 지금까지의 `chunks` 변경은 전부 in-place 다 (V009 `ADD COLUMN`, V013 `DROP COLUMN`).
+
+알려진 유발 경로가 없더라도, 정확성을 떠받치게 된 불변식이 눈에 안 보이는 상태로 남는 게 문제다. 그래서 `kebab doctor` 에 `fts_shadow` 점검을 넣었다. 전수 대조는 60만 chunk 에서 33초라 doctor 앞에 둘 수 없어서 rowid 범위의 양끝 200행씩만 본다 — 10 ms 이고, 현실적인 드리프트가 취하는 형태(전면 재번호)는 잡는다. 표본이라는 사실을 detail 문구에 적어 두었으므로 정렬 증명으로 읽히지는 않는다. **어긋나면 exit 3** 이므로 README 의 doctor 행에도 적었다.
+
+이 점검은 세 가지를 구분한다. V016 미적용 스토어는 위에 적은 V009 백필 사정 때문에 이미 어긋나 있을 수 있는데 거기서는 무해하므로 `ok: true` 로 두고 "마이그레이션 후 점검된다"고만 말한다 — `kebab reset` 을 권했다가는 멀쩡한 KB 를 날리게 된다. SQLite 를 열거나 읽지 못한 경우도 정상으로 보고하지 않고 "점검하지 못했다"로 따로 말한다. 조용한 실패를 드러내려는 점검이 자기 실패를 삼키면 안 된다. 나머지 경우에만 실제 정렬을 판정한다.
+
+doctor 는 `data_dir_writable` 과 같은 precedence 로 env 를 다시 얹는다(`KEBAB_STORAGE_DATA_DIR`). 안 그러면 data_dir 은 A 로 보고하면서 인덱스는 B 를 검사한다. 그리고 `SqliteStore::open` 이 파일을 만들기 때문에, 파일 존재를 먼저 확인한 뒤에만 연다 — 진단 명령이 없던 스토어를 만들어 놓고 가면 안 된다.
+
+참고로 V016 이전 스토어라고 해서 정렬이 어긋나 있는 건 아니다. 트리거가 매 연산을 그대로 미러링하므로 FTS5 가 알아서 매기는 번호도 `chunks` 와 나란히 간다. 다만 **V009 의 백필**은 rowid 를 명시하지 않고 `SELECT … FROM chunks` 로 채웠으므로, 그 시점에 `chunks` 의 rowid 에 구멍이 있었다면 shadow 는 1..N 으로 촘촘히 매겨져 어긋난다. V016 의 명시 rowid repopulate 가 그런 스토어를 바로잡는다. 이 머신의 실제 KB(V015, 문서 28,427건)는 V009 이후 새로 색인한 것이라 점검이 정상으로 나온다.
+
+복구는 `rebuild_chunks_fts` 다. 라이브러리 API 이고 CLI 로 배선돼 있지 않다 — 사용자 경로는 탐지까지가 doctor 이고, 복구는 `kebab reset` 후 재색인이다. 참고로 이슈가 제안한 external-content 도 rowid 정렬을 똑같이 깔고 있어 이 전제는 선택지 간 차이가 아니다.
+
+### 설계 계약
+
+design §5.5 의 verbatim block 을 rowid 트리거로 갱신하고, CI diff-check(`fts_v016_matches_design_section_5_5_verbatim`)를 V009 에서 V016 으로 재조준했다. V007·V009 는 cold-upgrade 재생을 위해 그대로 남지만 더 이상 설계 문서와 비교되지 않는다 — V007 → V009 때 쓴 것과 같은 방식이다.
+
 ## 2026-08-16 — #230 나머지: 삭제 배치화 + 삭제 경로 압축 + doctor 지표
 
 앞 엔트리가 #230 의 제안 2(압축 정책)만 닫았다. 남은 제안 1·3·4 를 여기서 처리.

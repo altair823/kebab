@@ -74,7 +74,7 @@ pub struct SearchHit {
 ## 인덱스 라이프사이클
 
 - ingest 시 trigger 로 자동 동기화.
-- `kebab index --rebuild-fts` command 로 FTS table 재구축 (chunker version bump 후 사용).
+- FTS table 재구축 경로 (chunker version bump 후 사용). ※ 2026-08-16 현재 `kebab index --rebuild-fts` 는 배선되지 않았다 — 재구축은 `kebab_store_sqlite::rebuild_chunks_fts` 라이브러리 API 뿐이고, CLI 경로는 `kebab reset` 후 재색인이다.
 - `index_version` 은 `(schema_version, fts_config_hash)` 조합.
 
 ## kebab-app facade 확장
@@ -87,7 +87,7 @@ pub fn search(query: SearchQuery) -> anyhow::Result<Vec<SearchHit>>;
 
 ```text
 kebab search "Rust workspace 설계" [--k 10] [--tag rust] [--mode lexical]
-kebab index --rebuild-fts
+# (미배선 — 위 주석 참조)
 ```
 
 출력 예:

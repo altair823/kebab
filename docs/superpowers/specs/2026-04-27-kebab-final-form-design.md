@@ -1098,6 +1098,12 @@ FTS5 에 색인 (CASE expression: NULL 이면 raw text 만). '한국', '서울' 
 `chunks_fts` 는 일반 FTS5 shadow table 이며 contentless 가 아님 (V002 / V009
 DDL 에 `content=''` 없음).
 
+⟳ V016 (2026-08-16, issue #229): trigger 의 행 지정을 `chunk_id` 에서 `rowid`
+로 교체. `chunk_id` 는 `UNINDEXED` 라 FTS5 에 색인이 없고, `DELETE FROM
+chunks_fts WHERE chunk_id = ?` 는 색인 전체 스캔으로 떨어졌다 (chunk 60만
+기준 문서 200건 삭제 1590초). `chunks_fts.rowid` 를 `chunks.rowid` 와 맞추면
+같은 삭제가 2.0초다. 컬럼 구성·tokenizer·검색 경로는 불변.
+
 ```sql
 CREATE TABLE chunks (
   chunk_id          TEXT PRIMARY KEY,
@@ -1125,20 +1131,20 @@ CREATE VIRTUAL TABLE chunks_fts USING fts5(
 );
 
 CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
-  INSERT INTO chunks_fts(chunk_id, doc_id, heading_path, text)
-  VALUES (new.chunk_id, new.doc_id, new.heading_path_json,
+  INSERT INTO chunks_fts(rowid, chunk_id, doc_id, heading_path, text)
+  VALUES (new.rowid, new.chunk_id, new.doc_id, new.heading_path_json,
           CASE WHEN new.tokenized_korean_text IS NOT NULL
                THEN new.tokenized_korean_text || ' ' || new.text
                ELSE new.text
           END);
 END;
 CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
-  DELETE FROM chunks_fts WHERE chunk_id = old.chunk_id;
+  DELETE FROM chunks_fts WHERE rowid = old.rowid;
 END;
 CREATE TRIGGER chunks_au AFTER UPDATE ON chunks BEGIN
-  DELETE FROM chunks_fts WHERE chunk_id = old.chunk_id;
-  INSERT INTO chunks_fts(chunk_id, doc_id, heading_path, text)
-  VALUES (new.chunk_id, new.doc_id, new.heading_path_json,
+  DELETE FROM chunks_fts WHERE rowid = old.rowid;
+  INSERT INTO chunks_fts(rowid, chunk_id, doc_id, heading_path, text)
+  VALUES (new.rowid, new.chunk_id, new.doc_id, new.heading_path_json,
           CASE WHEN new.tokenized_korean_text IS NOT NULL
                THEN new.tokenized_korean_text || ' ' || new.text
                ELSE new.text
