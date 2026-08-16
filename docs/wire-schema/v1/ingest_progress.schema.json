@@ -221,6 +221,21 @@
       "type": "integer",
       "minimum": 0,
       "description": "sweep_completed: documents removed because their source file is gone."
+    },
+    "cache_hit": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_timings: chunks whose embedding came from the derivation cache."
+    },
+    "cache_miss": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_timings: chunks whose embedding had to be computed."
+    },
+    "cache_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_timings: wall-clock the derivation-cache lookup and insert cost, excluding the embedder call the misses trigger (that is `embed_ms`)."
     }
   }
 }

@@ -139,6 +139,24 @@ pub enum IngestEvent {
         ocr_ms: u64,
         #[serde(default)]
         caption_ms: u64,
+        /// v0.32.1 (additive, issue #231): derivation-cache outcome for
+        /// this asset's chunks, and the wall-clock the cache path itself
+        /// cost. Without these the only way to tell whether the cache is
+        /// paying for itself was a `tracing::info!` on stderr, which is
+        /// gone the moment the run ends — so "is the cache a win on my
+        /// corpus" had no answer a user could look up.
+        #[serde(default)]
+        cache_hit: u32,
+        #[serde(default)]
+        cache_miss: u32,
+        /// Lookup, insert, and the `last_used_at` touch that every hit
+        /// triggers — everything the cache costs except the embedder call
+        /// the misses go on to make, which `embed_ms` already covers.
+        /// The touch is counted deliberately: issue #231's sharpest claim
+        /// is that a read-only cache hit generates write traffic, and a
+        /// metric that left it out could not test that claim.
+        #[serde(default)]
+        cache_ms: u64,
     },
     /// v0.32.1 (additive): the post-scan sweep for documents whose source
     /// file is gone is starting, with `total` stored paths to examine
@@ -315,6 +333,9 @@ mod tests {
             store_ms: 20,
             ocr_ms: 1_200,
             caption_ms: 3_400,
+            cache_hit: 9,
+            cache_miss: 4,
+            cache_ms: 55,
         };
         let v = serde_json::to_value(&ev).unwrap();
         assert_eq!(
@@ -329,6 +350,12 @@ mod tests {
             ("embed_ms", 800),
             ("store_ms", 20),
             ("ocr_ms", 1_200),
+            // issue #231: the derivation-cache counters ride the same
+            // event, so an agent reading `asset_timings` can answer
+            // "did the cache pay for itself" without a second source.
+            ("cache_hit", 9),
+            ("cache_miss", 4),
+            ("cache_ms", 55),
             ("caption_ms", 3_400),
         ] {
             assert_eq!(
