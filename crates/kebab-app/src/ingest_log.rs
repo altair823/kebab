@@ -152,6 +152,29 @@ pub enum LogEvent<'a> {
         code: &'a str,
         message: &'a str,
     },
+    /// A document was removed because its source file is gone from disk
+    /// (the post-scan sweep). Issue #228: the sweep wrote nothing here,
+    /// so a run that spent most of its wall-clock purging left a
+    /// zero-byte log and no way to reconstruct afterwards what had been
+    /// deleted or how long it took.
+    Purge { ts: String, doc_path: &'a str },
+    /// A sweep candidate whose file is gone but whose purge failed. The
+    /// sweep logs it and moves on, so without this line the only trace is
+    /// a `tracing::warn` on stderr — and `sweep_summary`'s
+    /// `checked - purged` gap cannot tell a failure apart from a file
+    /// that is simply still on disk.
+    PurgeFailed {
+        ts: String,
+        doc_path: &'a str,
+        message: String,
+    },
+    /// Sweep phase totals, written once when the phase ends.
+    SweepSummary {
+        ts: String,
+        checked: u32,
+        purged: u32,
+        ms: u64,
+    },
 }
 
 /// Final summary record — always the last line of the log file.

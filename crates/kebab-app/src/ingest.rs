@@ -84,6 +84,10 @@ pub fn ingest(scope: SourceScope, opts: IngestOpts) -> anyhow::Result<IngestRepo
 ///
 /// - The current in-flight asset finishes (rollback would break
 ///   idempotent re-run). Subsequent assets are skipped.
+/// - The deleted-file sweep, which runs before the asset loop, checks
+///   the same flag between candidates and stops at the next one
+///   (issue #228). Documents it already purged stay purged, and the
+///   buffered vector deletes are still flushed on the way out.
 /// - Cancellation is a normal exit, not an error — `Result::Err` is
 ///   reserved for actual failures.
 /// - Partial commits in SQLite are kept; the next `kebab ingest` run
@@ -298,6 +302,9 @@ pub fn ingest_with_config(
         &app,
         &scanned_paths,
         vector_store.as_ref().map(std::convert::AsRef::as_ref),
+        progress,
+        log_writer.as_ref(),
+        &cancelled,
     )?;
 
     let started_at = time::OffsetDateTime::now_utc();
@@ -325,7 +332,14 @@ pub fn ingest_with_config(
     // p9-fb-04: track whether the loop exited via cancellation (vs
     // running to completion) so we can emit `Aborted` rather than
     // `Completed` and surface the right summary.
-    let mut was_cancelled = false;
+    // Seeded from the flag rather than only from the asset loop: the loop
+    // body is what normally sets this, and it never runs when the scan
+    // found nothing. That is exactly the case where the sweep is largest
+    // — a scan of zero assets means every stored path is a sweep
+    // candidate — so "wipe the indexed directory, re-ingest, Ctrl-C
+    // during the long sweep" would otherwise end by reporting Completed
+    // to a user who cancelled.
+    let mut was_cancelled = cancelled();
 
     for (zero_idx, asset) in assets.into_iter().enumerate() {
         // Step boundary check (p9-fb-04). Designed §10 invariant: the
@@ -2121,14 +2135,18 @@ fn store_document_records(
 ///
 /// Returns the number of documents purged.
 ///
-/// Non-fatal design: individual purge failures are logged and counted
-/// as errors on the per-file level but do NOT abort the sweep — a
-/// partial failure is preferable to blocking the rest of ingest. The
-/// return value only counts successful purges.
+/// Non-fatal design: an individual purge failure is logged (tracing plus
+/// a `purge_failed` ndjson line) and skipped, and does NOT abort the
+/// sweep — a partial failure is preferable to blocking the rest of
+/// ingest. It is not counted in `IngestReport.errors`, which tracks the
+/// per-asset loop; the return value counts successful purges only.
 fn sweep_deleted_files(
     app: &App,
     scanned_paths: &std::collections::HashSet<kebab_core::WorkspacePath>,
     vector_store: Option<&kebab_store_vector::LanceVectorStore>,
+    progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
+    log_writer: Option<&Arc<Mutex<crate::ingest_log::IngestLogWriter>>>,
+    cancelled: &dyn Fn() -> bool,
 ) -> anyhow::Result<u32> {
     use kebab_core::DocumentStore as _;
 
@@ -2140,6 +2158,25 @@ fn sweep_deleted_files(
     if stored_paths.is_empty() {
         return Ok(0);
     }
+
+    // Narrow to the paths this sweep will actually stat before announcing
+    // a total, so the denominator the user sees is the work remaining —
+    // not the store's whole path list, most of which is normally in scope
+    // and dismissed by a set lookup. Issue #228 asked for exactly this
+    // (`all_workspace_paths` minus the scanned set).
+    let candidates: Vec<kebab_core::WorkspacePath> = stored_paths
+        .into_iter()
+        .filter(|p| !scanned_paths.contains(p))
+        .collect();
+    let total = u32::try_from(candidates.len()).unwrap_or(u32::MAX);
+    if candidates.is_empty() {
+        return Ok(0);
+    }
+    let sweep_started = std::time::Instant::now();
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::SweepStarted { total },
+    );
 
     let workspace_root = app.config.resolve_workspace_root();
     let mut purged: u32 = 0;
@@ -2158,11 +2195,19 @@ fn sweep_deleted_files(
     // magnitude.
     let mut doomed_chunk_ids: Vec<kebab_core::ChunkId> = Vec::new();
 
-    for stored_path in stored_paths {
-        if scanned_paths.contains(&stored_path) {
-            continue; // still in scope — skip
+    let mut examined: u32 = 0;
+    for (i, stored_path) in candidates.into_iter().enumerate() {
+        // The CLI's first Ctrl-C prints "aborting after current asset"
+        // and flips this flag. Before this check the sweep ignored it,
+        // so during a long sweep that message was simply untrue and the
+        // user's only recourse was a second Ctrl-C — which is `exit(130)`
+        // and strands whatever is buffered below. Issue #228 is literally
+        // a report of someone pressing Ctrl-C three times here.
+        if cancelled() {
+            break;
         }
-
+        let idx = u32::try_from(i + 1).unwrap_or(u32::MAX);
+        examined = idx;
         // Resolve to an absolute path and check existence on disk.
         // Use `try_exists` + `unwrap_or(true)` so transient FS errors
         // (EACCES on a path we lack read on, NFS hiccups, ownership
@@ -2181,6 +2226,15 @@ fn sweep_deleted_files(
                 path = %stored_path.0,
                 "sweep_deleted_files: file on disk but out of scope — leaving in store"
             );
+            crate::ingest_progress::emit(
+                progress,
+                crate::ingest_progress::IngestEvent::SweepProgress {
+                    idx,
+                    total,
+                    path: stored_path.0.clone(),
+                    removed: false,
+                },
+            );
             continue;
         }
 
@@ -2194,6 +2248,24 @@ fn sweep_deleted_files(
                         path = %stored_path.0,
                         error = %e,
                         "sweep_deleted_files: purge failed; skipping this path"
+                    );
+                    if let Some(lw) = log_writer
+                        && let Ok(mut w) = lw.lock()
+                    {
+                        let _ = w.write_event(&crate::ingest_log::LogEvent::PurgeFailed {
+                            ts: crate::ingest_log::now_ts(),
+                            doc_path: &stored_path.0,
+                            message: e.to_string(),
+                        });
+                    }
+                    crate::ingest_progress::emit(
+                        progress,
+                        crate::ingest_progress::IngestEvent::SweepProgress {
+                            idx,
+                            total,
+                            path: stored_path.0.clone(),
+                            removed: false,
+                        },
                     );
                     continue;
                 }
@@ -2212,11 +2284,51 @@ fn sweep_deleted_files(
             "sweep_deleted_files: purged document for deleted file"
         );
         purged = purged.saturating_add(1);
+        if let Some(lw) = log_writer
+            && let Ok(mut w) = lw.lock()
+        {
+            let _ = w.write_event(&crate::ingest_log::LogEvent::Purge {
+                ts: crate::ingest_log::now_ts(),
+                doc_path: &stored_path.0,
+            });
+        }
+        crate::ingest_progress::emit(
+            progress,
+            crate::ingest_progress::IngestEvent::SweepProgress {
+                idx,
+                total,
+                path: stored_path.0.clone(),
+                removed: true,
+            },
+        );
     }
 
     if let Some(vec) = vector_store {
         flush_vector_deletes(vec, &mut doomed_chunk_ids, purged);
     }
+
+    let ms = u64::try_from(sweep_started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    if let Some(lw) = log_writer
+        && let Ok(mut w) = lw.lock()
+    {
+        let _ = w.write_event(&crate::ingest_log::LogEvent::SweepSummary {
+            ts: crate::ingest_log::now_ts(),
+            checked: examined,
+            purged,
+            ms,
+        });
+    }
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::SweepCompleted {
+            // The candidates actually examined, which is short of `total`
+            // when the run was cancelled mid-sweep. Reporting `total`
+            // there would claim work that did not happen.
+            checked: examined,
+            purged,
+            ms,
+        },
+    );
 
     Ok(purged)
 }

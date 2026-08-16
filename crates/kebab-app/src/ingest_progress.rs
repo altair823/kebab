@@ -47,6 +47,7 @@ pub struct AggregateCounts {
 ///
 /// ```text
 /// ScanStarted < ScanCompleted
+///   [< SweepStarted < SweepProgress* < SweepCompleted]
 ///   < ( AssetStarted
 ///         [< (PdfOcrStarted < PdfOcrFinished)*]
 ///         [< AssetChunked]
@@ -55,7 +56,10 @@ pub struct AggregateCounts {
 ///   < (Completed | Aborted)
 /// ```
 ///
-/// `[]` = optional. `PdfOcr*` is per-PDF asset only (v0.20.0 sub-item 1).
+/// `[]` = optional. The `Sweep*` block (v0.32.1, issue #228) appears only
+/// when the store holds paths this scan did not cover — a first ingest has
+/// none, so it goes straight from `ScanCompleted` to the asset loop.
+/// `PdfOcr*` is per-PDF asset only (v0.20.0 sub-item 1).
 /// `AssetChunked` / `AssetTimings` are the v0.24.0 asset-internal phase
 /// events: `AssetChunked` fires once right after chunking (markdown /
 /// image / PDF); `AssetTimings` reports per-phase wall-clock once
@@ -136,6 +140,31 @@ pub enum IngestEvent {
         #[serde(default)]
         caption_ms: u64,
     },
+    /// v0.32.1 (additive): the post-scan sweep for documents whose source
+    /// file is gone is starting, with `total` stored paths to examine
+    /// (paths still in the walker's scope are excluded — they are skipped
+    /// by a set lookup and cost nothing). Issue #228: this phase used to
+    /// emit nothing at all, so a progress bar sat frozen at `0/N` for the
+    /// whole sweep and users read it as a hang and killed the run.
+    SweepStarted { total: u32 },
+    /// v0.32.1 (additive): the `idx`-th sweep candidate (1-based) has been
+    /// examined. `removed` is true only when the file really was gone and
+    /// its document was purged; it is false both for a file still on disk
+    /// (left alone) and for a purge that failed. A sweep can walk
+    /// thousands of candidates and purge none, and a bar that only moved
+    /// on purges would look frozen in exactly that case. (Named `removed`
+    /// rather than `purged` so the wire key keeps one type: `purged` is
+    /// the integer total on `sweep_completed`.)
+    SweepProgress {
+        idx: u32,
+        total: u32,
+        path: String,
+        removed: bool,
+    },
+    /// v0.32.1 (additive): sweep finished. `checked` candidates examined,
+    /// `purged` documents removed, `ms` wall-clock. `checked` falls short
+    /// of the announced `total` when the run was cancelled mid-sweep.
+    SweepCompleted { checked: u32, purged: u32, ms: u64 },
     /// Run finished normally. `counts` is the final aggregate.
     Completed { counts: AggregateCounts },
     /// Run finished by user cancellation. `counts` is the partial

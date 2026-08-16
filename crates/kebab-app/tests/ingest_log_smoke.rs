@@ -84,7 +84,16 @@ fn ingest_log_smoke() {
     let lines: Vec<&str> = body.lines().collect();
     assert!(!lines.is_empty(), "log file should not be empty");
 
-    let valid_kinds = ["ocr", "parse_error", "skip", "error", "summary"];
+    let valid_kinds = [
+        "ocr",
+        "parse_error",
+        "skip",
+        "error",
+        "purge",
+        "purge_failed",
+        "sweep_summary",
+        "summary",
+    ];
     for line in &lines {
         let v: Value = serde_json::from_str(line)
             .unwrap_or_else(|e| panic!("line is not valid JSON: {e}\nline: {line}"));
@@ -167,5 +176,83 @@ fn ingest_log_disabled_emits_no_file() {
     assert_eq!(
         log_file_count, 0,
         "no ingest-*.ndjson file should be created when disabled"
+    );
+}
+
+
+/// Issue #228: the deleted-file sweep wrote nothing to the ndjson log, so
+/// a run whose whole wall-clock went into purging left a zero-byte file
+/// and no way to reconstruct afterwards what had been deleted. The log is
+/// the only post-hoc record — tracing goes to stderr and is gone.
+#[test]
+fn ingest_log_records_the_deleted_file_sweep() {
+    let tmp = TempDir::new().unwrap();
+    let workspace = tmp.path().join("kb");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let log_dir = tmp.path().join("logs");
+
+    let doomed = workspace.join("doomed.md");
+    std::fs::write(&doomed, "# doomed\n\nthis file is about to vanish\n").unwrap();
+    std::fs::write(workspace.join("kept.md"), "# kept\n\nthis one stays\n").unwrap();
+
+    let scope = SourceScope {
+        root: workspace.clone(),
+        include: vec!["**/*.md".to_string()],
+        exclude: Vec::new(),
+    };
+    ingest_with_config(
+        minimal_config(&workspace, &log_dir),
+        scope.clone(),
+        IngestOpts::default(),
+    )
+    .expect("first ingest should succeed");
+
+    std::fs::remove_file(&doomed).unwrap();
+    let report = ingest_with_config(
+        minimal_config(&workspace, &log_dir),
+        scope,
+        IngestOpts::default(),
+    )
+    .expect("second ingest should succeed");
+    assert_eq!(report.purged_deleted_files, 1);
+
+    // The second run's log is the later one; both runs write into log_dir.
+    let mut logs: Vec<PathBuf> = std::fs::read_dir(&log_dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "ndjson"))
+        .collect();
+    logs.sort();
+    let body = std::fs::read_to_string(logs.last().expect("a log per run")).unwrap();
+
+    let events: Vec<Value> = body
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("each line is JSON"))
+        .collect();
+    let kind = |v: &Value| v.get("kind").and_then(Value::as_str).unwrap_or("").to_string();
+
+    let purges: Vec<&Value> = events.iter().filter(|v| kind(v) == "purge").collect();
+    assert_eq!(purges.len(), 1, "one purge line for the deleted file: {body}");
+    assert_eq!(
+        purges[0].get("doc_path").and_then(Value::as_str),
+        Some("doomed.md"),
+        "and it names which document went: {body}"
+    );
+
+    let sweep = events
+        .iter()
+        .find(|v| kind(v) == "sweep_summary")
+        .unwrap_or_else(|| panic!("the phase totals must be recorded: {body}"));
+    assert_eq!(sweep.get("purged").and_then(Value::as_u64), Some(1));
+    assert_eq!(
+        sweep.get("checked").and_then(Value::as_u64),
+        Some(1),
+        "one candidate examined: {body}"
+    );
+    assert!(
+        sweep.get("ms").is_some(),
+        "with a duration, which is what tells a user whether the phase was \
+         the run's bottleneck: {body}"
     );
 }

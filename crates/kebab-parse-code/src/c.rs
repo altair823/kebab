@@ -184,14 +184,8 @@ fn extract_fn_name<'a>(decl_node: tree_sitter::Node, src: &'a str) -> Option<&'a
             // pointer_declarator, function_declarator, array_declarator,
             // attributed_declarator, parenthesized_declarator —
             // all carry a `declarator` field pointing deeper.
-            _ => {
-                if let Some(inner) = cur.child_by_field_name("declarator") {
-                    cur = inner;
-                } else {
-                    // No further `declarator` field; give up.
-                    return None;
-                }
-            }
+            // No further `declarator` field to follow; give up.
+            _ => cur = cur.child_by_field_name("declarator")?,
         }
     }
 }

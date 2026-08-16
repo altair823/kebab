@@ -14,6 +14,61 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-08-16 — #228 sweep 구간이 진행바·로그에 표시되지 않음
+
+### 무엇이 문제였나
+
+`sweep_deleted_files` 는 walker 가 끝난 직후, asset 루프가 시작되기 전에 돈다. 이 구간이 **관측 가능한 신호를 하나도 내지 않았다**. 진행바는 walker 총계(`0/12115`)를 표시한 채 멈춰 보이고, ndjson 로그는 0바이트로 남는다. `tracing::info!` 은 나가지만 wire 이벤트가 아니라 사용자가 볼 산출물이 없다.
+
+프로세스는 CPU 100% 로 정상 동작 중인데 밖에서는 hang 과 구별할 수 없다. 실제 도그푸딩에서 세 번 연속 Ctrl-C 로 죽였다.
+
+### 무엇을 고쳤나
+
+`ingest_progress.v1` 에 세 이벤트를 **추가**했다 (additive — 기존 소비자는 모르는 kind 를 무시한다).
+
+- `sweep_started { total }` — 검사할 후보 수. `all_workspace_paths()` 에서 이번 스캔이 덮은 경로를 뺀 값이라 루프 진입 전에 확정 분모가 나온다. 이슈 제안 1 그대로다.
+- `sweep_progress { idx, total, path, removed }` — 후보 하나를 검사할 때마다. `removed` 는 "정말 없어서 문서를 지웠다" 와 "아직 디스크에 있어서 그대로 뒀다" 를 가른다. 수천 건을 훑고 하나도 안 지우는 sweep 이 있으므로, 지울 때만 움직이는 진행바는 바로 그 경우에 다시 멈춰 보인다.
+- `sweep_completed { checked, purged, ms }` — 구간 총계.
+
+`purged` 를 두 이벤트에서 다른 타입으로 쓰지 않으려고 `sweep_progress` 쪽은 `removed`(bool) 로, `sweep_completed` 쪽은 `purged`(정수) 로 이름을 나눴다. 같은 wire 키가 두 타입을 갖는 건 소비자 입장에서 함정이다.
+
+ndjson 로그에는 `purge { ts, doc_path }` 와 `sweep_summary { ts, checked, purged, ms }` 를 추가했다. 이슈 제안 2 가 요청한 형태 그대로다. 로그가 유일한 사후 기록이다 — tracing 은 stderr 로 흘러가고 남지 않는다. 리뷰 지적을 받아 `purge_failed { ts, doc_path, message }` 도 넣었다. 실패는 진행 이벤트에서 "디스크에 남아 있어 그냥 뒀다" 와 똑같이 `removed: false` 로 나가고, `sweep_summary` 의 `checked - purged` 차이로도 못 가르기 때문이다.
+
+sweep 루프가 취소 플래그도 본다. CLI 의 첫 Ctrl-C 는 "aborting after current asset" 을 찍고 플래그를 세우는데, sweep 은 그걸 보지 않아서 **긴 sweep 중에는 그 안내가 사실이 아니었다**. 사용자에게 남은 수단은 두 번째 Ctrl-C 뿐이고 그건 `exit(130)` 이라 버퍼에 쌓인 벡터 삭제가 고아로 남는다. 이 이슈 자체가 "sweep 중 Ctrl-C 를 세 번 눌러 죽였다" 는 보고다. 취소로 중단하면 `checked` 는 실제로 검사한 수로 나간다 — 예고한 `total` 을 그대로 쓰면 하지 않은 일을 했다고 보고하는 셈이다.
+
+CLI 는 sweep 을 asset 진행바와 **별 phase** 로 그린다. 후보 12k 를 훑는 일과 asset 12k 를 색인하는 일은 분모가 다른 별개의 작업이라, 카운터를 공유하면 두 번째 구간이 처음부터 다시 시작하는 것처럼 보인다. 비-TTY 는 실제로 지운 것만 줄로 찍는다 — 검사한 후보마다 한 줄이면 그대로 둔 경로들이 run 의 진짜 출력을 덮는다.
+
+### 실측
+
+문서 30건을 색인하고 21건을 지운 뒤 재색인:
+
+```
+ingest: sweeping 21 deleted-file candidates…
+  purged doc11.md
+  … (21줄)
+ingest: sweep complete (checked=21 purged=21 in 134ms)
+```
+
+`--json` 은 `sweep_started` → `sweep_progress` × 21 → `sweep_completed` 를 `ingest_progress.v1` 로 내보내고, ndjson 로그에는 `purge` 21줄 + `sweep_summary` 1줄이 남는다. 이슈가 보고한 0바이트 로그가 아니다.
+
+### 진행바를 빌려 쓸 때의 함정
+
+리뷰에서 잡힌 것이다. sweep 은 asset 진행바를 그대로 빌려 쓰면서 자기 라벨과 자기(더 작은) 총계를 씌운다. 그런데 `AssetStarted` 는 위치와 메시지만 세팅하고 길이·스타일은 건드리지 않으므로, sweep 이 한 번 돌면 **그 뒤 색인 구간 전체가 `sweep [====] 4213/21` 로 그려진다**. 라벨도 분모도 틀린다.
+
+더 나쁜 건 스타일 교체가 v0.26.1 의 커스텀 키 `{asset_elapsed}` 를 같이 날린다는 점이다. 느린 asset 에서 `(Ns)` 가 도는 게 "멈춘 게 아님"의 유일한 신호인데, sweep 이 그걸 없애면 이 항목이 sweep 구간에서 없앤 "hang 처럼 보임" 을 asset 구간에 새로 만드는 셈이 된다. TTY 전용이라 비-TTY 실측만 보고 있었으면 놓쳤을 것이다.
+
+바 세팅을 `dress_bar_for_assets` 로 빼고 `ScanCompleted` 와 `SweepCompleted` 양쪽에서 부른다. 스타일을 길이보다 먼저 세팅하는데, indicatif 가 두 호출 사이에 다시 그릴 수 있어서 과도기 프레임이 최소한 올바른 라벨을 달게 하기 위해서다.
+
+### 범위 밖
+
+이슈가 참고로 적은 `reset --orphans-only` 는 그대로 뒀다. reset 에는 진행 채널 자체가 없어서 sweep 하나를 위해 배선을 새로 깔아야 하는데, #229 와 #230 이 머지된 지금 이 경로의 문서당 비용이 약 800배 떨어져 "몇 시간 무표시" 상황이 애초에 안 나온다. 필요해지면 별 건으로 다룬다.
+
+### 곁다리: clippy 게이트가 붉었다
+
+`cargo clippy --workspace --all-targets -- -D warnings` 가 main 에서 실패하고 있었다. 툴체인이 올라가면서 새 lint 두 개(`question_mark`, `manual_assert_eq`)가 기존 코드에 걸린 것이다. 각각 한 줄이라 여기서 같이 고쳤다.
+
+방치하면 안 되는 이유를 이번에 겪었다. `kebab-parse-code` 가 먼저 실패해서 뒤 크레이트가 아예 컴파일되지 않았고, 그 그늘에 **PR #235 에서 내가 넣은 `unnested_or_patterns` 위반**이 숨어 있었다. 게이트가 붉으면 새 위반이 안 보인다.
+
 ## 2026-08-16 — #229 chunks_fts 삭제가 FTS5 전체 스캔 (V016)
 
 ### 무엇이 문제였나
