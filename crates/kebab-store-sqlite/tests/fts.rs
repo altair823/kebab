@@ -282,7 +282,7 @@ fn fts_rebuild_chunks_fts_recovers_from_drift() {
     insert_chunk(&conn, &cid, &"d".repeat(32), "[]", "recovered");
 
     // Manually wipe chunks_fts to simulate drift; this is the failure
-    // mode `kb index --rebuild-fts` exists to recover from.
+    // mode `rebuild_chunks_fts` exists to recover from.
     conn.execute("DELETE FROM chunks_fts", []).unwrap();
     assert_eq!(count(&conn, "chunks_fts"), 0);
     assert_eq!(count(&conn, "chunks"), 1);
@@ -742,7 +742,10 @@ fn fts_v016_delete_removes_only_the_deleted_row() {
 /// equality itself. Addressing by `chunk_id` leaves that field empty
 /// because `chunk_id` is UNINDEXED, and the delete degrades to a full
 /// index scan (measured at 1590s for 200 documents over 600k chunks,
-/// against 0.73s for this plan).
+/// against 2.0s for this plan).
+///
+/// A virtual table is always reported as `SCAN`, so the idxStr field is
+/// the only signal available here — there is no `SEARCH` to assert on.
 #[test]
 fn fts_v016_delete_plan_uses_rowid_not_a_scan() {
     let env = common::TestEnv::new();
@@ -766,7 +769,9 @@ fn fts_v016_delete_plan_uses_rowid_not_a_scan() {
 
     assert!(
         by_rowid.contains(":="),
-        "rowid delete must hand FTS5 the equality constraint; got {by_rowid:?}"
+        "rowid delete must hand FTS5 the equality constraint; got {by_rowid:?}. \
+         This reads the bundled SQLite's FTS5 idxStr encoding — if it fails right \
+         after a rusqlite bump, check that before suspecting the migration."
     );
     assert!(
         !by_chunk_id.contains(":="),
@@ -822,5 +827,49 @@ fn fts_v016_rebuild_preserves_rowid_and_korean_morphemes() {
         count(&conn, "chunks_fts"),
         0,
         "deletes after a rebuild must still find their shadow rows"
+    );
+}
+
+/// The `fts_shadow` doctor probe has to actually notice drift, or it is
+/// worse than no check — it would report health while deletes silently
+/// remove other documents' rows. Forcing a misaligned shadow row is the
+/// only way to test that, since nothing in the codebase produces one.
+#[test]
+fn fts_v016_shadow_probe_detects_forced_drift() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
+    store.run_migrations().unwrap();
+
+    let conn = raw_conn_no_fk(&env);
+    for i in 0..3u8 {
+        insert_chunk(
+            &conn,
+            &format!("{i:032}"),
+            &"d".repeat(32),
+            "[]",
+            &format!("body {i}"),
+        );
+    }
+    assert_eq!(
+        store.fts_shadow_misaligned_sample(200).unwrap(),
+        0,
+        "a freshly written shadow must be aligned"
+    );
+
+    // Shift one shadow row off its source. `chunks_fts` rows are not
+    // UPDATE-able in place, so delete and reinsert at a rowid that
+    // belongs to nothing.
+    conn.execute("DELETE FROM chunks_fts WHERE rowid = 2", [])
+        .expect("drop one shadow row");
+    conn.execute(
+        "INSERT INTO chunks_fts(rowid, chunk_id, doc_id, heading_path, text)
+         VALUES (9999, ?, ?, '[]', 'body 1')",
+        rusqlite::params![format!("{:032}", 1u8), "d".repeat(32)],
+    )
+    .expect("reinsert at a drifted rowid");
+
+    assert!(
+        store.fts_shadow_misaligned_sample(200).unwrap() > 0,
+        "the probe must report the drifted row"
     );
 }

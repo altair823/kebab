@@ -351,6 +351,40 @@ fn temp_path_for(dest: &Path) -> PathBuf {
 }
 
 impl SqliteStore {
+    /// Count rows in a bounded sample where `chunks_fts` and `chunks`
+    /// disagree about which chunk lives at a given rowid (issue #229 /
+    /// V016). `0` means the sample is aligned.
+    ///
+    /// V016 pointed the FTS delete trigger at `rowid`, so this alignment
+    /// is what keeps a delete from removing some other document's shadow
+    /// row. The full anti-join is a 33s scan at 600k chunks, so this
+    /// takes `sample` rows from each end of the rowid range instead —
+    /// 10ms, and enough to catch the wholesale renumbering that any
+    /// realistic drift would produce. It is a health probe, not a proof:
+    /// a drift confined to the middle of the range passes.
+    pub fn fts_shadow_misaligned_sample(&self, sample: usize) -> Result<usize> {
+        let conn = self.read_conn();
+        let mut total = 0usize;
+        for order in ["ASC", "DESC"] {
+            let n: i64 = conn
+                .query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM (
+                           SELECT rowid AS r, chunk_id AS cid FROM chunks
+                           ORDER BY rowid {order} LIMIT ?1
+                         ) c
+                         LEFT JOIN chunks_fts f ON f.rowid = c.r
+                         WHERE f.rowid IS NULL OR f.chunk_id != c.cid"
+                    ),
+                    params![sample as i64],
+                    |r| r.get(0),
+                )
+                .map_err(StoreError::from)?;
+            total += usize::try_from(n).unwrap_or(0);
+        }
+        Ok(total)
+    }
+
     /// p9-fb-19: read the persisted `corpus_revision` from the `kv`
     /// table. Returns `0` if the row is missing (not migrated yet) or
     /// unparseable — defensive: callers use the value as a cache-key

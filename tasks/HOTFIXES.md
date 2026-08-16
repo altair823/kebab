@@ -51,9 +51,19 @@ git history.
 
 검색 결과는 바뀌지 않는다. 실제 KB 에서 '한국'(15,977) / 'database'(1,067) / '서울 지하철'(230) / 'kebab'(3) 네 질의의 상위 20건을 chunk_id·bm25 점수·snippet 까지 해시로 비교했고 마이그레이션 전후가 동일했다. 그래서 V016 은 `corpus_revision` 을 올리지 않는다 — 어휘 검색 정렬이 `ORDER BY score, f.chunk_id` 라 rowid 와 무관하므로 미결 pagination cursor 를 무효화할 이유가 없다. tokenizer 가 바뀐 V009 와는 다른 경우다.
 
-### 알아 둘 전제
+### 실패 양상이 바뀌었다 — 그래서 doctor 점검을 같이 넣었다
 
-`chunks` 는 `chunk_id TEXT PRIMARY KEY` 라 INTEGER PRIMARY KEY 가 없다. SQLite 의 VACUUM 은 그런 테이블의 rowid 를 다시 매길 수 있고, 그러면 이 정렬이 깨진다. kebab 은 VACUUM 을 실행하지 않으며(코드베이스 전체에 없음), 사용자가 직접 실행했다면 `rebuild_chunks_fts` 가 복구 경로다. 이슈가 제안한 external-content 도 같은 전제를 깔고 있어 이 위험은 선택지 간 차이가 아니다.
+이건 리뷰에서 지적받아 알게 된 것이다. `chunk_id` 로 행을 찾던 때는 shadow 정렬이 어긋나도 **느릴 뿐 정확**했다. rowid 로 찾으면 정렬이 어긋난 순간 `chunks_ad` 가 **남의 문서 shadow 행을 지우고 아무 오류도 내지 않는다**. 즉 이 마이그레이션은 실패 양상을 "느림"에서 "조용한 오삭제"로 바꿨다.
+
+무엇이 정렬을 깨는지 실제로 재봤다. 처음에는 VACUUM 을 위험으로 적었는데, 측정해 보니 **VACUUM 은 rowid 를 다시 매기지 않았다**. 실제 KB 사본(60만 chunk, 문서 3,000건을 지워 rowid 에 구멍을 낸 뒤)과 소형 합성 DB 양쪽에서 VACUUM 후 전수 대조 불일치가 0 이었다 (sqlite 3.53.4). SQLite 문서는 INTEGER PRIMARY KEY 가 없는 테이블의 rowid 를 VACUUM 이 다시 매길 **수 있다**고 적어 두지만, 보장이 없다는 뜻이지 실제로 그렇게 한다는 뜻이 아니다. 앞선 초안에서 이 위험을 과장했으므로 정정한다.
+
+남는 실제 경로는 **앞으로 `chunks` 를 테이블 재작성 방식(새 테이블 → 복사 → DROP → RENAME)으로 바꾸는 마이그레이션**이다. 그러면 rowid 가 조용히 다시 매겨진다. V016 주석에 "그런 마이그레이션은 repopulate 를 같이 돌려야 한다"는 울타리를 박아 뒀다. 지금까지의 `chunks` 변경은 전부 in-place 다 (V009 `ADD COLUMN`, V013 `DROP COLUMN`).
+
+알려진 유발 경로가 없더라도, 정확성을 떠받치게 된 불변식이 눈에 안 보이는 상태로 남는 게 문제다. 그래서 `kebab doctor` 에 `fts_shadow` 점검을 넣었다. 전수 대조는 60만 chunk 에서 33초라 doctor 앞에 둘 수 없어서 rowid 범위의 앞뒤 200행씩만 본다 — 10 ms 이고, 현실적인 드리프트가 취하는 형태(전면 재번호)는 잡는다. 표본이라는 사실을 detail 문구에 적어 두었으므로 정렬 증명으로 읽히지는 않는다.
+
+참고로 V016 이전 스토어라고 해서 정렬이 어긋나 있는 건 아니다. 트리거가 매 연산을 그대로 미러링하므로 FTS5 가 알아서 매기는 번호도 `chunks` 와 나란히 간다. 다만 **V009 의 백필**은 rowid 를 명시하지 않고 `SELECT … FROM chunks` 로 채웠으므로, 그 시점에 `chunks` 의 rowid 에 구멍이 있었다면 shadow 는 1..N 으로 촘촘히 매겨져 어긋난다. V016 의 명시 rowid repopulate 가 그런 스토어를 바로잡는다. 이 머신의 실제 KB(V015, 문서 28,427건)는 V009 이후 새로 색인한 것이라 점검이 정상으로 나온다.
+
+복구는 `rebuild_chunks_fts` 다. 라이브러리 API 이고 CLI 로 배선돼 있지 않다 — 사용자 경로는 탐지까지가 doctor 이고, 복구는 `kebab reset` 후 재색인이다. 참고로 이슈가 제안한 external-content 도 rowid 정렬을 똑같이 깔고 있어 이 전제는 선택지 간 차이가 아니다.
 
 ### 설계 계약
 

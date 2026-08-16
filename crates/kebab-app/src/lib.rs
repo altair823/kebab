@@ -445,6 +445,59 @@ pub fn doctor_with_config_path(
         }
     }
 
+    // fts_shadow — chunks_fts rowid alignment (issue #229 / V016).
+    //
+    // V016 made the FTS delete trigger address rows by rowid instead of
+    // by chunk_id, which is what took a document delete from 1590s to
+    // 2s on a 600k-chunk store. The cost is that the invariant became
+    // load-bearing for correctness rather than only for speed: if the
+    // shadow's rowids ever drift from `chunks`, `chunks_ad` deletes some
+    // other document's row and reports nothing. Under the old chunk_id
+    // predicate a drifted shadow was merely slow. Nothing in the
+    // codebase renumbers rowids today (and VACUUM was measured not to),
+    // so this exists to make a silent failure a visible one, not because
+    // a trigger is known.
+    //
+    // Sampled, not exhaustive: the full anti-join is a 33s scan at 600k
+    // chunks, which is too slow to put in front of every `kebab doctor`.
+    // The head and tail of the rowid range cost 10ms and catch wholesale
+    // renumbering, which is the shape any realistic drift takes. The
+    // detail says "표본" so this is not read as a proof of alignment.
+    {
+        let cfg = loaded_cfg
+            .clone()
+            .unwrap_or_else(kebab_config::Config::defaults);
+        let probe = kebab_store_sqlite::SqliteStore::open(&cfg.storage)
+            .ok()
+            .and_then(|s| s.fts_shadow_misaligned_sample(200).ok());
+        let (fok, detail, hint) = match probe {
+            Some(0) => (
+                true,
+                "chunks_fts rowid 정렬 정상 (앞뒤 200행 표본)".to_string(),
+                None,
+            ),
+            Some(n) => (
+                false,
+                format!("chunks_fts rowid 정렬 어긋남 — 표본 400행 중 {n}행 불일치"),
+                Some(
+                    "삭제가 엉뚱한 FTS 행을 지우고 있다. `kebab reset` 후 재색인으로 \
+                     인덱스를 다시 만들어라"
+                        .to_string(),
+                ),
+            ),
+            // No store yet, or the probe itself failed — either way this
+            // is not evidence of drift, and claiming health would be
+            // worse than saying we could not look.
+            None => (true, "확인 불가 (KB 없음)".to_string(), None),
+        };
+        checks.push(DoctorCheck {
+            name: "fts_shadow".to_string(),
+            ok: fok,
+            detail,
+            hint,
+        });
+    }
+
     // vector_store — Lance fragment / version-history health (issue #230).
     {
         let cfg = loaded_cfg

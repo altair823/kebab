@@ -10,9 +10,11 @@
 //!
 //! Normal operation needs nothing from this module — every mutation on
 //! `chunks` propagates automatically inside the host transaction. The
-//! only entry point exposed here is [`rebuild_chunks_fts`], used as the
-//! escape hatch for `kb index --rebuild-fts` (wired by `kb-cli` later;
-//! out of scope for P2-1).
+//! only entry point exposed here is [`rebuild_chunks_fts`], the escape
+//! hatch for a shadow that has drifted from `chunks`. It is a library
+//! API with no CLI wiring — `kebab doctor`'s `fts_shadow` check detects
+//! drift, but recovery through the CLI is `kebab reset` plus a
+//! re-ingest.
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;

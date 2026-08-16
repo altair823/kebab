@@ -1102,7 +1102,7 @@ DDL 에 `content=''` 없음).
 로 교체. `chunk_id` 는 `UNINDEXED` 라 FTS5 에 색인이 없고, `DELETE FROM
 chunks_fts WHERE chunk_id = ?` 는 색인 전체 스캔으로 떨어졌다 (chunk 60만
 기준 문서 200건 삭제 1590초). `chunks_fts.rowid` 를 `chunks.rowid` 와 맞추면
-같은 삭제가 0.73초다. 컬럼 구성·tokenizer·검색 경로는 불변.
+같은 삭제가 2.0초다. 컬럼 구성·tokenizer·검색 경로는 불변.
 
 ```sql
 CREATE TABLE chunks (
