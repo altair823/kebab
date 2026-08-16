@@ -460,35 +460,75 @@ pub fn doctor_with_config_path(
     //
     // Sampled, not exhaustive: the full anti-join is a 33s scan at 600k
     // chunks, which is too slow to put in front of every `kebab doctor`.
-    // The head and tail of the rowid range cost 10ms and catch wholesale
+    // Both ends of the rowid range cost 10ms and catch wholesale
     // renumbering, which is the shape any realistic drift takes. The
     // detail says "표본" so this is not read as a proof of alignment.
     {
-        let cfg = loaded_cfg
-            .clone()
-            .unwrap_or_else(kebab_config::Config::defaults);
-        let probe = kebab_store_sqlite::SqliteStore::open(&cfg.storage)
-            .ok()
-            .and_then(|s| s.fts_shadow_misaligned_sample(200).ok());
+        // Same precedence as `Config::load` — `data_dir_writable` above
+        // re-applies env for the same reason. Without this, doctor would
+        // report one data_dir and probe a different one whenever
+        // KEBAB_STORAGE_DATA_DIR is set.
+        let cfg = match loaded_cfg.as_ref() {
+            Some(c) => {
+                let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+                c.clone().apply_env(&env)
+            }
+            None => kebab_config::Config::defaults(),
+        };
+        // `SqliteStore::open` creates the file, and doctor must not
+        // leave a store behind on a machine that has none — check for it
+        // first and report "no KB" rather than manufacturing one.
+        let db = kebab_config::expand_path(&cfg.storage.data_dir, "")
+            .join(kebab_store_sqlite::SQLITE_FILE);
+        let probe = db.exists().then(|| {
+            kebab_store_sqlite::SqliteStore::open(&cfg.storage)
+                .ok()
+                .map(|s| (s.migration_version(), s.fts_shadow_misaligned_sample(200)))
+        });
+        const V016: u32 = 16;
         let (fok, detail, hint) = match probe {
-            Some(0) => (
+            None => (
                 true,
-                "chunks_fts rowid 정렬 정상 (앞뒤 200행 표본)".to_string(),
+                "KB 없음 — 점검할 인덱스가 아직 없다".to_string(),
                 None,
             ),
-            Some(n) => (
+            // Opened, but the probe failed. Do not report this as
+            // health: a check whose whole point is to surface a silent
+            // failure must not swallow its own.
+            Some(None) | Some(Some((_, Err(_)))) => (
+                true,
+                "점검하지 못했다".to_string(),
+                Some(
+                    "SQLite 를 열거나 읽지 못했다 — 다른 kebab 프로세스가 쓰는 중이거나 \
+                     DB 가 손상됐을 수 있다"
+                        .to_string(),
+                ),
+            ),
+            // Pre-V016 stores can be misaligned already: V009's backfill
+            // inserted without an explicit rowid, so a store with gaps in
+            // `chunks.rowid` at that moment got a densely-numbered shadow.
+            // That is harmless there — deletes still address rows by
+            // chunk_id. Applying V016 repopulates with explicit rowids and
+            // fixes it, so the advice is "migrate", never "wipe".
+            Some(Some((Some(v), _))) if v < V016 => (
+                true,
+                format!("V016 적용 전 (현재 V{v:03}) — 마이그레이션 후 점검된다"),
+                None,
+            ),
+            Some(Some((_, Ok((checked, 0))))) => (
+                true,
+                format!("chunks_fts rowid 정렬 정상 (양끝 {checked}행 표본)"),
+                None,
+            ),
+            Some(Some((_, Ok((checked, bad))))) => (
                 false,
-                format!("chunks_fts rowid 정렬 어긋남 — 표본 400행 중 {n}행 불일치"),
+                format!("chunks_fts rowid 정렬 어긋남 — 표본 {checked}행 중 {bad}행 불일치"),
                 Some(
                     "삭제가 엉뚱한 FTS 행을 지우고 있다. `kebab reset` 후 재색인으로 \
                      인덱스를 다시 만들어라"
                         .to_string(),
                 ),
             ),
-            // No store yet, or the probe itself failed — either way this
-            // is not evidence of drift, and claiming health would be
-            // worse than saying we could not look.
-            None => (true, "확인 불가 (KB 없음)".to_string(), None),
         };
         checks.push(DoctorCheck {
             name: "fts_shadow".to_string(),

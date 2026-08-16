@@ -91,7 +91,7 @@ Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go
 | `kebab fetch chunk\|doc\|span <id> [flags]` | indexed corpus 에서 verbatim text fetch |
 | `kebab eval run \| aggregate \| compare \| variants` | golden query 회귀 측정 + 변형 일관성 진단. `compare --max-drop <낙폭>` 은 어떤 지표든 그 이상 **떨어지면** exit 1 — 절대 하한이 아니라 델타 예산이다 (없으면 delta 만 출력하고 항상 exit 0) |
 | `kebab schema [--json]` | introspection — wire schemas / capabilities / models / stats |
-| `kebab doctor` | 설정 / 모델 / DB 헬스 체크. `vector_store` 체크는 Lance fragment·버전 수를 정보성으로 보여준다(종료 코드에 영향 없음) |
+| `kebab doctor` | 설정 / 모델 / DB 헬스 체크. `vector_store` 체크는 Lance fragment·버전 수를 정보성으로 보여준다(종료 코드에 영향 없음). `fts_shadow` 체크는 어휘 인덱스가 원본과 어긋났는지 보며, **어긋나면 exit 3** — 이 상태에서는 문서 삭제가 엉뚱한 인덱스 행을 지운다 |
 | `kebab mcp` | MCP stdio server (`search` / `bulk_search` / `ask` / `fetch` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`) |
 | `kebab reset [--all \| --data-only \| --vector-only \| --config-only \| --orphans-only] [--yes]` | XDG 데이터 wipe (**irreversible**) |
 

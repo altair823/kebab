@@ -852,8 +852,9 @@ fn fts_v016_shadow_probe_detects_forced_drift() {
     }
     assert_eq!(
         store.fts_shadow_misaligned_sample(200).unwrap(),
-        0,
-        "a freshly written shadow must be aligned"
+        (3, 0),
+        "a freshly written shadow must be aligned, and the two rowid \
+         windows must not double-count a store smaller than the sample"
     );
 
     // Shift one shadow row off its source. `chunks_fts` rows are not
@@ -868,8 +869,15 @@ fn fts_v016_shadow_probe_detects_forced_drift() {
     )
     .expect("reinsert at a drifted rowid");
 
-    assert!(
-        store.fts_shadow_misaligned_sample(200).unwrap() > 0,
-        "the probe must report the drifted row"
+    assert_eq!(
+        store.fts_shadow_misaligned_sample(200).unwrap(),
+        (3, 1),
+        "the probe must report the one drifted row out of three checked"
+    );
+    assert_eq!(
+        store.migration_version(),
+        Some(16),
+        "a migrated store must report V016 so doctor can tell it apart \
+         from a pre-V016 one, where the same drift is harmless"
     );
 }

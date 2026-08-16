@@ -83,3 +83,96 @@ fn doctor_flags_outdated_config() {
         .unwrap();
     assert!(check.ok, "after migrate should pass");
 }
+
+/// `doctor` is a diagnostic and must not manufacture the store it is
+/// asked about. The `fts_shadow` check (issue #229 / V016) reads SQLite,
+/// and `SqliteStore::open` creates the file — so on a machine with no KB
+/// yet, running doctor once used to leave an empty `kebab.sqlite` behind.
+#[test]
+fn doctor_does_not_create_a_store_where_none_exists() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let cfg = dir.path().join("config.toml");
+    fs::write(
+        &cfg,
+        format!(
+            "schema_version = 1\n\n[workspace]\nroot = \"/n\"\ninclude=[\"*.md\"]\n\n\
+             [storage]\ndata_dir = \"{}\"\n",
+            data.display()
+        ),
+    )
+    .unwrap();
+
+    let report = kebab_app::doctor_with_config_path(Some(&cfg)).unwrap();
+    let check = report
+        .checks
+        .iter()
+        .find(|c| c.name == "fts_shadow")
+        .expect("doctor must report fts_shadow even with no store");
+    assert!(check.ok, "a missing store is not a drifted one");
+
+    assert!(
+        !data.join(kebab_store_sqlite::SQLITE_FILE).exists(),
+        "doctor must not create {} — it only reports",
+        kebab_store_sqlite::SQLITE_FILE
+    );
+}
+
+/// A store that predates V016 can be misaligned already — V009's
+/// backfill inserted without an explicit rowid — but there the delete
+/// trigger still addresses rows by chunk_id, so the drift is harmless.
+/// Telling that user to `kebab reset` would destroy a healthy KB over a
+/// condition that applying the migration fixes by itself.
+#[test]
+fn doctor_does_not_call_a_pre_v016_store_broken() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let cfg = dir.path().join("config.toml");
+    fs::write(
+        &cfg,
+        format!(
+            "schema_version = 1\n\n[workspace]\nroot = \"/n\"\ninclude=[\"*.md\"]\n\n\
+             [storage]\ndata_dir = \"{}\"\n",
+            data.display()
+        ),
+    )
+    .unwrap();
+
+    // A store stamped at V015 with a shadow deliberately misaligned:
+    // exactly what a pre-V016 upgrade can look like.
+    let db = data.join(kebab_store_sqlite::SQLITE_FILE);
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE refinery_schema_history (version INTEGER);
+         INSERT INTO refinery_schema_history VALUES (15);
+         CREATE TABLE chunks (chunk_id TEXT PRIMARY KEY, text TEXT);
+         CREATE VIRTUAL TABLE chunks_fts USING fts5(chunk_id UNINDEXED, text);
+         INSERT INTO chunks VALUES ('a', 'x'), ('b', 'y');
+         INSERT INTO chunks_fts(rowid, chunk_id, text) VALUES (77, 'a', 'x');",
+    )
+    .unwrap();
+    drop(conn);
+
+    let report = kebab_app::doctor_with_config_path(Some(&cfg)).unwrap();
+    let check = report
+        .checks
+        .iter()
+        .find(|c| c.name == "fts_shadow")
+        .unwrap();
+    assert!(
+        check.ok,
+        "a pre-V016 store must not fail the check: {}",
+        check.detail
+    );
+    assert!(
+        check.detail.contains("V016"),
+        "the detail should say the migration has not been applied, got {:?}",
+        check.detail
+    );
+    assert!(
+        check.hint.as_deref().unwrap_or_default().is_empty(),
+        "and must not tell the user to reset: {:?}",
+        check.hint
+    );
+}
