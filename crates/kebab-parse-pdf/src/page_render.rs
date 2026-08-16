@@ -128,10 +128,13 @@ impl RenderedPdf<'_> {
     /// that costs recognition accuracy. The bytes go straight to an OCR
     /// engine and are never stored, so the size difference is transient.
     ///
-    /// `long_edge_px` caps the longer side. It is the same budget the OCR
-    /// config already spends on images (`max_pixels`), so a page cannot
-    /// blow past what the engine is willing to take.
-    pub fn render_page_png(&self, page_num: u32, long_edge_px: u32) -> Result<Vec<u8>> {
+    /// `dpi` is the requested resolution; `max_px` is the ceiling the OCR
+    /// engine will accept on either side, and it wins. The page's own
+    /// size comes from pdfium, which already parsed it — asking the PDF
+    /// dictionary ourselves would mean reimplementing `/MediaBox`
+    /// inheritance and `/UserUnit`, and getting it wrong silently
+    /// produces a differently-sized render.
+    pub fn render_page_png(&self, page_num: u32, dpi: u32, max_px: u32) -> Result<Vec<u8>> {
         let index = i32::try_from(page_num.saturating_sub(1))
             .with_context(|| format!("page {page_num} out of pdfium's index range"))?;
         let page = self
@@ -140,14 +143,24 @@ impl RenderedPdf<'_> {
             .get(index)
             .with_context(|| format!("pdfium: get page {page_num}"))?;
 
-        // Bound both sides rather than forcing one. Setting a target
-        // width alone lets a tall page render to whatever height the
-        // aspect ratio implies, which on a long scan is an allocation
-        // pdfium aborts on — it throws `length_error` from C++ with
-        // exceptions disabled, so it takes the process with it rather
-        // than returning an error we could downgrade to a skip.
-        let cap = i32::try_from(long_edge_px.max(1)).unwrap_or(i32::MAX);
+        let long_edge_pt = page.width().value.max(page.height().value);
+        let cap = i32::try_from(long_edge_for_dpi(long_edge_pt, dpi, max_px)).unwrap_or(i32::MAX);
+
+        // All three, and the combination is the point.
+        //
+        // `set_maximum_*` alone does not scale — it only clamps a render
+        // that would otherwise exceed it. With no target and no scale
+        // factor pdfium renders at 1pt-to-1px, i.e. 72 DPI, and
+        // `render_dpi` silently does nothing. A target alone is what
+        // makes a long scan allocate past what pdfium will take: it
+        // throws `length_error` from C++ with exceptions disabled, which
+        // aborts the process rather than returning an error we could
+        // downgrade to a skip. Target sets the scale, the maxima bound
+        // it, and together they also keep the aspect ratio — the
+        // clamp-only path sets `do_maintain_aspect_ratio = false` and
+        // squashes the page.
         let config = PdfRenderConfig::new()
+            .set_target_width(cap)
             .set_maximum_width(cap)
             .set_maximum_height(cap);
 

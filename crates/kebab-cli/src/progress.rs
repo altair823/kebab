@@ -475,19 +475,25 @@ impl ProgressDisplay {
                         // one the OCR engine failed on. Collapsing both
                         // into "no DCTDecode or engine fail" told the user
                         // neither.
+                        // Two different failures wear the same ⊘ here, and
+                        // only one of them is counted in the run summary's
+                        // `ocr-skipped`. Say which, so the line and the
+                        // count can be reconciled: the page never produced
+                        // an image to read, or the engine failed to read
+                        // one that it did get.
                         let why = match failure_reason.as_deref() {
                             Some("no_renderer") => {
-                                " — 이 페이지의 인코딩은 페이지 렌더러 없이 읽을 수 없다"
+                                "래스터 없음 — 이 페이지의 인코딩은 페이지 렌더러 없이 읽을 수 없다"
                             }
-                            Some("render_error") => " — 페이지 렌더링 실패",
-                            Some(other) => {
-                                let _ =
-                                    writeln!(err, "  ⊘ OCR page {page} 건너뜀 — {other} ({ms}ms)");
-                                return Ok(());
+                            Some("render_error") => "래스터 없음 — 페이지 렌더링 실패",
+                            Some("unopenable_pdf") => {
+                                "래스터 없음 — 렌더러가 이 PDF 를 열지 못했다"
                             }
-                            None => "",
+                            Some("ocr_error") => "OCR 엔진 실패",
+                            Some(other) => other,
+                            None => "사유 미상",
                         };
-                        let _ = writeln!(err, "  ⊘ OCR page {page} 건너뜀{why} ({ms}ms)");
+                        let _ = writeln!(err, "  ⊘ OCR page {page} 건너뜀 — {why} ({ms}ms)");
                     } else {
                         let _ = writeln!(
                             err,

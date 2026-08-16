@@ -217,7 +217,7 @@
     "ocr_skipped_pages": {
       "type": "integer",
       "minimum": 0,
-      "description": "PDF pages the text gate classified as scans but which produced no raster to OCR, so their content is not indexed (issue #232). Additive; absent in pre-v0.33 output and read as 0."
+      "description": "PDF pages the text gate classified as scans but which produced no raster to OCR, so their content is not indexed (issue #232). Counts pages with no image to read (pdf_ocr_finished.failure_reason of no_renderer / render_error / unopenable_pdf), not pages the OCR engine failed on. Additive; absent in pre-v0.33 output and read as 0."
     }
   }
 }

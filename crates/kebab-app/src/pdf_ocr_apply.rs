@@ -112,6 +112,11 @@ enum RasterFailure {
     NoRenderer(Vec<String>),
     /// A renderer was configured and rasterizing this page failed.
     Render(String),
+    /// A renderer was configured but could not open this PDF at all, so
+    /// no page of it can be rendered. Distinct from `NoRenderer` because
+    /// telling a user who already configured a renderer to configure one
+    /// is the wrong instruction.
+    Unopenable,
 }
 
 impl RasterFailure {
@@ -121,6 +126,7 @@ impl RasterFailure {
         match self {
             Self::NoRenderer(_) => "no_renderer",
             Self::Render(_) => "render_error",
+            Self::Unopenable => "unopenable_pdf",
         }
     }
 
@@ -139,6 +145,11 @@ impl RasterFailure {
                 )
             }
             Self::Render(e) => format!("page renderer failed: {e}"),
+            Self::Unopenable => {
+                "the page renderer could not open this PDF, so no page of it could be \
+                 rasterized; the file may be malformed or encrypted"
+                    .to_string()
+            }
         }
     }
 }
@@ -203,55 +214,6 @@ fn page_filters(doc: &LopdfDocument, page_num: u32) -> Vec<String> {
     names
 }
 
-/// A page's longer side in PDF points, for the DPI calculation.
-///
-/// Falls back to A4 when the page has no usable `/MediaBox` — a wrong
-/// guess costs a differently-sized render, while returning zero would
-/// ask pdfium for an empty bitmap.
-fn page_long_edge_pt(doc: &LopdfDocument, page_num: u32) -> f32 {
-    use lopdf::Object;
-    const A4_LONG_EDGE_PT: f32 = 841.89;
-
-    let Some(&page_oid) = doc.get_pages().get(&page_num) else {
-        return A4_LONG_EDGE_PT;
-    };
-    let Ok(page) = doc.get_dictionary(page_oid) else {
-        return A4_LONG_EDGE_PT;
-    };
-    let media = match page.get(b"MediaBox").ok() {
-        Some(Object::Array(a)) => a.clone(),
-        Some(Object::Reference(r)) => match doc.get_object(*r) {
-            Ok(Object::Array(a)) => a.clone(),
-            _ => return A4_LONG_EDGE_PT,
-        },
-        _ => return A4_LONG_EDGE_PT,
-    };
-    if media.len() != 4 {
-        return A4_LONG_EDGE_PT;
-    }
-    let num = |o: &Object| -> Option<f32> {
-        match o {
-            Object::Integer(i) => Some(*i as f32),
-            Object::Real(f) => Some(*f),
-            _ => None,
-        }
-    };
-    let (Some(x0), Some(y0), Some(x1), Some(y1)) = (
-        num(&media[0]),
-        num(&media[1]),
-        num(&media[2]),
-        num(&media[3]),
-    ) else {
-        return A4_LONG_EDGE_PT;
-    };
-    let long = (x1 - x0).abs().max((y1 - y0).abs());
-    if long.is_finite() && long >= 1.0 {
-        long
-    } else {
-        A4_LONG_EDGE_PT
-    }
-}
-
 /// Post-extract OCR enrichment for PDF. Walks `canonical.blocks` page-by-page,
 /// classifies each page via `text_quality::compute_valid_char_ratio` +
 /// `min_char_count`, and either:
@@ -294,6 +256,7 @@ where
     // failure here is not fatal: the DCTDecode path still reads the pages
     // that are a single JPEG, and reporting per page is what tells the
     // user which pages lost content and why.
+    let renderer_configured = opts.renderer.is_some();
     let rendered = opts
         .renderer
         .as_ref()
@@ -346,21 +309,31 @@ where
 
         emit_progress(PdfOcrProgress::Started { page: page_num });
 
-        let rasterized = match rendered.as_ref() {
-            Some(doc) => {
-                let long_edge = kebab_parse_pdf::long_edge_for_dpi(
-                    page_long_edge_pt(&pdf_doc, page_num),
-                    opts.render_dpi,
-                    opts.max_pixels,
-                );
-                match doc.render_page_png(page_num, long_edge) {
-                    Ok(png) => Ok(png),
-                    Err(e) => Err(RasterFailure::Render(e.to_string())),
-                }
-            }
-            // No renderer: read back an embedded JPEG, which only exists
-            // when the page is exactly one DCTDecode image.
-            None => match extract_dctdecode_page_image(&pdf_doc, page_num)? {
+        // Read back an embedded JPEG. Only works when the page is exactly
+        // one DCTDecode image, which is why rendering exists — but it is
+        // still the right thing to try when rendering is unavailable or
+        // fails for this particular page.
+        let dct = |doc: &LopdfDocument| extract_dctdecode_page_image(doc, page_num);
+
+        let rasterized = match (rendered.as_ref(), renderer_configured) {
+            (Some(doc), _) => match doc.render_page_png(page_num, opts.render_dpi, opts.max_pixels)
+            {
+                Ok(png) => Ok(png),
+                // Per-page fallback: one page failing to render must not
+                // cost content that the DCTDecode path could still read.
+                // Configuring a renderer should never make a page worse
+                // off than not having one.
+                Err(e) => match dct(&pdf_doc)? {
+                    Some(b) => Ok(b),
+                    None => Err(RasterFailure::Render(e.to_string())),
+                },
+            },
+            // A renderer is configured but could not open this PDF.
+            (None, true) => match dct(&pdf_doc)? {
+                Some(b) => Ok(b),
+                None => Err(RasterFailure::Unopenable),
+            },
+            (None, false) => match dct(&pdf_doc)? {
                 Some(b) => Ok(b),
                 None => Err(RasterFailure::NoRenderer(page_filters(&pdf_doc, page_num))),
             },

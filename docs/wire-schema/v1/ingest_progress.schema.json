@@ -172,7 +172,7 @@
     },
     "failure_reason": {
       "type": "string",
-      "description": "pdf_ocr_finished: why the page was skipped. \"no_renderer\" — no page renderer configured and the page is not a single DCTDecode image, so no raster could be produced (issue #232). \"render_error\" — a renderer was configured and rasterizing failed. \"ocr_error\" — the OCR engine itself failed. Absent when the page succeeded."
+      "description": "pdf_ocr_finished: why the page was skipped. \"no_renderer\" — no page renderer configured and the page is not a single DCTDecode image, so no raster could be produced (issue #232). \"render_error\" — a renderer was configured and rasterizing this page failed. \"unopenable_pdf\" — a renderer was configured but could not open the PDF at all. \"ocr_error\" — a raster was produced but the OCR engine failed on it. Absent when the page succeeded. The first three are the ones counted in ingest_report.ocr_skipped_pages."
     },
     "counts": {
       "type": "object",

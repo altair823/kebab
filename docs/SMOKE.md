@@ -349,7 +349,7 @@ valid_ratio_threshold = 0.5  # PDF 고유 키 (image 에 없음)
 min_char_count = 20
 lang_hint = "kor"
 # render_library = "/usr/lib/libpdfium.so"   # 있으면 모든 인코딩의 스캔 페이지 OCR
-render_dpi = 300             # 렌더 해상도. max_pixels 가 상한
+render_dpi = 300             # 렌더 해상도 요청. 실효값은 max_pixels 가 결정
 ```
 
 > `render_library` 를 비워 두면 로더 경로에서 찾고, 못 찾으면 **단일 DCTDecode(JPEG) 페이지만** OCR 된다. CCITTFax·JBIG2·Flate·JPX 스캔은 본문 없이 색인되고 그 건수가 `ocr-skipped` 로 찍힌다. `kebab doctor` 의 `pdf_render` 로 확인.
@@ -713,7 +713,7 @@ KB --json schema | jq '.stats.code_lang_breakdown'
 - 코퍼스에 없는 주제로 `kebab ask` → `refusal_reason: "llm_self_judge"` (또는 `no_chunks` / `score_gate`) + `grounded: false`.
 - (P6-4) `image.ocr.enabled = true` 로 PNG 자산을 ingest 하면 `kebab list docs` 가 markdown 옆에 image doc 도 출력 (`workspace_path` 가 `*.png`). `kebab inspect doc <image_doc_id>` 의 `block.ocr.joined` 가 vision LM 의 OCR 결과 (예: 스크린샷 안의 텍스트). `kebab search --mode lexical "<OCR text>"` 가 그 image chunk 를 반환하면 wiring 정상.
 - OCR / caption 부분 실패는 `errors` 카운터 미증가 — `kebab inspect doc <id>` 의 Provenance Warning 이벤트 또는 `--debug` 로그에서만 확인.
-- (P7-3) `*.pdf` 자산을 워크스페이스에 두면 `kebab ingest` 출력에 PDF 도 `new` 카운터에 포함. `kebab inspect doc <pdf_doc_id>` 가 `parser_version = "pdf-text-v1"` + 페이지마다 `Block::Paragraph` + `SourceSpan::Page { page, char_start, char_end }`. 본문에 등장하는 단어로 `kebab search --mode hybrid` 시 PDF chunk 가 결과에 포함되고 `source_span.kind = "page"` 면 wiring 정상. 암호화 PDF 는 `errors+=1` 로 분류되며 `error` 필드에 `qpdf --decrypt` 안내 보존. 빈/스캔 페이지 (PDF 가 텍스트를 추출하지 못한 페이지) 는 0 chunk + `Provenance::Warning` ("scanned candidate") 로 표시 — P+ scanned-PDF OCR fallback 까지는 검색 불가.
+- (P7-3) `*.pdf` 자산을 워크스페이스에 두면 `kebab ingest` 출력에 PDF 도 `new` 카운터에 포함. `kebab inspect doc <pdf_doc_id>` 가 `parser_version = "pdf-text-v2"` + 페이지마다 `Block::Paragraph` + `SourceSpan::Page { page, char_start, char_end }`. 본문에 등장하는 단어로 `kebab search --mode hybrid` 시 PDF chunk 가 결과에 포함되고 `source_span.kind = "page"` 면 wiring 정상. 암호화 PDF 는 `errors+=1` 로 분류되며 `error` 필드에 `qpdf --decrypt` 안내 보존. 빈/스캔 페이지 (PDF 가 텍스트를 추출하지 못한 페이지) 는 0 chunk + `Provenance::Warning` ("scanned candidate") 로 표시 — P+ scanned-PDF OCR fallback 까지는 검색 불가.
 
 ## config migrate (마이그레이션)
 

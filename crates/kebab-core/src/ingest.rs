@@ -60,6 +60,11 @@ pub struct IngestReport {
     /// and nothing else: the run reported success, and the absence only
     /// showed up later as a search that found nothing. Additive field —
     /// older wire consumers read it as 0 via `#[serde(default)]`.
+    ///
+    /// Counts pages with no image to read, not pages the OCR engine
+    /// failed on — those are engine errors, already tracked separately,
+    /// and lumping them together would hide which of the two a run hit.
+    /// The progress line names the cause for each.
     #[serde(default)]
     pub ocr_skipped_pages: u32,
     /// `None` ↔ wire `items: null` (`--summary-only`).

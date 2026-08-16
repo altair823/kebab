@@ -831,9 +831,15 @@ pub struct PdfOcrCfg {
     /// single-binary property. `kebab doctor` reports which mode is live.
     #[serde(default)]
     pub render_library: Option<String>,
-    /// Rendering resolution in DPI. Default `300` — the scanning
-    /// convention, and what OCR engines are tuned for. Bounded above by
-    /// `max_pixels`, which is the engine's real limit.
+    /// Requested rendering resolution in DPI. Default `300` — the
+    /// scanning convention, and what OCR engines are tuned for.
+    ///
+    /// **`max_pixels` wins.** It is the ceiling the OCR engine will
+    /// accept on either side, so the effective resolution is whatever
+    /// fits: an A4 page at the PDF default `max_pixels = 2048` tops out
+    /// near 175 DPI no matter what is asked for here. Raise `max_pixels`
+    /// to actually reach 300 (A4 needs ~3500), at the cost of a larger
+    /// image for the engine to chew on.
     #[serde(default = "default_pdf_render_dpi")]
     pub render_dpi: u32,
 }

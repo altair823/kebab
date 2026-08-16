@@ -476,7 +476,7 @@ pub fn doctor_with_config_path(
             Err(e) => (
                 "페이지 렌더러 없음 — 단일 DCTDecode 이미지 페이지만 OCR 된다".to_string(),
                 Some(format!(
-                    "CCITTFax / JBIG2 / Flate / JPX 스캔은 본문 없이 색인된다.                      libpdfium 을 로더 경로에 두거나 `[ingest.pdf.ocr] render_library`                      로 지정하라 ({e})"
+                    "CCITTFax / JBIG2 / Flate / JPX 스캔은 본문 없이 색인된다. libpdfium 을 로더 경로에 두거나 `[ingest.pdf.ocr] render_library` 로 지정하라 ({e})"
                 )),
             ),
         };
