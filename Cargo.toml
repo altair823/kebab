@@ -145,10 +145,6 @@ fastembed    = "4.9"
 # crate matches that major to share the same Arrow types without a
 # re-export adapter.
 lancedb      = { version = "0.23", default-features = false }
-# lancedb 의 OptimizeAction::Prune 이 chrono::Duration 을 받는다 (lancedb 는
-# chrono 를 re-export 하지 않는다). 이미 트리에 들어와 있는 크레이트라 빌드
-# 비용은 늘지 않는다.
-chrono       = { version = "0.4", default-features = false }
 arrow        = "56"
 arrow-array  = "56"
 arrow-schema = "56"

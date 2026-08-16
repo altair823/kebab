@@ -10,7 +10,7 @@
 //! Measured on a 16.8k-document dogfood KB before the fix: ingest decayed
 //! from 30.7 to 4.3 documents/min, and `_versions/` held 12.2 GB of
 //! manifests against 1.7 GB of actual vectors. One full compaction took
-//! 102 s and brought the table back to 1.70 GB / 1 version.
+//! 153 s and brought the table back to 1.70 GB / 1 version.
 //!
 //! This test drives many more upserts than the compaction interval and
 //! asserts the on-disk version count stays bounded.

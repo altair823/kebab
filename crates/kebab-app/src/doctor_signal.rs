@@ -38,7 +38,7 @@ impl fmt::Display for NoHitSignal {
 
 impl std::error::Error for NoHitSignal {}
 
-/// `kebab eval compare --fail-under` found a metric that regressed past
+/// `kebab eval compare --max-drop` found a metric that regressed past
 /// the tolerance. Like the others here this is normal output, not a
 /// failure — it just has to reach the shell as a non-zero status so a
 /// golden set can actually gate something.

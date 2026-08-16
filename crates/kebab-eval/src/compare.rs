@@ -515,7 +515,9 @@ pub fn regressions(report: &CompareReport, tolerance: f64) -> Vec<String> {
             return;
         }
         if bv.is_nan() {
-            out.push(format!("{name}: {av:.4} -> 측정 불가 (B 에서 지표가 사라짐)"));
+            out.push(format!(
+                "{name}: {av:.4} -> 측정 불가 (B 에서 지표가 사라짐)"
+            ));
             return;
         }
         let delta = f64::from(bv - av);

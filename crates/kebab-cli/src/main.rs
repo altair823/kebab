@@ -457,13 +457,14 @@ enum EvalWhat {
         /// `runs_dir/<run_b>/report.md`.
         #[arg(long)]
         write_report: bool,
-        /// Exit 1 when any metric got worse by more than this much
-        /// (e.g. `--fail-under 0.03`). Without it `compare` prints
-        /// deltas and always exits 0, so a golden set cannot gate
+        /// Exit 1 when any metric dropped by more than this much
+        /// (e.g. `--max-drop 0.03` tolerates a 3-point fall). This is a
+        /// **delta** budget, not an absolute floor. Without it `compare`
+        /// prints deltas and always exits 0, so a golden set cannot gate
         /// anything. `empty_result_rate` is checked in the opposite
         /// direction — a rise there is the regression.
-        #[arg(long)]
-        fail_under: Option<f64>,
+        #[arg(long, value_name = "DELTA")]
+        max_drop: Option<f64>,
     },
 }
 
@@ -1461,7 +1462,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     run_b,
                     strict_chunker_version,
                     write_report,
-                    fail_under,
+                    max_drop,
                 } => {
                     let opts = kebab_eval::CompareOpts {
                         strict_chunker_version: *strict_chunker_version,
@@ -1488,17 +1489,23 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                             eprintln!("wrote {}", path.display());
                         }
                     }
-                    if let Some(tol) = *fail_under {
+                    if let Some(tol) = *max_drop {
+                        if !(tol.is_finite() && tol >= 0.0) {
+                            anyhow::bail!(
+                                "--max-drop 은 0 이상의 유한한 수여야 한다 (받은 값: {tol}). \
+                                 음수나 nan 은 게이트를 무력화한다"
+                            );
+                        }
                         let bad = kebab_eval::regressions(&report, tol);
                         if !bad.is_empty() {
-                            eprintln!("eval regression (허용치 {tol}):");
+                            eprintln!("eval regression (허용 낙폭 {tol}):");
                             for line in &bad {
                                 eprintln!("  {line}");
                             }
                             return Err(EvalRegression.into());
                         }
                         if !cli.json {
-                            eprintln!("eval: 허용치 {tol} 안 — 회귀 없음");
+                            eprintln!("eval: 허용 낙폭 {tol} 안 — 회귀 없음");
                         }
                     }
                     Ok(())

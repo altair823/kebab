@@ -31,7 +31,7 @@ git history.
 
 이슈 #230 이 11,229 문서 시점에 잰 메타/실데이터 비율은 2.5배였는데, 16,828 문서에서는 **7.2배**였다 — 제곱 증가가 두 지점으로 확인됨.
 
-수정: `COMPACT_EVERY_N_UPSERTS = 512` 마다 Compact + Prune. 기존 테이블 1회 압축은 **153초에 15 GB → 1.7 GB**(행 365,991 보존)로 끝났다. 즉 #230 본문의 "회복 수단이 `reset --vector-only`(전량 재임베딩) 밖에 없다" 는 사실이 아니다.
+수정: `COMPACT_EVERY_N_UPSERTS = 512` 마다 Compact + Prune. 기존 테이블 1회 압축은 **153초에 15 GB → 1.7 GB**(행 365,991 보존)로 끝났다. 트리거는 이 struct 의 카운터가 아니라 **Lance 테이블 자신의 version** 이다 — 인메모리 카운터는 `kebab ingest-file` 이나 MCP `ingest_file` 처럼 호출마다 store 를 새로 여는 경로에서 매번 0 으로 되돌아가 영영 512 에 못 닿는다. 즉 #230 본문의 "회복 수단이 `reset --vector-only`(전량 재임베딩) 밖에 없다" 는 사실이 아니다.
 
 미해결(같은 이슈의 나머지): 삭제 경로 배치화(제안 1), geodatafusion(제안 3), doctor 지표(제안 4).
 
@@ -67,7 +67,7 @@ citation_coverage 1.0 · groundedness 0.3905 · refusal_correctness 0.1667
 
 실패한 9개 그룹은 **전부 para(내용 서술) 변형**이다. 7개는 top-50 에는 있고 top-10 밖(MisRanked, 랭킹 문제), 2개는 top-50 에도 없다(Missing, 어휘 격차).
 
-`kebab eval compare --fail-under <허용치>` 를 추가했다. 이전에는 delta 만 출력하고 exit code 가 항상 0 이라 "회귀했는가"를 기계가 판정할 수 없었다. `empty_result_rate` 는 반대 방향으로 검사하고, **A 에서 재던 지표가 B 에서 NaN 이 되면 위반**으로 잡는다(골든셋이 ground truth 를 잃은 경우가 정확히 그 모양이다).
+`kebab eval compare --max-drop <낙폭>` 을 추가했다. 이름은 절대 하한이 아니라 **델타 예산**임을 드러내려고 고른 것이다 — `--fail-under 0.9` 를 "recall 0.9 밑이면 실패"로 읽으면 recall 이 0.95→0.10 으로 무너져도 낙폭 0.85 < 0.9 라 통과하는 함정이 있었다. 음수·nan 은 시작 시점에 거부한다. 이전에는 delta 만 출력하고 exit code 가 항상 0 이라 "회귀했는가"를 기계가 판정할 수 없었다. `empty_result_rate` 는 반대 방향으로 검사하고, **A 에서 재던 지표가 B 에서 NaN 이 되면 위반**으로 잡는다(골든셋이 ground truth 를 잃은 경우가 정확히 그 모양이다).
 
 ### 남은 문제 — `refusal_correctness 0.1667`
 
