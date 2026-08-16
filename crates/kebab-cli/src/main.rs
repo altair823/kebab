@@ -7,7 +7,7 @@ use std::process::ExitCode;
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 
-use kebab_app::doctor_signal::{DoctorUnhealthy, NoHitSignal, RefusalSignal};
+use kebab_app::doctor_signal::{DoctorUnhealthy, EvalRegression, NoHitSignal, RefusalSignal};
 
 mod cancel;
 mod progress;
@@ -457,6 +457,13 @@ enum EvalWhat {
         /// `runs_dir/<run_b>/report.md`.
         #[arg(long)]
         write_report: bool,
+        /// Exit 1 when any metric got worse by more than this much
+        /// (e.g. `--fail-under 0.03`). Without it `compare` prints
+        /// deltas and always exits 0, so a golden set cannot gate
+        /// anything. `empty_result_rate` is checked in the opposite
+        /// direction — a rise there is the regression.
+        #[arg(long)]
+        fail_under: Option<f64>,
     },
 }
 
@@ -574,6 +581,9 @@ fn exit_code(err: &anyhow::Error) -> u8 {
         return 1;
     }
     if err.downcast_ref::<NoHitSignal>().is_some() {
+        return 1;
+    }
+    if err.downcast_ref::<EvalRegression>().is_some() {
         return 1;
     }
     if err.downcast_ref::<DoctorUnhealthy>().is_some() {
@@ -1451,6 +1461,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     run_b,
                     strict_chunker_version,
                     write_report,
+                    fail_under,
                 } => {
                     let opts = kebab_eval::CompareOpts {
                         strict_chunker_version: *strict_chunker_version,
@@ -1475,6 +1486,19 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                         std::fs::write(&path, &md)?;
                         if !cli.json {
                             eprintln!("wrote {}", path.display());
+                        }
+                    }
+                    if let Some(tol) = *fail_under {
+                        let bad = kebab_eval::regressions(&report, tol);
+                        if !bad.is_empty() {
+                            eprintln!("eval regression (허용치 {tol}):");
+                            for line in &bad {
+                                eprintln!("  {line}");
+                            }
+                            return Err(EvalRegression.into());
+                        }
+                        if !cli.json {
+                            eprintln!("eval: 허용치 {tol} 안 — 회귀 없음");
                         }
                     }
                     Ok(())

@@ -21,6 +21,7 @@ kebab-store-sqlite = { path = "../kebab-store-sqlite" }
 # oss); kb is always-local for v1, so dragging in those SDKs would just
 # inflate the build.
 lancedb         = { workspace = true }
+chrono          = { workspace = true }
 arrow           = { workspace = true }
 arrow-array     = { workspace = true }
 arrow-schema    = { workspace = true }

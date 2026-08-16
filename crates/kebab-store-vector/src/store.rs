@@ -6,6 +6,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result};
 use arrow_array::{Array, Float32Array, RecordBatch, StringArray};
@@ -18,6 +19,7 @@ use kebab_core::{
 use kebab_store_sqlite::{EmbeddingRecordRow, SqliteStore};
 use lancedb::Connection;
 use lancedb::query::{ExecutableQuery, QueryBase};
+use lancedb::table::{CompactionOptions, OptimizeAction};
 use serde_json::json;
 use time::OffsetDateTime;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
@@ -50,6 +52,26 @@ const INDEX_VERSION: &str = "v1";
 /// reaching into a private constant.
 pub const INDEX_VERSION_STR: &str = INDEX_VERSION;
 
+/// Upserts between Lance compactions.
+///
+/// Every `upsert` is one `merge_insert`, which creates a new table
+/// version whose manifest lists **every** fragment in the table. kebab
+/// upserts once per document, so an N-document ingest ends up with N
+/// fragments and an N-entry manifest rewritten on every write: per-write
+/// cost grows linearly with corpus size, manifest bytes quadratically.
+///
+/// Measured on a 16.8k-document dogfood KB with this compaction absent:
+/// ingest decayed 30.7 → 4.3 documents/min, and `_versions/` held 12.2 GB
+/// of manifests against 1.7 GB of vectors. A single full compaction of
+/// that table took 102 s and returned it to 1.70 GB / 1 version.
+///
+/// The interval trades compaction work (each pass rewrites the table)
+/// against manifest size. At 512 the rewrite cost over a 30k-document
+/// ingest is roughly an hour, well under what the un-compacted manifests
+/// cost — and the tail of that ingest stays at full speed instead of
+/// running seven times slower.
+const COMPACT_EVERY_N_UPSERTS: u64 = 512;
+
 /// Lance VectorStore.
 ///
 /// Holds a single `lancedb::Connection` opened against
@@ -79,6 +101,11 @@ pub struct LanceVectorStore {
     /// only — the `Connection` already knows it.
     #[allow(dead_code)]
     vector_dir: PathBuf,
+    /// Upserts between compactions. See [`COMPACT_EVERY_N_UPSERTS`].
+    compact_every: u64,
+    /// Upserts since the last compaction. `upsert` takes `&self`, so the
+    /// counter needs interior mutability.
+    upserts_since_compact: AtomicU64,
 }
 
 impl LanceVectorStore {
@@ -94,6 +121,21 @@ impl LanceVectorStore {
     /// within a runtime"`. See the struct-level `# Async context`
     /// section.
     pub fn new(storage: &kebab_config::StorageCfg, sqlite: Arc<SqliteStore>) -> Result<Self> {
+        Self::new_with_compact_interval(storage, sqlite, COMPACT_EVERY_N_UPSERTS)
+    }
+
+    /// [`LanceVectorStore::new`] with an explicit compaction interval.
+    ///
+    /// `#[doc(hidden)]` but public: the integration test drives the
+    /// compaction path with a small interval instead of issuing
+    /// [`COMPACT_EVERY_N_UPSERTS`] upserts. Not a config surface —
+    /// production always goes through `new`.
+    #[doc(hidden)]
+    pub fn new_with_compact_interval(
+        storage: &kebab_config::StorageCfg,
+        sqlite: Arc<SqliteStore>,
+        compact_every: u64,
+    ) -> Result<Self> {
         let data_dir = expand_path(&storage.data_dir, "");
         let vector_dir = expand_path(&storage.vector_dir, &data_dir.to_string_lossy());
         std::fs::create_dir_all(&vector_dir)
@@ -125,6 +167,34 @@ impl LanceVectorStore {
             connection,
             sqlite,
             vector_dir,
+            compact_every,
+            upserts_since_compact: AtomicU64::new(0),
+        })
+    }
+
+    /// Compact the table's fragments and drop superseded versions.
+    ///
+    /// `delete_unverified` is safe here: kebab's ingest is a single
+    /// synchronous process and this runs between upserts, so there is no
+    /// in-flight Lance transaction whose files could be reclaimed.
+    fn compact_table(&self, table: &lancedb::Table) -> Result<()> {
+        self.runtime.block_on(async {
+            table
+                .optimize(OptimizeAction::Compact {
+                    options: CompactionOptions::default(),
+                    remap_options: None,
+                })
+                .await
+                .context("Lance compact")?;
+            table
+                .optimize(OptimizeAction::Prune {
+                    older_than: Some(chrono::Duration::zero()),
+                    delete_unverified: Some(true),
+                    error_if_tagged_old_versions: None,
+                })
+                .await
+                .context("Lance prune")?;
+            Result::<()>::Ok(())
         })
     }
 
@@ -270,6 +340,28 @@ impl VectorStore for LanceVectorStore {
             rows = recs.len(),
             "upsert committed"
         );
+
+        // Fold the per-document fragments back together every so often.
+        // Failure here is not fatal — the data is already committed and
+        // the next interval retries — but it must be loud, because the
+        // symptom of silently skipping it is a slow ingest much later.
+        if self.upserts_since_compact.fetch_add(1, Ordering::Relaxed) + 1 >= self.compact_every {
+            self.upserts_since_compact.store(0, Ordering::Relaxed);
+            if let Err(e) = self.compact_table(&table) {
+                tracing::warn!(
+                    target: "kebab-store-vector",
+                    table = %table_name,
+                    error = %e,
+                    "Lance compaction failed; ingest continues but writes will slow down"
+                );
+            } else {
+                tracing::info!(
+                    target: "kebab-store-vector",
+                    table = %table_name,
+                    "Lance compaction done"
+                );
+            }
+        }
         Ok(())
     }
 

@@ -29,7 +29,7 @@ mod variant;
 
 pub use compare::{
     CompareOpts, CompareReport, ComparisonKind, QueryComparison, compare_runs,
-    compare_runs_with_config, render_report_md,
+    compare_runs_with_config, regressions, render_report_md,
 };
 pub use loader::load_golden_set;
 pub use metrics::{

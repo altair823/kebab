@@ -4611,6 +4611,7 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "blake3",
+ "chrono",
  "futures",
  "kebab-config",
  "kebab-core",
