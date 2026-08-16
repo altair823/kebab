@@ -88,3 +88,59 @@ fn repeated_upserts_do_not_accumulate_lance_versions() {
         .unwrap();
     assert_eq!(hits.len(), 1, "compaction dropped the upserted row");
 }
+
+/// The delete path commits just like the upsert path, and `sweep_deleted_files`
+/// used to call it once per purged document — issue #230 measured 5,834 purges
+/// becoming 5,834 Lance commits. Batching moved that to one call per flush, but
+/// one call still commits per 200-id batch, so the delete path needs the same
+/// compaction the upsert path got.
+///
+/// Deliberately large enough that a single call spans more than
+/// `compact_every` batches, because that is the shape the batched sweep
+/// actually ships. A handful of ids commits once or twice and would pass
+/// even with no compaction on the delete path at all, proving nothing.
+#[test]
+#[ignore = "requires AVX-capable hardware (LanceDB)"]
+fn batched_delete_spanning_many_commits_still_compacts() {
+    require_avx_or_panic();
+
+    const INTERVAL: u64 = 8;
+    // `delete_by_chunk_ids` commits per 200 ids, so this is ~10 commits in
+    // one call — comfortably past INTERVAL.
+    const IDS: u32 = 2_000;
+
+    let env = TestEnv::with_compact_interval(INTERVAL);
+    let doc = format!("{:032x}", 0xd0c0u32);
+    for i in 0..IDS {
+        env.seed_chunk(
+            &format!("{:032x}", 0x2000u32 + i),
+            &doc,
+            "note.md",
+            "en",
+            &[],
+            "primary",
+        );
+    }
+
+    let recs: Vec<_> = (0..IDS)
+        .map(|i| {
+            let mut r = make_record(0, 0, vec![1.0, 0.0, 0.0, 0.0], "hi", &[], MODEL);
+            r.chunk_id = kebab_core::ChunkId(format!("{:032x}", 0x2000u32 + i));
+            r.embedding_id = kebab_core::EmbeddingId(format!("{:032x}", 0xee000000u32 + i));
+            r
+        })
+        .collect();
+    env.vector.upsert(&recs).unwrap();
+    let after_upsert = manifest_count(&env.data_dir());
+
+    let ids: Vec<_> = recs.iter().map(|r| r.chunk_id.clone()).collect();
+    env.vector.delete_by_chunk_ids(&ids).unwrap();
+
+    let manifests = manifest_count(&env.data_dir());
+    assert!(
+        manifests <= after_upsert + 2,
+        "batched delete left {manifests} manifests (was {after_upsert} before the delete) — \
+         a single {IDS}-id call spans ~{} commits and must still trigger compaction",
+        IDS / 200
+    );
+}

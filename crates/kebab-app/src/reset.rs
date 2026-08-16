@@ -247,23 +247,39 @@ fn execute_orphans_only(cfg: &Config) -> Result<ResetReport> {
         open_vector_store_if_configured(cfg, store.clone())?;
 
     let mut purged_paths: Vec<WorkspacePath> = Vec::new();
+    // Batched for the same reason as `sweep_deleted_files`: one Lance
+    // commit per purged document is what makes a large orphan sweep take
+    // hours (issue #230). Bounded by the same flush threshold, and flushed
+    // on the error path below — a bare `?` here would strand every vector
+    // buffered so far, whose SQLite rows are already deleted and therefore
+    // unreachable by any later sweep.
+    let mut doomed_chunk_ids: Vec<kebab_core::ChunkId> = Vec::new();
 
     for path in &orphans {
-        let chunk_ids = kebab_store_sqlite::purge_deleted_workspace_path(&store, path)
-            .with_context(|| format!("execute_orphans_only: purge {}", path.0))?;
-
-        if let Some(ref vs) = vector_store {
-            if !chunk_ids.is_empty() {
-                use kebab_core::VectorStore as _;
-                if let Err(e) = vs.delete_by_chunk_ids(&chunk_ids) {
-                    tracing::warn!(
-                        target: "kebab-app",
-                        path = %path.0,
-                        count = chunk_ids.len(),
-                        error = %e,
-                        "reset --orphans-only: vector delete failed; SQLite side already cleaned"
+        let purged = kebab_store_sqlite::purge_deleted_workspace_path(&store, path)
+            .with_context(|| format!("execute_orphans_only: purge {}", path.0));
+        let chunk_ids = match purged {
+            Ok(ids) => ids,
+            Err(e) => {
+                if let Some(vs) = &vector_store {
+                    crate::ingest::flush_vector_deletes(
+                        vs,
+                        &mut doomed_chunk_ids,
+                        u32::try_from(purged_paths.len()).unwrap_or(u32::MAX),
                     );
                 }
+                return Err(e);
+            }
+        };
+
+        if let Some(vs) = &vector_store {
+            doomed_chunk_ids.extend(chunk_ids);
+            if doomed_chunk_ids.len() >= crate::ingest::VECTOR_DELETE_FLUSH {
+                crate::ingest::flush_vector_deletes(
+                    vs,
+                    &mut doomed_chunk_ids,
+                    u32::try_from(purged_paths.len()).unwrap_or(u32::MAX),
+                );
             }
         }
 
@@ -273,6 +289,14 @@ fn execute_orphans_only(cfg: &Config) -> Result<ResetReport> {
             "reset --orphans-only: purged orphan document"
         );
         purged_paths.push(path.clone());
+    }
+
+    if let Some(vs) = &vector_store {
+        crate::ingest::flush_vector_deletes(
+            vs,
+            &mut doomed_chunk_ids,
+            u32::try_from(purged_paths.len()).unwrap_or(u32::MAX),
+        );
     }
 
     let orphans_purged = u32::try_from(purged_paths.len()).unwrap_or(u32::MAX);

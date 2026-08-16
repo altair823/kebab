@@ -1374,9 +1374,18 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string(&wire::wire_doctor(&report))?);
             } else {
                 for c in &report.checks {
-                    let mark = if c.ok { "✓" } else { "✗" };
+                    // A hint is printed whenever one exists, not only on
+                    // failure: an informational check (one that reports a
+                    // condition worth acting on without blocking anything)
+                    // carries its warning here, and gating on `!ok` would
+                    // leave that text reachable only via `--json`.
+                    let mark = match (c.ok, c.hint.is_some()) {
+                        (false, _) => "✗",
+                        (true, true) => "!",
+                        (true, false) => "✓",
+                    };
                     println!("{mark} {:<20} {}", c.name, c.detail);
-                    if let (false, Some(hint)) = (c.ok, c.hint.as_ref()) {
+                    if let Some(hint) = c.hint.as_ref() {
                         println!("  hint: {hint}");
                     }
                 }

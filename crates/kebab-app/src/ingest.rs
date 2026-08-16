@@ -2143,6 +2143,20 @@ fn sweep_deleted_files(
 
     let workspace_root = app.config.resolve_workspace_root();
     let mut purged: u32 = 0;
+    // Vector deletes are batched instead of issued per file. Each
+    // `delete_by_chunk_ids` call is one Lance commit, so a per-file call
+    // made "documents purged" and "Lance commits" 1:1 — issue #230
+    // measured 5,834 purges turning into 5,834 commits and a 32-hour
+    // sweep.
+    //
+    // Buffered rather than accumulated for the whole sweep. SQLite commits
+    // per path and does not roll back, so every id sitting in this buffer
+    // when the process dies is a vector whose document row is already
+    // gone — unreachable by any later sweep and only recoverable by
+    // `reset --vector-only` plus a full re-embed. The flush bound caps
+    // that exposure while still collapsing commits by three orders of
+    // magnitude.
+    let mut doomed_chunk_ids: Vec<kebab_core::ChunkId> = Vec::new();
 
     for stored_path in stored_paths {
         if scanned_paths.contains(&stored_path) {
@@ -2185,21 +2199,10 @@ fn sweep_deleted_files(
                 }
             };
 
-        // Purge associated vectors (best-effort; partial failure
-        // acceptable — orphan vectors get cleaned by `kebab reset
-        // --vector-only` if they accumulate).
         if let Some(vec) = vector_store {
-            if !chunk_ids.is_empty() {
-                use kebab_core::VectorStore as _;
-                if let Err(e) = vec.delete_by_chunk_ids(&chunk_ids) {
-                    tracing::warn!(
-                        target: "kebab-app",
-                        path = %stored_path.0,
-                        count = chunk_ids.len(),
-                        error = %e,
-                        "sweep_deleted_files: vector delete failed; SQLite side already cleaned"
-                    );
-                }
+            doomed_chunk_ids.extend(chunk_ids);
+            if doomed_chunk_ids.len() >= VECTOR_DELETE_FLUSH {
+                flush_vector_deletes(vec, &mut doomed_chunk_ids, purged);
             }
         }
 
@@ -2211,7 +2214,44 @@ fn sweep_deleted_files(
         purged = purged.saturating_add(1);
     }
 
+    if let Some(vec) = vector_store {
+        flush_vector_deletes(vec, &mut doomed_chunk_ids, purged);
+    }
+
     Ok(purged)
+}
+
+/// Ids buffered before a batched Lance delete is forced out.
+///
+/// Trades Lance commits against the orphan-vector window: at 5,000 a
+/// 600k-chunk workspace flushes ~120 times instead of once per document,
+/// and an abort strands at most 5,000 vectors instead of the whole sweep.
+pub(crate) const VECTOR_DELETE_FLUSH: usize = 5_000;
+
+/// Delete the buffered chunk ids and clear the buffer.
+///
+/// Best-effort: a failure is logged and the ids dropped. The SQLite rows
+/// are already gone, so retrying would need state this function does not
+/// have — orphan vectors are reclaimed by `kebab reset --vector-only`.
+pub(crate) fn flush_vector_deletes(
+    vec: &kebab_store_vector::LanceVectorStore,
+    buf: &mut Vec<kebab_core::ChunkId>,
+    docs: u32,
+) {
+    if buf.is_empty() {
+        return;
+    }
+    use kebab_core::VectorStore as _;
+    if let Err(e) = vec.delete_by_chunk_ids(buf) {
+        tracing::warn!(
+            target: "kebab-app",
+            count = buf.len(),
+            docs,
+            error = %e,
+            "vector delete failed; SQLite side already cleaned"
+        );
+    }
+    buf.clear();
 }
 
 /// P7-3: process one `MediaType::Pdf` asset end-to-end.
