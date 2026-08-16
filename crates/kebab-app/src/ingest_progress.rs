@@ -154,9 +154,15 @@ pub enum IngestEvent {
         cache_hit: u32,
         #[serde(default)]
         cache_miss: u32,
-        /// Lookup, payload decode, insert, and the `last_used_at` touch
-        /// that every hit triggers — everything the cache costs except
-        /// the embedder call the misses go on to make.
+        /// Cache-key hashing, lookup, payload decode, insert, and the
+        /// `last_used_at` touch that every hit triggers — everything the
+        /// cache costs except the embedder call the misses go on to make.
+        ///
+        /// Rounded **up** to the millisecond. An asset's cache work is
+        /// routinely sub-millisecond, so truncating would report zero for
+        /// most assets and make any sum a systematic undercount; the cost
+        /// of rounding up is at most 1 ms per asset in the other
+        /// direction, which does not hide a cache that is expensive.
         ///
         /// The touch is counted deliberately: issue #231's sharpest claim
         /// is that a read-only cache hit generates write traffic, and a

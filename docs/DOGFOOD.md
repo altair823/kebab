@@ -278,7 +278,7 @@ echo "# stdin content" | "$RELEASE_BIN" ingest-stdin --title "from stdin" --conf
 - sweep 이 끝난 뒤 진행바가 asset 분모·라벨로 돌아오는가 (TTY). sweep 이 같은 바를 빌려 쓰므로 복구가 빠지면 색인 구간 내내 `sweep [..] 4213/21` 로 그려진다.
 - ndjson 로그에 `purge` 줄과 `sweep_summary` 가 남는가 (이슈 #228 이전에는 이 구간이 0바이트였다). purge 실패 시 `purge_failed`.
 - sweep 중 Ctrl-C 한 번에 실제로 멈추는가. `sweep_completed.checked` 가 예고한 `total` 이 아니라 실제 검사한 수로 나와야 한다.
-- `asset_timings` 의 `cache_hit` / `cache_miss` / `cache_ms` (v0.32.1, issue #231). warm 재색인이면 `cache_miss == 0` 이어야 한다. `cache_ms` 는 **`embed_ms` 에 포함된** 값이라 phase 를 합산할 때 이중 계상하지 말 것. 임베딩 kind 만 세므로 이미지·PDF 위주 코퍼스에서는 캐시가 한 일을 과소 표현한다. code 자산은 `asset_timings` 자체를 emit 하지 않는다.
+- `asset_timings` 의 `cache_hit` / `cache_miss` / `cache_ms` (v0.32.1, issue #231). `--force-reingest` 로 warm 재색인하면 `cache_miss == 0` 이어야 한다(그냥 재색인하면 변경 없는 문서가 통째로 skip 되어 `asset_timings` 자체가 안 나온다). `cache_ms` 는 **`embed_ms` 에 포함된** 값이라 phase 를 합산할 때 이중 계상하지 말 것. 임베딩 kind 만 세므로 이미지·PDF 위주 코퍼스에서는 캐시가 한 일을 과소 표현한다. code 자산은 `asset_timings` 자체를 emit 하지 않는다.
 
 ---
 

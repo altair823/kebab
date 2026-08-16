@@ -1018,13 +1018,19 @@ fn unsupported_media_warning(path: &str) -> String {
 /// a cache that looks free.
 #[derive(Default)]
 pub(crate) struct CacheStats {
+    /// Chunks whose embedding was already cached.
     pub hit: usize,
+    /// Chunks whose embedding had to be computed.
     pub miss: usize,
     /// Keys that hit, for the batched `last_used_at` bump the caller runs
     /// after the vector upsert.
     pub touch_keys: Vec<String>,
-    /// Lookup + decode + insert + touch, in **microseconds**. Not the
-    /// embedder call the misses trigger.
+    /// Cache-key hashing + lookup + hit/miss split + insert + touch, in
+    /// **microseconds**. Not the embedder call the misses trigger.
+    ///
+    /// The blake3 key hashing is inside the timer on purpose: it hashes
+    /// every chunk's full text and is pure CPU, so a label that said only
+    /// "lookup" would misattribute it on a miss-heavy run.
     ///
     /// Microseconds because a per-asset millisecond truncation loses the
     /// measurement entirely: a document's cache work is routinely
@@ -1068,8 +1074,8 @@ fn embed_with_cache(
     let mut miss_indices: Vec<usize> = Vec::new();
     let mut miss_inputs: Vec<EmbeddingInput<'_>> = Vec::new();
 
-    // Decoding a hit's payload back into `Vec<f32>` is part of what the
-    // cache costs, so it is inside the timer too — a metric that stopped
+    // The hit/miss split, including decoding a hit's payload back into
+    // `Vec<f32>`, is part of what the cache costs — a metric that stopped
     // at the SQL boundary would flatter the cache.
     let t_decode = std::time::Instant::now();
     for (i, text) in texts.iter().enumerate() {
@@ -1484,7 +1490,7 @@ fn ingest_one_asset(
             caption_ms: 0,
             cache_hit: u32::try_from(emb_cache.hit).unwrap_or(u32::MAX),
             cache_miss: u32::try_from(emb_cache.miss).unwrap_or(u32::MAX),
-            cache_ms: emb_cache.us / 1_000,
+            cache_ms: emb_cache.us.div_ceil(1_000),
         },
     );
 
@@ -1895,7 +1901,7 @@ fn ingest_one_image_asset(
             caption_ms,
             cache_hit: u32::try_from(emb_cache.hit).unwrap_or(u32::MAX),
             cache_miss: u32::try_from(emb_cache.miss).unwrap_or(u32::MAX),
-            cache_ms: emb_cache.us / 1_000,
+            cache_ms: emb_cache.us.div_ceil(1_000),
         },
     );
 
@@ -2789,7 +2795,7 @@ fn ingest_one_pdf_asset(
             caption_ms: 0,
             cache_hit: u32::try_from(emb_cache.hit).unwrap_or(u32::MAX),
             cache_miss: u32::try_from(emb_cache.miss).unwrap_or(u32::MAX),
-            cache_ms: emb_cache.us / 1_000,
+            cache_ms: emb_cache.us.div_ceil(1_000),
         },
     );
 
