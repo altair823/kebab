@@ -369,20 +369,20 @@ fn extract_design_5_5_fts_block() -> String {
     fts_slice[..last_end + "END;".len()].to_string()
 }
 
-/// Extract the §5.5 verbatim block from the V009 migration (V009 replaces
-/// V007 's trigram tokenizer with unicode61 + CASE expression triggers for
-/// Korean morphological tokenization — V007 stays in place for historical
-/// cold-upgrade replay but V009 is now the source of truth),
-/// between the `── §5.5 verbatim block ──` anchor markers V009 carries.
+/// Extract the §5.5 verbatim block from the V016 migration (V016 repoints
+/// the sync triggers from `chunk_id` to `rowid` so deletes are a B-tree
+/// lookup instead of a full FTS5 scan — V009 stays in place for historical
+/// cold-upgrade replay but V016 is now the source of truth),
+/// between the `── §5.5 verbatim block ──` anchor markers V016 carries.
 fn extract_migration_5_5_verbatim_block() -> String {
-    let migration = include_str!("../../../migrations/V009__fts_korean_morphological.sql");
+    let migration = include_str!("../../../migrations/V016__fts_rowid_delete.sql");
     // The opening anchor line ends with `── §5.5 verbatim block ─...`.
     let open_marker = "§5.5 verbatim block";
     let close_marker = "End §5.5 verbatim block";
 
     let open_idx = migration
         .find(open_marker)
-        .expect("V009 must carry the `§5.5 verbatim block` opening anchor");
+        .expect("V016 must carry the `§5.5 verbatim block` opening anchor");
     let after_open_line = open_idx
         + migration[open_idx..]
             .find('\n')
@@ -391,7 +391,7 @@ fn extract_migration_5_5_verbatim_block() -> String {
 
     let close_idx = migration[after_open_line..]
         .find(close_marker)
-        .expect("V009 must carry the `End §5.5 verbatim block` closing anchor")
+        .expect("V016 must carry the `End §5.5 verbatim block` closing anchor")
         + after_open_line;
     // Walk back from the close marker to the start of its comment line.
     let close_line_start = migration[..close_idx].rfind('\n').map_or(0, |n| n + 1);
@@ -399,15 +399,14 @@ fn extract_migration_5_5_verbatim_block() -> String {
     migration[after_open_line..close_line_start].to_string()
 }
 
-/// CI diff guard: the §5.5 block in `migrations/V009__fts_korean_morphological.sql`
-/// must match the design doc verbatim (whitespace-normalized). V009
-/// replaced V007 's trigram tokenizer with unicode61 + CASE expression
-/// triggers for Korean morphological tokenization (2026-05-28).
-/// V007 stays in place for historical replay of cold-upgrade paths
-/// but is no longer compared against the design doc — V009 is now
-/// the source of truth.
+/// CI diff guard: the §5.5 block in `migrations/V016__fts_rowid_delete.sql`
+/// must match the design doc verbatim (whitespace-normalized). V016
+/// repointed the sync triggers from `chunk_id` (UNINDEXED, so a full FTS5
+/// scan per delete) to `rowid` (2026-08-16, issue #229). V007 and V009 stay
+/// in place for historical replay of cold-upgrade paths but are no longer
+/// compared against the design doc — V016 is now the source of truth.
 #[test]
-fn fts_v009_matches_design_section_5_5_verbatim() {
+fn fts_v016_matches_design_section_5_5_verbatim() {
     let design = extract_design_5_5_fts_block();
     let migration_block = extract_migration_5_5_verbatim_block();
 
@@ -430,7 +429,7 @@ fn fts_v009_matches_design_section_5_5_verbatim() {
     let migration_n = normalize_ws(&migration_block);
     assert_eq!(
         design_n, migration_n,
-        "V009__fts_korean_morphological.sql §5.5 block must match design doc §5.5 verbatim \
+        "V016__fts_rowid_delete.sql §5.5 block must match design doc §5.5 verbatim \
          (whitespace-normalized). If you intentionally changed one, \
          update the other in the same commit."
     );
@@ -654,5 +653,174 @@ fn fts_v009_english_whole_token_only() {
         count_match(&conn, "tokenizer"),
         1,
         "V009 unicode61: whole-token 'tokenizer' must hit"
+    );
+}
+
+// ── 8. V016 rowid-addressed deletes (issue #229) ──────────────────────
+
+/// The shadow's rowid must equal the source row's rowid. Every other
+/// V016 property rests on this: the delete trigger addresses rows by
+/// rowid, so a drifted rowid makes deletes silently miss.
+#[test]
+fn fts_v016_shadow_rowid_mirrors_chunks_rowid() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
+    store.run_migrations().unwrap();
+
+    let conn = raw_conn_no_fk(&env);
+    for i in 0..5u8 {
+        insert_chunk(
+            &conn,
+            &format!("{i:032}"),
+            &"d".repeat(32),
+            "[]",
+            &format!("body {i}"),
+        );
+    }
+
+    let drifted: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM chunks c
+             LEFT JOIN chunks_fts f ON f.rowid = c.rowid
+             WHERE f.rowid IS NULL OR f.chunk_id != c.chunk_id",
+            [],
+            |r| r.get(0),
+        )
+        .expect("join chunks to its shadow by rowid");
+    assert_eq!(
+        drifted, 0,
+        "every chunks row must have a chunks_fts row at the same rowid carrying the same chunk_id"
+    );
+}
+
+/// Deleting one chunk must remove exactly that chunk's shadow row.
+/// Under the pre-V016 `WHERE chunk_id = ?` trigger this also passed —
+/// it is the correctness floor the rowid switch must not drop.
+#[test]
+fn fts_v016_delete_removes_only_the_deleted_row() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
+    store.run_migrations().unwrap();
+
+    let conn = raw_conn_no_fk(&env);
+    for i in 0..4u8 {
+        insert_chunk(
+            &conn,
+            &format!("{i:032}"),
+            &"d".repeat(32),
+            "[]",
+            &format!("alpha{i} shared"),
+        );
+    }
+    assert_eq!(count(&conn, "chunks_fts"), 4);
+
+    conn.execute(
+        "DELETE FROM chunks WHERE chunk_id = ?",
+        rusqlite::params![format!("{:032}", 2u8)],
+    )
+    .expect("delete one chunk");
+
+    assert_eq!(count(&conn, "chunks"), 3);
+    assert_eq!(count(&conn, "chunks_fts"), 3);
+    assert_eq!(
+        count_match(&conn, "alpha2"),
+        0,
+        "the deleted chunk must leave no shadow row behind"
+    );
+    for i in [0u8, 1, 3] {
+        assert_eq!(
+            count_match(&conn, &format!("alpha{i}")),
+            1,
+            "sibling chunk alpha{i} must survive its neighbour's delete"
+        );
+    }
+}
+
+/// The point of V016: the delete must be a rowid lookup, not a scan.
+/// SQLite reports a virtual table's accepted constraints in the plan's
+/// `INDEX n:str` field — FTS5 puts `=` there when it takes the rowid
+/// equality itself. Addressing by `chunk_id` leaves that field empty
+/// because `chunk_id` is UNINDEXED, and the delete degrades to a full
+/// index scan (measured at 1590s for 200 documents over 600k chunks,
+/// against 0.73s for this plan).
+#[test]
+fn fts_v016_delete_plan_uses_rowid_not_a_scan() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
+    store.run_migrations().unwrap();
+
+    let conn = raw_conn_no_fk(&env);
+    let plan_for = |sql: &str| -> String {
+        let mut stmt = conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .expect("prepare plan");
+        stmt.query_map([], |r| r.get::<_, String>(3))
+            .expect("run plan")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect plan")
+            .join(" | ")
+    };
+
+    let by_rowid = plan_for("DELETE FROM chunks_fts WHERE rowid = 1");
+    let by_chunk_id = plan_for("DELETE FROM chunks_fts WHERE chunk_id = 'x'");
+
+    assert!(
+        by_rowid.contains(":="),
+        "rowid delete must hand FTS5 the equality constraint; got {by_rowid:?}"
+    );
+    assert!(
+        !by_chunk_id.contains(":="),
+        "chunk_id is UNINDEXED so FTS5 cannot take the constraint — if this ever \
+         stops holding, the premise of issue #229 changed; got {by_chunk_id:?}"
+    );
+}
+
+/// `rebuild_chunks_fts` is the escape hatch for a drifted shadow, so it
+/// has to reproduce what the triggers write — both the rowid alignment
+/// (or every later delete becomes a no-op) and the Korean morpheme
+/// prefix (or 2-character Korean queries stop matching until the next
+/// re-ingest).
+#[test]
+fn fts_v016_rebuild_preserves_rowid_and_korean_morphemes() {
+    let env = common::TestEnv::new();
+    let store = SqliteStore::open(&env.config().storage).unwrap();
+    store.run_migrations().unwrap();
+
+    let conn = raw_conn_no_fk(&env);
+    let text = "한국의 수도는 서울이다";
+    let tokenized = tokenize_korean_morphological(text);
+    conn.execute(
+        "INSERT INTO chunks (
+            chunk_id, doc_id, text, heading_path_json, section_label,
+            source_spans_json, token_estimate, chunker_version,
+            policy_hash, block_ids_json, created_at, tokenized_korean_text
+        ) VALUES (?, ?, ?, '[]', NULL, '[]', 0, 'v1', 'h', '[]', '2024-01-01T00:00:00Z', ?)",
+        rusqlite::params![&"k".repeat(32), &"d".repeat(32), text, tokenized],
+    )
+    .expect("insert chunk with tokenized_korean_text");
+
+    rebuild_chunks_fts(&conn).expect("rebuild");
+
+    let drifted: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM chunks c
+             LEFT JOIN chunks_fts f ON f.rowid = c.rowid
+             WHERE f.rowid IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .expect("join after rebuild");
+    assert_eq!(drifted, 0, "rebuild must keep the shadow rowid-aligned");
+    assert!(
+        count_match(&conn, "한국") >= 1,
+        "rebuild must re-index the morpheme column, not just the raw text"
+    );
+
+    // And the rebuilt rows must still be deletable through the trigger.
+    conn.execute("DELETE FROM chunks", []).expect("delete all");
+    assert_eq!(
+        count(&conn, "chunks_fts"),
+        0,
+        "deletes after a rebuild must still find their shadow rows"
     );
 }

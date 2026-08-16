@@ -14,6 +14,51 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-08-16 — #229 chunks_fts 삭제가 FTS5 전체 스캔 (V016)
+
+### 무엇이 문제였나
+
+`chunk_id` 는 `chunks_fts` 에서 `UNINDEXED` 다. 그런데 V002 이래 삭제 트리거가 그 컬럼으로 행을 찾았다 (`DELETE FROM chunks_fts WHERE chunk_id = old.chunk_id`). FTS5 는 UNINDEXED 컬럼에 색인을 만들지 않으므로 이 조건을 만족할 색인이 없고, 삭제가 색인 전체 스캔으로 떨어진다. chunk 한 건 삭제가 O(색인 전체) 였다.
+
+`chunks` 에서 DELETE 가 나가는 모든 경로가 이 비용을 냈다 — `sweep_deleted_files`, `reset --orphans-only`, 그리고 파일이 수정될 때마다 도는 `purge_orphan_at_workspace_path`. 즉 정상적인 증분 재색인이 코퍼스가 커질수록 느려지는 형태였다.
+
+### 무엇을 고쳤나
+
+`migrations/V016__fts_rowid_delete.sql` 이 `chunks_fts` 를 drop 후 재생성하면서 rowid 를 `chunks.rowid` 와 맞추고, 세 트리거의 행 지정을 `chunk_id` 에서 `rowid` 로 바꾼다. FTS5 는 rowid 로 B-tree 조회를 하므로 삭제가 O(log n) 이 된다.
+
+컬럼 구성·tokenizer 는 그대로다. 검색 경로(`bm25`, `snippet(chunks_fts, 3, …)`, `f.chunk_id` / `f.doc_id` 참조)는 한 줄도 손대지 않았다.
+
+`rebuild_chunks_fts` 도 같이 고쳤다. rowid 를 명시해 넣지 않으면 FTS5 가 자기 번호를 매겨 정렬이 깨지고, 그 뒤의 모든 삭제가 조용히 아무것도 안 하게 된다. 이 함수에는 별개의 잠복 결함도 있었다 — V009 가 색인하는 한국어 형태소 접두(`tokenized_korean_text || ' ' || text`)를 빠뜨리고 raw text 만 넣고 있었다. 재구축을 돌리면 2자 한국어 질의가 다음 재색인 때까지 안 맞는 상태가 됐다. 트리거와 같은 CASE 를 넣어 맞췄다.
+
+### 왜 이슈가 제안한 external-content 가 아닌가
+
+이슈는 `content='chunks'` 를 제안했다. 그 편이 본문 그림자(`chunks_fts_content`, 실측 550 MB)까지 회수한다. 하지만 V009 트리거가 색인하는 값이 `tokenized_korean_text || ' ' || text` 라 `chunks` 의 어느 컬럼과도 일치하지 않는다. generated column 을 새로 만들고, `chunk_id` / `doc_id` 를 FTS 테이블에서 빼고, 검색 경로의 컬럼 참조를 rowid join 으로 바꾸는 변경이 딸려온다. 삭제 비용은 rowid 정렬만으로 같은 복잡도로 내려가므로 그림자 회수는 별 건으로 남겼다.
+
+이슈 본문의 사실관계 두 가지도 정정해 둔다. 지목된 마이그레이션은 V002 가 아니라 V009 다 (V007 이 trigram 으로, V009 가 unicode61 + 한국어 형태소 컬럼으로 각각 다시 만들었다). 그리고 `chunks_fts` 는 contentless 가 아니다 — `chunks_fts_content` 가 실재한다.
+
+### 실측
+
+실제 KB 사본 (문서 28,427건 / chunk 600,808건), 문서 200건 삭제:
+
+| | 시간 |
+|---|---|
+| 현행 (`chunk_id` 로 DELETE) | 1590.1초 |
+| V016 (`rowid` 로 DELETE) | **2.0초** |
+
+약 800배다. 삭제 후 남은 `chunks` 행 수와 `chunks_fts` 행 수가 양쪽 다 595,741 로 같다.
+
+마이그레이션 자체는 60만 chunk 기준 32초 (실제 바이너리로 재봤을 때 검색 한 번을 포함해 37.8초). 재색인은 필요 없다 — `chunks` 와 임베딩은 손대지 않는다.
+
+검색 결과는 바뀌지 않는다. 실제 KB 에서 '한국'(15,977) / 'database'(1,067) / '서울 지하철'(230) / 'kebab'(3) 네 질의의 상위 20건을 chunk_id·bm25 점수·snippet 까지 해시로 비교했고 마이그레이션 전후가 동일했다. 그래서 V016 은 `corpus_revision` 을 올리지 않는다 — 어휘 검색 정렬이 `ORDER BY score, f.chunk_id` 라 rowid 와 무관하므로 미결 pagination cursor 를 무효화할 이유가 없다. tokenizer 가 바뀐 V009 와는 다른 경우다.
+
+### 알아 둘 전제
+
+`chunks` 는 `chunk_id TEXT PRIMARY KEY` 라 INTEGER PRIMARY KEY 가 없다. SQLite 의 VACUUM 은 그런 테이블의 rowid 를 다시 매길 수 있고, 그러면 이 정렬이 깨진다. kebab 은 VACUUM 을 실행하지 않으며(코드베이스 전체에 없음), 사용자가 직접 실행했다면 `rebuild_chunks_fts` 가 복구 경로다. 이슈가 제안한 external-content 도 같은 전제를 깔고 있어 이 위험은 선택지 간 차이가 아니다.
+
+### 설계 계약
+
+design §5.5 의 verbatim block 을 rowid 트리거로 갱신하고, CI diff-check(`fts_v016_matches_design_section_5_5_verbatim`)를 V009 에서 V016 으로 재조준했다. V007·V009 는 cold-upgrade 재생을 위해 그대로 남지만 더 이상 설계 문서와 비교되지 않는다 — V007 → V009 때 쓴 것과 같은 방식이다.
+
 ## 2026-08-16 — #230 나머지: 삭제 배치화 + 삭제 경로 압축 + doctor 지표
 
 앞 엔트리가 #230 의 제안 2(압축 정책)만 닫았다. 남은 제안 1·3·4 를 여기서 처리.
