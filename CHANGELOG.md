@@ -4,6 +4,7 @@
 
 | 버전 | 요약 | 노트 |
 |---|---|---|
+| **v0.33.0** | 28.4k 문서 도그푸딩이 드러낸 다섯 결함(#228–#232) — 스캔 PDF 페이지 렌더링(CCITT/JBIG2/Flate/JPX 커버), chunks_fts 삭제 800배, Lance 압축, sweep 진행 표시, 임베딩 캐시 계측. | [release](https://gitea.altair823.xyz/altair823-org/kebab/releases/tag/v0.33.0) · [notes](docs/release-notes/v0.33.0-draft.md) |
 | **v0.32.0** | ponytail-audit over-engineering 정리 arc — 죽은 search-cache scaffold 제거, 9 AST chunker→1 통합(byte-identical), shim crate 흡수(crate 22→20), FusionPolicy/YAML/NLI. | [release](https://gitea.altair823.xyz/altair823-org/kebab/releases/tag/v0.32.0) · [notes](docs/release-notes/v0.32.0-draft.md) |
 | **v0.31.0** | 척추 단순화 + 캐시 전면화 — tui·multi-turn 세션·candle 제거, config v4→v5, image/pdf/code 임베딩 캐시, OCR/caption derivation 캐시. | [release](https://gitea.altair823.xyz/altair823-org/kebab/releases/tag/v0.31.0) · [notes](docs/release-notes/v0.31.0-draft.md) |
 | **v0.30.1** | pdf-page-v1.2 oversize 분할 / rag-v4 provenance 라벨 / config budget floor 검증. | [release](https://gitea.altair823.xyz/altair823-org/kebab/releases/tag/v0.30.1) · [notes](docs/release-notes/v0.30.1-draft.md) |

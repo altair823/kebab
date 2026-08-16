@@ -4,7 +4,7 @@
 
 ## 한 줄 요약
 
-현재 **v0.32.0**. P0–P7 + P9(CLI/MCP) + P10 머지 완료, P8(audio)·P9-5(desktop)만 보류. `kebab ingest` 가 markdown · 이미지(OCR+caption) · PDF(텍스트+page citation+scanned OCR) · 소스코드(Rust/Python/TS/JS/Go/Java/Kotlin/C/C++ AST + Tier2 리소스 + Tier3 fallback) 를 단일 binary 로 색인. `kebab search`(lexical/vector/hybrid RRF) / `kebab ask`(RAG + 근거 인용 + NLI groundedness + multi-hop) 가 매체 가로질러 동작. UI 는 CLI + MCP stdio server(TUI 는 v0.31.0 에서 제거).
+현재 **v0.33.0**. P0–P7 + P9(CLI/MCP) + P10 머지 완료, P8(audio)·P9-5(desktop)만 보류. `kebab ingest` 가 markdown · 이미지(OCR+caption) · PDF(텍스트+page citation+scanned OCR) · 소스코드(Rust/Python/TS/JS/Go/Java/Kotlin/C/C++ AST + Tier2 리소스 + Tier3 fallback) 를 단일 binary 로 색인. `kebab search`(lexical/vector/hybrid RRF) / `kebab ask`(RAG + 근거 인용 + NLI groundedness + multi-hop) 가 매체 가로질러 동작. UI 는 CLI + MCP stdio server(TUI 는 v0.31.0 에서 제거).
 
 ## Phase 로드맵
 
@@ -28,6 +28,7 @@
 
 버전별 변경은 [CHANGELOG.md](CHANGELOG.md), 머지 후 deviation 의 dated 로그는 [tasks/HOTFIXES.md](tasks/HOTFIXES.md)(동작이 설계와 다를 때의 진실)에 있다. 굵직한 흐름만:
 
+- **v0.33.0** — 28.4k 문서 도그푸딩이 드러낸 다섯 결함(#228–#232). 스캔 PDF 를 페이지 렌더링으로 읽어 CCITT/JBIG2/Flate/JPX 커버(pdfium 런타임 로드, 없으면 DCTDecode 폴백 + 이유 명시), `chunks_fts` 삭제 800배, Lance 압축, sweep 진행 표시, 임베딩 캐시 계측.
 - **v0.32.0** — ponytail-audit over-engineering 정리 (죽은 scaffold 제거, 9 AST chunker→1, shim crate 흡수 22→20).
 - **v0.31.0** — 척추 단순화(TUI·세션·candle 제거, config v5) + 임베딩/OCR/caption 캐시 전면화.
 - **v0.27–0.30** — paddle-onnx 네이티브 OCR · provenance 출처 필터 · md-heading-v2 oversize 분할.
@@ -38,6 +39,8 @@
 - **P9-5 desktop (Tauri)** — 마지막 구조적 미완 component. `kebab-desktop` crate + PDF citation rendering UI. 사용자 우선순위(책·PDF) 부합.
 - **P8 audio** — whisper-rs 시스템 dep vs 외부 transcription endpoint 결정 필요. 사용자 패턴상 보류.
 - 그 외는 도그푸딩 follow-up — 발견 시 HOTFIXES 에 dated entry + 필요 시 ARCHITECTURE 갱신.
+
+v0.33.0 도그푸딩에서 나왔으나 아직 이슈로 등록하지 않은 것 셋: `kebab reset` 이 `storage.data_dir` 을 무시하고 XDG 기본 경로를 지운다, 자동생성 파일 탐지가 코드 파일이 아니라 모든 파일에 적용된다, 기본 설정에 환각 방어가 없다(`nli_threshold` 기본값 꺼짐).
 
 ## 검증
 
