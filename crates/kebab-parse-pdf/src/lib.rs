@@ -19,10 +19,12 @@
 
 mod info;
 mod page_image;
+mod page_render;
 mod page_text;
 mod text_quality;
 
 pub use page_image::extract_dctdecode_page_image;
+pub use page_render::{PageRenderer, RenderedPdf};
 pub use text_quality::compute_valid_char_ratio;
 
 use anyhow::{Context, Result};
@@ -34,7 +36,18 @@ use kebab_core::{
 use serde_json::{Map, Value};
 use time::OffsetDateTime;
 
-pub const PARSER_VERSION: &str = "pdf-text-v1";
+/// Bumped to v2 for issue #232 (2026-08-17): scanned pages are now
+/// rasterized by rendering rather than by pulling out an embedded JPEG,
+/// so pages encoded with CCITTFax / JBIG2 / Flate / JPX — previously
+/// dropped without a raster and therefore never OCR'd — now carry text.
+///
+/// The bump is what makes that reach existing stores. `try_skip_unchanged`
+/// treats an asset as Unchanged when its content hash *and* all four
+/// version inputs match; a PDF on disk has not changed, so without this
+/// every already-indexed scan would keep its empty extraction until the
+/// user thought to pass `--force-reingest`. Per CLAUDE.md §Versioning
+/// cascade, changing this invalidates downstream PDF records.
+pub const PARSER_VERSION: &str = "pdf-text-v2";
 
 /// Text-PDF extractor. Per-page text via `lopdf::Document::extract_text`
 /// (the only stable per-page API in the lopdf / pdf-extract pair —

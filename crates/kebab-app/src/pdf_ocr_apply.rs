@@ -66,6 +66,20 @@ pub struct PdfOcrOpts {
     /// Version key folded into the per-page OCR cache key (§3.3). Empty when
     /// `ocr_cache` is `None`.
     pub ocr_version_key: String,
+    /// Page renderer (issue #232). `Some` → every page rasterizes
+    /// regardless of how its images are encoded. `None` → fall back to
+    /// pulling an embedded DCTDecode JPEG, which covers only pages that
+    /// are exactly one JPEG and silently skips CCITTFax / JBIG2 / Flate /
+    /// JPX scans and pages that split content across a mask.
+    ///
+    /// Optional because pdfium ships only as a shared library; see
+    /// `PdfOcrCfg::render_library`.
+    pub renderer: Option<std::sync::Arc<kebab_parse_pdf::PageRenderer>>,
+    /// Rendering resolution (DPI) when `renderer` is `Some`.
+    pub render_dpi: u32,
+    /// Long-edge pixel ceiling the OCR engine will accept. Caps the
+    /// rendered size no matter what `render_dpi` asks for.
+    pub max_pixels: u32,
 }
 
 /// OCR run summary returned by [`apply_ocr_to_pdf_pages`] for the caller's
@@ -78,6 +92,126 @@ pub struct PdfOcrSummary {
     /// engine call on a cache miss, or the (sub-ms) cache read on a hit.
     /// `saturating_add` 사용 — 24-day cumulative 까지 overflow-safe.
     pub ms_total: u64,
+    /// Pages the text gate said needed OCR but that produced no raster to
+    /// OCR (issue #232). Counted so the caller can surface it — a run
+    /// where every page of a scan lands here indexes an empty document
+    /// and used to report success.
+    pub pages_skipped: u32,
+}
+
+/// Why a page produced no raster to OCR.
+///
+/// Issue #232 asked for this to reach the user: the wire event already
+/// carried a `failure_reason`, but everything funnelled into one
+/// "no DCTDecode or engine fail" string, so a page dropped for its
+/// encoding was indistinguishable from one the OCR engine choked on.
+enum RasterFailure {
+    /// No renderer configured, and the page is not a single embedded
+    /// JPEG. Carries the `/Filter` names actually present, because that
+    /// is the fact that explains the skip.
+    NoRenderer(Vec<String>),
+    /// A renderer was configured and rasterizing this page failed.
+    Render(String),
+    /// A renderer was configured but could not open this PDF at all, so
+    /// no page of it can be rendered. Distinct from `NoRenderer` because
+    /// telling a user who already configured a renderer to configure one
+    /// is the wrong instruction.
+    Unopenable,
+}
+
+impl RasterFailure {
+    /// Stable code for the wire event, so agents can branch on the cause
+    /// rather than parse prose.
+    fn reason_code(&self) -> &'static str {
+        match self {
+            Self::NoRenderer(_) => "no_renderer",
+            Self::Render(_) => "render_error",
+            Self::Unopenable => "unopenable_pdf",
+        }
+    }
+
+    fn describe(&self) -> String {
+        match self {
+            Self::NoRenderer(filters) => {
+                let seen = if filters.is_empty() {
+                    "no image XObject (vector-only page)".to_string()
+                } else {
+                    format!("/Filter={}", filters.join(", "))
+                };
+                format!(
+                    "{seen} — without a page renderer only a single DCTDecode image can be read. \
+                     Set `[ingest.pdf.ocr] render_library` to a libpdfium, or install one where the \
+                     loader finds it; `kebab doctor` reports which mode is active."
+                )
+            }
+            Self::Render(e) => format!("page renderer failed: {e}"),
+            Self::Unopenable => {
+                "the page renderer could not open this PDF, so no page of it could be \
+                 rasterized; the file may be malformed or encrypted"
+                    .to_string()
+            }
+        }
+    }
+}
+
+/// The `/Filter` names on a page's image XObjects, in a stable order.
+///
+/// Only used to explain a skip. Sorted and deduplicated so the message is
+/// the same across runs — lopdf's dictionary iteration order is not.
+fn page_filters(doc: &LopdfDocument, page_num: u32) -> Vec<String> {
+    use lopdf::Object;
+
+    let Some(&page_oid) = doc.get_pages().get(&page_num) else {
+        return Vec::new();
+    };
+    let Ok(page) = doc.get_dictionary(page_oid) else {
+        return Vec::new();
+    };
+    let resources = match page.get(b"Resources").ok() {
+        Some(Object::Dictionary(d)) => d.clone(),
+        Some(Object::Reference(r)) => match doc.get_dictionary(*r) {
+            Ok(d) => d.clone(),
+            Err(_) => return Vec::new(),
+        },
+        _ => return Vec::new(),
+    };
+    let xobject = match resources.get(b"XObject").ok() {
+        Some(Object::Dictionary(d)) => d.clone(),
+        Some(Object::Reference(r)) => match doc.get_dictionary(*r) {
+            Ok(d) => d.clone(),
+            Err(_) => return Vec::new(),
+        },
+        _ => return Vec::new(),
+    };
+
+    let mut names = Vec::new();
+    for (_key, obj) in xobject.iter() {
+        let Object::Reference(r) = obj else { continue };
+        let Ok(Object::Stream(stream)) = doc.get_object(*r) else {
+            continue;
+        };
+        let is_image = matches!(
+            stream.dict.get(b"Subtype").ok(),
+            Some(Object::Name(n)) if n.as_slice() == b"Image"
+        );
+        if !is_image {
+            continue;
+        }
+        match stream.dict.get(b"Filter").ok() {
+            Some(Object::Name(n)) => names.push(String::from_utf8_lossy(n).into_owned()),
+            Some(Object::Array(arr)) => {
+                for f in arr {
+                    if let Object::Name(n) = f {
+                        names.push(String::from_utf8_lossy(n).into_owned());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    names.sort_unstable();
+    names.dedup();
+    names
 }
 
 /// Post-extract OCR enrichment for PDF. Walks `canonical.blocks` page-by-page,
@@ -111,15 +245,37 @@ where
         return Ok(PdfOcrSummary {
             pages_ocrd: 0,
             ms_total: 0,
+            pages_skipped: 0,
         });
     }
     let pdf_doc = LopdfDocument::load_mem(pdf_bytes)
         .context("kb-app::pdf_ocr_apply: re-parse PDF for image extract")?;
     let page_count = pdf_doc.get_pages().len() as u32;
 
+    // Open the PDF once through pdfium when a renderer is configured. A
+    // failure here is not fatal: the DCTDecode path still reads the pages
+    // that are a single JPEG, and reporting per page is what tells the
+    // user which pages lost content and why.
+    let renderer_configured = opts.renderer.is_some();
+    let rendered = opts
+        .renderer
+        .as_ref()
+        .and_then(|r| match r.open(pdf_bytes, None) {
+            Ok(doc) => Some(doc),
+            Err(e) => {
+                warn!(
+                    target: "kebab-app",
+                    error = %e,
+                    "pdfium could not open this PDF; page rendering unavailable for it"
+                );
+                None
+            }
+        });
+
     let mut new_events: Vec<ProvenanceEvent> = Vec::new();
     let mut ocr_blocks: Vec<Block> = Vec::new();
     let mut pages_ocrd: u32 = 0;
+    let mut pages_skipped: u32 = 0;
     let mut ms_total: u64 = 0;
 
     // canonical.blocks 의 page → block index map (text-detect block 의 in-place
@@ -153,30 +309,90 @@ where
 
         emit_progress(PdfOcrProgress::Started { page: page_num });
 
-        let page_image_bytes = if let Some(b) = extract_dctdecode_page_image(&pdf_doc, page_num)? {
-            b
-        } else {
-            let note = format!(
-                "page={page_num} skipped: no DCTDecode image XObject (vector PDF page or unsupported /Filter — v1 supports DCTDecode passthrough only; see release notes for normalization guidance)"
-            );
-            warn!(target: "kebab-app", "{}", note);
-            new_events.push(ProvenanceEvent {
-                at: OffsetDateTime::now_utc(),
-                agent: "kb-parse-pdf".to_string(),
-                kind: ProvenanceKind::Warning,
-                note: Some(note),
-            });
-            emit_progress(PdfOcrProgress::Finished {
-                page: page_num,
-                ms: 0,
-                chars: 0,
-                skipped: true,
-                image_byte_size: None,
-                image_width: None,
-                image_height: None,
-                failure_reason: None,
-            });
-            continue;
+        // Read back an embedded JPEG. Only works when the page is exactly
+        // one DCTDecode image, which is why rendering exists — but it is
+        // still the right thing to try when rendering is unavailable or
+        // fails for this particular page.
+        let dct = |doc: &LopdfDocument| {
+            extract_dctdecode_page_image(doc, page_num).inspect_err(|e| {
+                // Swallowed by the callers below on purpose — a page-local
+                // parse failure must not abort the document. Logged so the
+                // reason is recoverable, matching the OCR cache GET below.
+                tracing::debug!(
+                    target: "kebab-app::pdf_ocr",
+                    page = page_num,
+                    error = %e,
+                    "DCTDecode extraction failed; treating as no raster for this page"
+                );
+            })
+        };
+
+        let rasterized = match (rendered.as_ref(), renderer_configured) {
+            (Some(doc), _) => match doc.render_page_png(page_num, opts.render_dpi, opts.max_pixels)
+            {
+                Ok(png) => Ok(png),
+                // Per-page fallback: one page failing to render must not
+                // cost content that the DCTDecode path could still read.
+                // Configuring a renderer should never make a page worse
+                // off than not having one.
+                //
+                // `.ok()` rather than `?`: a page that fails to render is
+                // often a page whose lopdf dictionary is also malformed,
+                // and propagating that error here would turn one bad page
+                // into an aborted document — the opposite of this loop's
+                // per-page `continue`-on-error discipline, and the same
+                // silent-total-loss shape this whole change is about.
+                //
+                // Defensive rather than demonstrated: the loop only visits
+                // pages `get_pages()` lists, which is the same lookup that
+                // makes `extract_dctdecode_page_image` fail, so no fixture
+                // reaches this arm's error path. An attempt at a test for
+                // it passed while exercising nothing and was removed
+                // rather than kept as false coverage.
+                Err(e) => match dct(&pdf_doc).ok().flatten() {
+                    Some(b) => Ok(b),
+                    None => Err(RasterFailure::Render(e.to_string())),
+                },
+            },
+            // A renderer is configured but could not open this PDF. Same
+            // reasoning as above and stronger: reaching here means pdfium
+            // rejected the whole document, so the odds that lopdf also
+            // stumbles on it are at their highest — exactly where an `?`
+            // would turn one file into an aborted run.
+            (None, true) => match dct(&pdf_doc).ok().flatten() {
+                Some(b) => Ok(b),
+                None => Err(RasterFailure::Unopenable),
+            },
+            (None, false) => match dct(&pdf_doc)? {
+                Some(b) => Ok(b),
+                None => Err(RasterFailure::NoRenderer(page_filters(&pdf_doc, page_num))),
+            },
+        };
+
+        let page_image_bytes = match rasterized {
+            Ok(b) => b,
+            Err(why) => {
+                let note = format!("page={page_num} skipped: {}", why.describe());
+                warn!(target: "kebab-app", "{}", note);
+                new_events.push(ProvenanceEvent {
+                    at: OffsetDateTime::now_utc(),
+                    agent: "kb-parse-pdf".to_string(),
+                    kind: ProvenanceKind::Warning,
+                    note: Some(note),
+                });
+                pages_skipped = pages_skipped.saturating_add(1);
+                emit_progress(PdfOcrProgress::Finished {
+                    page: page_num,
+                    ms: 0,
+                    chars: 0,
+                    skipped: true,
+                    image_byte_size: None,
+                    image_width: None,
+                    image_height: None,
+                    failure_reason: Some(why.reason_code().to_string()),
+                });
+                continue;
+            }
         };
 
         let start = Instant::now();
@@ -360,6 +576,7 @@ where
     Ok(PdfOcrSummary {
         pages_ocrd,
         ms_total,
+        pages_skipped,
     })
 }
 

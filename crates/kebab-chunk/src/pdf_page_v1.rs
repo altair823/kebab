@@ -400,7 +400,7 @@ mod tests {
     fn make_pdf_doc(pages: &[&str]) -> CanonicalDocument {
         let workspace_path = WorkspacePath::new("docs/test.pdf".into()).unwrap();
         let asset_id = AssetId("a".repeat(64));
-        let parser_version = ParserVersion("pdf-text-v1".into());
+        let parser_version = ParserVersion("pdf-text-v2".into());
         let doc_id = id_for_doc(&workspace_path, &asset_id, &parser_version);
 
         let mut blocks: Vec<Block> = Vec::new();

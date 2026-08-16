@@ -101,6 +101,11 @@ fn default_opts(enabled: bool) -> PdfOcrOpts {
         cancel: None,
         ocr_cache: None,
         ocr_version_key: String::new(),
+        // No renderer in these unit tests: they pin the fallback path's
+        // behavior, which is what a machine without pdfium gets.
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     }
 }
 
@@ -121,6 +126,11 @@ fn f1_input_with_ocr_enabled_replaces_empty_block() {
         cancel: None,
         ocr_cache: None,
         ocr_version_key: String::new(),
+        // No renderer in these unit tests: they pin the fallback path's
+        // behavior, which is what a machine without pdfium gets.
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     };
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -184,6 +194,11 @@ fn f4_input_with_ocr_enabled_replaces_mojibake_block() {
         cancel: None,
         ocr_cache: None,
         ocr_version_key: String::new(),
+        // No renderer in these unit tests: they pin the fallback path's
+        // behavior, which is what a machine without pdfium gets.
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     };
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -215,6 +230,11 @@ fn f3_input_with_always_on_pushes_dual_blocks() {
         cancel: None,
         ocr_cache: None,
         ocr_version_key: String::new(),
+        // No renderer in these unit tests: they pin the fallback path's
+        // behavior, which is what a machine without pdfium gets.
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     };
 
     let summary = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -322,6 +342,11 @@ fn dual_block_ordinals_are_deterministic_and_unique() {
         cancel: None,
         ocr_cache: None,
         ocr_version_key: String::new(),
+        // No renderer in these unit tests: they pin the fallback path's
+        // behavior, which is what a machine without pdfium gets.
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     };
 
     apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {}).unwrap();
@@ -361,6 +386,11 @@ fn cancel_handle_aborts_mid_pdf() {
         cancel: Some(cancel.clone()),
         ocr_cache: None,
         ocr_version_key: String::new(),
+        // No renderer in these unit tests: they pin the fallback path's
+        // behavior, which is what a machine without pdfium gets.
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     };
 
     let result = apply_ocr_to_pdf_pages(&mut canonical, &engine, &bytes, &opts, |_| {});
@@ -368,5 +398,145 @@ fn cancel_handle_aborts_mid_pdf() {
     assert!(
         format!("{err}").contains("cancelled mid-PDF"),
         "error message 가 'cancelled mid-PDF' 포함: {err}"
+    );
+}
+
+// ── Renderer path (issue #232) ────────────────────────────────────────────
+//
+// The tests above pin what a machine *without* pdfium does. These pin the
+// other half. They are `#[ignore]`d behind `KEBAB_TEST_PDFIUM` for the
+// same reason the renderer itself is optional — a lane without the
+// library must not report a failure it cannot act on:
+//
+//     KEBAB_TEST_PDFIUM=/path/to/libpdfium.so \
+//       cargo test -p kebab-app --test pdf_ocr_apply -- --ignored
+//
+// The OCR engine is mocked, so these exercise rasterization and the
+// branch that chooses it without touching a network or a model.
+
+/// Bound once for the binary: pdfium's initialization is not reentrant
+/// and cargo runs tests in parallel.
+fn test_renderer() -> Arc<kebab_parse_pdf::PageRenderer> {
+    static SHARED: std::sync::OnceLock<Arc<kebab_parse_pdf::PageRenderer>> =
+        std::sync::OnceLock::new();
+    SHARED
+        .get_or_init(|| {
+            let explicit = std::env::var("KEBAB_TEST_PDFIUM").ok();
+            let path = explicit.as_deref().map(Path::new);
+            Arc::new(
+                kebab_parse_pdf::PageRenderer::bind(path)
+                    .expect("these tests require libpdfium; point KEBAB_TEST_PDFIUM at one"),
+            )
+        })
+        .clone()
+}
+
+fn opts_with_renderer() -> PdfOcrOpts {
+    PdfOcrOpts {
+        renderer: Some(test_renderer()),
+        ..default_opts(true)
+    }
+}
+
+/// The whole point of issue #232. `f7_ccittfax_skipped_with_warning`
+/// above pins that this exact fixture is skipped with no renderer; with
+/// one, the same bytes must reach the OCR engine instead.
+#[test]
+#[ignore = "requires libpdfium"]
+fn a_ccitt_page_reaches_the_ocr_engine_once_a_renderer_is_configured() {
+    let bytes =
+        std::fs::read("../kebab-parse-pdf/tests/fixtures/ccitt.pdf").expect("F7 fixture missing");
+    let mut canonical = canonical_with_empty_block();
+    let engine = MockOcrEngine::single("RASTERIZED AND READ", false);
+
+    let summary = apply_ocr_to_pdf_pages(
+        &mut canonical,
+        &engine,
+        &bytes,
+        &opts_with_renderer(),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(
+        summary.pages_ocrd, 1,
+        "the CCITT page must be OCR'd, not skipped: {summary:?}"
+    );
+    assert_eq!(
+        summary.pages_skipped, 0,
+        "and must not be counted as a page with no raster"
+    );
+}
+
+/// A renderer must not cost the DCTDecode path its coverage. Same
+/// fixture as `f1_enabled_true_mutates_block_in_place`, with a renderer
+/// added — the outcome has to be the same.
+#[test]
+#[ignore = "requires libpdfium"]
+fn a_dctdecode_page_still_works_with_a_renderer_configured() {
+    let bytes = f1_pdf_bytes();
+    let mut canonical = canonical_with_empty_block();
+    let engine = MockOcrEngine::single("STILL READ", false);
+
+    let summary = apply_ocr_to_pdf_pages(
+        &mut canonical,
+        &engine,
+        &bytes,
+        &opts_with_renderer(),
+        |_| {},
+    )
+    .unwrap();
+
+    assert_eq!(summary.pages_ocrd, 1);
+    assert_eq!(summary.pages_skipped, 0);
+}
+
+/// A PDF that lopdf parses but pdfium refuses. The renderer is
+/// configured and working — it simply cannot open *this* file — so the
+/// page must fall through to the DCTDecode path and, when that also has
+/// nothing, be reported as `unopenable_pdf` rather than `no_renderer`.
+/// Telling a user who already configured a renderer to configure one is
+/// the wrong instruction.
+///
+/// The fixture is an encrypted PDF with no password: lopdf reads the
+/// object graph without decrypting, pdfium refuses outright
+/// (`PasswordError`). A first attempt at this test used truncated bytes,
+/// which lopdf rejected before the branch was ever reached — the test
+/// passed while exercising nothing.
+#[test]
+#[ignore = "requires libpdfium"]
+fn a_pdf_the_renderer_cannot_open_falls_back_instead_of_blaming_config() {
+    let bytes = std::fs::read("../kebab-parse-pdf/tests/fixtures/encrypted_no_password.pdf")
+        .expect("encrypted fixture missing");
+    let mut canonical = canonical_with_empty_block();
+    let engine = MockOcrEngine::single("SHOULD_NOT_BE_CALLED", false);
+
+    let mut reasons = Vec::new();
+    let summary = apply_ocr_to_pdf_pages(
+        &mut canonical,
+        &engine,
+        &bytes,
+        &opts_with_renderer(),
+        |p| {
+            if let kebab_app::pdf_ocr_apply::PdfOcrProgress::Finished {
+                failure_reason: Some(r),
+                ..
+            } = p
+            {
+                reasons.push(r);
+            }
+        },
+    )
+    .expect("a PDF the renderer cannot open must not abort the run");
+
+    assert_eq!(summary.pages_ocrd, 0, "nothing could be rasterized");
+    assert_eq!(
+        summary.pages_skipped, 1,
+        "and the page is counted as skipped"
+    );
+    assert_eq!(
+        reasons,
+        vec!["unopenable_pdf".to_string()],
+        "the reason must name the real problem, not a missing renderer"
     );
 }

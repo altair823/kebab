@@ -700,8 +700,17 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 } else {
                     String::new()
                 };
+                // Issue #232: a scan whose pages produced no raster used to
+                // finish with a clean summary and an empty document, and
+                // the user found out when a search came back empty. Put
+                // the count where the run's result is read.
+                let ocr_skipped_suffix = if report.ocr_skipped_pages > 0 {
+                    format!("  ocr-skipped {}", report.ocr_skipped_pages)
+                } else {
+                    String::new()
+                };
                 println!(
-                    "scanned {}  new {}  updated {}  skipped {}{}  errors {}{}  ({} ms)",
+                    "scanned {}  new {}  updated {}  skipped {}{}  errors {}{}{}  ({} ms)",
                     report.scanned,
                     report.new,
                     report.updated,
@@ -709,6 +718,7 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                     skipped_breakdown,
                     report.errors,
                     purged_suffix,
+                    ocr_skipped_suffix,
                     report.duration_ms
                 );
             }

@@ -14,6 +14,134 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-08-17 — #232 PDF OCR 이 DCTDecode 아닌 스캔본을 전량 건너뜀 (페이지 렌더링)
+
+### 무엇이 문제였나
+
+`extract_dctdecode_page_image` 는 페이지의 image XObject 중 `/Filter` 가 **정확히 DCTDecode 인 것 하나**만 받는다. 실제 스캔본에서 흔한 CCITTFaxDecode·JBIG2Decode·FlateDecode·JPXDecode, `[FlateDecode, DCTDecode]` 같은 필터 체인, 그리고 Internet Archive 계열의 "배경 + `/ImageMask`" 분리 구조가 전부 걸러진다.
+
+주목할 점은 **텍스트 게이트가 정상 동작했다**는 것이다. `needs_ocr` 판정을 통과했다는 건 kebab 이 "이 페이지는 스캔본이라 OCR 이 필요하다"고 올바르게 본 것이다. 판정은 맞았고 래스터를 못 꺼냈을 뿐인데, 그 결과가 **조용한 내용 손실**이었다 — 색인은 "성공"으로 끝나고, 검색이 안 되는 시점에야 알게 되며, 그때 원인이 PDF 인코더라는 걸 역추적할 방법이 없다.
+
+### 무엇을 고쳤나
+
+페이지를 **렌더링**한다 (`page_render::PageRenderer`, pdfium). 필터를 지원할 것도, XObject 중에 고를 것도 없고, 벡터 드로잉과 이미지가 섞인 페이지도 리더가 보는 대로 나온다. 부수적으로 이슈가 지적한 "페이지 내 image XObject 선택이 비결정적" 문제도 렌더링 경로에서는 성립하지 않는다.
+
+이슈는 **교체**를 권했지만 **렌더러 우선 + DCTDecode 폴백**으로 갔다. 배포 형태 때문이다 — pdfium 은 공유 라이브러리로만 배포되고 정적 빌드가 없어서, 링크하면 CLAUDE.md 가 규정한 "단일 바이너리" 가 깨진다. 사용자와 상의해 정한 결론이다:
+
+- 런타임 바인딩. 있으면 모든 인코딩 커버, 없으면 오늘 동작 그대로 + **왜 건너뛰었는지 명시**.
+- `[ingest.pdf.ocr] render_library` 로 경로 지정, 비우면 로더 경로 탐색.
+- `kebab doctor` 의 `pdf_render` 가 지금 어느 쪽인지 보고.
+- 바이너리는 392.9 MB → 399.3 MB (+6.4 MB, 바인딩 글루). `ldd` 에 pdfium 없음 — 단일 실행 파일 유지.
+
+### 조용한 손실을 시끄럽게
+
+이슈 부수 제안 2·3 이다.
+
+`failure_reason` 이 CLI 에서 버려지고 있었다(`..` 로 폐기). wire 이벤트는 원인을 구분해 싣는데 사람이 보는 출력이 "no DCTDecode or engine fail" 로 뭉갰다. 이제 `no_renderer` / `render_error` / `ocr_error` 를 구분해 찍는다.
+
+`IngestReport.ocr_skipped_pages` 를 추가하고(additive) 사람용 요약에도 `ocr-skipped N` 으로 낸다. stderr 한 줄로 흘려보내면 대량 ingest 에서 지나간다는 게 이슈의 지적이었다.
+
+### parser_version cascade
+
+`pdf-text-v1` → **`pdf-text-v2`**. 안 올리면 이미 색인된 스캔본에 적용되지 않는다 — PDF 파일 자체는 안 바뀌었으니 해시가 같고 `try_skip_unchanged` 가 Unchanged 로 건너뛴다. 사용자가 `--force-reingest` 를 떠올려야만 고쳐지는 수정은 고쳐진 게 아니다.
+
+스냅샷 두 개가 따라 움직였고, 바뀐 것이 파생 식별자뿐임을 확인했다: `vector_pdf_canonical.json` 의 `doc_id`/`block_id`/`parser_version`/provenance note 만 바뀌고 **본문 텍스트·inlines·source_span·metadata 는 동일**, `ingest_report.snapshot.json` 은 `ocr_skipped_pages` 키 하나만 추가.
+
+### 리뷰가 잡은 것 — render_dpi 가 아무 일도 안 하고 있었다
+
+초안은 `set_maximum_width` / `set_maximum_height` 만 걸었다. 그런데 pdfium-render 에서 `maximum_*` 은 **초과할 때만 줄이는 클램프**이고 스케일이 아니다. 타깃도 배율도 없으면 `width_scale = height_scale = 1.0` 로 떨어져 **1 pt → 1 px, 즉 72 DPI** 로 렌더된다. `render_dpi` 를 300 으로 주든 1200 으로 주든 산출물이 같았다.
+
+렌더가 실패하지 않으니 도그푸딩도 통과해 버렸다. 신규 config 키가 선언한 해상도와 실제가 다르고 그만큼 인식률을 손해 보는 상태였다.
+
+실측으로 확인했다 (govdocs1-000157-ccitt.pdf 5쪽):
+
+| 설정 | 결과 |
+|---|---|
+| `maximum_*` 만 (초안) | 621×801 px — **72 DPI** |
+| `target + maximum_*` (수정) | 1588×2048 px — **184 DPI** |
+
+같은 뿌리의 문제가 하나 더 있었다. 클램프만 걸리는 경로는 `do_maintain_aspect_ratio = false` 를 함께 세팅해서 가로·세로가 **독립적으로** 잘린다. `ccitt.pdf`(600×800pt)를 600px 예산으로 렌더하면 600×600 으로 세로가 25% 눌린 채 나왔고, 긴 변만 보던 테스트는 초록불이었다. 테스트에 종횡비 단언을 넣었다.
+
+`render_dpi_changes_the_rendered_size` 와 `the_pixel_budget_is_respected_without_distorting_the_page` 로 고정했다. `set_target_width` 한 줄을 되돌리면 둘 다 실패하는 것을 확인했다.
+
+덧붙여 `render_dpi` 는 **요청**이고 `max_pixels` 가 이긴다. PDF 기본값 `max_pixels = 2048` 이면 A4 는 175 DPI 언저리에서 잘린다. 기본값 300 이 그대로 나오지 않는다는 뜻이라 config·README·SMOKE 문구를 실제와 맞췄다.
+
+### 리뷰가 잡은 것 — 렌더러가 있으면 오히려 손해 보는 경우
+
+페이지 하나만 렌더에 실패하면 곧장 skip 이었고, DCTDecode 경로를 시도하지 않았다. "렌더러 우선 + 폴백" 이 렌더러 **유무** 수준에서만 성립했던 것이다. pdfium 을 설치한 쪽이 그 페이지에서는 손해를 보는 셈이라, 페이지 단위 폴백을 넣었다.
+
+pdfium 이 PDF 자체를 못 열면 모든 페이지가 `no_renderer` 로 보고되면서 "`render_library` 를 지정하라" 고 안내했다. 이미 제대로 설정한 사용자에게는 오답이라 `unopenable_pdf` 로 갈랐다.
+
+`ocr-skipped` 카운트는 래스터 실패만 세는데, OCR 엔진 실패도 화면에는 똑같이 `⊘` 로 찍혀서 줄 수와 카운트가 안 맞았다. 사유를 라벨에 적어 둘을 구분한다.
+
+### `/MediaBox` 를 직접 파싱하지 않기로
+
+초안은 lopdf 로 `/MediaBox` 를 읽어 페이지 크기를 구했다. 리뷰가 지적했듯 `/MediaBox` 는 **상속 속성**이고 대부분의 생산자가 `/Pages` 노드에 한 번만 쓴다 — lopdf 0.32 에는 상속 해석 헬퍼가 없어서 그런 PDF 는 전부 조용히 A4 폴백을 탄다. `/UserUnit` 도 미반영이었다.
+
+pdfium 이 이미 페이지 크기를 알고 있으므로 거기서 받는다. 40여 줄이 사라졌고 상속·UserUnit 문제가 함께 없어졌으며, kebab-app 이 lopdf 딕셔너리를 뒤지던 레이어링도 정리됐다.
+
+### 구현 중 발견한 것 — pdfium 은 동시 사용이 안전하지 않다
+
+테스트를 병렬로 돌리자 `double free or corruption` 으로 프로세스가 죽었다. `pdfium-render` 의 `thread_safe` 기능만으로는 부족하다. 단일 스레드에서는 6개 테스트가 전부 통과한다.
+
+ingest 는 PDF 를 한 번에 하나씩 처리하므로 오늘은 문제가 없지만, `Arc<PageRenderer>` 는 "공유해도 된다"고 광고하는 타입이다. `PageRenderer` 안에 뮤텍스를 두고 `RenderedPdf` 가 문서 수명 동안 잡고 있게 했다 — 필드 선언 순서가 load-bearing 이다(`doc` 이 guard 보다 먼저 드롭돼야 한다). 지금 비용은 0 이고, ingest 루프가 병렬화되는 날 메모리 손상 대신 대기가 된다.
+
+`set_target_width` 만 주면 긴 스캔에서 pdfium 이 C++ `length_error` 로 프로세스를 죽인다(exceptions 비활성 빌드라 Err 로 못 받는다). 양변을 `set_maximum_*` 으로 묶었다.
+
+바인딩도 한 번만 해야 한다 — 여러 스레드에서 동시에 바인딩하면 실패한다. ingest 는 run 당 1회 바인딩해 `Arc` 로 공유한다.
+
+### 실측
+
+`govdocs1-000157-ccitt.pdf` (22쪽, 그중 1쪽이 CCITT 스캔), gemma3:4b vision:
+
+| | 렌더러 없음 | 렌더러 있음 |
+|---|---|---|
+| OCR 결과 | `⊘ 건너뜀 — 인코딩을 읽을 수 없다` | `✓ 101 chars, 6489ms` |
+| 색인 chunk | 35 | **36** |
+| 색인 글자 수 | 35,994 | **36,095** |
+| 요약 | `ocr-skipped 1` | (없음) |
+
+렌더링 자체는 스파이크에서 여섯 필터 계열 전부 확인했다 — CCITT / JBIG2 / Flate / JPX / 혼합(DCT+CCITT+JBIG2+Flate) / DCT, 페이지당 40~145 ms. OCR 호출(초 단위)에 묻히는 비용이다. (그 측정은 72 DPI 버그가 있던 상태라 실제 해상도가 요청보다 낮았다 — 수정 후에는 더 걸리지만 여전히 OCR 호출에 묻힌다.)
+
+### 정답 있는 한국어 스캔으로 잰 인식률
+
+도그푸딩 store 의 합성 픽스처(나무위키 문서를 조판→PDF→이미지로 구워 텍스트 레이어를 없앤 것, 정답 텍스트 동봉) 중 **CCITT 인코딩 3건**. 렌더러 없이는 전 페이지가 건너뛰어져 색인 내용이 0 이던 파일들이다. 엔진은 config 기본값인 `qwen2.5vl:3b`.
+
+| 문서 | 페이지 | CER |
+|---|---|---|
+| namu-beulenda-me-ijeu-leoneo-silijeu | 8 | **15.65%** |
+| namu-bihaengdae-seutoli | 8 | **12.55%** |
+| namu-gu-anoli-en | 6 | **15.08%** |
+
+22 페이지 전부 OCR 성공, 건너뜀 0. **이 PR 이전에는** 세 문서 모두 본문 0 자였으므로(CCITT 는 DCTDecode 경로가 못 읽는다) 비교 대상 CER 은 100% 다.
+
+첫 문단 대조 (읽히는 수준인지 확인용):
+
+```
+OCR   브렌다(메이즈 러너 시리즈) / 개요 / 원작 소설과 영화 메이즈 러너의
+      등장인물이자 원작에서는 진 히로인. 갈색 긴 머리의 미소녀로, 영화에서는 손이…
+정답  브렌다(메이즈 러너 시리즈) / 개요 / 원작 소설과 영화 메이즈 러너의
+      등장인물이자 원작에서는 진 히로인. 갈색 긴 머리의 미소녀로, 영화에서는 숏컷이…
+```
+
+**엔진 선택이 결과를 가른다.** 처음에는 이 머신에 있던 `gemma3:4b` 로 쟀는데, 래스터는 정상이었지만 출력이 원문과 무관한 환각이었다("이 문서에 스무어라가 포함되어 있습니다"). 게다가 해상도가 올라가자 밀집 한국어 페이지에서 180 초 타임아웃이 났다. 범용 멀티모달 모델은 OCR 엔진이 아니다 — config 기본값이 `qwen2.5vl:3b` 인 이유가 이것이고, 릴리스 노트에 적어 둘 만하다.
+
+이때 새 라벨이 제 역할을 했다. 타임아웃 페이지가 "래스터 없음" 이 아니라 **"OCR 엔진 실패"** 로 찍혀서, 렌더링 문제가 아니라 엔진 문제라는 게 로그만 보고 갈렸다.
+
+### 리뷰가 잡은 것 — 내 테스트가 아무것도 검증하지 않고 있었다
+
+2회차에서 새 세 분기에 테스트를 넣었는데, 그중 "렌더러가 PDF 를 못 여는 경우" 테스트는 **잘린 바이트를 썼고 lopdf 가 그걸 먼저 거부했다**. 함수 초반 `load_mem(...)?` 에서 리턴되므로 pdfium 은 호출조차 안 됐고, 검증 대상 분기는 한 번도 실행되지 않았다. 통과하는데 아무것도 지키지 않는 테스트였다.
+
+**암호 없는 암호화 PDF** 로 픽스처를 만들어 고쳤다 — lopdf 는 객체 그래프를 읽고 pdfium 은 `PasswordError` 로 거부한다. 정확히 원하던 불일치다. `unopenable_pdf` 를 `no_renderer` 로 되돌리면 실패하는 것을 확인했다.
+
+같은 회차에서 `(None, true)` 분기에도 `?` 가 남아 있던 것을 고쳤다. `(Some, _)` 와 근거가 같고 오히려 더 강하다 — pdfium 이 문서 전체를 열지 못한 상태라 lopdf 도 깨져 있을 상관관계가 최대인 지점이다.
+
+`(Some, _)` 쪽 `?` 수정은 **테스트 없이 남긴다**. 루프가 `get_pages()` 가 나열한 페이지만 도는데 그 조회가 곧 `extract_dctdecode_page_image` 가 실패하는 조건이라, 이 arm 의 에러 경로에 닿는 픽스처를 만들 수 없다. 0-페이지 PDF 로 시도했다가 루프 자체가 안 도는 것을 확인하고 접었다 — 통과하지만 아무것도 안 지키는 테스트를 또 만드는 것보다 없는 편이 정직하다. 근거를 코드 주석에 남겼다.
+
+### 범위 밖
+
+이슈가 권한 "DCTDecode 고속 경로를 남기지 말 것" 은 따르지 않았다. 폴백이 곧 그 경로이고, 폴백을 두는 것이 배포 결정의 귀결이다. 다만 렌더러가 있으면 그 경로는 타지 않는다.
+
 ## 2026-08-16 — #231 derivation_cache: 이슈 가설이 재현되지 않음 + 계측 노출
 
 ### 이슈가 요청한 실측을 채웠다

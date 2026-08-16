@@ -70,7 +70,7 @@ rsync -a <src-data_dir>/lancedb/      user@server:<dst-data_dir>/lancedb/
 
 ### 멀티미디어 색인
 
-Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go/Java/Kotlin/C/C++ AST) · 리소스(YAML/Dockerfile/TOML/JSON/XML 등)를 확장자에 따라 자동으로 적절한 chunker 에 라우팅한다. embedded text 가 없는 scanned PDF 는 `[ingest.pdf.ocr]` 로 page-단위 OCR (opt-in). 전체 확장자→chunker 매핑은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go/Java/Kotlin/C/C++ AST) · 리소스(YAML/Dockerfile/TOML/JSON/XML 등)를 확장자에 따라 자동으로 적절한 chunker 에 라우팅한다. embedded text 가 없는 scanned PDF 는 `[ingest.pdf.ocr]` 로 page-단위 OCR (opt-in; 인코딩 무관하게 읽으려면 `render_library` 에 libpdfium 지정). 전체 확장자→chunker 매핑은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### RAG (근거 인용 + 거절)
 
@@ -91,7 +91,7 @@ Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go
 | `kebab fetch chunk\|doc\|span <id> [flags]` | indexed corpus 에서 verbatim text fetch |
 | `kebab eval run \| aggregate \| compare \| variants` | golden query 회귀 측정 + 변형 일관성 진단. `compare --max-drop <낙폭>` 은 어떤 지표든 그 이상 **떨어지면** exit 1 — 절대 하한이 아니라 델타 예산이다 (없으면 delta 만 출력하고 항상 exit 0) |
 | `kebab schema [--json]` | introspection — wire schemas / capabilities / models / stats |
-| `kebab doctor` | 설정 / 모델 / DB 헬스 체크. `vector_store` 체크는 Lance fragment·버전 수를 정보성으로 보여준다(종료 코드에 영향 없음). `fts_shadow` 체크는 어휘 인덱스가 원본과 어긋났는지 보며, **어긋나면 exit 3** — 이 상태에서는 문서 삭제가 엉뚱한 인덱스 행을 지운다 |
+| `kebab doctor` | 설정 / 모델 / DB 헬스 체크. `vector_store` 체크는 Lance fragment·버전 수를 정보성으로 보여준다(종료 코드에 영향 없음). `fts_shadow` 체크는 어휘 인덱스가 원본과 어긋났는지 보며, **어긋나면 exit 3** — 이 상태에서는 문서 삭제가 엉뚱한 인덱스 행을 지운다. `pdf_render` 체크는 스캔 PDF 페이지 렌더러(pdfium)가 있는지 정보성으로 알려준다 |
 | `kebab mcp` | MCP stdio server (`search` / `bulk_search` / `ask` / `fetch` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`) |
 | `kebab reset [--all \| --data-only \| --vector-only \| --config-only \| --orphans-only] [--yes]` | XDG 데이터 wipe (**irreversible**) |
 
@@ -171,6 +171,8 @@ nli_threshold = 0.0                  # >0 (예: 0.5) 면 mDeBERTa XNLI groundedn
 - **`[ingest.ocr]`** (config schema v5) — image/pdf OCR 가 공유하는 **엔진** 설정의 단일 출처 (`engine`/`model`/`endpoint`/`languages`/`max_pixels`/`request_timeout_secs` + paddle 모델 경로·튜닝 키). 여기에 한 번 적어 두면 image·pdf 양쪽에 적용되고, 각 미디어 블록(`[ingest.image.ocr]`/`[ingest.pdf.ocr]`)이 자기 키로 override 한다 (우선순위: 미디어 블록 > `[ingest.ocr]` > 내장 기본값). 옛 v4 `config.toml` 의 image/pdf 에 중복돼 있던 OCR 엔진 키는 로드 시 자동으로 이 블록으로 통합된다 (effective 값 불변, 자동 재색인 없음). env override 도 `KEBAB_OCR_*` 하나로 통합 (양쪽 미디어에 적용).
 - **`[ingest.image.ocr]`** — 이미지 OCR. on/off 토글(`enabled`, default off / opt-in)은 미디어별이며, 엔진 설정은 `[ingest.ocr]` 에서 상속하되 이 블록에서 override 할 수 있다. `engine` 으로 백엔드 선택: `"ollama-vision"` (default, 원격 vision LM) 또는 `"paddle-onnx"` (PP-OCRv5 ONNX 를 in-process 로 실행, Python 런타임 불필요, 큰 페이지 CPU <4초, 오프라인). `paddle-onnx` 는 워크스페이스에 번들된 모델을 쓰며 `det_model`/`rec_model`/`dict` 로 경로 override, `score_thresh`(0.3)/`unclip_ratio`(1.5)/`max_boxes`(1000) 로 검출 튜닝 가능. engine 또는 모델을 바꾸면 영향 이미지가 자동 재색인된다.
 - **`[ingest.pdf.ocr]`** — scanned PDF 의 page-단위 OCR (default off / opt-in, page 당 ~수십 초 cost). on/off 토글(`enabled`/`always_on`)과 PDF 고유 키(`valid_ratio_threshold`/`min_char_count`/`lang_hint`)는 미디어별이고, 엔진 설정은 `[ingest.ocr]` 에서 상속하되 이 블록에서 override 한다(PDF 기본 모델은 `qwen2.5vl:3b`, 이미지의 `gemma4:e4b` 와 다름 — 미디어별 기본값 보존). 활성화 후 옛 색인분은 `kebab ingest --force-reingest` 로 재처리.
+
+  **스캔본을 제대로 읽으려면 페이지 렌더러가 필요하다.** `render_library` 에 `libpdfium` 경로를 적거나 로더가 찾는 곳에 두면, 페이지 이미지가 어떤 인코딩이든(CCITTFax·JBIG2·Flate·JPX, 배경+마스크 분리 구조 포함) OCR 된다. 없으면 **단일 DCTDecode(JPEG) 이미지 페이지만** OCR 되고 나머지는 본문 없이 색인되며, 그 건수가 ingest 요약의 `ocr-skipped` 와 `--json` 의 `ocr_skipped_pages` 에 찍힌다. `kebab doctor` 의 `pdf_render` 가 지금 어느 쪽인지 알려준다. `render_dpi` 는 렌더 해상도 **요청**(기본 300)이고 실제로는 `max_pixels` 가 이긴다 — PDF 기본값 `max_pixels = 2048` 이면 A4 는 175 DPI 언저리에서 잘린다. 300 을 실제로 쓰려면 `max_pixels` 를 3500 이상으로 올려야 하고, 그만큼 큰 이미지를 OCR 엔진이 받는다. 다만 OCR 엔진(ollama-vision·paddle-onnx 둘 다)이 `max_pixels` 를 256~4096 으로 다시 조인다 — 그보다 크게 적어도 4096 이 상한이다. pdfium 은 공유 라이브러리로만 배포돼서 바이너리에 넣지 않았다 — kebab 자체는 단일 실행 파일 그대로다.
 - **`--config <path>`** — 임시 워크스페이스 / 격리 테스트용 (CLI honor).
 - **`kebab config migrate`** — 새 버전에서 추가된 config 섹션을 기존 `config.toml` 에 설명 주석과 함께 채워 넣는다 (사용자가 손본 값·주석·순서는 보존, 멱등, 변경 시 자동 `.bak` 백업). `--dry-run` 으로 변경 미리보기. `kebab doctor` 가 갱신 필요 시 안내한다. `kebab init` 으로 새로 생성되는 config.toml 도 섹션별 주석을 포함한다.
 - **`KEBAB_*` env** — 런타임 override용 ~22개 키만 노출. 엔드포인트(`KEBAB_MODELS_LLM_ENDPOINT`, `KEBAB_MODELS_EMBEDDING_ENDPOINT`, `KEBAB_OCR_ENDPOINT`), 모델명/프로바이더(`KEBAB_MODELS_LLM_MODEL`, `KEBAB_MODELS_EMBEDDING_MODEL`, `KEBAB_MODELS_EMBEDDING_PROVIDER`, `KEBAB_MODELS_LLM_PROVIDER`, `KEBAB_MODELS_NLI_MODEL`), 경로(`KEBAB_WORKSPACE_ROOT`, `KEBAB_STORAGE_DATA_DIR`), 병렬도(`KEBAB_INDEXING_MAX_PARALLEL_EXTRACTORS`, `KEBAB_INDEXING_MAX_PARALLEL_EMBEDDINGS`), 청킹(`KEBAB_CHUNKING_TARGET_TOKENS`, `KEBAB_CHUNKING_OVERLAP_TOKENS`), OCR 토글/엔진/언어(`KEBAB_IMAGE_OCR_ENABLED`, `KEBAB_PDF_OCR_ENABLED`, `KEBAB_OCR_ENGINE`, `KEBAB_OCR_MODEL`, `KEBAB_OCR_LANGUAGES`), 기타(`KEBAB_IMAGE_CAPTION_ENABLED`, `KEBAB_SEARCH_DEFAULT_K`, `KEBAB_RAG_PROMPT_TEMPLATE_VERSION`). 나머지 세부 튜닝 키(score_gate, rrf_k, temperature 등)는 `config.toml` 전용. 특수: `KEBAB_READONLY=1`(write-path 비활성), `KEBAB_PROGRESS=plain`(non-TTY 진행 출력), `KEBAB_EVAL_GOLDEN`(eval golden set 경로).

@@ -21,12 +21,27 @@ tracing      = { workspace = true }
 # at v1 (we don't call its whole-doc API), and the future scanned-PDF
 # OCR fallback can re-add it when it actually needs it.
 lopdf        = { workspace = true }
+# Page rasterization for scanned PDFs (issue #232). `dynamic_bindings`
+# only: pdfium ships as a shared library and publishes no static build,
+# so linking it would end kebab's single-binary property. The renderer
+# binds at run time instead — present and every scanned PDF is covered,
+# absent and ingest falls back to the DCTDecode passthrough below.
+# Default features are off because they pull the `libloading`-free
+# static path we deliberately do not use.
+pdfium-render = { version = "0.9", default-features = false, features = [
+    "image_025",
+    "pdfium_latest",
+    "thread_safe",
+] }
+image        = { version = "0.25", default-features = false, features = ["png"] }
 
 [dev-dependencies]
 anyhow            = { workspace = true }
 blake3            = { workspace = true }
 kebab-parse-image = { path = "../kebab-parse-image" }
 strsim            = "0.11"
+# `tests/page_render.rs` decodes a render back to check its dimensions.
+image             = { version = "0.25", default-features = false, features = ["png"] }
 
 [lints]
 workspace = true

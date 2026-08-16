@@ -107,8 +107,15 @@ pub fn ingest_md(env: &TestEnv, relative_path: &str, content: &str) {
         std::fs::create_dir_all(parent).expect("create parent dirs");
     }
     std::fs::write(&path, content).expect("write workspace file");
-    kebab_app::ingest_with_config(env.config.clone(), env.scope(), kebab_app::IngestOpts { summary_only: true, ..Default::default() })
-        .expect("ingest_with_config");
+    kebab_app::ingest_with_config(
+        env.config.clone(),
+        env.scope(),
+        kebab_app::IngestOpts {
+            summary_only: true,
+            ..Default::default()
+        },
+    )
+    .expect("ingest_with_config");
 }
 
 /// Test helper: build a `SearchQuery` for lexical mode at k=10. Used

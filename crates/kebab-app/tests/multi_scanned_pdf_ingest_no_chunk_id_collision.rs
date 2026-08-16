@@ -65,6 +65,9 @@ fn extract_and_ocr(
         cancel: None,
         ocr_cache: None,
         ocr_version_key: String::new(),
+        renderer: None,
+        render_dpi: 300,
+        max_pixels: 4096,
     };
     apply_ocr_to_pdf_pages(&mut canonical, engine, bytes, &opts, |_| {}).unwrap();
     canonical

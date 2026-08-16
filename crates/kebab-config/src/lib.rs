@@ -817,6 +817,35 @@ pub struct PdfOcrCfg {
     /// Hard cap on detected boxes per page (runaway guard). Default `1000`.
     #[serde(default = "default_ocr_max_boxes")]
     pub max_boxes: usize,
+
+    // ── page rendering (issue #232) ─────────────────────────────────────
+    /// Path to `libpdfium`. `None` → search the platform's library path.
+    ///
+    /// Rendering the page is what makes OCR work on scans that are not a
+    /// single DCTDecode image — CCITTFax, JBIG2, Flate, JPX, and pages
+    /// that split content across a background plus a mask. Without a
+    /// renderer those pages produce no raster and are silently skipped.
+    ///
+    /// It is a path rather than a bundled library because pdfium ships
+    /// only as a shared object; linking it would end kebab's
+    /// single-binary property. `kebab doctor` reports which mode is live.
+    #[serde(default)]
+    pub render_library: Option<String>,
+    /// Requested rendering resolution in DPI. Default `300` — the
+    /// scanning convention, and what OCR engines are tuned for.
+    ///
+    /// **`max_pixels` wins.** It is the ceiling the OCR engine will
+    /// accept on either side, so the effective resolution is whatever
+    /// fits: an A4 page at the PDF default `max_pixels = 2048` tops out
+    /// near 175 DPI no matter what is asked for here. Raise `max_pixels`
+    /// to actually reach 300 (A4 needs ~3500), at the cost of a larger
+    /// image for the engine to chew on.
+    #[serde(default = "default_pdf_render_dpi")]
+    pub render_dpi: u32,
+}
+
+fn default_pdf_render_dpi() -> u32 {
+    300
 }
 
 impl PdfOcrCfg {
@@ -839,6 +868,8 @@ impl PdfOcrCfg {
             score_thresh: default_ocr_score_thresh(),
             unclip_ratio: default_ocr_unclip_ratio(),
             max_boxes: default_ocr_max_boxes(),
+            render_library: None,
+            render_dpi: default_pdf_render_dpi(),
         }
     }
 }

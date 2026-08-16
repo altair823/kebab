@@ -17,19 +17,41 @@
     "skipped_by_extension"
   ],
   "properties": {
-    "schema_version": { "const": "ingest_report.v1" },
-    "scope":          { "type": "object" },
-    "scanned":        { "type": "integer", "minimum": 0 },
-    "new":            { "type": "integer", "minimum": 0 },
-    "updated":        { "type": "integer", "minimum": 0 },
-    "skipped":        { "type": "integer", "minimum": 0 },
+    "schema_version": {
+      "const": "ingest_report.v1"
+    },
+    "scope": {
+      "type": "object"
+    },
+    "scanned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "new": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updated": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "skipped": {
+      "type": "integer",
+      "minimum": 0
+    },
     "unchanged": {
       "type": "integer",
       "minimum": 0,
       "description": "p9-fb-23: assets whose checksum + parser_version + chunker_version + embedding_version all matched the existing record. Parse / chunk / embed / vector upsert all skipped."
     },
-    "errors":         { "type": "integer", "minimum": 0 },
-    "duration_ms":    { "type": "integer", "minimum": 0 },
+    "errors": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
     "skipped_by_extension": {
       "type": "object",
       "additionalProperties": {
@@ -39,40 +61,163 @@
       "description": "p9-fb-25: per-extension skip count. Key = lowercase extension without leading dot (e.g. 'docx'). Files without extension key under '<no-ext>'."
     },
     "items": {
-      "type": ["array", "null"],
+      "type": [
+        "array",
+        "null"
+      ],
       "items": {
         "type": "object",
-        "required": ["kind", "doc_path"],
+        "required": [
+          "kind",
+          "doc_path"
+        ],
         "properties": {
-          "kind":             { "type": "string", "enum": ["new", "updated", "skipped", "unchanged", "error"] },
-          "doc_id":           { "type": ["string", "null"] },
-          "doc_path":         { "type": "string" },
-          "asset_id":         { "type": ["string", "null"] },
-          "byte_len":         { "type": ["integer", "null"], "minimum": 0 },
-          "block_count":      { "type": ["integer", "null"], "minimum": 0 },
-          "chunk_count":      { "type": ["integer", "null"], "minimum": 0 },
-          "parser_version":   { "type": ["string", "null"] },
-          "chunker_version":  { "type": ["string", "null"] },
-          "warnings":         { "type": "array", "items": { "type": "string" } },
-          "pdf_ocr_pages":    { "type": ["integer", "null"], "minimum": 0, "description": "v0.20.0 sub-item 1: number of PDF pages 가 OCR pipeline 통과. null = OCR disabled or non-PDF asset." },
-          "pdf_ocr_ms_total": { "type": ["integer", "null"], "minimum": 0, "description": "v0.20.0 sub-item 1: cumulative OCR engine wall-clock duration (ms). null = OCR disabled or non-PDF asset." },
-          "error":            { "type": ["string", "null"] }
+          "kind": {
+            "type": "string",
+            "enum": [
+              "new",
+              "updated",
+              "skipped",
+              "unchanged",
+              "error"
+            ]
+          },
+          "doc_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "doc_path": {
+            "type": "string"
+          },
+          "asset_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "byte_len": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "block_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "chunk_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "parser_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "chunker_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pdf_ocr_pages": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "v0.20.0 sub-item 1: number of PDF pages 가 OCR pipeline 통과. null = OCR disabled or non-PDF asset."
+          },
+          "pdf_ocr_ms_total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "v0.20.0 sub-item 1: cumulative OCR engine wall-clock duration (ms). null = OCR disabled or non-PDF asset."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       }
     },
-    "skipped_gitignore":         { "type": "integer", "minimum": 0 },
-    "skipped_kebabignore":       { "type": "integer", "minimum": 0 },
-    "skipped_builtin_blacklist": { "type": "integer", "minimum": 0 },
-    "skipped_generated":         { "type": "integer", "minimum": 0 },
-    "skipped_size_exceeded":     { "type": "integer", "minimum": 0 },
+    "skipped_gitignore": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "skipped_kebabignore": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "skipped_builtin_blacklist": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "skipped_generated": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "skipped_size_exceeded": {
+      "type": "integer",
+      "minimum": 0
+    },
     "skip_examples": {
       "type": "object",
       "properties": {
-        "generated":         { "type": "array", "items": { "type": "string" }, "maxItems": 5 },
-        "size_exceeded":     { "type": "array", "items": { "type": "string" }, "maxItems": 5 },
-        "builtin_blacklist": { "type": "array", "items": { "type": "string" }, "maxItems": 5 },
-        "gitignore":         { "type": "array", "items": { "type": "string" }, "maxItems": 5 }
+        "generated": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 5
+        },
+        "size_exceeded": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 5
+        },
+        "builtin_blacklist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 5
+        },
+        "gitignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 5
+        }
       }
+    },
+    "ocr_skipped_pages": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "PDF pages the text gate classified as scans but which produced no raster to OCR, so their content is not indexed (issue #232). Counts pages with no image to read (pdf_ocr_finished.failure_reason of no_renderer / render_error / unopenable_pdf), not pages the OCR engine failed on. Additive; absent in pre-v0.33 output and read as 0."
     }
   }
 }

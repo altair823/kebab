@@ -126,6 +126,10 @@ fn key_comment(path: &str) -> Option<&'static str> {
         "ingest.pdf.ocr.model" => "ollama-vision 전용. paddle-onnx 는 번들 모델 사용.",
         "ingest.pdf.ocr.valid_ratio_threshold" => "유효문자 비율 < 이면 scanned 판정.",
         "ingest.pdf.ocr.min_char_count" => "page 문자수 < 이면 auto-scanned.",
+        "ingest.pdf.ocr.render_dpi" => "스캔 page 렌더 해상도 요청(DPI). max_pixels 가 이기므로 실효 DPI 는 그쪽에 달렸다.",
+        "ingest.pdf.ocr.render_library" => {
+            "libpdfium 경로. 지정하면 CCITTFax/JBIG2/Flate/JPX 스캔도 OCR. 비우면 로더 경로 탐색."
+        }
         "ingest.pdf.ocr.request_timeout_secs" => "0=즉시실패(비활성화 아님).",
         "rag.score_gate" => "검색 점수 게이트.",
         "rag.nli_threshold" => "0=NLI 게이트 off.",
