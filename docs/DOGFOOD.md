@@ -267,12 +267,16 @@ echo "# stdin content" | "$RELEASE_BIN" ingest-stdin --title "from stdin" --conf
 ### §1.8 Ingest progress (wire `ingest_progress.v1`)
 
 **`--json` mode 의 ndjson stream**:
-- `scan_started` → `scan_completed` → `(asset_started → [pdf_ocr_*]* → asset_finished)+` → `completed` | `aborted`.
+- `scan_started` → `scan_completed` → `[sweep_started → sweep_progress* → sweep_completed]` → `(asset_started → [pdf_ocr_*]* → asset_finished)+` → `completed` | `aborted`.
+- `sweep_*` (v0.32.1, issue #228) 는 스토어에 이번 스캔이 덮지 않은 경로가 있을 때만 나온다. 첫 ingest 에는 없다.
 
 **verify**:
 - ordering invariant (design §2.4a).
 - per-asset `idx/total/path/media/result/chunks`.
 - aggregate `counts` on `completed` / `aborted`.
+- sweep 구간: `sweep_started.total` 이 후보 수와 맞고, `sweep_progress.idx` 가 1..=total 로 연속이며, `sweep_completed.checked == total`.
+- sweep 이 끝난 뒤 진행바가 asset 분모·라벨로 돌아오는가 (TTY). sweep 이 같은 바를 빌려 쓰므로 복구가 빠지면 색인 구간 내내 `sweep [..] 4213/21` 로 그려진다.
+- ndjson 로그에 `purge` 줄과 `sweep_summary` 가 남는가 (이슈 #228 이전에는 이 구간이 0바이트였다).
 
 ---
 

@@ -158,6 +158,16 @@ pub enum LogEvent<'a> {
     /// zero-byte log and no way to reconstruct afterwards what had been
     /// deleted or how long it took.
     Purge { ts: String, doc_path: &'a str },
+    /// A sweep candidate whose file is gone but whose purge failed. The
+    /// sweep logs it and moves on, so without this line the only trace is
+    /// a `tracing::warn` on stderr — and `sweep_summary`'s
+    /// `checked - purged` gap cannot tell a failure apart from a file
+    /// that is simply still on disk.
+    PurgeFailed {
+        ts: String,
+        doc_path: &'a str,
+        message: String,
+    },
     /// Sweep phase totals, written once when the phase ends.
     SweepSummary {
         ts: String,

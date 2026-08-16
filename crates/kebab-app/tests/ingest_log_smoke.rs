@@ -90,6 +90,7 @@ fn ingest_log_smoke() {
         "skip",
         "error",
         "purge",
+        "purge_failed",
         "sweep_summary",
         "summary",
     ];

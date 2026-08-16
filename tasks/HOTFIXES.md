@@ -49,6 +49,14 @@ ingest: sweep complete (checked=21 purged=21 in 134ms)
 
 `--json` 은 `sweep_started` → `sweep_progress` × 21 → `sweep_completed` 를 `ingest_progress.v1` 로 내보내고, ndjson 로그에는 `purge` 21줄 + `sweep_summary` 1줄이 남는다. 이슈가 보고한 0바이트 로그가 아니다.
 
+### 진행바를 빌려 쓸 때의 함정
+
+리뷰에서 잡힌 것이다. sweep 은 asset 진행바를 그대로 빌려 쓰면서 자기 라벨과 자기(더 작은) 총계를 씌운다. 그런데 `AssetStarted` 는 위치와 메시지만 세팅하고 길이·스타일은 건드리지 않으므로, sweep 이 한 번 돌면 **그 뒤 색인 구간 전체가 `sweep [====] 4213/21` 로 그려진다**. 라벨도 분모도 틀린다.
+
+더 나쁜 건 스타일 교체가 v0.26.1 의 커스텀 키 `{asset_elapsed}` 를 같이 날린다는 점이다. 느린 asset 에서 `(Ns)` 가 도는 게 "멈춘 게 아님"의 유일한 신호인데, sweep 이 그걸 없애면 이 항목이 sweep 구간에서 없앤 "hang 처럼 보임" 을 asset 구간에 새로 만드는 셈이 된다. TTY 전용이라 비-TTY 실측만 보고 있었으면 놓쳤을 것이다.
+
+바 세팅을 `dress_bar_for_assets` 로 빼고 `ScanCompleted` 와 `SweepCompleted` 양쪽에서 부른다. 스타일을 길이보다 먼저 세팅하는데, indicatif 가 두 호출 사이에 다시 그릴 수 있어서 과도기 프레임이 최소한 올바른 라벨을 달게 하기 위해서다.
+
 ### 범위 밖
 
 이슈가 참고로 적은 `reset --orphans-only` 는 그대로 뒀다. reset 에는 진행 채널 자체가 없어서 sweep 하나를 위해 배선을 새로 깔아야 하는데, #229 와 #230 이 머지된 지금 이 경로의 문서당 비용이 약 800배 떨어져 "몇 시간 무표시" 상황이 애초에 안 나온다. 필요해지면 별 건으로 다룬다.

@@ -2224,6 +2224,15 @@ fn sweep_deleted_files(
                         error = %e,
                         "sweep_deleted_files: purge failed; skipping this path"
                     );
+                    if let Some(lw) = log_writer
+                        && let Ok(mut w) = lw.lock()
+                    {
+                        let _ = w.write_event(&crate::ingest_log::LogEvent::PurgeFailed {
+                            ts: crate::ingest_log::now_ts(),
+                            doc_path: &stored_path.0,
+                            message: e.to_string(),
+                        });
+                    }
                     crate::ingest_progress::emit(
                         progress,
                         crate::ingest_progress::IngestEvent::SweepProgress {

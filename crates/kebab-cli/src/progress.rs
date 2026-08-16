@@ -87,6 +87,11 @@ pub struct ProgressDisplay {
     /// v0.26.1 slowest summary: (path, total_ms) per asset that reported
     /// `AssetTimings`. Sorted + truncated to top-N on `Completed`.
     timings: Vec<(String, u64)>,
+    /// Assets announced by `ScanCompleted`. Remembered because the sweep
+    /// phase (issue #228) repurposes the same bar with its own label and
+    /// its own, smaller total; without this the asset phase would keep
+    /// drawing `sweep [====] 16/3` after the sweep ended.
+    scan_total: u32,
 }
 
 impl ProgressDisplay {
@@ -98,6 +103,7 @@ impl ProgressDisplay {
             current_path: None,
             asset_paths: HashMap::new(),
             timings: Vec::new(),
+            scan_total: 0,
         }
     }
 
@@ -111,6 +117,58 @@ impl ProgressDisplay {
             bar.finish_and_clear();
         }
         Ok(())
+    }
+
+    /// Put the shared bar into asset-loop dress: the scan's total as the
+    /// length, position back to zero, and the `ingest [...]` template with
+    /// its per-asset elapsed key.
+    ///
+    /// Called twice — once when the scan finishes, and again when the
+    /// sweep phase ends, because the sweep borrows this same bar and
+    /// leaves its own label and its own (smaller) total behind.
+    fn dress_bar_for_assets(&mut self, tty: bool, quiet: bool) {
+        let Some(bar) = self.bar.as_mut() else {
+            return;
+        };
+        // Style before length: indicatif can redraw between these calls,
+        // and a transitional frame that carries the right label with a
+        // stale count reads better than one labelled `sweep` with the
+        // asset count.
+        // v0.26.1: a custom `{asset_elapsed}` key reads the shared
+        // per-asset start `Instant` and appends ` (Ns)`. Combined
+        // with the steady tick below, the elapsed counter advances
+        // even while the drain loop is blocked on `recv()` waiting
+        // for the next (possibly very slow) phase event.
+        let asset_start = Arc::clone(&self.asset_start);
+        bar.set_style(
+            ProgressStyle::with_template("ingest [{bar:30}] {pos}/{len} {wide_msg}{asset_elapsed}")
+                .unwrap()
+                .with_key(
+                    "asset_elapsed",
+                    move |_: &ProgressState, w: &mut dyn std::fmt::Write| {
+                        if let Ok(guard) = asset_start.lock()
+                            && let Some(started) = *guard
+                        {
+                            let secs = started.elapsed().as_secs();
+                            // Only show once the asset has been running
+                            // a moment — avoids `(0s)` flicker on fast
+                            // assets.
+                            if secs >= 1 {
+                                let _ = write!(w, " ({secs}s)");
+                            }
+                        }
+                    },
+                )
+                .progress_chars("=> "),
+        );
+        bar.set_length(u64::from(self.scan_total));
+        bar.set_position(0);
+        bar.set_message("");
+        if tty && !quiet {
+            bar.enable_steady_tick(std::time::Duration::from_secs(1));
+        } else {
+            bar.disable_steady_tick();
+        }
     }
 
     fn handle(&mut self, event: &IngestEvent) -> anyhow::Result<()> {
@@ -148,45 +206,8 @@ impl ProgressDisplay {
                 }
             }
             IngestEvent::ScanCompleted { total } => {
-                if let Some(bar) = self.bar.as_mut() {
-                    bar.set_length(u64::from(*total));
-                    bar.set_position(0);
-                    // v0.26.1: a custom `{asset_elapsed}` key reads the shared
-                    // per-asset start `Instant` and appends ` (Ns)`. Combined
-                    // with the steady tick below, the elapsed counter advances
-                    // even while the drain loop is blocked on `recv()` waiting
-                    // for the next (possibly very slow) phase event.
-                    let asset_start = Arc::clone(&self.asset_start);
-                    bar.set_style(
-                        ProgressStyle::with_template(
-                            "ingest [{bar:30}] {pos}/{len} {wide_msg}{asset_elapsed}",
-                        )
-                        .unwrap()
-                        .with_key(
-                            "asset_elapsed",
-                            move |_: &ProgressState, w: &mut dyn std::fmt::Write| {
-                                if let Ok(guard) = asset_start.lock()
-                                    && let Some(started) = *guard
-                                {
-                                    let secs = started.elapsed().as_secs();
-                                    // Only show once the asset has been running
-                                    // a moment — avoids `(0s)` flicker on fast
-                                    // assets.
-                                    if secs >= 1 {
-                                        let _ = write!(w, " ({secs}s)");
-                                    }
-                                }
-                            },
-                        )
-                        .progress_chars("=> "),
-                    );
-                    bar.set_message("");
-                    if tty && !quiet {
-                        bar.enable_steady_tick(std::time::Duration::from_secs(1));
-                    } else {
-                        bar.disable_steady_tick();
-                    }
-                }
+                self.scan_total = *total;
+                self.dress_bar_for_assets(tty, quiet);
                 if !tty && !quiet {
                     let mut err = std::io::stderr().lock();
                     let _ = writeln!(err, "ingest: scan complete ({total} assets)");
@@ -332,9 +353,16 @@ impl ProgressDisplay {
             } => {
                 if let Some(bar) = self.bar.as_mut() {
                     bar.set_position(u64::from(*idx));
-                    if *removed {
-                        bar.set_message(abbreviate_path(path));
-                    }
+                    // Named only while something is being removed. Left
+                    // set, the last purged path would sit on the bar for
+                    // however long the sweep spends walking candidates it
+                    // does not touch — reading as "still working on that
+                    // file" when that file is long gone.
+                    bar.set_message(if *removed {
+                        abbreviate_path(path)
+                    } else {
+                        String::new()
+                    });
                 }
                 // Non-TTY prints only the purges: one line per examined
                 // candidate would bury the run's real output under paths
@@ -349,9 +377,10 @@ impl ProgressDisplay {
                 purged,
                 ms,
             } => {
-                if let Some(bar) = self.bar.as_mut() {
-                    bar.set_message("");
-                }
+                // Hand the bar back to the asset loop. `AssetStarted`
+                // only sets a position and a message, so without this the
+                // rest of the run would draw `sweep [====] 16/3`.
+                self.dress_bar_for_assets(tty, quiet);
                 // Printed even when nothing was purged: "checked 12115,
                 // purged 0" is the answer to "what was it doing all that
                 // time", which is what #228 was really about.
