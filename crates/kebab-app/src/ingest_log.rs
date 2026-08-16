@@ -152,6 +152,19 @@ pub enum LogEvent<'a> {
         code: &'a str,
         message: &'a str,
     },
+    /// A document was removed because its source file is gone from disk
+    /// (the post-scan sweep). Issue #228: the sweep wrote nothing here,
+    /// so a run that spent most of its wall-clock purging left a
+    /// zero-byte log and no way to reconstruct afterwards what had been
+    /// deleted or how long it took.
+    Purge { ts: String, doc_path: &'a str },
+    /// Sweep phase totals, written once when the phase ends.
+    SweepSummary {
+        ts: String,
+        checked: u32,
+        purged: u32,
+        ms: u64,
+    },
 }
 
 /// Final summary record — always the last line of the log file.

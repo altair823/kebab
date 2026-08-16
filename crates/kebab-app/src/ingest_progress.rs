@@ -136,6 +136,29 @@ pub enum IngestEvent {
         #[serde(default)]
         caption_ms: u64,
     },
+    /// v0.33.0 (additive): the post-scan sweep for documents whose source
+    /// file is gone is starting, with `total` stored paths to examine
+    /// (paths still in the walker's scope are excluded — they are skipped
+    /// by a set lookup and cost nothing). Issue #228: this phase used to
+    /// emit nothing at all, so a progress bar sat frozen at `0/N` for the
+    /// whole sweep and users read it as a hang and killed the run.
+    SweepStarted { total: u32 },
+    /// v0.33.0 (additive): the `idx`-th sweep candidate (1-based) has been
+    /// examined. `removed` distinguishes "file really is gone, its document
+    /// was purged" from "still on disk, left alone" — a sweep can walk
+    /// thousands of candidates and purge none, and a bar that only moved
+    /// on purges would look frozen in exactly that case. (Named `removed`
+    /// rather than `purged` so the wire key keeps one type: `purged` is
+    /// the integer total on `sweep_completed`.)
+    SweepProgress {
+        idx: u32,
+        total: u32,
+        path: String,
+        removed: bool,
+    },
+    /// v0.33.0 (additive): sweep finished. `checked` candidates examined,
+    /// `purged` documents removed, `ms` wall-clock.
+    SweepCompleted { checked: u32, purged: u32, ms: u64 },
     /// Run finished normally. `counts` is the final aggregate.
     Completed { counts: AggregateCounts },
     /// Run finished by user cancellation. `counts` is the partial

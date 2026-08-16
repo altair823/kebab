@@ -495,7 +495,7 @@ pub fn doctor_with_config_path(
             // Opened, but the probe failed. Do not report this as
             // health: a check whose whole point is to surface a silent
             // failure must not swallow its own.
-            Some(None) | Some(Some((_, Err(_)))) => (
+            Some(None | Some((_, Err(_)))) => (
                 true,
                 "점검하지 못했다".to_string(),
                 Some(

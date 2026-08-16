@@ -2,11 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kb.local/wire/v1/ingest_progress.schema.json",
   "title": "IngestProgressEvent v1",
-  "description": "Streaming progress event emitted by `kebab ingest --json`. One event per line (line-delimited JSON). Discriminated by `kind`. The terminal events are `completed` and `aborted` — every ingest run ends with exactly one of them. The final stdout line of a `--json` ingest is still the existing `ingest_report.v1` for backwards compatibility; progress events stream above it.",
+  "description": "Streaming progress event emitted by `kebab ingest --json`. One event per line (line-delimited JSON). Discriminated by `kind`. The terminal events are `completed` and `aborted` — every ingest run ends with exactly one of them. The final stdout line of a `--json` ingest is still the existing `ingest_report.v1` for backwards compatibility; progress events stream above it. `sweep_*` events (v0.33.0) cover the deleted-file sweep that runs between the scan and the asset loop; before them that phase emitted nothing and a long sweep was indistinguishable from a hang (issue #228).",
   "type": "object",
-  "required": ["schema_version", "kind", "ts"],
+  "required": [
+    "schema_version",
+    "kind",
+    "ts"
+  ],
   "properties": {
-    "schema_version": { "const": "ingest_progress.v1" },
+    "schema_version": {
+      "const": "ingest_progress.v1"
+    },
     "kind": {
       "type": "string",
       "enum": [
@@ -21,53 +27,200 @@
         "embed_batch_finished",
         "pdf_ocr_started",
         "pdf_ocr_finished",
+        "sweep_started",
+        "sweep_progress",
+        "sweep_completed",
         "completed",
         "aborted"
       ]
     },
-    "ts":           { "type": "string", "format": "date-time", "description": "RFC 3339 timestamp at the moment the event was emitted." },
-    "root":         { "type": "string", "description": "scan_started: workspace root being walked." },
-    "total":        { "type": "integer", "minimum": 0, "description": "scan_completed / asset_started / asset_finished: total assets discovered." },
-    "idx":          { "type": "integer", "minimum": 1, "description": "asset_started / asset_finished: 1-based index of the current asset within the scan." },
-    "path":         { "type": "string", "description": "asset_started: workspace-relative path of the asset being processed." },
-    "media":        { "type": "string", "description": "asset_started: media kind label (e.g. `markdown`, `pdf`, `image`)." },
-    "result":       {
+    "ts": {
       "type": "string",
-      "enum": ["new", "updated", "skipped", "error"],
+      "format": "date-time",
+      "description": "RFC 3339 timestamp at the moment the event was emitted."
+    },
+    "root": {
+      "type": "string",
+      "description": "scan_started: workspace root being walked."
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "scan_completed / asset_started / asset_finished: total assets discovered. sweep_started / sweep_progress: total stored paths the deleted-file sweep will examine (the store's paths minus the ones this scan covered)."
+    },
+    "idx": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "asset_started / asset_finished: 1-based index of the current asset within the scan. sweep_progress: 1-based index of the current sweep candidate."
+    },
+    "path": {
+      "type": "string",
+      "description": "asset_started: workspace-relative path of the asset being processed. sweep_progress: workspace path of the candidate examined."
+    },
+    "media": {
+      "type": "string",
+      "description": "asset_started: media kind label (e.g. `markdown`, `pdf`, `image`)."
+    },
+    "result": {
+      "type": "string",
+      "enum": [
+        "new",
+        "updated",
+        "skipped",
+        "error"
+      ],
       "description": "asset_finished: per-asset outcome (mirrors `ingest_report.v1.items[].kind`)."
     },
-    "chunks":       { "type": "integer", "minimum": 0, "description": "asset_finished / asset_chunked (v0.24.0): chunk count produced for this asset." },
-    "phase":        { "type": "string", "enum": ["ocr", "caption", "embed"], "description": "asset_phase (v0.26.1): the slow internal phase the asset just entered. Short phases (parse/chunk/store) are not emitted." },
-    "model":        { "type": ["string", "null"], "description": "asset_phase (v0.26.1): model performing the phase — vision LLM id for ocr/caption, embedder model_id for embed. null when the phase runs without a configured model." },
-    "parse_ms":     { "type": "integer", "minimum": 0, "description": "asset_timings (v0.24.0, additive): parse phase wall-clock (ms). Emitted by markdown / image / PDF paths." },
-    "chunk_ms":     { "type": "integer", "minimum": 0, "description": "asset_timings (v0.24.0, additive): chunk phase wall-clock (ms). Emitted by markdown / image / PDF paths." },
-    "expansion_ms": { "type": "integer", "minimum": 0, "description": "asset_timings (v0.24.0, additive): retained for wire compatibility but always 0 — doc-side expansion was removed (HOTFIXES 2026-06-03)." },
-    "embed_ms":     { "type": "integer", "minimum": 0, "description": "asset_timings (v0.24.0, additive): embed + vector phase wall-clock (ms) — embedding, vector upsert, and stale-vector purge." },
-    "store_ms":     { "type": "integer", "minimum": 0, "description": "asset_timings (v0.24.0, additive): SQLite persist phase wall-clock (ms) — put_asset/document/blocks/chunks only." },
-    "ocr_ms":       { "type": "integer", "minimum": 0, "description": "asset_timings (v0.26.1, additive, default 0): image/PDF OCR phase wall-clock (ms). 0 on the markdown path (no OCR)." },
-    "caption_ms":   { "type": "integer", "minimum": 0, "description": "asset_timings (v0.26.1, additive, default 0): image caption phase wall-clock (ms). 0 on markdown / PDF paths." },
-    "n_chunks":     { "type": "integer", "minimum": 0, "description": "embed_batch_started / embed_batch_finished: chunks in this embedding batch." },
-    "ms":           { "type": "integer", "minimum": 0, "description": "embed_batch_finished / pdf_ocr_finished: wall-clock duration (ms). pdf_ocr_finished skip path 의 의미는 mixed (DCTDecode 부재 시 0, engine 실패 시 latency-before-bail)." },
-    "chars":        { "type": "integer", "minimum": 0, "description": "pdf_ocr_finished: char count of OCR result. Skip 시 0." },
-    "page":         { "type": "integer", "minimum": 1, "description": "pdf_ocr_started / pdf_ocr_finished: 1-based PDF page number under OCR." },
-    "ocr_engine":   { "type": "string", "description": "pdf_ocr_finished: engine_name (e.g. 'ollama-vision')." },
-    "skipped":      { "type": "boolean", "description": "pdf_ocr_finished: true 일 시 OCR 미수행 (DCTDecode 부재 또는 engine 실패). chars=0 만으로는 skip 과 0-char result 구분 불가." },
-    "image_byte_size": { "type": "integer", "minimum": 0, "description": "pdf_ocr_finished (optional, v0.20.x): raster image byte size." },
-    "image_width":     { "type": "integer", "minimum": 0, "description": "pdf_ocr_finished (optional, v0.20.x): raster image width px." },
-    "image_height":    { "type": "integer", "minimum": 0, "description": "pdf_ocr_finished (optional, v0.20.x): raster image height px." },
-    "failure_reason":  { "type": "string", "description": "pdf_ocr_finished (optional, v0.20.x): OCR failure reason. Present iff skipped=true due to engine error. Values: timeout | ocr_error | network_error | other." },
-    "counts":       {
+    "chunks": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_finished / asset_chunked (v0.24.0): chunk count produced for this asset."
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "ocr",
+        "caption",
+        "embed"
+      ],
+      "description": "asset_phase (v0.26.1): the slow internal phase the asset just entered. Short phases (parse/chunk/store) are not emitted."
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "asset_phase (v0.26.1): model performing the phase — vision LLM id for ocr/caption, embedder model_id for embed. null when the phase runs without a configured model."
+    },
+    "parse_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_timings (v0.24.0, additive): parse phase wall-clock (ms). Emitted by markdown / image / PDF paths."
+    },
+    "chunk_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_timings (v0.24.0, additive): chunk phase wall-clock (ms). Emitted by markdown / image / PDF paths."
+    },
+    "expansion_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_timings (v0.24.0, additive): retained for wire compatibility but always 0 — doc-side expansion was removed (HOTFIXES 2026-06-03)."
+    },
+    "embed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_timings (v0.24.0, additive): embed + vector phase wall-clock (ms) — embedding, vector upsert, and stale-vector purge."
+    },
+    "store_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_timings (v0.24.0, additive): SQLite persist phase wall-clock (ms) — put_asset/document/blocks/chunks only."
+    },
+    "ocr_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_timings (v0.26.1, additive, default 0): image/PDF OCR phase wall-clock (ms). 0 on the markdown path (no OCR)."
+    },
+    "caption_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "asset_timings (v0.26.1, additive, default 0): image caption phase wall-clock (ms). 0 on markdown / PDF paths."
+    },
+    "n_chunks": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "embed_batch_started / embed_batch_finished: chunks in this embedding batch."
+    },
+    "ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "embed_batch_finished / pdf_ocr_finished: wall-clock duration (ms). pdf_ocr_finished skip path 의 의미는 mixed (DCTDecode 부재 시 0, engine 실패 시 latency-before-bail). sweep_completed: wall-clock of the whole sweep phase."
+    },
+    "chars": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "pdf_ocr_finished: char count of OCR result. Skip 시 0."
+    },
+    "page": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "pdf_ocr_started / pdf_ocr_finished: 1-based PDF page number under OCR."
+    },
+    "ocr_engine": {
+      "type": "string",
+      "description": "pdf_ocr_finished: engine_name (e.g. 'ollama-vision')."
+    },
+    "skipped": {
+      "type": "boolean",
+      "description": "pdf_ocr_finished: true 일 시 OCR 미수행 (DCTDecode 부재 또는 engine 실패). chars=0 만으로는 skip 과 0-char result 구분 불가."
+    },
+    "image_byte_size": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "pdf_ocr_finished (optional, v0.20.x): raster image byte size."
+    },
+    "image_width": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "pdf_ocr_finished (optional, v0.20.x): raster image width px."
+    },
+    "image_height": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "pdf_ocr_finished (optional, v0.20.x): raster image height px."
+    },
+    "failure_reason": {
+      "type": "string",
+      "description": "pdf_ocr_finished (optional, v0.20.x): OCR failure reason. Present iff skipped=true due to engine error. Values: timeout | ocr_error | network_error | other."
+    },
+    "counts": {
       "type": "object",
       "description": "completed / aborted: aggregate counters at the moment the run ended (mirrors fields on `ingest_report.v1`).",
       "properties": {
-        "scanned":            { "type": "integer", "minimum": 0 },
-        "new":                { "type": "integer", "minimum": 0 },
-        "updated":            { "type": "integer", "minimum": 0 },
-        "skipped":            { "type": "integer", "minimum": 0 },
-        "errors":             { "type": "integer", "minimum": 0 },
-        "chunks_indexed":     { "type": "integer", "minimum": 0 },
-        "embeddings_indexed": { "type": "integer", "minimum": 0 }
+        "scanned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "new": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "updated": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chunks_indexed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "embeddings_indexed": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
+    },
+    "removed": {
+      "type": "boolean",
+      "description": "sweep_progress: true when the file was truly absent and its document was purged; false when it is still on disk (left untouched) or the purge failed."
+    },
+    "checked": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "sweep_completed: sweep candidates examined."
+    },
+    "purged": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "sweep_completed: documents removed because their source file is gone."
     }
   }
 }

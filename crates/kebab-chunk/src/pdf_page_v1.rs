@@ -746,7 +746,7 @@ mod tests {
                 }
                 _ => panic!("expected Page"),
             }
-            assert!(c.policy_hash.len() == POLICY_HASH_HEX_LEN);
+            assert_eq!(c.policy_hash.len(), POLICY_HASH_HEX_LEN);
             assert!(c.policy_hash.bytes().all(|b| b.is_ascii_hexdigit()));
         }
     }

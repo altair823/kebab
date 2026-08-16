@@ -298,6 +298,8 @@ pub fn ingest_with_config(
         &app,
         &scanned_paths,
         vector_store.as_ref().map(std::convert::AsRef::as_ref),
+        progress,
+        log_writer.as_ref(),
     )?;
 
     let started_at = time::OffsetDateTime::now_utc();
@@ -2129,6 +2131,8 @@ fn sweep_deleted_files(
     app: &App,
     scanned_paths: &std::collections::HashSet<kebab_core::WorkspacePath>,
     vector_store: Option<&kebab_store_vector::LanceVectorStore>,
+    progress: Option<&std::sync::mpsc::Sender<crate::ingest_progress::IngestEvent>>,
+    log_writer: Option<&Arc<Mutex<crate::ingest_log::IngestLogWriter>>>,
 ) -> anyhow::Result<u32> {
     use kebab_core::DocumentStore as _;
 
@@ -2140,6 +2144,25 @@ fn sweep_deleted_files(
     if stored_paths.is_empty() {
         return Ok(0);
     }
+
+    // Narrow to the paths this sweep will actually stat before announcing
+    // a total, so the denominator the user sees is the work remaining —
+    // not the store's whole path list, most of which is normally in scope
+    // and dismissed by a set lookup. Issue #228 asked for exactly this
+    // (`all_workspace_paths` minus the scanned set).
+    let candidates: Vec<kebab_core::WorkspacePath> = stored_paths
+        .into_iter()
+        .filter(|p| !scanned_paths.contains(p))
+        .collect();
+    let total = u32::try_from(candidates.len()).unwrap_or(u32::MAX);
+    if candidates.is_empty() {
+        return Ok(0);
+    }
+    let sweep_started = std::time::Instant::now();
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::SweepStarted { total },
+    );
 
     let workspace_root = app.config.resolve_workspace_root();
     let mut purged: u32 = 0;
@@ -2158,11 +2181,8 @@ fn sweep_deleted_files(
     // magnitude.
     let mut doomed_chunk_ids: Vec<kebab_core::ChunkId> = Vec::new();
 
-    for stored_path in stored_paths {
-        if scanned_paths.contains(&stored_path) {
-            continue; // still in scope — skip
-        }
-
+    for (i, stored_path) in candidates.into_iter().enumerate() {
+        let idx = u32::try_from(i + 1).unwrap_or(u32::MAX);
         // Resolve to an absolute path and check existence on disk.
         // Use `try_exists` + `unwrap_or(true)` so transient FS errors
         // (EACCES on a path we lack read on, NFS hiccups, ownership
@@ -2181,6 +2201,15 @@ fn sweep_deleted_files(
                 path = %stored_path.0,
                 "sweep_deleted_files: file on disk but out of scope — leaving in store"
             );
+            crate::ingest_progress::emit(
+                progress,
+                crate::ingest_progress::IngestEvent::SweepProgress {
+                    idx,
+                    total,
+                    path: stored_path.0.clone(),
+                    removed: false,
+                },
+            );
             continue;
         }
 
@@ -2194,6 +2223,15 @@ fn sweep_deleted_files(
                         path = %stored_path.0,
                         error = %e,
                         "sweep_deleted_files: purge failed; skipping this path"
+                    );
+                    crate::ingest_progress::emit(
+                        progress,
+                        crate::ingest_progress::IngestEvent::SweepProgress {
+                            idx,
+                            total,
+                            path: stored_path.0.clone(),
+                            removed: false,
+                        },
                     );
                     continue;
                 }
@@ -2212,11 +2250,48 @@ fn sweep_deleted_files(
             "sweep_deleted_files: purged document for deleted file"
         );
         purged = purged.saturating_add(1);
+        if let Some(lw) = log_writer
+            && let Ok(mut w) = lw.lock()
+        {
+            let _ = w.write_event(&crate::ingest_log::LogEvent::Purge {
+                ts: crate::ingest_log::now_ts(),
+                doc_path: &stored_path.0,
+            });
+        }
+        crate::ingest_progress::emit(
+            progress,
+            crate::ingest_progress::IngestEvent::SweepProgress {
+                idx,
+                total,
+                path: stored_path.0.clone(),
+                removed: true,
+            },
+        );
     }
 
     if let Some(vec) = vector_store {
         flush_vector_deletes(vec, &mut doomed_chunk_ids, purged);
     }
+
+    let ms = u64::try_from(sweep_started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    if let Some(lw) = log_writer
+        && let Ok(mut w) = lw.lock()
+    {
+        let _ = w.write_event(&crate::ingest_log::LogEvent::SweepSummary {
+            ts: crate::ingest_log::now_ts(),
+            checked: total,
+            purged,
+            ms,
+        });
+    }
+    crate::ingest_progress::emit(
+        progress,
+        crate::ingest_progress::IngestEvent::SweepCompleted {
+            checked: total,
+            purged,
+            ms,
+        },
+    );
 
     Ok(purged)
 }

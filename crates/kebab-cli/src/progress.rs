@@ -304,6 +304,66 @@ impl ProgressDisplay {
                     let _ = writeln!(err, "  ⏱ {}", parts.join(" · "));
                 }
             }
+            // Issue #228: the sweep runs between the scan and the asset
+            // loop and used to draw nothing, so the bar sat at `0/N` for
+            // the whole phase. It gets its own bar here rather than
+            // borrowing the asset bar's counter — a sweep of 12k
+            // candidates and an ingest of 12k assets are different work
+            // with different totals, and sharing one counter would make
+            // the second phase appear to restart.
+            IngestEvent::SweepStarted { total } => {
+                if let Some(bar) = self.bar.as_mut() {
+                    bar.set_length(u64::from(*total));
+                    bar.set_position(0);
+                    bar.set_style(
+                        ProgressStyle::with_template("sweep  [{bar:30}] {pos}/{len} {wide_msg}")
+                            .unwrap()
+                            .progress_chars("=> "),
+                    );
+                    bar.set_message("");
+                }
+                if !tty && !quiet {
+                    let mut err = std::io::stderr().lock();
+                    let _ = writeln!(err, "ingest: sweeping {total} deleted-file candidates…");
+                }
+            }
+            IngestEvent::SweepProgress {
+                idx, path, removed, ..
+            } => {
+                if let Some(bar) = self.bar.as_mut() {
+                    bar.set_position(u64::from(*idx));
+                    if *removed {
+                        bar.set_message(abbreviate_path(path));
+                    }
+                }
+                // Non-TTY prints only the purges: one line per examined
+                // candidate would bury the run's real output under paths
+                // that were left exactly as they were.
+                if *removed && !tty && !quiet {
+                    let mut err = std::io::stderr().lock();
+                    let _ = writeln!(err, "  purged {path}");
+                }
+            }
+            IngestEvent::SweepCompleted {
+                checked,
+                purged,
+                ms,
+            } => {
+                if let Some(bar) = self.bar.as_mut() {
+                    bar.set_message("");
+                }
+                // Printed even when nothing was purged: "checked 12115,
+                // purged 0" is the answer to "what was it doing all that
+                // time", which is what #228 was really about.
+                if !quiet {
+                    let mut err = std::io::stderr().lock();
+                    let _ = writeln!(
+                        err,
+                        "ingest: sweep complete (checked={checked} purged={purged} in {})",
+                        fmt_ms(*ms)
+                    );
+                }
+            }
             IngestEvent::Completed { counts } => {
                 if let Some(bar) = self.bar.take() {
                     bar.finish_and_clear();
