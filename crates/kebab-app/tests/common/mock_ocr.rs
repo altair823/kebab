@@ -57,8 +57,7 @@ impl OcrEngine for MockOcrEngine {
             // plain Display shows only the outer layer. A single-layer error
             // would render identically under `{}` and `{:#}`, so it could not
             // tell whether the provenance note keeps the cause (issue #239).
-            return Err(anyhow::anyhow!("mock inner cause"))
-                .context("mock failure");
+            return Err(anyhow::anyhow!("mock inner cause")).context("mock failure");
         }
         let mut idx = self.call_index.lock().unwrap();
         let text = self
