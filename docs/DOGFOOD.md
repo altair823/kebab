@@ -122,9 +122,9 @@ endpoint = "http://192.168.0.47:11434"
 enabled = false  # opt-in
 ```
 
-`paddle-onnx` 백엔드 (v0.27.0~, in-process ONNX — Ollama 없이 돈다):
+**Config (v0.28.0~)**: 위 블록은 `[ingest.image.ocr]` / `[ingest.image.caption]` 로 옮겨졌다. 옛 키를 그대로 쓰면 **`schema_version` 이 5 보다 낮은 파일에서만** 로드 시 자동 이관된다 — 이미 `schema_version = 5` 인 config 에 `[image.ocr]` 를 붙여 넣으면 경고 없이 통째로 무시되고 OCR 이 꺼진 채로 돈다. `paddle-onnx` 백엔드 (v0.27.0~, in-process ONNX — Ollama 없이 돈다):
 ```toml
-[image.ocr]
+[ingest.image.ocr]
 enabled = true
 engine = "paddle-onnx"
 ```
@@ -132,8 +132,8 @@ engine = "paddle-onnx"
 **verify**:
 - `*.png` / `*.jpg` / `*.jpeg` 만 ingest target.
 - OCR text 가 `Block::ImageRef.ocr.joined` 안.
-- `[image.caption].enabled=true` 시 caption 도.
-- (issue #239) 한 장도 **통째로** 비지 않는다. 얇은 검출 박스 하나가 rec 세션을 실패시키면 그 이미지의 인식 결과가 전량 버려지던 버그였다. 색인은 성공으로 끝나므로 `documents.provenance_json` 에 `Invalid input shape` 또는 `err=rec session run` 이 남았는지로 확인한다.
+- caption 토글을 켜면 caption 도.
+- (issue #239) 한 장도 **통째로** 비지 않는다. 얇은 검출 박스 하나가 rec 세션을 실패시키면 그 이미지의 인식 결과가 전량 버려지던 버그였다. 색인은 성공으로 끝나므로 `documents.provenance_json` 에 `Invalid input shape` 이 남았는지로 확인한다. (PDF 경로는 노트 형식이 달라 문자열이 다르다 — HOTFIXES 2026-08-28 참고.)
 
 **scenarios**:
 - 1.2.a Korean OCR (한국어 scan PNG) → OCR text + search hit.
@@ -141,7 +141,7 @@ engine = "paddle-onnx"
 - 1.2.c photo (자연 사진, OCR 없음) → empty OCR or warning.
 - 1.2.d corrupt image → graceful error.
 - 1.2.e oversized image (> max_pixels) → downscale.
-- 1.2.f (issue #239) `engine = "paddle-onnx"` 로 §13.4 이미지 코퍼스 전량 → OCR 오류 0 건. 본문이 파일명뿐인 문서가 남으면 provenance 를 확인한다. 글자가 없는 사진이라 0 자인 것과 이 버그로 통째로 버려진 것은 다르다 — 후자만 provenance 에 오류가 남는다.
+- 1.2.f (issue #239) `[ingest.image.ocr] engine = "paddle-onnx"` 로 §13.4 이미지 코퍼스 전량 → OCR 오류 0 건. 먼저 진행 출력에 `ocr(ppocrv5-mobile-kor…)` 단계가 실제로 찍히는지 본다 — 안 찍히면 OCR 이 꺼진 것이고, 그 상태에서는 모든 이미지가 본문 0 자로 나와 시나리오가 통과한 것처럼 보인다. 본문이 파일명뿐인 문서가 남으면 provenance 를 확인한다. 글자가 없는 사진이라 0 자인 것과 이 버그로 통째로 버려진 것은 다르다 — 후자만 provenance 에 오류가 남는다.
 
 ### §1.3 PDF text ingest (P7-1)
 

@@ -57,16 +57,18 @@ const REC_HEIGHT: u32 = 48;
 /// `Invalid input shape: {1,0}` — taking every already-recognized box on the
 /// image down with it (issue #239). Measured against the bundled
 /// `korean_ppocrv5_mobile_rec.onnx`: 1..=4 always fail, 5.. always succeed.
-/// `rec_min_width_is_the_graph_floor` holds the constant from both
-/// directions: too low and the graph rejects it, too high and it starts
-/// discarding crops the graph would have accepted.
+/// `rec_min_width_is_the_graph_floor` holds the constant from below — set it
+/// under the graph's floor and that test errors. The upward direction cannot
+/// be a test (both of its assertions pass *better* as the constant grows), so
+/// it is the `const _` ceiling right below instead.
 const REC_MIN_WIDTH: u32 = 5;
-/// Raising `REC_MIN_WIDTH` is only free while it stays inside the band that
-/// was measured to decode nothing anyway: widths 5..=16 come back empty even
-/// with real ink in them, while width 40 reads glyphs at 0.97+ confidence
-/// (issue #239). Above 16 the guard starts discarding crops the graph would
-/// have read — the same silent loss this constant exists to prevent — so the
-/// ceiling is enforced at compile time rather than left to review.
+/// Raising `REC_MIN_WIDTH` is only known to be free while it stays inside the
+/// band that was actually measured: widths 5..=16 come back empty even with
+/// real ink in them, while width 40 reads glyphs at 0.97+ confidence (issue
+/// #239). 17..=39 was never swept, so a ceiling above 16 is not measurement
+/// any more — and by 40 the guard would be discarding crops the graph reads,
+/// which is the silent loss this constant exists to prevent. Enforced at
+/// compile time rather than left to review.
 const _: () = assert!(
     REC_MIN_WIDTH <= 16,
     "REC_MIN_WIDTH is past the measured no-loss ceiling (16)"

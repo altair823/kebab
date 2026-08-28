@@ -54,6 +54,8 @@ git history.
 
 모델 에셋이 in-tree 로 커밋돼 있으므로(`git ls-files crates/kebab-parse-image/assets/`) skip 가드는 붙이지 않았다 — 조용히 안 도는 테스트가 이 이슈가 경고하는 바로 그 함정이다.
 
+PDF 노트의 `{e:#}` 도 `ocr_engine_failure_surfaces_as_warning` 이 고정한다. 원래 이 테스트는 mock 이 단층 오류를 내서 `{}` 로 되돌려도 통과했다 — anyhow 는 원인이 없는 오류를 두 형식에서 똑같이 찍기 때문이다. mock 을 실제와 같은 두 층 오류로 바꾸고 안쪽 원인까지 단언하도록 했다. `{}` 로 되돌리면 실패한다.
+
 ### 실측 (도그푸딩 말뭉치 이미지 240 개 파일)
 
 `corpus/images/` 전량(jpg 172 · png 63 · jpeg 4 · tif 1 = 240 개 파일. `kebab ingest` 가 집는 것은 tif 를 뺀 239 개지만, 여기서는 OCR 엔진을 파일 목록에 직접 물렸다)을 수정 전후로 같은 엔진(`ppocrv5-mobile-kor-1b55f062d055`)·같은 설정(score 0.3 / unclip 1.5 / max_boxes 1000 / max_pixels 2048)으로 돌렸다.
@@ -75,7 +77,11 @@ git history.
 
 부작용이 없다는 것도 확인했다: 원래 성공하던 204 장의 인식 글자 수가 **한 장도 변하지 않았다**. 이 수정은 순수 가산이다.
 
-36 장 중 4 장은 수정 후에도 0 자인데, 글자가 없는 사진(예: `photos/Aphid_2007_1.jpg`, 진딧물 접사)이라 정상이다. 이 이슈로 인한 손실과 "원래 글자가 없어서 비는 문서"를 혼동하면 안 된다 — 성공한 204 장 중에서도 31 장은 det 가 박스를 못 찾아 정상적으로 0 자다. KB 쪽에서 영향 문서를 셀 때는 본문 길이가 아니라 `provenance_json LIKE '%Invalid input shape%'` 로 걸러야 한다. 단, **v0.33.0 이전에 색인된 스캔 PDF 는 이 필터에 안 걸린다** — PDF 경로가 노트를 `err={}` 로 찍었고 anyhow 의 기본 Display 는 가장 바깥 context 하나(`rec session run`)만 내보내기 때문이다. 이미지 경로는 처음부터 `{err:#}` 라 체인 전체가 들어간다. 이번에 PDF 쪽도 `{e:#}` 로 맞춰 두 경로의 노트 형식을 통일했으므로 앞으로 색인되는 것은 양쪽 다 걸린다. 이전 색인분까지 세려면 `OR provenance_json LIKE '%err=rec session run%'` 을 함께 걸어야 한다.
+36 장 중 4 장은 수정 후에도 0 자인데, 글자가 없는 사진(예: `photos/Aphid_2007_1.jpg`, 진딧물 접사)이라 정상이다. 이 이슈로 인한 손실과 "원래 글자가 없어서 비는 문서"를 혼동하면 안 된다 — 성공한 204 장 중에서도 31 장은 det 가 박스를 못 찾아 정상적으로 0 자다. KB 쪽에서 영향 문서를 셀 때는 본문 길이가 아니라 `provenance_json LIKE '%Invalid input shape%'` 로 걸러야 한다. 다만 이 쿼리에는 조건이 둘 붙는다.
+
+**언제 세느냐.** 새 바이너리로 `kebab ingest` 를 돌리기 **전에** 세야 한다. 아래 §재색인 의 `parser_version` bump 가 해당 경로의 documents 행을 지우고 다시 쓰므로, 한 번 색인한 뒤에는 이 쿼리가 0 을 돌려준다. "업그레이드 → 색인 → 릴리스 노트 읽기" 순서로 가면 안 당한 것처럼 보인다. 이미 색인해 버렸다면 PDF 쪽은 `SELECT count(*) FROM pdf_ocr_events WHERE success = 0 AND reason = 'ocr_error'` 로 아직 셀 수 있다 — `pdf_ocr_events` 는 documents 에 FK 가 없어 purge 를 넘겨 살아남는다(`logging.retention_days` 기본 30 일 prune 만 받는다).
+
+**스캔 PDF 는 이 필터로 안 걸린다.** 이번 수정 이전에 나간 **모든** 릴리스에서 — v0.33.0 을 포함해서 — PDF 경로는 노트를 `err={}` 로 찍었고, anyhow 의 기본 Display 는 가장 바깥 context 하나(`rec session run`)만 내보낸다. 하필 스캔 PDF 페이지 렌더링(#232) 자체가 v0.33.0 에서 처음 나갔으므로, 이 버그가 망칠 수 있었던 스캔본은 사실상 전부 그 한 릴리스가 만든 기록이다. 그래서 스캔본까지 세려면 `OR provenance_json LIKE '%err=rec session run%'` 을 반드시 함께 걸어야 한다. 이미지 경로는 처음부터 `{err:#}` 라 체인 전체가 들어갔고, 이번에 PDF 쪽도 `{e:#}` 로 맞췄으므로 앞으로 색인되는 것은 양쪽 다 첫 필터에 걸린다.
 
 ### 재색인: 버전 두 개를 올렸다
 
@@ -84,7 +90,7 @@ git history.
 - `image-meta-v1` → **`image-meta-v2`**
 - `pdf-text-v2` → **`pdf-text-v3`** (스캔 PDF 도 같은 `run_rec` 을 타므로 같은 손실을 겪었다)
 
-**비싼 OCR 은 대부분 다시 안 돈다.** OCR 산출물은 `derivation_cache` 에 **소스 바이트** 키로 들어가 있어서 `parser_version` 캐스케이드와 분리돼 있다(`docs/ARCHITECTURE.md:35` 의 derivation_cache 행, v0.31.0 #217). 그리고 실패한 OCR 은 캐시에 **저장되지 않는다** — `Err` 분기가 `derivation_cache_put` 앞에서 빠져나간다(이미지 `ingest.rs:1750`, PDF `pdf_ocr_apply.rs:475`). 그래서 이미 성공했던 문서는 캐시에 히트해 엔진 호출을 건너뛰고, **실제로 다시 OCR 되는 건 이 버그로 실패했던 문서뿐**이다.
+**비싼 OCR 은 대부분 다시 안 돈다.** OCR 산출물은 `derivation_cache` 에 **소스 바이트** 키로 들어가 있어서 `parser_version` 캐스케이드와 분리돼 있다(`docs/ARCHITECTURE.md:35` 의 derivation_cache 행, v0.31.0 #217). 그리고 실패한 OCR 은 캐시에 **저장되지 않는다** — `Err` 분기가 `derivation_cache_put` 앞에서 빠져나간다(이미지는 `ingest.rs` 의 `ingest_one_image_asset`, PDF 는 `pdf_ocr_apply.rs` 의 `apply_ocr_to_pdf_pages`). 줄 번호를 안 적은 건 이 항목이 처음 썼던 두 참조가 같은 PR 의 후속 커밋에 밀려 둘 다 어긋났기 때문이다. 그래서 이미 성공했던 문서는 캐시에 히트해 엔진 호출을 건너뛰고, **실제로 다시 OCR 되는 건 이 버그로 실패했던 문서뿐**이다.
 
 **하지만 나머지 비용은 전부 든다.** `id_for_doc` 이 접는 것은 composite 가 아니라 **base** PARSER_VERSION 이므로(`kebab-parse-image/src/lib.rs`, `kebab-parse-pdf/src/lib.rs` 의 `extract`; composite 는 그 뒤에 `canonical.parser_version` 에만 찍힌다) 이 bump 는 **모든 이미지·PDF 문서의 doc_id 를 바꾼다**. 그러면 `ingest.rs` 의 `purge_workspace_path_for_parser_bump` 가 돌아 documents 행이 지워지고(blocks·chunks·embedding_records CASCADE) 해당 chunk_id 의 Lance 벡터도 전량 삭제된 뒤, 재파싱·재청킹·재임베딩·재삽입이 이어진다. 임베딩은 파생물 캐시에 히트하지만 행은 다시 쓴다. doc_id 는 wire 필수 필드이자 `kebab inspect doc <id>` 의 핸들이라, 파일을 하나도 안 고쳤는데 전부 한꺼번에 바뀐다.
 
