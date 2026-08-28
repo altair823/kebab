@@ -42,6 +42,10 @@ classDiagram
     class OllamaVisionOcr {
         endpoint, model, max_pixels
     }
+    class OnnxPaddleOcr {
+        REC_HEIGHT = 48
+        REC_MIN_WIDTH = 5
+    }
     class CaptionFns {
         caption_image(lm, prep, opts) ModelCaption
         apply_caption(block, lm, opts)
@@ -49,6 +53,7 @@ classDiagram
     Extractor <|.. PdfTextExtractor
     Extractor <|.. ImageExtractor
     OcrEngine <|.. OllamaVisionOcr
+    OcrEngine <|.. OnnxPaddleOcr
     ImageExtractor ..> OcrEngine : applied via apply_ocr
     ImageExtractor ..> CaptionFns : applied via apply_caption
 ```
@@ -106,8 +111,10 @@ flowchart LR
 
 **Image** (`kebab-parse-image`):
 - `ImageExtractor` — `Extractor` 구현체. `MAX_DECODE_DIM = 16384` 초과 거부 (decode bomb 방어).
+- `PARSER_VERSION = "image-meta-v2"` — version cascade entry (issue #239 에서 v1 → v2, 얇은 검출 박스가 이미지 OCR 을 통째로 날리던 것을 고치면서 기존 색인 이미지 재처리 유발).
 - `OcrEngine` (trait) — `engine_id() / run(...) -> OcrText`. `OcrText.engine` 필드로 trust level 분기.
-- `OllamaVisionOcr { endpoint, model, max_pixels }` — v1 유일 구현. `apply_ocr(block, engine, langs)` 가 `ImageRefBlock.ocr` 슬롯 채움.
+- `OllamaVisionOcr { endpoint, model, max_pixels }` — `ollama-vision` 백엔드 (기본값). `apply_ocr(block, engine, langs)` 가 `ImageRefBlock.ocr` 슬롯 채움.
+- `OnnxPaddleOcr` — `paddle-onnx` 백엔드 (v0.27.0, PP-OCRv5 ONNX in-process). rec 세션 입력 폭 하한은 `REC_MIN_WIDTH = 5` — 그 아래는 세션에 넣지 않고 빈 문자열을 돌려준다 (issue #239).
 - `caption_image(lm: &dyn LanguageModel, prep, opts) -> Result<ModelCaption>` — `LanguageModel.generate_stream` 의 vision 입력 (`GenerateRequest.images`) 사용. `apply_caption` 이 block 에 in-place 주입.
 
 ## 외부 의존

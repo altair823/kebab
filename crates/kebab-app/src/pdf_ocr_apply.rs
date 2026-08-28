@@ -447,7 +447,10 @@ where
                 Err(e) => {
                     // OCR failure: warning event + skip (text-detect block 그대로).
                     let note = format!(
-                        "page={} OCR failed engine={} version={} err={}",
+                        // `{e:#}` (not `{e}`): the ORT detail lives under a `.context`, and
+                        // the plain Display drops it — so a note written with `{e}` reads
+                        // `err=rec session run` and cannot be grepped for the real cause.
+                        "page={} OCR failed engine={} version={} err={:#}",
                         page_num,
                         engine.engine_name(),
                         engine.engine_version(),

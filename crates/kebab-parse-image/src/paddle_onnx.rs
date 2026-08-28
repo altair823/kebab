@@ -57,8 +57,20 @@ const REC_HEIGHT: u32 = 48;
 /// `Invalid input shape: {1,0}` — taking every already-recognized box on the
 /// image down with it (issue #239). Measured against the bundled
 /// `korean_ppocrv5_mobile_rec.onnx`: 1..=4 always fail, 5.. always succeed.
-/// `rec_min_width_is_the_graph_floor` pins both sides of that boundary.
+/// `rec_min_width_is_the_graph_floor` holds the constant from both
+/// directions: too low and the graph rejects it, too high and it starts
+/// discarding crops the graph would have accepted.
 const REC_MIN_WIDTH: u32 = 5;
+/// Raising `REC_MIN_WIDTH` is only free while it stays inside the band that
+/// was measured to decode nothing anyway: widths 5..=16 come back empty even
+/// with real ink in them, while width 40 reads glyphs at 0.97+ confidence
+/// (issue #239). Above 16 the guard starts discarding crops the graph would
+/// have read — the same silent loss this constant exists to prevent — so the
+/// ceiling is enforced at compile time rather than left to review.
+const _: () = assert!(
+    REC_MIN_WIDTH <= 16,
+    "REC_MIN_WIDTH is past the measured no-loss ceiling (16)"
+);
 /// DBNet probability-map binarization threshold. Looser than Paddle's default
 /// `box_thresh` (0.6) to keep recall high on low-contrast Korean text.
 const DET_BIN_THRESH: f32 = 0.3;
@@ -1022,17 +1034,37 @@ mod tests {
     /// abort the ORT session, and `recognize`'s `?` turned that into "this
     /// image has no OCR text at all" — 36 of 240 corpus images.
     ///
-    /// Both directions matter, so both are asserted. Below `REC_MIN_WIDTH` the
-    /// guard must short-circuit (delete it and this errors). At exactly
-    /// `REC_MIN_WIDTH` the real session must run (set the constant below the
-    /// graph's true floor, e.g. after a model swap, and this errors) — that
-    /// second half is what keeps the constant pinned to the shipped model
-    /// instead of being a number nobody rechecks.
+    /// Both runtime directions are asserted here. Below
+    /// `REC_MIN_WIDTH` the guard must short-circuit (delete it and this
+    /// errors). At exactly `REC_MIN_WIDTH` the real session must run, which is
+    /// what keeps the constant pinned to the shipped model rather than being a
+    /// number nobody rechecks (set it below the graph's floor, e.g. after a
+    /// model swap, and this errors). The upward direction — a constant raised
+    /// past the width band that was measured to decode nothing anyway, which
+    /// would silently drop crops the graph can read — is pinned by the
+    /// `const _` assertion next to `REC_MIN_WIDTH` itself.
     #[test]
     fn rec_min_width_is_the_graph_floor() {
-        let engine =
-            OnnxPaddleOcr::from_paths(&ModelPaths::from_default_dir(), 0.3, 1.5, 1000, 1600)
-                .expect("bundled OCR assets must load");
+        // The upward direction is pinned by the `const _` next to
+        // REC_MIN_WIDTH — a raise past the measured ceiling fails the build,
+        // not just this test.
+        //
+        // Pin to the *bundled* assets: `ModelPaths::from_default_dir` honors
+        // `KEBAB_IMAGE_OCR_MODEL_DIR`, and a developer with that exported would
+        // otherwise measure their own model here.
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/paddleocr-onnx");
+        let engine = OnnxPaddleOcr::from_paths(
+            &ModelPaths {
+                det: dir.join("ppocrv5_mobile_det.onnx"),
+                rec: dir.join("korean_ppocrv5_mobile_rec.onnx"),
+                dict: dir.join("korean_dict.txt"),
+            },
+            0.3,
+            1.5,
+            1000,
+            1600,
+        )
+        .expect("bundled OCR assets must load");
         // A crop already at REC_HEIGHT makes run_rec's keep-aspect resize the
         // identity, so the crop width *is* the rec input width — no rounding
         // to reason about.

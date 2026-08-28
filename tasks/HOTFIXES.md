@@ -26,7 +26,7 @@ git history.
 
 ### 하한은 16 이 아니라 5 였다 — 실측
 
-이슈는 `REC_MIN_WIDTH = 16` 을 제안했지만, 번들된 `korean_ppocrv5_mobile_rec.onnx` 를 직접 스윕해 보면 **실제 한계는 4** 다. 세 번의 독립 측정(서로 다른 조사 레인 + 검증 레인)이 같은 표를 냈다.
+이슈는 `REC_MIN_WIDTH = 16` 을 제안했지만, 번들된 `korean_ppocrv5_mobile_rec.onnx` 를 직접 스윕해 보면 **실패하는 폭은 4 까지이고, 그래서 하한은 5** 다. 서로 다른 경로로 세 번 재 봤고 같은 표가 나왔다.
 
 | rec 입력 폭 (높이 48) | 결과 |
 |---|---|
@@ -39,18 +39,24 @@ git history.
 
 `crop.width()` 가 아니라 리사이즈 **이후**의 `new_w` 를 검사한다. 3×200 짜리 크롭은 폭이 3 이지만 `new_w` 가 1 이고, 3×10 크롭은 같은 폭 3 인데 `new_w` 가 14 다. 네트워크가 보는 값은 `new_w` 뿐이다.
 
-### 회귀 테스트는 양쪽을 다 고정한다
+### 회귀 테스트는 상수를 위아래로 다 가둔다
 
-`rec_min_width_is_the_graph_floor` (`paddle_onnx.rs` 의 `mod tests`) 는 두 방향을 모두 단언한다.
+아래쪽은 `rec_min_width_is_the_graph_floor` (`paddle_onnx.rs` 의 `mod tests`) 가 두 가지로 잡는다.
 
-- `1..REC_MIN_WIDTH` 는 세션에 닿지 않고 빈 문자열로 빠져야 한다 → **가드를 지우면 실패**한다. 실제로 가드만 지우고 돌려 확인했다: `w=1 must never reach the rec session: rec session run: ... Invalid input shape: {1,0}`.
+- `1..REC_MIN_WIDTH` 는 세션에 닿지 않고 빈 문자열로 빠져야 한다 → **가드를 지우면 실패**한다. 가드만 지우고 돌려 확인했다: `w=1 must never reach the rec session: rec session run: ... Invalid input shape: {1,0}`.
 - 정확히 `REC_MIN_WIDTH` 는 **진짜 세션을 통과**해야 한다 → 상수가 모델의 실제 하한보다 낮으면(예: 모델 교체 후) 실패한다.
 
-아래쪽만 있는 테스트는 상수가 너무 낮아도 통과해 버린다. 위쪽 단언이 상수를 배포된 모델에 붙들어 두는 역할을 한다. 모델 에셋이 in-tree 로 커밋돼 있으므로(`git ls-files crates/kebab-parse-image/assets/`) skip 가드는 붙이지 않았다 — 조용히 안 도는 테스트가 이 이슈가 경고하는 바로 그 함정이다.
+위쪽은 상수 옆의 `const _: () = assert!(REC_MIN_WIDTH <= 16, …)` 가 잡는다. **컴파일이 안 된다** — 100 으로 바꾸면 `error[E0080]: evaluation panicked: REC_MIN_WIDTH is past the measured no-loss ceiling (16)`.
 
-### 실측 (도그푸딩 말뭉치 이미지 240 장)
+위쪽 단언이 없으면 테스트가 한 방향으로만 샌다. 초안이 그랬다 — 상수를 100 으로 바꿔도 통과했다. 위의 두 단언은 상수가 커질수록 **더 잘** 통과하기 때문이다(가드가 더 많이 잡아 주고, 세션은 폭이 클수록 잘 돈다). 그 상태면 높이 48 기준 폭 100 미만 크롭, 즉 글자 한두 개짜리 박스가 전부 조용히 버려진다 — 이 항목이 없애려는 손실과 같은 종류다. 상한 16 은 위에서 잰 "5~16 은 잉크가 있어도 빈 문자열, 40 은 제대로 읽음" 에서 온 숫자이고, 테스트가 아니라 컴파일 시점에 건 이유는 상수를 만지는 사람이 테스트를 돌리기 전에 막히는 편이 낫기 때문이다.
 
-`corpus/images/` 전량을 수정 전후로 같은 엔진(`ppocrv5-mobile-kor-1b55f062d055`)·같은 설정(score 0.3 / unclip 1.5 / max_boxes 1000 / max_pixels 2048)으로 돌렸다.
+테스트는 `ModelPaths::from_default_dir()` 대신 `CARGO_MANIFEST_DIR` 에서 경로를 직접 만든다. 전자는 `KEBAB_IMAGE_OCR_MODEL_DIR` 을 타므로, 자기 모델 디렉토리를 export 해 둔 사람이 `cargo test` 를 돌리면 상수를 엉뚱한 모델에 대고 재게 된다. 이 테스트의 일은 상수를 **배포되는** 모델에 붙들어 두는 것이다.
+
+모델 에셋이 in-tree 로 커밋돼 있으므로(`git ls-files crates/kebab-parse-image/assets/`) skip 가드는 붙이지 않았다 — 조용히 안 도는 테스트가 이 이슈가 경고하는 바로 그 함정이다.
+
+### 실측 (도그푸딩 말뭉치 이미지 240 개 파일)
+
+`corpus/images/` 전량(jpg 172 · png 63 · jpeg 4 · tif 1 = 240 개 파일. `kebab ingest` 가 집는 것은 tif 를 뺀 239 개지만, 여기서는 OCR 엔진을 파일 목록에 직접 물렸다)을 수정 전후로 같은 엔진(`ppocrv5-mobile-kor-1b55f062d055`)·같은 설정(score 0.3 / unclip 1.5 / max_boxes 1000 / max_pixels 2048)으로 돌렸다.
 
 | | 수정 전 | 수정 후 |
 |---|---|---|
@@ -69,7 +75,7 @@ git history.
 
 부작용이 없다는 것도 확인했다: 원래 성공하던 204 장의 인식 글자 수가 **한 장도 변하지 않았다**. 이 수정은 순수 가산이다.
 
-36 장 중 4 장은 수정 후에도 0 자인데, 글자가 없는 사진(예: `photos/Aphid_2007_1.jpg`, 진딧물 접사)이라 정상이다. 이 이슈로 인한 손실과 "원래 글자가 없어서 비는 문서"를 혼동하면 안 된다 — 성공한 204 장 중에서도 31 장은 det 가 박스를 못 찾아 정상적으로 0 자다. KB 쪽에서 영향 문서를 셀 때는 본문 길이가 아니라 `provenance_json LIKE '%Invalid input shape%'` 로 걸러야 한다.
+36 장 중 4 장은 수정 후에도 0 자인데, 글자가 없는 사진(예: `photos/Aphid_2007_1.jpg`, 진딧물 접사)이라 정상이다. 이 이슈로 인한 손실과 "원래 글자가 없어서 비는 문서"를 혼동하면 안 된다 — 성공한 204 장 중에서도 31 장은 det 가 박스를 못 찾아 정상적으로 0 자다. KB 쪽에서 영향 문서를 셀 때는 본문 길이가 아니라 `provenance_json LIKE '%Invalid input shape%'` 로 걸러야 한다. 단, **v0.33.0 이전에 색인된 스캔 PDF 는 이 필터에 안 걸린다** — PDF 경로가 노트를 `err={}` 로 찍었고 anyhow 의 기본 Display 는 가장 바깥 context 하나(`rec session run`)만 내보내기 때문이다. 이미지 경로는 처음부터 `{err:#}` 라 체인 전체가 들어간다. 이번에 PDF 쪽도 `{e:#}` 로 맞춰 두 경로의 노트 형식을 통일했으므로 앞으로 색인되는 것은 양쪽 다 걸린다. 이전 색인분까지 세려면 `OR provenance_json LIKE '%err=rec session run%'` 을 함께 걸어야 한다.
 
 ### 재색인: 버전 두 개를 올렸다
 
@@ -78,9 +84,15 @@ git history.
 - `image-meta-v1` → **`image-meta-v2`**
 - `pdf-text-v2` → **`pdf-text-v3`** (스캔 PDF 도 같은 `run_rec` 을 타므로 같은 손실을 겪었다)
 
-**재처리 비용은 생각보다 싸다.** OCR 산출물은 `derivation_cache` 에 **소스 바이트** 키로 들어가 있어서(§3.4, v0.31.0 #217) `parser_version` 캐스케이드와 분리돼 있다. 그리고 실패한 OCR 은 캐시에 **저장되지 않는다** — `Err` 분기가 `derivation_cache_put` 앞에서 빠져나간다(이미지 `ingest.rs:1750`, PDF `pdf_ocr_apply.rs:475`). 그래서 다음 `kebab ingest` 는 모든 이미지·PDF 문서를 다시 추출하되, 이미 성공했던 것들은 OCR 캐시에 히트해 비싼 엔진 호출을 건너뛰고, **실제로 다시 OCR 되는 건 이 버그로 실패했던 문서뿐**이다.
+**비싼 OCR 은 대부분 다시 안 돈다.** OCR 산출물은 `derivation_cache` 에 **소스 바이트** 키로 들어가 있어서 `parser_version` 캐스케이드와 분리돼 있다(`docs/ARCHITECTURE.md:35` 의 derivation_cache 행, v0.31.0 #217). 그리고 실패한 OCR 은 캐시에 **저장되지 않는다** — `Err` 분기가 `derivation_cache_put` 앞에서 빠져나간다(이미지 `ingest.rs:1750`, PDF `pdf_ocr_apply.rs:475`). 그래서 이미 성공했던 문서는 캐시에 히트해 엔진 호출을 건너뛰고, **실제로 다시 OCR 되는 건 이 버그로 실패했던 문서뿐**이다.
 
-### 스냅샷 낙수
+**하지만 나머지 비용은 전부 든다.** `id_for_doc` 이 접는 것은 composite 가 아니라 **base** PARSER_VERSION 이므로(`kebab-parse-image/src/lib.rs`, `kebab-parse-pdf/src/lib.rs` 의 `extract`; composite 는 그 뒤에 `canonical.parser_version` 에만 찍힌다) 이 bump 는 **모든 이미지·PDF 문서의 doc_id 를 바꾼다**. 그러면 `ingest.rs` 의 `purge_workspace_path_for_parser_bump` 가 돌아 documents 행이 지워지고(blocks·chunks·embedding_records CASCADE) 해당 chunk_id 의 Lance 벡터도 전량 삭제된 뒤, 재파싱·재청킹·재임베딩·재삽입이 이어진다. 임베딩은 파생물 캐시에 히트하지만 행은 다시 쓴다. doc_id 는 wire 필수 필드이자 `kebab inspect doc <id>` 의 핸들이라, 파일을 하나도 안 고쳤는데 전부 한꺼번에 바뀐다.
+
+그리고 이 비용은 **버그가 닿지 않는 KB 에도** 걸린다. 기본 OCR 엔진은 `ollama-vision` 이고 이미지 OCR 은 기본 off, `PdfOcrCfg::defaults()` 도 `enabled: false, always_on: false` 라, paddle-onnx 를 안 쓰는 KB 는 얻는 것 없이 이미지·PDF 를 다시 색인하게 된다.
+
+**그래도 base 를 올리는 쪽을 택했다.** 대안은 `ingest_config_signature` 의 `ocr_engine_version_for_sig` 에 paddle-onnx 전용 revision 토큰을 넣어 영향 문서만 무효화하는 것이고, 그러면 doc_id 도 유지되고 ollama-vision·OCR off KB 도 안 건드린다. 더 정확하지만 #232 가 세운 선례와 다른 새 무효화 경로를 하나 더 만드는 일이고, 이 저장소는 단일 사용자용이라 실제로 손해 보는 KB 가 사용자 자신의 것 하나다. 캐스케이드 규칙이 이미 있는데 그 옆에 두 번째 규칙을 세우는 값을 치를 만큼은 아니라고 봤다. 다중 사용자 배포로 가면 다시 볼 결정이다.
+
+### 스냅샷도 함께 움직였다
 
 `pdf-text-v3` 는 `vector_pdf_canonical.json` 을 움직인다. #232 때와 같은 형태임을 확인했다 — 바뀐 것은 **파생 식별자와 버전 문자열뿐**이고 본문 텍스트·inlines·`source_span`·metadata 는 동일하다.
 
@@ -95,7 +107,9 @@ git history.
 
 ### 고치지 않고 남긴 것
 
-`recognize` 안의 `self.run_rec(&crop)?` (`paddle_onnx.rs:299`) 는 그대로 뒀다. 폭 가드가 알려진 유일한 방아쇠를 닫았고, `T = ceil((w-4)/8) >= 1` 이 `w >= 5` 에서 항상 성립하므로 폭 때문에 이 경로가 다시 터지는 일은 없다. 여기를 박스 단위 `continue` 로 바꾸면 바로 아래 클래스 수 검사(`rec output has {c} classes`)까지 함께 삼키게 되는데, 그건 입력과 무관한 **설정 오류**(rec 모델과 dict 짝이 안 맞음)라서 지금처럼 즉시 실패하는 편이 맞다. 조용한 빈 OCR 로 바꿀 이유가 없다.
+`recognize` 의 박스 루프 안 `self.run_rec(&crop)?` 는 그대로 뒀다. 폭 가드가 알려진 유일한 방아쇠를 닫았고, `T = ceil((w-4)/8) >= 1` 이 `w >= 5` 에서 항상 성립하므로 폭 때문에 이 경로가 다시 터지는 일은 없다.
+
+박스 단위로 살려 두려면 그 `?` 를 `continue` 로 바꿔야 하는데, 그러면 `run_rec` 안의 클래스 수 검사(`rec output has {c} classes`)까지 함께 삼킨다. 그건 입력과 무관한 **설정 오류**(rec 모델과 dict 짝이 안 맞음)라 즉시 실패하는 편이 맞다. 다만 이게 `?` 를 유지할 결정적 이유는 아니다 — 클래스 차원은 정적 그래프 메타데이터라(번들 rec 출력 shape 가 `[-1, -1, 11947]`) 세션 로드 시점에 읽을 수 있고, 그렇다면 그 검사는 `from_paths` 의 `dict.len() != DICT_LINES` bail 옆으로 옮기는 편이 더 낫다. 잘못된 모델이 박스가 검출되는 이미지를 기다릴 것 없이 엔진 생성에서 바로 터지기 때문이다. 이번에 안 한 건 #239 의 방아쇠와 무관한 별개 정리이기 때문이고, 옮길 때는 `continue` 에 `tracing::warn!` 을 반드시 함께 달아야 한다. 맨 `continue` 는 이 항목이 없애려는 조용한 손실을 다른 자리로 옮기는 것에 지나지 않는다.
 
 ### 이슈 본문과 다른 점 하나
 

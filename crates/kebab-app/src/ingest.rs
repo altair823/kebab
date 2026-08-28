@@ -1629,7 +1629,7 @@ fn ingest_one_image_asset(
         }
     };
     // p9-fb-23 task 7: incremental-ingest early-skip for the image flow.
-    // Image docs use the `image-meta-v1` parser_version + the same
+    // Image docs use the `image-meta-v2` parser_version + the same
     // MdHeadingV2Chunker as the markdown flow (single-block doc). The
     // embedding-version check matches the markdown path: when the
     // active embedder's model_version equals what was stamped on the
@@ -1676,7 +1676,7 @@ fn ingest_one_image_asset(
         .extract_for(&asset.media_type, &ctx, &bytes)
         .context("kb-app::extract_for (image)")?;
     // v0.26.2: store the composite parser_version (extractor baked the base
-    // `image-meta-v1`, which already fixed doc_id). Skip compare + stored
+    // `image-meta-v2`, which already fixed doc_id). Skip compare + stored
     // field must agree for next-run detection.
     canonical.parser_version = eff_parser_version.clone();
     // `[[workspace.sources]]`: stamp the owning source id (image extractor
@@ -2541,7 +2541,7 @@ fn ingest_one_pdf_asset(
         }
     };
     // p9-fb-23 task 7: incremental-ingest early-skip for the PDF flow.
-    // PDF docs use `pdf-text-v2` as the parser_version and `PdfPageV1Chunker`
+    // PDF docs use `pdf-text-v3` as the parser_version and `PdfPageV1Chunker`
     // as the chunker — both pinned per-medium today (no config knob).
     // v0.26.2: composite parser_version folds pdf.ocr (enabled/always_on/
     // model) + chunking, so enabling scanned-PDF OCR auto-re-indexes PDFs.
@@ -2578,7 +2578,7 @@ fn ingest_one_pdf_asset(
     let mut canonical = app
         .extract_for(&asset.media_type, &ctx, &bytes)
         .context("kb-app::extract_for (pdf)")?;
-    // v0.26.2: store the composite parser_version (base `pdf-text-v2` already
+    // v0.26.2: store the composite parser_version (base `pdf-text-v3` already
     // fixed doc_id) so the next run's skip compare matches.
     canonical.parser_version = eff_parser_version.clone();
     // `[[workspace.sources]]`: stamp the owning source id (pdf extractor

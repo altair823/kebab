@@ -122,10 +122,18 @@ endpoint = "http://192.168.0.47:11434"
 enabled = false  # opt-in
 ```
 
+`paddle-onnx` 백엔드 (v0.27.0~, in-process ONNX — Ollama 없이 돈다):
+```toml
+[image.ocr]
+enabled = true
+engine = "paddle-onnx"
+```
+
 **verify**:
 - `*.png` / `*.jpg` / `*.jpeg` 만 ingest target.
 - OCR text 가 `Block::ImageRef.ocr.joined` 안.
 - `[image.caption].enabled=true` 시 caption 도.
+- (issue #239) 한 장도 **통째로** 비지 않는다. 얇은 검출 박스 하나가 rec 세션을 실패시키면 그 이미지의 인식 결과가 전량 버려지던 버그였다. 색인은 성공으로 끝나므로 `documents.provenance_json` 에 `Invalid input shape` 또는 `err=rec session run` 이 남았는지로 확인한다.
 
 **scenarios**:
 - 1.2.a Korean OCR (한국어 scan PNG) → OCR text + search hit.
@@ -133,6 +141,7 @@ enabled = false  # opt-in
 - 1.2.c photo (자연 사진, OCR 없음) → empty OCR or warning.
 - 1.2.d corrupt image → graceful error.
 - 1.2.e oversized image (> max_pixels) → downscale.
+- 1.2.f (issue #239) `engine = "paddle-onnx"` 로 §13.4 이미지 코퍼스 전량 → OCR 오류 0 건. 본문이 파일명뿐인 문서가 남으면 provenance 를 확인한다. 글자가 없는 사진이라 0 자인 것과 이 버그로 통째로 버려진 것은 다르다 — 후자만 provenance 에 오류가 남는다.
 
 ### §1.3 PDF text ingest (P7-1)
 
@@ -975,7 +984,16 @@ bug 발견 시:
 
 ### §13.4 Image corpus
 
-(P6 dogfood — 향후 추가).
+도그푸딩 스토어의 `corpus/images/` — 4 분류 240 개 파일 (jpg 172 · png 63 · jpeg 4 · tif 1). `kebab ingest` 가 집는 것은 tif 를 뺀 239 개다.
+
+| 분류 | 장수 | 쓰임 |
+|---|---|---|
+| `charts/` | 50 | 도표·다이어그램. 박스가 많고 얇은 조각이 잘 생긴다. #239 실패 8 장. |
+| `english-text/` | 70 | 스크린샷·표지판 등 영문 위주. 1.2.b 판정용. #239 실패 10 장. |
+| `korean-text/` | 70 | 한국어 스캔·필기. 1.2.a. #239 실패 9 장. |
+| `photos/` | 50 | 글자가 거의 없는 자연 사진. 1.2.c 의 "정상적으로 0 자" 대조군. #239 실패 9 장 — 글자가 없어도 얇은 박스는 검출되므로 사진도 걸렸다. |
+
+issue #239 실측 근거가 이 코퍼스 전량 스윕이다 (수정 전 36/240 실패 → 수정 후 0). 상세는 tasks/HOTFIXES.md 2026-08-28 항목.
 
 ---
 
