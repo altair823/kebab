@@ -141,7 +141,7 @@ enabled = false  # opt-in
 - 1 `Block::Paragraph` per page (P7-1 invariant).
 
 **verify**:
-- `parser_version = "pdf-text-v2"`.
+- `parser_version = "pdf-text-v3"`.
 - `chunker_version = "pdf-page-v1"` (또는 `"pdf-page-v1.1"` from v0.20.1).
 - `block_count` ≥ page count.
 

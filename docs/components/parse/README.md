@@ -26,11 +26,11 @@ classDiagram
         parse_blocks(body) (Vec~ParsedBlock~, Warnings)
     }
     class PdfTextExtractor {
-        PARSER_VERSION = "pdf-text-v2"
+        PARSER_VERSION = "pdf-text-v3"
         new() Self
     }
     class ImageExtractor {
-        PARSER_VERSION = "image-meta-v1"
+        PARSER_VERSION = "image-meta-v2"
         MAX_DECODE_DIM = 16384
         new() Self
     }
@@ -101,7 +101,7 @@ flowchart LR
 
 **PDF** (`kebab-parse-pdf`):
 - `PdfTextExtractor` — `Extractor` 구현체. `lopdf::Document::load_mem` 로 한 번 파싱, encrypted 면 즉시 bail.
-- `PARSER_VERSION = "pdf-text-v2"` — version cascade entry (issue #232 에서 v1 → v2, 페이지 렌더링 도입으로 기존 색인 스캔본 재처리 유발). (HOTFIXES P7-2 의 chunker_version `pdf-page-v1` 와 별개.)
+- `PARSER_VERSION = "pdf-text-v3"` — version cascade entry (issue #232 에서 v1 → v2, 페이지 렌더링 도입으로 기존 색인 스캔본 재처리 유발; issue #239 에서 v2 → v3, 얇은 검출 박스가 페이지 OCR 을 통째로 날리던 것을 고치면서 기존 색인 스캔본 재처리 유발). (HOTFIXES P7-2 의 chunker_version `pdf-page-v1` 와 별개.)
 - 빈 페이지 / extract 실패 → `Block::Paragraph` 빈 inlines + `ProvenanceKind::Warning("scanned candidate")`. OCR fallback 미구현.
 
 **Image** (`kebab-parse-image`):

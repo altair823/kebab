@@ -51,6 +51,14 @@ const REC_CLASSES: usize = 11947;
 const DET_LIMIT_SIDE_LEN: u32 = 960;
 /// rec input height (PP-OCRv5 mobile).
 const REC_HEIGHT: u32 = 48;
+/// Narrowest rec input the graph survives. The backbone emits
+/// `T = ceil((w - 4) / 8)` CTC timesteps, so `w <= 4` collapses the feature
+/// map to zero columns and ORT aborts the whole session run with
+/// `Invalid input shape: {1,0}` — taking every already-recognized box on the
+/// image down with it (issue #239). Measured against the bundled
+/// `korean_ppocrv5_mobile_rec.onnx`: 1..=4 always fail, 5.. always succeed.
+/// `rec_min_width_is_the_graph_floor` pins both sides of that boundary.
+const REC_MIN_WIDTH: u32 = 5;
 /// DBNet probability-map binarization threshold. Looser than Paddle's default
 /// `box_thresh` (0.6) to keep recall high on low-contrast Korean text.
 const DET_BIN_THRESH: f32 = 0.3;
@@ -356,6 +364,13 @@ impl OnnxPaddleOcr {
         // resize keep-aspect to height 48, then this single crop is its own batch
         let (cw, ch) = (crop.width().max(1), crop.height().max(1));
         let new_w = ((REC_HEIGHT as f32 / ch as f32) * cw as f32).round().max(1.0) as u32;
+        if new_w < REC_MIN_WIDTH {
+            // A sliver this thin holds no glyph, and feeding it to the graph
+            // would abort recognition for the entire image. Report it the way
+            // an undecodable box is already reported: the caller's
+            // `text.is_empty()` arm drops this box and keeps the rest.
+            return Ok((String::new(), 0.0));
+        }
         let resized = image::imageops::resize(
             crop,
             new_w,
@@ -1001,5 +1016,38 @@ mod tests {
                 "unclip_rect must expand: orig_min_x={orig_min_x} exp_min_x={exp_min_x}"
             );
         }
+    }
+
+    /// Issue #239: a detection box narrower than the rec graph's floor used to
+    /// abort the ORT session, and `recognize`'s `?` turned that into "this
+    /// image has no OCR text at all" — 36 of 240 corpus images.
+    ///
+    /// Both directions matter, so both are asserted. Below `REC_MIN_WIDTH` the
+    /// guard must short-circuit (delete it and this errors). At exactly
+    /// `REC_MIN_WIDTH` the real session must run (set the constant below the
+    /// graph's true floor, e.g. after a model swap, and this errors) — that
+    /// second half is what keeps the constant pinned to the shipped model
+    /// instead of being a number nobody rechecks.
+    #[test]
+    fn rec_min_width_is_the_graph_floor() {
+        let engine =
+            OnnxPaddleOcr::from_paths(&ModelPaths::from_default_dir(), 0.3, 1.5, 1000, 1600)
+                .expect("bundled OCR assets must load");
+        // A crop already at REC_HEIGHT makes run_rec's keep-aspect resize the
+        // identity, so the crop width *is* the rec input width — no rounding
+        // to reason about.
+        let crop = |w| image::RgbImage::from_pixel(w, REC_HEIGHT, image::Rgb([255, 255, 255]));
+
+        for w in 1..REC_MIN_WIDTH {
+            let (text, conf) = engine
+                .run_rec(&crop(w))
+                .unwrap_or_else(|e| panic!("w={w} must never reach the rec session: {e:#}"));
+            assert!(text.is_empty(), "w={w} decoded {text:?}");
+            assert_eq!(conf, 0.0, "w={w}");
+        }
+
+        engine.run_rec(&crop(REC_MIN_WIDTH)).unwrap_or_else(|e| {
+            panic!("REC_MIN_WIDTH={REC_MIN_WIDTH} must survive the rec session: {e:#}")
+        });
     }
 }

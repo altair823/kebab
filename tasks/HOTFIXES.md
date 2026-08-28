@@ -14,6 +14,93 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-08-28 — #239 얇은 검출 박스 하나가 이미지 OCR 전체를 날림 (paddle-onnx rec 폭 하한)
+
+### 무엇이 문제였나
+
+`OnnxPaddleOcr::run_rec` 은 검출된 박스를 높이 48 로 리사이즈하면서 **폭을 1 이상으로만** 보장했다. 그런데 PP-OCRv5 rec 백본은 폭을 반복해서 줄이기 때문에 폭이 한 자릿수인 입력은 도중에 폭 0 인 특징맵이 되고, ORT 가 Conv 에서 세션 실행 전체를 실패시킨다.
+
+그 실패가 `recognize` 의 `?` 를 타고 나가면서, **이미 인식해 둔 나머지 박스가 전부 함께 버려졌다.** 바로 아래 줄(`if text.is_empty() { continue; }`)이 "박스 하나가 비면 나머지는 살린다"는 의도를 담고 있는데 오류 경로에만 그 방어가 없었던 것이다. 손실이 얇은 조각 하나에서 그치지 않고 그 이미지 전체로 번졌다.
+
+색인 자체는 성공으로 끝나므로 **조용한 손실**이었다. 이미지 문서는 본문에 파일명만 남고, 스캔 PDF 페이지는 청크가 0 이 된다. 검색해서 0 건이 나올 때까지 드러나지 않는다.
+
+### 하한은 16 이 아니라 5 였다 — 실측
+
+이슈는 `REC_MIN_WIDTH = 16` 을 제안했지만, 번들된 `korean_ppocrv5_mobile_rec.onnx` 를 직접 스윕해 보면 **실제 한계는 4** 다. 세 번의 독립 측정(서로 다른 조사 레인 + 검증 레인)이 같은 표를 냈다.
+
+| rec 입력 폭 (높이 48) | 결과 |
+|---|---|
+| 1 ~ 4 | 전부 실패 — `Invalid input shape: {1,0}` |
+| 5 ~ 48 | 전부 성공 |
+
+경계는 흐릿하지 않고 딱 떨어지며, 픽셀 내용과 무관하다(흰 이미지·체커보드·글자 모양 렌더 모두 동일). 이유도 유도된다: rec 출력의 CTC 타임스텝 수가 `T = ceil((w - 4) / 8)` 이라서 `w <= 4` 에서 `T = 0` 이 되고, 오류 메시지의 `{1,0}` 이 바로 그 0 이다. 실측한 44 개 폭 전부가 이 식에 맞았다(`w=12 → T=1`, `w=13 → T=2`, `w=45 → T=6`).
+
+그래서 상수를 **5** 로 잡았다. 16 을 쓰면 폭 5~15 구간을 새로 버리게 되는데, 그 구간은 지금 정상 동작하는 범위다. 다만 그 구간이 실제로 글자를 뱉는지도 따로 재 봤고 — 폭 40 대조군은 `"1"`(0.97) / `"3"`(0.999) / `"7"`(0.998) 을 제대로 읽는데 5~16 구간은 잉크가 있어도 전부 빈 문자열이었다 — 즉 **16 을 써도 잃는 건 사실상 없다.** 두 값의 실질 차이는 없고, 5 를 고른 이유는 그것이 그래프의 진짜 하한이라서 상수의 이름과 주석이 거짓이 되지 않기 때문이다.
+
+`crop.width()` 가 아니라 리사이즈 **이후**의 `new_w` 를 검사한다. 3×200 짜리 크롭은 폭이 3 이지만 `new_w` 가 1 이고, 3×10 크롭은 같은 폭 3 인데 `new_w` 가 14 다. 네트워크가 보는 값은 `new_w` 뿐이다.
+
+### 회귀 테스트는 양쪽을 다 고정한다
+
+`rec_min_width_is_the_graph_floor` (`paddle_onnx.rs` 의 `mod tests`) 는 두 방향을 모두 단언한다.
+
+- `1..REC_MIN_WIDTH` 는 세션에 닿지 않고 빈 문자열로 빠져야 한다 → **가드를 지우면 실패**한다. 실제로 가드만 지우고 돌려 확인했다: `w=1 must never reach the rec session: rec session run: ... Invalid input shape: {1,0}`.
+- 정확히 `REC_MIN_WIDTH` 는 **진짜 세션을 통과**해야 한다 → 상수가 모델의 실제 하한보다 낮으면(예: 모델 교체 후) 실패한다.
+
+아래쪽만 있는 테스트는 상수가 너무 낮아도 통과해 버린다. 위쪽 단언이 상수를 배포된 모델에 붙들어 두는 역할을 한다. 모델 에셋이 in-tree 로 커밋돼 있으므로(`git ls-files crates/kebab-parse-image/assets/`) skip 가드는 붙이지 않았다 — 조용히 안 도는 테스트가 이 이슈가 경고하는 바로 그 함정이다.
+
+### 실측 (도그푸딩 말뭉치 이미지 240 장)
+
+`corpus/images/` 전량을 수정 전후로 같은 엔진(`ppocrv5-mobile-kor-1b55f062d055`)·같은 설정(score 0.3 / unclip 1.5 / max_boxes 1000 / max_pixels 2048)으로 돌렸다.
+
+| | 수정 전 | 수정 후 |
+|---|---|---|
+| OCR 성공 | 204 / 240 | **240 / 240** |
+| OCR 실패 | 36 (15.0%) | **0** |
+
+실패 36 장은 charts 8 · english-text 10 · korean-text 9 · photos 9 로, 특정 종류에 몰려 있지 않았다. 되살아난 본문은 합계 11,747 자(중앙값 37 자, 최대 3,950 자)다. 한 장이 얼마나 크게 손해 보고 있었는지가 드러나는 예:
+
+| 이미지 | 수정 후 |
+|---|---|
+| `charts/Bassano_Politi___1505___Questio_de_modalibus___diagrams.jpg` | 3,950 자 |
+| `charts/Clickpath_Analysis.png` | 1,116 자 / 87 영역 |
+| `korean-text/연고한2.jpg` | 1,088 자 |
+
+`Clickpath_Analysis.png` 은 얇은 조각 하나 때문에 **이미 인식된 87 개 영역**을 통째로 잃고 있었다.
+
+부작용이 없다는 것도 확인했다: 원래 성공하던 204 장의 인식 글자 수가 **한 장도 변하지 않았다**. 이 수정은 순수 가산이다.
+
+36 장 중 4 장은 수정 후에도 0 자인데, 글자가 없는 사진(예: `photos/Aphid_2007_1.jpg`, 진딧물 접사)이라 정상이다. 이 이슈로 인한 손실과 "원래 글자가 없어서 비는 문서"를 혼동하면 안 된다 — 성공한 204 장 중에서도 31 장은 det 가 박스를 못 찾아 정상적으로 0 자다. KB 쪽에서 영향 문서를 셀 때는 본문 길이가 아니라 `provenance_json LIKE '%Invalid input shape%'` 로 걸러야 한다.
+
+### 재색인: 버전 두 개를 올렸다
+
+코드만 고치면 이미 색인된 문서에는 닿지 않는다. 이미지 문서의 실효 `parser_version` 은 `image-meta-v1|chunk:…|ocr:1:paddle-onnx:<모델 blake3>` 인데, 이미지 파일도 모델 에셋도 안 바뀌었으니 서명이 동일하고 `try_skip_unchanged` 가 Unchanged 로 건너뛴다. #232 에서 세운 원칙 그대로다 — 사용자가 `--force-reingest` 를 떠올려야만 고쳐지는 수정은 고쳐진 게 아니다.
+
+- `image-meta-v1` → **`image-meta-v2`**
+- `pdf-text-v2` → **`pdf-text-v3`** (스캔 PDF 도 같은 `run_rec` 을 타므로 같은 손실을 겪었다)
+
+**재처리 비용은 생각보다 싸다.** OCR 산출물은 `derivation_cache` 에 **소스 바이트** 키로 들어가 있어서(§3.4, v0.31.0 #217) `parser_version` 캐스케이드와 분리돼 있다. 그리고 실패한 OCR 은 캐시에 **저장되지 않는다** — `Err` 분기가 `derivation_cache_put` 앞에서 빠져나간다(이미지 `ingest.rs:1750`, PDF `pdf_ocr_apply.rs:475`). 그래서 다음 `kebab ingest` 는 모든 이미지·PDF 문서를 다시 추출하되, 이미 성공했던 것들은 OCR 캐시에 히트해 비싼 엔진 호출을 건너뛰고, **실제로 다시 OCR 되는 건 이 버그로 실패했던 문서뿐**이다.
+
+### 스냅샷 낙수
+
+`pdf-text-v3` 는 `vector_pdf_canonical.json` 을 움직인다. #232 때와 같은 형태임을 확인했다 — 바뀐 것은 **파생 식별자와 버전 문자열뿐**이고 본문 텍스트·inlines·`source_span`·metadata 는 동일하다.
+
+| 필드 | v2 | v3 |
+|---|---|---|
+| `doc_id` | `bd04fa01…` | `960e4c44…` |
+| `block_id` | `964162ec…` | `b85b8a6d…` |
+| `parser_version` | `pdf-text-v2` | `pdf-text-v3` |
+| provenance note | `parser_version=pdf-text-v2; …` | `parser_version=pdf-text-v3; …` |
+
+`kebab-parse-pdf/tests/extractor.rs` 와 `kebab-app/tests/pdf_pipeline.rs` 의 버전 단언 세 곳도 함께 옮겼다. 이미지 쪽은 스냅샷이 상수에서 값을 유도하고 있어 손댈 것이 없었다.
+
+### 고치지 않고 남긴 것
+
+`recognize` 안의 `self.run_rec(&crop)?` (`paddle_onnx.rs:299`) 는 그대로 뒀다. 폭 가드가 알려진 유일한 방아쇠를 닫았고, `T = ceil((w-4)/8) >= 1` 이 `w >= 5` 에서 항상 성립하므로 폭 때문에 이 경로가 다시 터지는 일은 없다. 여기를 박스 단위 `continue` 로 바꾸면 바로 아래 클래스 수 검사(`rec output has {c} classes`)까지 함께 삼키게 되는데, 그건 입력과 무관한 **설정 오류**(rec 모델과 dict 짝이 안 맞음)라서 지금처럼 즉시 실패하는 편이 맞다. 조용한 빈 OCR 로 바꿀 이유가 없다.
+
+### 이슈 본문과 다른 점 하나
+
+이슈는 오류의 노드 이름을 `Conv.33` 으로 적었는데, 이 머신에서는 같은 실패가 `p2o.pd_op.batch_norm_.1.0_nchwc` 로 나온다. ORT 가 CPU 명령어 집합에 맞춰 그래프를 최적화(NCHWc 레이아웃 변환)하면서 노드 이름을 다시 붙이기 때문이고, 상태 메시지와 `{1,0}` 은 동일하다. 다른 버그가 아니다.
+
 ## 2026-08-17 — #232 PDF OCR 이 DCTDecode 아닌 스캔본을 전량 건너뜀 (페이지 렌더링)
 
 ### 무엇이 문제였나

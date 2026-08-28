@@ -1,5 +1,5 @@
 {
-  "doc_id": "bd04fa013899592afcf671013404ed68",
+  "doc_id": "960e4c445f1365a633c9647b42ed27ba",
   "source_asset_id": "babe9824b6b28237c0898575a40ba48d",
   "workspace_path": "mojibake.pdf",
   "title": "untitled",
@@ -8,7 +8,7 @@
     {
       "kind": "paragraph",
       "common": {
-        "block_id": "964162ec3cf0c191849f5a5cf8a3b675",
+        "block_id": "b85b8a6d2462bb396112f45cfcea6c44",
         "heading_path": [],
         "source_span": {
           "kind": "page",
@@ -54,11 +54,11 @@
         "at": "1970-01-01T00:00:00Z",
         "agent": "kb-parse-pdf",
         "kind": "parsed",
-        "note": "parser_version=pdf-text-v2; page_count=1"
+        "note": "parser_version=pdf-text-v3; page_count=1"
       }
     ]
   },
-  "parser_version": "pdf-text-v2",
+  "parser_version": "pdf-text-v3",
   "schema_version": 1,
   "doc_version": 1,
   "last_chunker_version": null,

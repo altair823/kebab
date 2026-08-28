@@ -165,7 +165,7 @@ fn ingest_3_page_pdf_produces_one_doc_and_per_page_chunks() {
         pdf_item.parser_version
             .as_ref()
             .map(|p| p.0.split('|').next().unwrap()),
-        Some("pdf-text-v2")
+        Some("pdf-text-v3")
     );
     assert_eq!(
         pdf_item.chunker_version.as_ref().map(|c| c.0.as_str()),
@@ -479,10 +479,10 @@ fn inspect_doc_surfaces_page_spans() {
         .find(|i| i.doc_path.0.ends_with("inspect.pdf"))
         .unwrap();
     let doc = kebab_app::inspect_doc_with_config(cfg, pdf_item.doc_id.as_ref().unwrap()).unwrap();
-    // v0.26.2: stored parser_version is now `pdf-text-v2|<ingest-config-sig>`
+    // v0.26.2: stored parser_version is now `pdf-text-v3|<ingest-config-sig>`
     // (the signature folds chunking / pdf.ocr settings for skip detection).
     // Assert the base identity by taking the prefix before the first '|'.
-    assert_eq!(doc.parser_version.0.split('|').next().unwrap(), "pdf-text-v2");
+    assert_eq!(doc.parser_version.0.split('|').next().unwrap(), "pdf-text-v3");
     assert_eq!(doc.blocks.len(), 3);
     for block in &doc.blocks {
         match block {
