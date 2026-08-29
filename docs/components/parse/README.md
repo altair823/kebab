@@ -26,21 +26,26 @@ classDiagram
         parse_blocks(body) (Vec~ParsedBlock~, Warnings)
     }
     class PdfTextExtractor {
-        PARSER_VERSION = "pdf-text-v2"
+        PARSER_VERSION = "pdf-text-v3"
         new() Self
     }
     class ImageExtractor {
-        PARSER_VERSION = "image-meta-v1"
+        PARSER_VERSION = "image-meta-v2"
         MAX_DECODE_DIM = 16384
         new() Self
     }
     class OcrEngine {
         <<trait kebab-parse-image>>
-        engine_id() str
-        run(image_bytes, langs) OcrText
+        engine_name() str
+        engine_version() String
+        recognize(image_bytes, lang_hint) Result~OcrText~
     }
     class OllamaVisionOcr {
         endpoint, model, max_pixels
+    }
+    class OnnxPaddleOcr {
+        REC_HEIGHT = 48
+        REC_MIN_WIDTH = 5
     }
     class CaptionFns {
         caption_image(lm, prep, opts) ModelCaption
@@ -49,6 +54,7 @@ classDiagram
     Extractor <|.. PdfTextExtractor
     Extractor <|.. ImageExtractor
     OcrEngine <|.. OllamaVisionOcr
+    OcrEngine <|.. OnnxPaddleOcr
     ImageExtractor ..> OcrEngine : applied via apply_ocr
     ImageExtractor ..> CaptionFns : applied via apply_caption
 ```
@@ -101,13 +107,15 @@ flowchart LR
 
 **PDF** (`kebab-parse-pdf`):
 - `PdfTextExtractor` — `Extractor` 구현체. `lopdf::Document::load_mem` 로 한 번 파싱, encrypted 면 즉시 bail.
-- `PARSER_VERSION = "pdf-text-v2"` — version cascade entry (issue #232 에서 v1 → v2, 페이지 렌더링 도입으로 기존 색인 스캔본 재처리 유발). (HOTFIXES P7-2 의 chunker_version `pdf-page-v1` 와 별개.)
+- `PARSER_VERSION = "pdf-text-v3"` — version cascade entry (issue #232 에서 v1 → v2, 페이지 렌더링 도입; issue #239 에서 v2 → v3, 얇은 검출 박스가 페이지 OCR 을 통째로 날리던 것을 고치면서). 고친 것은 둘 다 스캔본 경로지만 **재처리 대상은 기존 색인 PDF 전부** — base 가 `id_for_doc` 에 접혀 doc_id 가 바뀐다. (HOTFIXES P7-2 의 chunker_version `pdf-page-v1` 와 별개.)
 - 빈 페이지 / extract 실패 → `Block::Paragraph` 빈 inlines + `ProvenanceKind::Warning("scanned candidate")`. OCR fallback 미구현.
 
 **Image** (`kebab-parse-image`):
 - `ImageExtractor` — `Extractor` 구현체. `MAX_DECODE_DIM = 16384` 초과 거부 (decode bomb 방어).
-- `OcrEngine` (trait) — `engine_id() / run(...) -> OcrText`. `OcrText.engine` 필드로 trust level 분기.
-- `OllamaVisionOcr { endpoint, model, max_pixels }` — v1 유일 구현. `apply_ocr(block, engine, langs)` 가 `ImageRefBlock.ocr` 슬롯 채움.
+- `PARSER_VERSION = "image-meta-v2"` — version cascade entry (issue #239 에서 v1 → v2, 얇은 검출 박스가 이미지 OCR 을 통째로 날리던 것을 고치면서). PDF 와 마찬가지로 기존 색인 이미지 **전부** 가 재처리 대상이다.
+- `OcrEngine` (trait) — `engine_name() -> &'static str` / `engine_version() -> String` / `model() -> &str` / `recognize(&[u8], Option<&Lang>) -> Result<OcrText>`. `OcrText.engine` 필드로 trust level 분기.
+- `OllamaVisionOcr { endpoint, model, max_pixels }` — `ollama-vision` 백엔드 (기본값). `apply_ocr(block, engine, langs)` 가 `ImageRefBlock.ocr` 슬롯 채움.
+- `OnnxPaddleOcr` — `paddle-onnx` 백엔드 (v0.27.0, PP-OCRv5 ONNX in-process). rec 세션 입력 폭 하한은 `REC_MIN_WIDTH = 5` — 그 아래는 세션에 넣지 않고 빈 문자열을 돌려준다 (issue #239).
 - `caption_image(lm: &dyn LanguageModel, prep, opts) -> Result<ModelCaption>` — `LanguageModel.generate_stream` 의 vision 입력 (`GenerateRequest.images`) 사용. `apply_caption` 이 block 에 in-place 주입.
 
 ## 외부 의존

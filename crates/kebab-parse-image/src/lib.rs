@@ -49,7 +49,19 @@ use serde_json::{Map, Value};
 use time::OffsetDateTime;
 
 /// Parser version label for the image extractor (§9 versioning).
-pub const PARSER_VERSION: &str = "image-meta-v1";
+///
+/// Bumped to v2 for issue #239 (2026-08-28): a detection box narrower than
+/// the rec graph's floor used to abort the ONNX session and discard OCR for
+/// the *whole* image, so an affected image was indexed with its filename and
+/// nothing else. `REC_MIN_WIDTH` in `paddle_onnx` fixes the extraction; this
+/// bump is what makes the fix reach stores that were already indexed.
+/// `try_skip_unchanged` calls an asset Unchanged when its content hash *and*
+/// version inputs match — the image file on disk did not change, and neither
+/// did the OCR model assets that feed `ingest_config_signature`, so without
+/// this every already-indexed image would keep its empty extraction until the
+/// user thought to pass `--force-reingest`. Per CLAUDE.md §Versioning
+/// cascade, changing this invalidates downstream image records.
+pub const PARSER_VERSION: &str = "image-meta-v2";
 
 /// Maximum decode dimension (per axis) before we refuse to read the image.
 /// Matches the §9.1 "cap decode at ~16k" policy in the design doc.

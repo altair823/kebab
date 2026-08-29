@@ -324,6 +324,18 @@ fn ocr_engine_failure_surfaces_as_warning() {
         warning_with_failure,
         "OCR failure 의 error message 가 warning event 의 note 안"
     );
+    // issue #239: the note must carry the whole error chain, not just the
+    // outermost layer. The real cause (ORT's "Invalid input shape") sits under
+    // a `.context`, so a note formatted with `{e}` instead of `{e:#}` drops it
+    // and the KB can no longer be searched for which documents were hit.
+    let warning_with_cause = canonical.provenance.events.iter().any(|e| {
+        e.kind == kebab_core::ProvenanceKind::Warning
+            && e.note.as_deref().unwrap_or("").contains("mock inner cause")
+    });
+    assert!(
+        warning_with_cause,
+        "provenance note 가 error chain 의 안쪽 원인까지 담아야 한다 (`{{e:#}}`)"
+    );
 }
 
 // Test 9: dual-block ordinals are deterministic and unique

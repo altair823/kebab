@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use kebab_core::{Lang, OcrText};
 use kebab_parse_image::OcrEngine;
 
@@ -52,7 +52,12 @@ impl OcrEngine for MockOcrEngine {
 
     fn recognize(&self, _img: &[u8], _hint: Option<&Lang>) -> Result<OcrText> {
         if self.fail {
-            anyhow::bail!("mock failure");
+            // Layered on purpose: the real paddle-onnx failure arrives as an
+            // ORT message under a `.context("rec session run")`, and anyhow's
+            // plain Display shows only the outer layer. A single-layer error
+            // would render identically under `{}` and `{:#}`, so it could not
+            // tell whether the provenance note keeps the cause (issue #239).
+            return Err(anyhow::anyhow!("mock inner cause")).context("mock failure");
         }
         let mut idx = self.call_index.lock().unwrap();
         let text = self

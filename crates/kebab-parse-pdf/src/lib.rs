@@ -36,6 +36,13 @@ use kebab_core::{
 use serde_json::{Map, Value};
 use time::OffsetDateTime;
 
+/// Bumped to v3 for issue #239 (2026-08-28): scanned pages share the
+/// paddle-onnx rec path with image OCR, so a page whose raster produced one
+/// over-thin detection box lost that page's OCR text entirely. The fix lives
+/// in `kebab-parse-image`; this bump is what re-processes scans that were
+/// already indexed under v2 (same reasoning as the v2 bump below — the PDF
+/// bytes have not changed, so nothing else would invalidate them).
+///
 /// Bumped to v2 for issue #232 (2026-08-17): scanned pages are now
 /// rasterized by rendering rather than by pulling out an embedded JPEG,
 /// so pages encoded with CCITTFax / JBIG2 / Flate / JPX — previously
@@ -47,7 +54,7 @@ use time::OffsetDateTime;
 /// every already-indexed scan would keep its empty extraction until the
 /// user thought to pass `--force-reingest`. Per CLAUDE.md §Versioning
 /// cascade, changing this invalidates downstream PDF records.
-pub const PARSER_VERSION: &str = "pdf-text-v2";
+pub const PARSER_VERSION: &str = "pdf-text-v3";
 
 /// Text-PDF extractor. Per-page text via `lopdf::Document::extract_text`
 /// (the only stable per-page API in the lopdf / pdf-extract pair —

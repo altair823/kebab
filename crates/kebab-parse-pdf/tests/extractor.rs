@@ -267,7 +267,7 @@ fn snapshot_three_page_canonical_document_stable() {
     // golden file (the full JSON contains BLAKE3 ids that would
     // change if `id_from(...)`'s tuple shape ever shifts — that would
     // be a separate, intentional break).
-    assert_eq!(json["parser_version"], Value::String("pdf-text-v2".into()));
+    assert_eq!(json["parser_version"], Value::String("pdf-text-v3".into()));
     assert_eq!(json["lang"], Value::String("und".into()));
     assert_eq!(json["schema_version"], Value::Number(1.into()));
     assert_eq!(json["doc_version"], Value::Number(1.into()));
