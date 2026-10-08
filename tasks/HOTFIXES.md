@@ -42,6 +42,21 @@ git history.
 - **Fix**: 세 곳 모두 `f32::total_cmp` 로 바꿨다. store.rs 는 `chunk_id` 보조 정렬을 더해 같은 점수의 순서도 결정적으로 만들었다. 비 NaN 값에서는 결과가 동일하다 (total_cmp 는 -0.0 < +0.0 만 다르게 본다).
 - **Amends**: 없음. #255 (CI) 가 생기면 `RUST_BACKTRACE=1` 로 재발 시 원인을 확정한다.
 
+### #243 fastembed 기본 feature 가 `openssl-sys` 를 끌어와 시스템 OpenSSL 에 링크됨 (별도 PR)
+
+- **Discovered**: 2026-10-08 홈랩(linux)에서 `cargo clippy --workspace --all-targets` 와 `cargo test --workspace` 가 `openssl-sys` build script 에서 실패. `cargo tree -i openssl-sys` 경로는 `openssl-sys <- native-tls <- hf-hub 0.4.3 <- fastembed 4.9.1 <- kebab-embed-local` 하나뿐이었다.
+- **Symptom**: PATH 앞쪽의 linuxbrew `pkg-config` 가 시스템 `openssl.pc` 를 못 찾으면 빌드가 실패하고, release 바이너리도 시스템 `libssl` 에 동적 링크된다. 워크스페이스 `Cargo.toml` 의 `hf-hub` 주석은 "ureq + rustls-tls 순수 Rust TLS" 라고 적고 있었으나 fastembed 가 자기 기본 feature `hf-hub-native-tls` 로 native-tls 를 다시 켰다.
+- **Root cause**: `fastembed = "4.9"` 가 기본 feature 집합(`ort-download-binaries`, `hf-hub-native-tls`)을 그대로 썼다.
+- **Fix**: `fastembed = { version = "4.9", default-features = false, features = ["ort-download-binaries", "hf-hub-rustls-tls"] }`. macOS 에서는 native-tls 가 Security framework 를 쓰므로 `cargo tree -i openssl-sys` 가 원래 비어 있고, 대신 `cargo tree -i native-tls` 가 비는 것으로 확인했다. 첫 ingest 의 모델 다운로드(e5 ONNX 약 1.3GB)가 rustls 경로로 동작하는지는 이 머신에서 확인하지 않았다 (도그푸딩 config 가 ollama 임베더라 fastembed 다운로드 경로를 타지 않음). 홈랩에서 격리 KB 로 한 번 확인할 것.
+- **Amends**: 없음.
+
+### MCP 호출 로그 `mcp-calls.ndjson` 추가 (별도 PR, 관측성)
+
+- **Discovered**: 2026-10-09 사용 패턴 분석. 에이전트가 kebab 을 어떻게 쓰는지 알 방법이 Claude Code 세션 기록을 사후에 파싱하는 것뿐이었다 (하루 작업).
+- **Symptom**: "어떤 도구를, 어떤 질의로, 몇 건을 받았고, 얼마나 걸렸나" 를 kebab 자신은 기록하지 않았다.
+- **Fix**: `kebab-mcp` 의 `call_tool` 이 호출마다 ndjson 한 줄을 `{data_dir}/logs/mcp-calls.ndjson` (기본 `~/.local/share/kebab/logs/`; `--config` 의 `storage.data_dir` 를 따른다) 에 append 한다. 필드는 `schema_version` (`mcp_call_log.v1`), `ts`, `tool`, `ok`, `duration_ms`, 그리고 도구별로 `query`(앞 200자), `mode`, `k`, `hits`, `top_doc`, `grounded`, `citations`, `refusal_reason`, `error_code` 등. 결과 자체는 바꾸지 않고, 쓰기 실패는 `tracing::warn!` 만 남긴다. 회전 없음(한 줄 수백 바이트). `--readonly` 는 KB 쓰기 경로에 대한 것이라 이 로그에는 영향을 주지 않는다. wire 출력이 아니므로 `docs/wire-schema/v1/` 에 스키마 파일은 두지 않았고 `docs/mcp-usage.md` 에 필드를 적었다.
+- **Amends**: README `kebab mcp` 행에 로그 위치 한 줄.
+
 ## 2026-08-28 — #239 얇은 검출 박스 하나가 이미지 OCR 전체를 날림 (paddle-onnx rec 폭 하한)
 
 ### 무엇이 문제였나
