@@ -136,10 +136,14 @@ tempfile     = "3"
 proptest     = "1"
 lopdf        = "0.32"
 # fastembed-rs ships ONNX runtime via the `ort-download-binaries` feature
-# in its default set (which also pulls `hf-hub` for first-run model
-# downloads). Pinned to the 4.x line per task p3-2 (current 5.x release
-# remains untested for this workspace).
-fastembed    = "4.9"
+# (first-run model downloads go through `hf-hub`). Pinned to the 4.x line
+# per task p3-2 (current 5.x release remains untested for this workspace).
+# `default-features = false` + `hf-hub-rustls-tls` (#243): the default set
+# enables `hf-hub-native-tls`, which pulls native-tls → openssl-sys on Linux
+# and silently re-introduced the system OpenSSL link that the hf-hub entry
+# below had already opted out of. Every other TLS user in the workspace is
+# rustls; this was the only OpenSSL path.
+fastembed    = { version = "4.9", default-features = false, features = ["ort-download-binaries", "hf-hub-rustls-tls"] }
 # LanceDB embedded vector store (P3-3). 0.23.x pulls arrow / arrow-array /
 # arrow-schema 56.x transitively (via lance 1.0); the kebab-store-vector
 # crate matches that major to share the same Arrow types without a
