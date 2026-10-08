@@ -156,8 +156,11 @@ impl FsSourceConnector {
         for abs_path in files {
             let rel_path = abs_path.strip_prefix(&root).unwrap_or(&abs_path);
 
-            // Generated-header sniff (config-gated).
+            // Generated-header sniff (config-gated). Code files only (#245):
+            // the key lives under `[ingest.code]`, and a Markdown note whose
+            // first lines happen to say "DO NOT EDIT" is not generated code.
             if self.skip_generated_header
+                && crate::code_meta::is_code_file(&abs_path)
                 && crate::code_meta::is_generated_file(&abs_path).unwrap_or(false)
             {
                 fs_skips.skipped_generated = fs_skips.skipped_generated.saturating_add(1);

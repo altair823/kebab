@@ -302,14 +302,11 @@ impl OcrEngine for OnnxPaddleOcr {
         boxes.sort_by(|a, b| {
             let ay = a.center_y();
             let by = b.center_y();
-            // group into rough rows by 0.5*box height tolerance via y then x
-            ay.partial_cmp(&by)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| {
-                    a.center_x()
-                        .partial_cmp(&b.center_x())
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
+            // group into rough rows by 0.5*box height tolerance via y then x.
+            // total_cmp (#246): partial_cmp(..).unwrap_or(Equal) is not a
+            // total order if a NaN coordinate slips in, and sort panics.
+            ay.total_cmp(&by)
+                .then_with(|| a.center_x().total_cmp(&b.center_x()))
         });
 
         let mut regions: Vec<OcrRegion> = Vec::with_capacity(boxes.len());
@@ -732,11 +729,8 @@ fn min_area_rect(points: &[(f32, f32)]) -> Option<RotRect> {
 /// Andrew's monotone chain convex hull. Returns CCW hull without duplicates.
 fn convex_hull(points: &[(f32, f32)]) -> Vec<(f32, f32)> {
     let mut pts: Vec<(f32, f32)> = points.to_vec();
-    pts.sort_by(|a, b| {
-        a.0.partial_cmp(&b.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-    });
+    // total_cmp (#246): see the box sort above.
+    pts.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
     pts.dedup();
     if pts.len() < 3 {
         return pts;

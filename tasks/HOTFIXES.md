@@ -14,6 +14,34 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-10-09 (#242, #245, #246) 유지보수 모드 버그 셋
+
+2026-10-08 홈랩 세션이 등록한 이슈 가운데 동작을 바꾸는 버그 세 건을 한 PR 로 고쳤다. 셋 다 사용자 표면(서브커맨드, 플래그, config 키, wire)은 그대로다. 같은 날의 사용 패턴 분석(세션 기록 2,353 프롬프트, 저장소 밖 로컬 문서)에 따라 kebab 은 기능 추가를 멈추고 버그 수정과 수집 범위 확대만 하는 유지보수 모드로 들어갔다. 그 결정의 근거는 #256 댓글에 집계 수치로만 남겼다.
+
+### #242 `reset --all / --data-only / --vector-only` 가 설정의 `storage.data_dir` 대신 XDG 기본 경로를 지움
+
+- **Discovered**: v0.33.0 도그푸딩 중 `--config` 로 `large_data/...` 를 data_dir 로 쓰는 store 에서 `reset --data-only --yes` 를 실행했더니 설정한 KB 는 남고 `~/.local/share/kebab` 가 사라졌다 (HANDOFF "아직 이슈로 등록하지 않은 것" 첫 항목).
+- **Symptom**: 설정과 무관한 KB 가 삭제된다. 두 경로에 다른 KB 가 있으면 데이터 손실이다.
+- **Root cause**: `kebab-app/src/reset.rs::enumerate_paths` 가 data 경로를 `Config::xdg_data_dir()` 로 정했다. 같은 파일의 `truncate_embeddings` 와 `--orphans-only` 는 `cfg.storage.data_dir` 를 쓰고 있어 한 명령 안에서 기준이 둘이었다.
+- **Fix**: data 경로를 `expand_path(&cfg.storage.data_dir, "")` 로 바꿨다. `--vector-only` 도 그 아래에서 `vector_dir` 를 전개한다. config 디렉토리와 cache, state 디렉토리는 config 키가 없으므로 그대로 XDG 다. `--yes` 로 확인 UI 를 건너뛸 때는 삭제 전에 대상 경로를 `removing: <path>` 로 stderr 에 출력한다 (json, quiet 모드 제외). 단위 테스트 `enumerate_uses_storage_data_dir_not_xdg` 추가. 기존 CLI 통합 테스트(`reset_cli.rs`)는 XDG env 를 쓰므로 그대로 통과한다.
+- **Amends**: README 명령 표의 `kebab reset` 설명 ("XDG 데이터 wipe" 를 "설정의 storage 경로 wipe" 로).
+
+### #245 자동 생성 파일 판정(`skip_generated_header`)이 코드가 아닌 모든 파일에 적용됨
+
+- **Discovered**: 같은 도그푸딩. 첫 줄 근처에 "DO NOT EDIT" 가 있는 Markdown 노트가 색인에서 빠졌고 skip 통계의 `generated` 건수로만 보였다.
+- **Symptom**: 사용자가 쓴 노트가 알리지 않고 색인에서 제외된다. 설정 키는 `[ingest.code]` 아래에 있고 README 도 code ingest 정책으로 설명하는데 판정은 미디어를 보지 않았다.
+- **Root cause**: `kebab-source-fs/src/connector.rs` 의 generated 판정이 gitignore, builtin, kebabignore 를 통과한 모든 파일에 걸렸다.
+- **Fix**: `code_meta::is_code_file(&abs_path)` 를 조건에 추가해 코드 파일에만 판정한다. 통합 테스트 `generated_marker_gate.rs` 가 "DO NOT EDIT" 로 시작하는 `.md` 는 색인되고 `// @generated` 로 시작하는 `.rs` 만 skip 되는지 확인한다. 이슈가 제안한 "어떤 마커에 걸렸는지 `FsSkipEvent.detail` 에 적기" 는 `is_generated_file` 이 bool 만 돌려줘 이번에 넣지 않았다.
+- **Amends**: 없음 (README 의 `[ingest.code]` 설명과 이제 일치한다).
+
+### #246 `code_ingest_smoke` Kotlin 테스트가 간헐적으로 정렬 전순서(total order) panic 으로 실패
+
+- **Discovered**: 2026-10-08 rustc 1.97.1 에서 `cargo test --workspace -j4` 한 번 실패 (`smallsort.rs:854`). 단독 재실행 6회는 전부 통과. 이 PR 에서도 재현하지 못했다.
+- **Symptom**: Rust 1.81 이후 정렬 비교 함수가 전순서를 만족하지 않으면 표준 라이브러리가 panic 한다.
+- **Root cause (유력 후보)**: `partial_cmp(..).unwrap_or(Equal)` 패턴은 NaN 이 하나라도 섞이면 비추이적이 된다. 비테스트 코드에서 이 패턴은 세 곳이었다. `kebab-store-vector/src/store.rs` 의 post-filter 재정렬(검색 경로), `kebab-parse-image/src/paddle_onnx.rs` 의 검출 박스 읽기 순서 정렬과 convex hull 점 정렬(OCR 경로). 벡터 점수는 `score_from_distance` 가 NaN 을 0 으로 바꾸므로 store.rs 단독으로 panic 을 설명하기는 어렵다. 그래서 "재현 안 됨, 유력 후보 전부 수정" 으로 적는다.
+- **Fix**: 세 곳 모두 `f32::total_cmp` 로 바꿨다. store.rs 는 `chunk_id` 보조 정렬을 더해 같은 점수의 순서도 결정적으로 만들었다. 비 NaN 값에서는 결과가 동일하다 (total_cmp 는 -0.0 < +0.0 만 다르게 본다).
+- **Amends**: 없음. #255 (CI) 가 생기면 `RUST_BACKTRACE=1` 로 재발 시 원인을 확정한다.
+
 ## 2026-08-28 — #239 얇은 검출 박스 하나가 이미지 OCR 전체를 날림 (paddle-onnx rec 폭 하한)
 
 ### 무엇이 문제였나

@@ -28,7 +28,8 @@ use kebab_core::WorkspacePath;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResetScope {
-    /// Wipe config + data + cache + state (all four XDG dirs).
+    /// Wipe config + data + cache + state. Data is the loaded config's
+    /// `storage.data_dir`; config / cache / state are the XDG dirs.
     All,
     /// Wipe data + cache + state. Config is preserved so the next run
     /// behaves the same. Default when the user passes `--data-only`.
@@ -69,15 +70,21 @@ pub struct ResetReport {
 /// Compute the absolute on-disk paths a given scope will wipe, given a
 /// loaded `Config`. Pure — does NOT touch the filesystem.
 ///
-/// `--all` returns all four XDG paths in a stable order (config, data,
-/// cache, state). `--vector-only` returns the resolved `storage.vector_dir`.
+/// `--all` returns four paths in a stable order (config, data, cache,
+/// state). `--vector-only` returns the resolved `storage.vector_dir`.
 /// Order is preserved across calls so the confirm UI is deterministic.
+///
+/// The data path is the loaded config's `storage.data_dir`, not the XDG
+/// default (#242 — a `--config` user with `data_dir = large_data/...` lost
+/// the unrelated XDG KB while the configured one survived). Only the
+/// config dir and the cache/state dirs, which have no config key, still
+/// come from the XDG helpers.
 pub fn enumerate_paths(scope: ResetScope, cfg: &Config) -> Vec<PathBuf> {
     let cfg_dir = Config::xdg_config_path()
         .parent()
         .map(PathBuf::from)
         .unwrap_or_default();
-    let data_dir = Config::xdg_data_dir();
+    let data_dir = expand_path(&cfg.storage.data_dir, "");
     let cache_dir = Config::xdg_cache_dir();
     let state_dir = Config::xdg_state_dir();
 
@@ -377,6 +384,26 @@ mod tests {
         assert_eq!(paths.len(), 1);
         let s = paths[0].to_string_lossy().into_owned();
         assert!(s.ends_with("/lancedb"), "got: {s}");
+    }
+
+    /// #242: a `--config` with a non-XDG `storage.data_dir` must be the
+    /// path that `--data-only` / `--all` / `--vector-only` resolve to. The
+    /// XDG data dir must not appear at all.
+    #[test]
+    fn enumerate_uses_storage_data_dir_not_xdg() {
+        let mut cfg = Config::defaults();
+        cfg.storage.data_dir = "/tmp/kebab-242-custom".to_string();
+        let custom = PathBuf::from("/tmp/kebab-242-custom");
+        let xdg = Config::xdg_data_dir();
+        assert_ne!(custom, xdg, "test precondition");
+
+        for scope in [ResetScope::DataOnly, ResetScope::All] {
+            let paths = enumerate_paths(scope, &cfg);
+            assert!(paths.contains(&custom), "{scope:?}: missing configured data_dir");
+            assert!(!paths.contains(&xdg), "{scope:?}: XDG data dir must not be touched");
+        }
+        let v = enumerate_paths(ResetScope::VectorOnly, &cfg);
+        assert_eq!(v, vec![custom.join("lancedb")]);
     }
 
     #[test]
