@@ -21,6 +21,7 @@ use rmcp::{ErrorData, RoleServer};
 
 use kebab_config::Config;
 
+pub mod calllog;
 pub mod error;
 pub mod state;
 pub mod tools;
@@ -131,7 +132,12 @@ impl ServerHandler for KebabHandler {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
-        match request.name.as_ref() {
+        // Call log (observability only): one ndjson line per call, see
+        // `calllog`. Captured before the arms move `request.arguments`.
+        let started = std::time::Instant::now();
+        let tool = request.name.to_string();
+        let args_for_log = request.arguments.clone().unwrap_or_default();
+        let result = match request.name.as_ref() {
             "schema" => {
                 let input = tools::schema::SchemaInput::default();
                 Ok(tools::schema::handle(&self.state, input))
@@ -179,7 +185,17 @@ impl ServerHandler for KebabHandler {
             _other => Err(ErrorData::method_not_found::<
                 rmcp::model::CallToolRequestMethod,
             >()),
+        };
+        if let Ok(r) = &result {
+            calllog::log_call(
+                &self.state.config,
+                &tool,
+                &args_for_log,
+                r,
+                started.elapsed().as_millis(),
+            );
         }
+        result
     }
 }
 

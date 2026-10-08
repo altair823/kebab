@@ -345,6 +345,32 @@ stdio JSON-RPC MCP 표준을 따르는 모든 host 가 지원. 위 형식 (`comm
 
 ---
 
+## 호출 로그 (`mcp-calls.ndjson`)
+
+`kebab mcp` 는 도구 호출마다 ndjson 한 줄을 `{data_dir}/logs/mcp-calls.ndjson` 에 추가한다 (기본 `~/.local/share/kebab/logs/mcp-calls.ndjson`. `--config` 의 `storage.data_dir` 를 따르므로 격리 KB 와 테스트는 자기 디렉토리에 남긴다). 에이전트가 kebab 을 어떻게 쓰는지 (어떤 도구를, 어떤 질의로, 몇 건을 받았고, 얼마나 걸렸는지) 나중에 되짚어 보기 위한 것이다. 결과에는 영향을 주지 않고, 쓰기에 실패하면 경고 로그만 남긴다. 회전은 없다 (한 줄 수백 바이트).
+
+| 필드 | 설명 |
+|---|---|
+| `schema_version` | `mcp_call_log.v1` |
+| `ts` | UTC RFC3339 |
+| `tool` | `search`, `ask`, `fetch`, `bulk_search`, `schema`, `doctor`, `ingest_file`, `ingest_stdin` |
+| `ok` | `isError` 의 반대 |
+| `duration_ms` | 호출 처리 시간 |
+| `query` | 질의 앞 200자 (`search`, `ask`) |
+| `queries` | 질의 수 (`bulk_search`) |
+| `mode`, `k`, `kind`, `doc_id`, `chunk_id`, `session_id`, `max_tokens` | 입력에 있을 때 그대로 |
+| `hits`, `top_doc` | `search` 결과 건수와 1위 `doc_path` |
+| `items` | `bulk_search` 결과 건수 |
+| `grounded`, `citations`, `refusal_reason` | `ask` 결과 요약 |
+| `error_code` | 실패 시 `error.v1.code` |
+
+예: 지난 달 도구별 호출 수와 0건 검색 비율.
+
+```bash
+jq -r 'select(.ts >= "2026-10-01") | .tool' ~/.local/share/kebab/logs/mcp-calls.ndjson | sort | uniq -c
+jq -r 'select(.tool == "search") | (.hits == 0)' ~/.local/share/kebab/logs/mcp-calls.ndjson | sort | uniq -c
+```
+
 ## Troubleshooting
 
 ### `isError: true` + `error.v1` content
