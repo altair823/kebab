@@ -203,6 +203,9 @@ pub fn execute(scope: ResetScope, cfg: &Config) -> Result<ResetReport> {
     }
 
     let paths = enumerate_paths(scope, cfg);
+    for p in &paths {
+        refuse_dangerous(p, cfg)?;
+    }
     let mut removed = Vec::new();
 
     for p in &paths {
@@ -344,6 +347,39 @@ fn open_vector_store_if_configured(
 /// `truncate_embedding_records`. Returns the count of truncated rows
 /// (the helper itself reports `DELETE` rowcount). If the SQLite file
 /// does not exist (e.g. user has never ingested), returns 0 — not an
+/// Refuse to `remove_dir_all` a path that is clearly not a kebab store.
+/// Since #242 the data path comes from the user's `storage.data_dir`, so a
+/// typo or a copy-pasted config could point it at `/`, the home directory,
+/// or the notes workspace itself. Before #242 only XDG paths ending in
+/// `kebab` were ever removed, so this check had nothing to guard.
+fn refuse_dangerous(p: &std::path::Path, cfg: &Config) -> Result<()> {
+    if p.is_relative() || p.parent().is_none() {
+        anyhow::bail!(
+            "refusing to remove {}: reset only removes absolute paths below the filesystem root",
+            p.display()
+        );
+    }
+    if let Some(home) = dirs::home_dir() {
+        if home.starts_with(p) {
+            anyhow::bail!(
+                "refusing to remove {}: it is the home directory or one of its parents",
+                p.display()
+            );
+        }
+    }
+    for src in cfg.resolved_sources() {
+        if src.root.starts_with(p) {
+            anyhow::bail!(
+                "refusing to remove {}: it contains the workspace source `{}` ({})",
+                p.display(),
+                src.id,
+                src.root.display()
+            );
+        }
+    }
+    Ok(())
+}
+
 /// error.
 fn truncate_embeddings(cfg: &Config) -> Result<u64> {
     let data_dir = expand_path(&cfg.storage.data_dir, "");
@@ -399,11 +435,46 @@ mod tests {
 
         for scope in [ResetScope::DataOnly, ResetScope::All] {
             let paths = enumerate_paths(scope, &cfg);
-            assert!(paths.contains(&custom), "{scope:?}: missing configured data_dir");
-            assert!(!paths.contains(&xdg), "{scope:?}: XDG data dir must not be touched");
+            assert!(
+                paths.contains(&custom),
+                "{scope:?}: missing configured data_dir"
+            );
+            assert!(
+                !paths.contains(&xdg),
+                "{scope:?}: XDG data dir must not be touched"
+            );
         }
         let v = enumerate_paths(ResetScope::VectorOnly, &cfg);
         assert_eq!(v, vec![custom.join("lancedb")]);
+    }
+
+    /// #242 follow-up: a configured `data_dir` that would wipe `/`, the
+    /// home directory, or the notes workspace must be refused before any
+    /// `remove_dir_all` runs. These configs never reach the removal loop.
+    #[test]
+    fn execute_refuses_root_home_and_workspace_ancestor() {
+        let mut cfg = Config::defaults();
+
+        cfg.storage.data_dir = "/".to_string();
+        let err = execute(ResetScope::DataOnly, &cfg).unwrap_err().to_string();
+        assert!(err.contains("refusing to remove /"), "{err}");
+
+        let home = dirs::home_dir().expect("home dir");
+        cfg.storage.data_dir = home.to_string_lossy().into_owned();
+        let err = execute(ResetScope::DataOnly, &cfg).unwrap_err().to_string();
+        assert!(err.contains("home directory"), "{err}");
+
+        let ws = tempfile::tempdir().unwrap();
+        let notes = ws.path().join("notes");
+        std::fs::create_dir_all(&notes).unwrap();
+        cfg.workspace.root = Some(notes.to_string_lossy().into_owned());
+        cfg.storage.data_dir = ws.path().to_string_lossy().into_owned();
+        let err = execute(ResetScope::DataOnly, &cfg).unwrap_err().to_string();
+        assert!(err.contains("workspace source"), "{err}");
+        assert!(
+            notes.exists(),
+            "nothing may be removed when the guard fires"
+        );
     }
 
     #[test]
