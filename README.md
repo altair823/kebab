@@ -92,8 +92,8 @@ Markdown · PDF · 이미지(OCR + caption) · 소스코드(Rust/Python/TS/JS/Go
 | `kebab eval run \| aggregate \| compare \| variants` | golden query 회귀 측정 + 변형 일관성 진단. `compare --max-drop <낙폭>` 은 어떤 지표든 그 이상 **떨어지면** exit 1 — 절대 하한이 아니라 델타 예산이다 (없으면 delta 만 출력하고 항상 exit 0) |
 | `kebab schema [--json]` | introspection — wire schemas / capabilities / models / stats |
 | `kebab doctor` | 설정 / 모델 / DB 헬스 체크. `vector_store` 체크는 Lance fragment·버전 수를 정보성으로 보여준다(종료 코드에 영향 없음). `fts_shadow` 체크는 어휘 인덱스가 원본과 어긋났는지 보며, **어긋나면 exit 3** — 이 상태에서는 문서 삭제가 엉뚱한 인덱스 행을 지운다. `pdf_render` 체크는 스캔 PDF 페이지 렌더러(pdfium)가 있는지 정보성으로 알려준다 |
-| `kebab mcp` | MCP stdio server (`search` / `bulk_search` / `ask` / `fetch` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`) |
-| `kebab reset [--all \| --data-only \| --vector-only \| --config-only \| --orphans-only] [--yes]` | XDG 데이터 wipe (**irreversible**) |
+| `kebab mcp` | MCP stdio server (`search` / `bulk_search` / `ask` / `fetch` / `schema` / `doctor` / `ingest_file` / `ingest_stdin`). 호출마다 한 줄씩 `{data_dir}/logs/mcp-calls.ndjson` 에 기록한다 (도구, 질의 앞 200자, 결과 건수, 소요 ms). 필드는 [docs/mcp-usage.md](docs/mcp-usage.md) |
+| `kebab reset [--all \| --data-only \| --vector-only \| --config-only \| --orphans-only] [--yes]` | 데이터 wipe (**irreversible**). 삭제 대상은 로드된 config 의 `[storage] data_dir`(과 그 아래 `vector_dir`)이며 `--config <path>` 를 그대로 따른다. config 디렉토리와 XDG cache/state 는 config 키가 없어 XDG 기본 경로. `--yes` 로 확인을 건너뛰면 삭제 전에 대상 경로를 stderr 에 `removing:` 로 출력 |
 
 모든 명령에 `--json` 플래그가 있고, 출력은 frozen **wire schema v1** 을 따른다 (`schema_version` 항상 포함). `--json` 모드에서 fatal error 는 stderr 에 `error.v1` ndjson 으로 emit (exit code 0/1/2/3 불변). 글로벌 flag: `--readonly` (write-path 비활성화), `--quiet` (human stderr 억제), env `KEBAB_PROGRESS=plain`. 전체 flag·wire 의미는 `kebab <cmd> --help` 와 [docs/wire-schema/v1/](docs/wire-schema/v1/). 외부 agent 통합(Claude Code skill / MCP)은 [docs/mcp-usage.md](docs/mcp-usage.md) 와 [integrations/](integrations/).
 

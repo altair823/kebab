@@ -602,11 +602,15 @@ impl VectorStore for LanceVectorStore {
             .map(LanceCandidate::into_hit)
             .collect();
         // Re-rank by score desc to give callers a consistent ordering
-        // regardless of post-filter shuffling.
+        // regardless of post-filter shuffling. `total_cmp` + chunk_id
+        // tiebreak (#246): `partial_cmp(..).unwrap_or(Equal)` is not a
+        // total order once a NaN is present and Rust >= 1.81 panics on
+        // that inside sort; the tiebreak also makes equal scores
+        // deterministic.
         hits.sort_by(|a, b| {
             b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
+                .total_cmp(&a.score)
+                .then_with(|| a.chunk_id.0.cmp(&b.chunk_id.0))
         });
         Ok(hits)
     }

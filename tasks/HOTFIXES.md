@@ -14,6 +14,49 @@ historical contract that was implemented; this file accumulates the
 deltas so phase 5+ readers can find the live behavior without diffing
 git history.
 
+## 2026-10-09 (#242, #245, #246) 유지보수 모드 버그 셋
+
+2026-10-08 홈랩 세션이 등록한 이슈 가운데 동작을 바꾸는 버그 세 건을 한 PR 로 고쳤다. 셋 다 사용자 표면(서브커맨드, 플래그, config 키, wire)은 그대로다. 같은 날의 사용 패턴 분석(세션 기록 2,353 프롬프트, 저장소 밖 로컬 문서)에 따라 kebab 은 기능 추가를 멈추고 버그 수정과 수집 범위 확대만 하는 유지보수 모드로 들어갔다. 그 결정의 근거는 #256 댓글에 집계 수치로만 남겼다.
+
+### #242 `reset --all / --data-only / --vector-only` 가 설정의 `storage.data_dir` 대신 XDG 기본 경로를 지움
+
+- **Discovered**: v0.33.0 도그푸딩 중 `--config` 로 `large_data/...` 를 data_dir 로 쓰는 store 에서 `reset --data-only --yes` 를 실행했더니 설정한 KB 는 남고 `~/.local/share/kebab` 가 사라졌다 (HANDOFF "아직 이슈로 등록하지 않은 것" 첫 항목).
+- **Symptom**: 설정과 무관한 KB 가 삭제된다. 두 경로에 다른 KB 가 있으면 데이터 손실이다.
+- **Root cause**: `kebab-app/src/reset.rs::enumerate_paths` 가 data 경로를 `Config::xdg_data_dir()` 로 정했다. 같은 파일의 `truncate_embeddings` 와 `--orphans-only` 는 `cfg.storage.data_dir` 를 쓰고 있어 한 명령 안에서 기준이 둘이었다.
+- **Fix**: data 경로를 `expand_path(&cfg.storage.data_dir, "")` 로 바꿨다. `--vector-only` 도 그 아래에서 `vector_dir` 를 전개한다. config 디렉토리와 cache, state 디렉토리는 config 키가 없으므로 그대로 XDG 다. `--yes` 로 확인 UI 를 건너뛸 때는 삭제 전에 대상 경로를 `removing: <path>` 로 stderr 에 출력한다 (json, quiet 모드 제외). 단위 테스트 `enumerate_uses_storage_data_dir_not_xdg` 추가. 기존 CLI 통합 테스트(`reset_cli.rs`)는 XDG env 를 쓰므로 그대로 통과한다. 리뷰 반영: data_dir 가 사용자 설정값이 됐으므로 `execute` 가 삭제 전에 `refuse_dangerous` 로 `/`, 홈 디렉토리(와 그 상위), 워크스페이스 source root 를 포함하는 경로, 상대 경로를 거부한다 (단위 테스트 `execute_refuses_root_home_and_workspace_ancestor`).
+- **Amends**: README 명령 표의 `kebab reset` 설명 ("XDG 데이터 wipe" 를 "설정의 storage 경로 wipe" 로).
+
+### #245 자동 생성 파일 판정(`skip_generated_header`)이 코드가 아닌 모든 파일에 적용됨
+
+- **Discovered**: 같은 도그푸딩. 첫 줄 근처에 "DO NOT EDIT" 가 있는 Markdown 노트가 색인에서 빠졌고 skip 통계의 `generated` 건수로만 보였다.
+- **Symptom**: 사용자가 쓴 노트가 알리지 않고 색인에서 제외된다. 설정 키는 `[ingest.code]` 아래에 있고 README 도 code ingest 정책으로 설명하는데 판정은 미디어를 보지 않았다.
+- **Root cause**: `kebab-source-fs/src/connector.rs` 의 generated 판정이 gitignore, builtin, kebabignore 를 통과한 모든 파일에 걸렸다.
+- **Fix**: `code_meta::is_code_file(&abs_path)` 를 조건에 추가해 코드 파일에만 판정한다. 통합 테스트 `generated_marker_gate.rs` 가 "DO NOT EDIT" 로 시작하는 `.md` 는 색인되고 `// @generated` 로 시작하는 `.rs` 만 skip 되는지 확인한다. 이슈가 제안한 "어떤 마커에 걸렸는지 `FsSkipEvent.detail` 에 적기" 는 `is_generated_file` 이 bool 만 돌려줘 이번에 넣지 않았다.
+- **Amends**: 없음 (README 의 `[ingest.code]` 설명과 이제 일치한다).
+
+### #246 `code_ingest_smoke` Kotlin 테스트가 간헐적으로 정렬 전순서(total order) panic 으로 실패
+
+- **Discovered**: 2026-10-08 rustc 1.97.1 에서 `cargo test --workspace -j4` 한 번 실패 (`smallsort.rs:854`). 단독 재실행 6회는 전부 통과. 이 PR 에서도 재현하지 못했다.
+- **Symptom**: Rust 1.81 이후 정렬 비교 함수가 전순서를 만족하지 않으면 표준 라이브러리가 panic 한다.
+- **Root cause (유력 후보)**: `partial_cmp(..).unwrap_or(Equal)` 패턴은 NaN 이 하나라도 섞이면 비추이적이 된다. 비테스트 코드에서 이 패턴은 세 곳이었다. `kebab-store-vector/src/store.rs` 의 post-filter 재정렬(검색 경로), `kebab-parse-image/src/paddle_onnx.rs` 의 검출 박스 읽기 순서 정렬과 convex hull 점 정렬(OCR 경로). 벡터 점수는 `score_from_distance` 가 NaN 을 0 으로 바꾸므로 store.rs 단독으로 panic 을 설명하기는 어렵다. 그래서 "재현 안 됨, 유력 후보 전부 수정" 으로 적는다.
+- **Fix**: 세 곳 모두 `f32::total_cmp` 로 바꿨다. store.rs 는 `chunk_id` 보조 정렬을 더해 같은 점수의 순서도 결정적으로 만들었다. 비 NaN 값에서는 결과가 동일하다 (total_cmp 는 -0.0 < +0.0 만 다르게 본다).
+- **Amends**: 없음. #255 (CI) 가 생기면 `RUST_BACKTRACE=1` 로 재발 시 원인을 확정한다.
+
+### #243 fastembed 기본 feature 가 `openssl-sys` 를 끌어와 시스템 OpenSSL 에 링크됨 (별도 PR)
+
+- **Discovered**: 2026-10-08 홈랩(linux)에서 `cargo clippy --workspace --all-targets` 와 `cargo test --workspace` 가 `openssl-sys` build script 에서 실패. `cargo tree -i openssl-sys` 경로는 `openssl-sys <- native-tls <- hf-hub 0.4.3 <- fastembed 4.9.1 <- kebab-embed-local` 하나뿐이었다.
+- **Symptom**: PATH 앞쪽의 linuxbrew `pkg-config` 가 시스템 `openssl.pc` 를 못 찾으면 빌드가 실패하고, release 바이너리도 시스템 `libssl` 에 동적 링크된다. 워크스페이스 `Cargo.toml` 의 `hf-hub` 주석은 "ureq + rustls-tls 순수 Rust TLS" 라고 적고 있었으나 fastembed 가 자기 기본 feature `hf-hub-native-tls` 로 native-tls 를 다시 켰다.
+- **Root cause**: `fastembed = "4.9"` 가 기본 feature 집합(`ort-download-binaries`, `hf-hub-native-tls`)을 그대로 썼다.
+- **Fix**: `fastembed = { version = "4.9", default-features = false, features = ["ort-download-binaries", "hf-hub-rustls-tls"] }`. macOS 에서는 native-tls 가 Security framework 를 쓰므로 `cargo tree -i openssl-sys` 가 원래 비어 있고, 대신 `cargo tree -i native-tls` 가 비는 것으로 확인했다. 리뷰 반영 두 가지. (1) hf-hub 0.4.3 의 `rustls-tls` 는 reqwest 쪽만 켜고 동기 다운로드 경로인 ureq 는 기본 `tls` feature 라 내장 webpki 루트만 신뢰하게 된다. 기존 native-tls 는 OS 저장소(macOS 키체인, Linux 시스템 CA, `SSL_CERT_FILE`)를 썼으므로 사내 루트 CA 가 OS 에만 있으면 첫 다운로드가 UnknownIssuer 로 실패할 수 있다. kebab-nli 의 모델 다운로드도 같은 경로다. 그래서 워크스페이스에 `ureq = { default-features = false, features = ["native-certs"] }` 를 두고 kebab-embed-local 과 kebab-nli 가 feature 활성화 목적으로만 의존한다(rustls-native-certs 는 이미 lock 에 있었다). (2) 기존 `hf-hub-native-tls` 는 `reqwest?/default` 도 켜고 있어서, `default-features = false` 로 선언된 Ollama, VLM 클라이언트의 reqwest 에 macOS 시스템 프록시 읽기(`system-configuration`)와 native-tls 가 의도와 달리 들어가 있었다. 이번 변경으로 macOS 시스템 프록시 설정은 더 이상 읽지 않는다(환경 변수 프록시는 그대로). 원래 의도에 맞는 변화라 그대로 둔다. 첫 ingest 의 모델 다운로드(e5 ONNX 약 1.3GB)가 rustls 경로로 동작하는지는 이 머신에서 확인하지 않았다 (도그푸딩 config 가 ollama 임베더라 fastembed 다운로드 경로를 타지 않음). 홈랩에서 격리 KB 로 한 번 확인할 것.
+- **Amends**: 없음.
+
+### MCP 호출 로그 `mcp-calls.ndjson` 추가 (별도 PR, 관측성)
+
+- **Discovered**: 2026-10-09 사용 패턴 분석. 에이전트가 kebab 을 어떻게 쓰는지 알 방법이 Claude Code 세션 기록을 사후에 파싱하는 것뿐이었다 (하루 작업).
+- **Symptom**: "어떤 도구를, 어떤 질의로, 몇 건을 받았고, 얼마나 걸렸나" 를 kebab 자신은 기록하지 않았다.
+- **Fix**: `kebab-mcp` 의 `call_tool` 이 호출마다 ndjson 한 줄을 `{data_dir}/logs/mcp-calls.ndjson` (기본 `~/.local/share/kebab/logs/`; `--config` 의 `storage.data_dir` 를 따른다) 에 append 한다. 필드는 `schema_version` (`mcp_call_log.v1`), `ts`, `tool`, `ok`, `duration_ms`, 그리고 도구별로 `query`(앞 200자), `mode`, `k`, `hits`, `top_doc`, `grounded`, `citations`, `refusal_reason`, `error_code` 등. 결과 자체는 바꾸지 않고, 쓰기 실패는 `tracing::warn!` 만 남긴다. 회전 없음(한 줄 수백 바이트). `--readonly` 는 KB 쓰기 경로에 대한 것이라 이 로그에는 영향을 주지 않는다. wire 출력이 아니므로 `docs/wire-schema/v1/` 에 스키마 파일은 두지 않았고 `docs/mcp-usage.md` 에 필드를 적었다.
+- **Amends**: README `kebab mcp` 행에 로그 위치 한 줄.
+
 ## 2026-08-28 — #239 얇은 검출 박스 하나가 이미지 OCR 전체를 날림 (paddle-onnx rec 폭 하한)
 
 ### 무엇이 문제였나

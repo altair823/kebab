@@ -28,7 +28,8 @@ use kebab_core::WorkspacePath;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResetScope {
-    /// Wipe config + data + cache + state (all four XDG dirs).
+    /// Wipe config + data + cache + state. Data is the loaded config's
+    /// `storage.data_dir`; config / cache / state are the XDG dirs.
     All,
     /// Wipe data + cache + state. Config is preserved so the next run
     /// behaves the same. Default when the user passes `--data-only`.
@@ -69,15 +70,21 @@ pub struct ResetReport {
 /// Compute the absolute on-disk paths a given scope will wipe, given a
 /// loaded `Config`. Pure — does NOT touch the filesystem.
 ///
-/// `--all` returns all four XDG paths in a stable order (config, data,
-/// cache, state). `--vector-only` returns the resolved `storage.vector_dir`.
+/// `--all` returns four paths in a stable order (config, data, cache,
+/// state). `--vector-only` returns the resolved `storage.vector_dir`.
 /// Order is preserved across calls so the confirm UI is deterministic.
+///
+/// The data path is the loaded config's `storage.data_dir`, not the XDG
+/// default (#242 — a `--config` user with `data_dir = large_data/...` lost
+/// the unrelated XDG KB while the configured one survived). Only the
+/// config dir and the cache/state dirs, which have no config key, still
+/// come from the XDG helpers.
 pub fn enumerate_paths(scope: ResetScope, cfg: &Config) -> Vec<PathBuf> {
     let cfg_dir = Config::xdg_config_path()
         .parent()
         .map(PathBuf::from)
         .unwrap_or_default();
-    let data_dir = Config::xdg_data_dir();
+    let data_dir = expand_path(&cfg.storage.data_dir, "");
     let cache_dir = Config::xdg_cache_dir();
     let state_dir = Config::xdg_state_dir();
 
@@ -196,6 +203,9 @@ pub fn execute(scope: ResetScope, cfg: &Config) -> Result<ResetReport> {
     }
 
     let paths = enumerate_paths(scope, cfg);
+    for p in &paths {
+        refuse_dangerous(p, cfg)?;
+    }
     let mut removed = Vec::new();
 
     for p in &paths {
@@ -337,6 +347,39 @@ fn open_vector_store_if_configured(
 /// `truncate_embedding_records`. Returns the count of truncated rows
 /// (the helper itself reports `DELETE` rowcount). If the SQLite file
 /// does not exist (e.g. user has never ingested), returns 0 — not an
+/// Refuse to `remove_dir_all` a path that is clearly not a kebab store.
+/// Since #242 the data path comes from the user's `storage.data_dir`, so a
+/// typo or a copy-pasted config could point it at `/`, the home directory,
+/// or the notes workspace itself. Before #242 only XDG paths ending in
+/// `kebab` were ever removed, so this check had nothing to guard.
+fn refuse_dangerous(p: &std::path::Path, cfg: &Config) -> Result<()> {
+    if p.is_relative() || p.parent().is_none() {
+        anyhow::bail!(
+            "refusing to remove {}: reset only removes absolute paths below the filesystem root",
+            p.display()
+        );
+    }
+    if let Some(home) = dirs::home_dir() {
+        if home.starts_with(p) {
+            anyhow::bail!(
+                "refusing to remove {}: it is the home directory or one of its parents",
+                p.display()
+            );
+        }
+    }
+    for src in cfg.resolved_sources() {
+        if src.root.starts_with(p) {
+            anyhow::bail!(
+                "refusing to remove {}: it contains the workspace source `{}` ({})",
+                p.display(),
+                src.id,
+                src.root.display()
+            );
+        }
+    }
+    Ok(())
+}
+
 /// error.
 fn truncate_embeddings(cfg: &Config) -> Result<u64> {
     let data_dir = expand_path(&cfg.storage.data_dir, "");
@@ -377,6 +420,61 @@ mod tests {
         assert_eq!(paths.len(), 1);
         let s = paths[0].to_string_lossy().into_owned();
         assert!(s.ends_with("/lancedb"), "got: {s}");
+    }
+
+    /// #242: a `--config` with a non-XDG `storage.data_dir` must be the
+    /// path that `--data-only` / `--all` / `--vector-only` resolve to. The
+    /// XDG data dir must not appear at all.
+    #[test]
+    fn enumerate_uses_storage_data_dir_not_xdg() {
+        let mut cfg = Config::defaults();
+        cfg.storage.data_dir = "/tmp/kebab-242-custom".to_string();
+        let custom = PathBuf::from("/tmp/kebab-242-custom");
+        let xdg = Config::xdg_data_dir();
+        assert_ne!(custom, xdg, "test precondition");
+
+        for scope in [ResetScope::DataOnly, ResetScope::All] {
+            let paths = enumerate_paths(scope, &cfg);
+            assert!(
+                paths.contains(&custom),
+                "{scope:?}: missing configured data_dir"
+            );
+            assert!(
+                !paths.contains(&xdg),
+                "{scope:?}: XDG data dir must not be touched"
+            );
+        }
+        let v = enumerate_paths(ResetScope::VectorOnly, &cfg);
+        assert_eq!(v, vec![custom.join("lancedb")]);
+    }
+
+    /// #242 follow-up: a configured `data_dir` that would wipe `/`, the
+    /// home directory, or the notes workspace must be refused before any
+    /// `remove_dir_all` runs. These configs never reach the removal loop.
+    #[test]
+    fn execute_refuses_root_home_and_workspace_ancestor() {
+        let mut cfg = Config::defaults();
+
+        cfg.storage.data_dir = "/".to_string();
+        let err = execute(ResetScope::DataOnly, &cfg).unwrap_err().to_string();
+        assert!(err.contains("refusing to remove /"), "{err}");
+
+        let home = dirs::home_dir().expect("home dir");
+        cfg.storage.data_dir = home.to_string_lossy().into_owned();
+        let err = execute(ResetScope::DataOnly, &cfg).unwrap_err().to_string();
+        assert!(err.contains("home directory"), "{err}");
+
+        let ws = tempfile::tempdir().unwrap();
+        let notes = ws.path().join("notes");
+        std::fs::create_dir_all(&notes).unwrap();
+        cfg.workspace.root = Some(notes.to_string_lossy().into_owned());
+        cfg.storage.data_dir = ws.path().to_string_lossy().into_owned();
+        let err = execute(ResetScope::DataOnly, &cfg).unwrap_err().to_string();
+        assert!(err.contains("workspace source"), "{err}");
+        assert!(
+            notes.exists(),
+            "nothing may be removed when the guard fires"
+        );
     }
 
     #[test]

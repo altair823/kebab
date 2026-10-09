@@ -1311,6 +1311,15 @@ fn run(cli: &Cli) -> anyhow::Result<()> {
                 }
             }
 
+            // #242: with `--yes` the confirm UI is skipped, so say what is
+            // about to go before it goes — the report afterwards only lists
+            // paths that existed.
+            if *yes && !cli.json && !cli.quiet {
+                for p in &paths {
+                    eprintln!("removing: {}", p.display());
+                }
+            }
+
             let report = kebab_app::reset::execute(scope, &cfg)?;
             if cli.json {
                 println!("{}", serde_json::to_string(&wire::wire_reset(&report))?);
