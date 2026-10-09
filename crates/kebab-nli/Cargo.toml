@@ -23,6 +23,8 @@ serde        = { workspace = true }
 ort          = { workspace = true, features = ["download-binaries"] }
 tokenizers   = { workspace = true }
 hf-hub       = { workspace = true }
+# feature activation only (ureq native-certs, #243); see workspace Cargo.toml
+ureq      = { workspace = true }
 ndarray      = { workspace = true }
 tracing      = { workspace = true }
 

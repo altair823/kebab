@@ -199,6 +199,13 @@ tree-sitter-cpp       = "0.23.4"
 ort          = { version = "=2.0.0-rc.9", default-features = false, features = ["ndarray"] }
 tokenizers   = { version = "0.21", default-features = false, features = ["onig"] }
 hf-hub       = { version = "0.4", default-features = false, features = ["ureq", "rustls-tls"] }
+# ureq is not used directly; this entry only turns on `native-certs` so the
+# rustls stack that hf-hub's download path now uses (#243) keeps trusting the
+# OS certificate store (macOS keychain, Linux system CA bundle, SSL_CERT_FILE)
+# instead of only the bundled webpki roots. Without it a corporate root CA that
+# is installed in the OS but not in Mozilla's bundle breaks the first model
+# download with UnknownIssuer. rustls-native-certs was already in the lock.
+ureq         = { version = "2", default-features = false, features = ["native-certs"] }
 ndarray      = "0.16"
 # Korean morphological tokenizer (FTS v0.20.x, §6.1). lindera-ko-dic bundles
 # the KO-DIC dictionary as an embedded blob via the embed-ko-dic feature.

@@ -14,6 +14,8 @@ kebab-config = { path = "../kebab-config" }
 # (bundled ONNX runtime) + `hf-hub-rustls-tls` (first-run model download over
 # rustls, no OpenSSL). No extra features needed for the multilingual-e5 paths.
 fastembed = { workspace = true }
+# feature activation only (ureq native-certs, #243); see workspace Cargo.toml
+ureq      = { workspace = true }
 tracing   = { workspace = true }
 anyhow    = { workspace = true }
 
