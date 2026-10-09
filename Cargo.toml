@@ -136,10 +136,14 @@ tempfile     = "3"
 proptest     = "1"
 lopdf        = "0.32"
 # fastembed-rs ships ONNX runtime via the `ort-download-binaries` feature
-# in its default set (which also pulls `hf-hub` for first-run model
-# downloads). Pinned to the 4.x line per task p3-2 (current 5.x release
-# remains untested for this workspace).
-fastembed    = "4.9"
+# (first-run model downloads go through `hf-hub`). Pinned to the 4.x line
+# per task p3-2 (current 5.x release remains untested for this workspace).
+# `default-features = false` + `hf-hub-rustls-tls` (#243): the default set
+# enables `hf-hub-native-tls`, which pulls native-tls → openssl-sys on Linux
+# and silently re-introduced the system OpenSSL link that the hf-hub entry
+# below had already opted out of. Every other TLS user in the workspace is
+# rustls; this was the only OpenSSL path.
+fastembed    = { version = "4.9", default-features = false, features = ["ort-download-binaries", "hf-hub-rustls-tls"] }
 # LanceDB embedded vector store (P3-3). 0.23.x pulls arrow / arrow-array /
 # arrow-schema 56.x transitively (via lance 1.0); the kebab-store-vector
 # crate matches that major to share the same Arrow types without a
@@ -195,6 +199,13 @@ tree-sitter-cpp       = "0.23.4"
 ort          = { version = "=2.0.0-rc.9", default-features = false, features = ["ndarray"] }
 tokenizers   = { version = "0.21", default-features = false, features = ["onig"] }
 hf-hub       = { version = "0.4", default-features = false, features = ["ureq", "rustls-tls"] }
+# ureq is not used directly; this entry only turns on `native-certs` so the
+# rustls stack that hf-hub's download path now uses (#243) keeps trusting the
+# OS certificate store (macOS keychain, Linux system CA bundle, SSL_CERT_FILE)
+# instead of only the bundled webpki roots. Without it a corporate root CA that
+# is installed in the OS but not in Mozilla's bundle breaks the first model
+# download with UnknownIssuer. rustls-native-certs was already in the lock.
+ureq         = { version = "2", default-features = false, features = ["native-certs"] }
 ndarray      = "0.16"
 # Korean morphological tokenizer (FTS v0.20.x, §6.1). lindera-ko-dic bundles
 # the KO-DIC dictionary as an embedded blob via the embed-ko-dic feature.
