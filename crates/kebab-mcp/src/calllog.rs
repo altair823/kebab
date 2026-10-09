@@ -11,7 +11,9 @@
 //! Observability only. It never changes a tool result, and a failure to write
 //! is reported with `tracing::warn!` and otherwise ignored. There is no
 //! rotation: one line is a few hundred bytes and a busy year is a few
-//! thousand lines. The `query` field is truncated to 200 chars.
+//! thousand lines. The `query` field is truncated to 200 chars. Each line is
+//! written with a single `write_all` on an `O_APPEND` handle so concurrent
+//! servers (several Claude Code sessions) never interleave fragments.
 
 use std::io::Write;
 
@@ -20,14 +22,41 @@ use serde_json::{Map, Value, json};
 
 const QUERY_MAX_CHARS: usize = 200;
 
-/// Build the log record. Pure, so it can be unit-tested without touching
-/// the filesystem.
-pub fn record(
-    tool: &str,
-    args: &Map<String, Value>,
-    result: &CallToolResult,
-    duration_ms: u128,
-) -> Value {
+/// Argument keys worth keeping. `query` is the only free-text one; `queries`
+/// (bulk_search) is reduced to a count. Everything else (`content` of
+/// `ingest_stdin`, filters, cursors) is dropped before the call runs so the
+/// log never copies a document body.
+const KEPT_ARGS: [&str; 7] = [
+    "query", "queries", "mode", "k", "kind", "doc_id", "chunk_id",
+];
+
+/// Pick the loggable subset of a tool's arguments. Cheap: at most seven
+/// small values are cloned, never the whole input.
+pub fn pick_args(args: Option<&Map<String, Value>>) -> Map<String, Value> {
+    let mut out = Map::new();
+    let Some(args) = args else { return out };
+    for key in KEPT_ARGS {
+        match (key, args.get(key)) {
+            (_, None) => {}
+            ("query", Some(Value::String(q))) => {
+                out.insert(
+                    key.into(),
+                    Value::String(q.chars().take(QUERY_MAX_CHARS).collect()),
+                );
+            }
+            ("queries", Some(Value::Array(qs))) => {
+                out.insert(key.into(), Value::from(qs.len()));
+            }
+            ("query" | "queries", Some(_)) => {}
+            (_, Some(v)) => {
+                out.insert(key.into(), v.clone());
+            }
+        }
+    }
+    out
+}
+
+fn base_record(tool: &str, args: &Map<String, Value>, ok: bool, duration_ms: u128) -> Value {
     let ts = time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_default();
@@ -35,30 +64,24 @@ pub fn record(
         "schema_version": "mcp_call_log.v1",
         "ts": ts,
         "tool": tool,
-        "ok": !result.is_error.unwrap_or(false),
+        "ok": ok,
         "duration_ms": duration_ms,
     });
+    for (k, v) in args {
+        rec[k] = v.clone();
+    }
+    rec
+}
 
-    // Arguments worth keeping. `query` is the only free-text one.
-    if let Some(q) = args.get("query").and_then(Value::as_str) {
-        rec["query"] = Value::String(q.chars().take(QUERY_MAX_CHARS).collect());
-    }
-    if let Some(qs) = args.get("queries").and_then(Value::as_array) {
-        rec["queries"] = Value::from(qs.len());
-    }
-    for key in [
-        "mode",
-        "k",
-        "kind",
-        "doc_id",
-        "chunk_id",
-        "session_id",
-        "max_tokens",
-    ] {
-        if let Some(v) = args.get(key) {
-            rec[key] = v.clone();
-        }
-    }
+/// Build the record for a call that produced a `CallToolResult` (success or
+/// `isError`). No I/O except reading the clock, so it is unit-testable.
+pub fn record(
+    tool: &str,
+    args: &Map<String, Value>,
+    result: &CallToolResult,
+    duration_ms: u128,
+) -> Value {
+    let mut rec = base_record(tool, args, !result.is_error.unwrap_or(false), duration_ms);
 
     // Result summary, keyed on the wire schema the tool returned.
     let text = result
@@ -76,8 +99,12 @@ pub fn record(
                 }
             }
             Some("bulk_search_response.v1") => {
-                rec["items"] =
-                    Value::from(v.get("items").and_then(Value::as_array).map_or(0, Vec::len));
+                // The envelope key is `results` (see tools/bulk_search.rs).
+                rec["results"] = Value::from(
+                    v.get("results")
+                        .and_then(Value::as_array)
+                        .map_or(0, Vec::len),
+                );
             }
             Some("answer.v1") => {
                 if let Some(g) = v.get("grounded") {
@@ -103,6 +130,20 @@ pub fn record(
     rec
 }
 
+/// Build the record for a call that never produced a `CallToolResult`: the
+/// JSON-RPC layer rejected it (unknown tool name, a panicking tool task).
+/// `ok` is false and `error_code` is `rpc_<code>` so these stay countable.
+pub fn record_failure(
+    tool: &str,
+    args: &Map<String, Value>,
+    rpc_code: i32,
+    duration_ms: u128,
+) -> Value {
+    let mut rec = base_record(tool, args, false, duration_ms);
+    rec["error_code"] = Value::String(format!("rpc_{rpc_code}"));
+    rec
+}
+
 /// Append one record to the default log path. Never fails the caller.
 pub fn log_call(
     cfg: &kebab_config::Config,
@@ -111,10 +152,25 @@ pub fn log_call(
     result: &CallToolResult,
     duration_ms: u128,
 ) {
+    write_record(cfg, &record(tool, args, result, duration_ms));
+}
+
+/// Append a failure record (see [`record_failure`]). Never fails the caller.
+pub fn log_failure(
+    cfg: &kebab_config::Config,
+    tool: &str,
+    args: &Map<String, Value>,
+    rpc_code: i32,
+    duration_ms: u128,
+) {
+    write_record(cfg, &record_failure(tool, args, rpc_code, duration_ms));
+}
+
+fn write_record(cfg: &kebab_config::Config, rec: &Value) {
     let path = kebab_config::expand_path(&cfg.storage.data_dir, "")
         .join("logs")
         .join("mcp-calls.ndjson");
-    if let Err(e) = append(&path, &record(tool, args, result, duration_ms)) {
+    if let Err(e) = append(&path, rec) {
         tracing::warn!(path = %path.display(), error = %e, "mcp call log write failed");
     }
 }
@@ -123,11 +179,16 @@ fn append(path: &std::path::Path, rec: &Value) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
+    // One write per line: with O_APPEND a single write_all is not interleaved
+    // with other writers on local filesystems. `writeln!(f, "{rec}")` would
+    // issue one syscall per serde_json Display fragment and could mix lines.
+    let mut line = rec.to_string();
+    line.push('\n');
     let mut f = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)?;
-    writeln!(f, "{rec}")
+    f.write_all(line.as_bytes())
 }
 
 #[cfg(test)]
@@ -143,21 +204,44 @@ mod tests {
     }
 
     #[test]
-    fn search_record_has_hits_top_doc_and_truncated_query() {
+    fn pick_args_keeps_small_keys_truncates_query_and_drops_bodies() {
+        let long_q = "q".repeat(500);
+        let input = args(&[
+            ("query", json!(long_q)),
+            ("k", json!(10)),
+            ("mode", json!("hybrid")),
+            (
+                "content",
+                json!("a very long document body that must not be logged"),
+            ),
+            ("tags", json!(["a", "b"])),
+        ]);
+        let picked = pick_args(Some(&input));
+        assert_eq!(
+            picked["query"].as_str().unwrap().chars().count(),
+            QUERY_MAX_CHARS
+        );
+        assert_eq!(picked["k"], 10);
+        assert_eq!(picked["mode"], "hybrid");
+        assert!(!picked.contains_key("content"));
+        assert!(!picked.contains_key("tags"));
+        assert!(pick_args(None).is_empty());
+
+        let bulk = pick_args(Some(&args(&[("queries", json!(["a", "b", "c"]))])));
+        assert_eq!(bulk["queries"], 3);
+    }
+
+    #[test]
+    fn search_record_has_hits_and_top_doc() {
         let body = json!({
             "schema_version": "search_response.v1",
             "hits": [{"doc_path": "wiki/a.md", "rank": 1}, {"doc_path": "jira/b.md", "rank": 2}],
         })
         .to_string();
         let result = CallToolResult::success(vec![Content::text(body)]);
-        let long_q = "q".repeat(500);
         let rec = record(
             "search",
-            &args(&[
-                ("query", json!(long_q)),
-                ("k", json!(10)),
-                ("mode", json!("hybrid")),
-            ]),
+            &pick_args(Some(&args(&[("query", json!("x")), ("k", json!(10))]))),
             &result,
             42,
         );
@@ -167,16 +251,30 @@ mod tests {
         assert_eq!(rec["hits"], 2);
         assert_eq!(rec["top_doc"], "wiki/a.md");
         assert_eq!(rec["k"], 10);
-        assert_eq!(rec["mode"], "hybrid");
         assert_eq!(rec["duration_ms"], 42);
-        assert_eq!(
-            rec["query"].as_str().unwrap().chars().count(),
-            QUERY_MAX_CHARS
-        );
     }
 
     #[test]
-    fn ask_and_error_records() {
+    fn bulk_search_record_counts_results_key() {
+        let body = json!({
+            "schema_version": "bulk_search_response.v1",
+            "results": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+            "summary": {"total": 3, "succeeded": 3, "failed": 0},
+        })
+        .to_string();
+        let result = CallToolResult::success(vec![Content::text(body)]);
+        let rec = record(
+            "bulk_search",
+            &pick_args(Some(&args(&[("queries", json!(["a", "b", "c"]))]))),
+            &result,
+            7,
+        );
+        assert_eq!(rec["results"], 3);
+        assert_eq!(rec["queries"], 3);
+    }
+
+    #[test]
+    fn ask_error_and_rpc_failure_records() {
         let ask = CallToolResult::success(vec![Content::text(
             json!({"schema_version": "answer.v1", "grounded": false, "citations": [], "refusal_reason": "score_gate"}).to_string(),
         )]);
@@ -193,6 +291,11 @@ mod tests {
         assert_eq!(rec["ok"], false);
         assert_eq!(rec["error_code"], "invalid_input");
         assert_eq!(rec["kind"], "doc");
+
+        let rec = record_failure("nope", &Map::new(), -32601, 0);
+        assert_eq!(rec["ok"], false);
+        assert_eq!(rec["error_code"], "rpc_-32601");
+        assert_eq!(rec["tool"], "nope");
     }
 
     #[test]

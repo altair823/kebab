@@ -136,7 +136,7 @@ impl ServerHandler for KebabHandler {
         // `calllog`. Captured before the arms move `request.arguments`.
         let started = std::time::Instant::now();
         let tool = request.name.to_string();
-        let args_for_log = request.arguments.clone().unwrap_or_default();
+        let args_for_log = calllog::pick_args(request.arguments.as_ref());
         let result = match request.name.as_ref() {
             "schema" => {
                 let input = tools::schema::SchemaInput::default();
@@ -186,14 +186,14 @@ impl ServerHandler for KebabHandler {
                 rmcp::model::CallToolRequestMethod,
             >()),
         };
-        if let Ok(r) = &result {
-            calllog::log_call(
-                &self.state.config,
-                &tool,
-                &args_for_log,
-                r,
-                started.elapsed().as_millis(),
-            );
+        let elapsed = started.elapsed().as_millis();
+        match &result {
+            Ok(r) => {
+                calllog::log_call(&self.state.config, &tool, &args_for_log, r, elapsed);
+            }
+            Err(e) => {
+                calllog::log_failure(&self.state.config, &tool, &args_for_log, e.code.0, elapsed);
+            }
         }
         result
     }

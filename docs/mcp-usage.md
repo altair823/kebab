@@ -358,13 +358,15 @@ stdio JSON-RPC MCP 표준을 따르는 모든 host 가 지원. 위 형식 (`comm
 | `duration_ms` | 호출 처리 시간 |
 | `query` | 질의 앞 200자 (`search`, `ask`) |
 | `queries` | 질의 수 (`bulk_search`) |
-| `mode`, `k`, `kind`, `doc_id`, `chunk_id`, `session_id`, `max_tokens` | 입력에 있을 때 그대로 |
+| `mode`, `k`, `kind`, `doc_id`, `chunk_id` | 입력에 있을 때 그대로. 그 밖의 입력(`content`, 필터, 커서)은 기록하지 않는다 |
 | `hits`, `top_doc` | `search` 결과 건수와 1위 `doc_path` |
-| `items` | `bulk_search` 결과 건수 |
+| `results` | `bulk_search` 결과 건수 |
 | `grounded`, `citations`, `refusal_reason` | `ask` 결과 요약 |
-| `error_code` | 실패 시 `error.v1.code` |
+| `error_code` | 실패 시 `error.v1.code`. 도구가 결과를 내지 못한 JSON-RPC 실패(없는 도구 이름, 도구 task panic)는 `ok: false` 와 `rpc_<code>` 로 남는다 |
 
-예: 지난 달 도구별 호출 수와 0건 검색 비율.
+`kebab reset --data-only` 는 `data_dir` 를 지우므로 이 로그도 함께 사라진다. 도그푸딩에서 reset 을 자주 쓰면 그 전에 복사해 둔다.
+
+예: 이번 달 도구별 호출 수와 0건 검색 비율.
 
 ```bash
 jq -r 'select(.ts >= "2026-10-01") | .tool' ~/.local/share/kebab/logs/mcp-calls.ndjson | sort | uniq -c
